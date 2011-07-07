@@ -64,7 +64,8 @@ class Otto
   def safe_file?(path)
     globstr = File.join(option[:public], '*')
     pathstr = File.join(option[:public], path)
-    File.fnmatch?(globstr, pathstr) && File.owned?(pathstr) && !File.directory?(pathstr)
+    STDERR.puts "safe_file? #{pathstr}"
+    File.fnmatch?(globstr, pathstr) && File.grpowned?(pathstr) && File.readable?(pathstr) && !File.directory?(pathstr)
   end
   
   def add_static_path path

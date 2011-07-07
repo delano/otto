@@ -66,6 +66,18 @@ class Otto
     pathstr = File.join(option[:public], path)
     File.fnmatch?(globstr, pathstr) && File.owned?(pathstr) && !File.directory?(pathstr)
   end
+  
+  def add_static_path path
+    if safe_file?(path)
+      base_path = File.split(path).first
+      # Files in the root directory can refer to themselves
+      base_path = path if base_path == '/'
+      static_path = File.join(option[:public], base_path)
+      STDERR.puts " new static route: #{base_path} (#{path})"
+      routes_static[:GET][base_path] = base_path
+    end
+  end
+  
   def call env
     if option[:public] && File.owned?(option[:public])
       @static_route ||= Rack::File.new(option[:public]) 

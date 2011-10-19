@@ -1,0 +1,711 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+	"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+	<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+
+	<title>Module: Otto::RequestHelpers</title>
+
+	<link rel="stylesheet" href="../rdoc.css" type="text/css" media="screen" />
+
+	<script src="../js/jquery.js" type="text/javascript"
+		charset="utf-8"></script>
+	<script src="../js/thickbox-compressed.js" type="text/javascript"
+		charset="utf-8"></script>
+	<script src="../js/quicksearch.js" type="text/javascript"
+		charset="utf-8"></script>
+	<script src="../js/darkfish.js" type="text/javascript"
+		charset="utf-8"></script>
+
+</head>
+<body class="module">
+
+	<div id="metadata">
+		<div id="home-metadata">
+			<div id="home-section" class="section">
+        <h3 class="section-header">
+          <a href="../index.html">Home</a>
+          <a href="../index.html#classes">Classes</a>
+          <a href="../index.html#methods">Methods</a>
+        </h3>
+			</div>
+		</div>
+
+		<div id="file-metadata">
+			<div id="file-list-section" class="section">
+				<h3 class="section-header">In Files</h3>
+				<div class="section-body">
+					<ul>
+					
+						<li><a href="../lib/otto_rb.html?TB_iframe=true&amp;height=550&amp;width=785"
+							class="thickbox" title="lib/otto.rb">lib/otto.rb</a></li>
+					
+					</ul>
+				</div>
+			</div>
+
+			
+		</div>
+
+		<div id="class-metadata">
+
+			<!-- Parent Class -->
+			
+
+			<!-- Namespace Contents -->
+			
+
+			<!-- Method Quickref -->
+			
+			<div id="method-list-section" class="section">
+				<h3 class="section-header">Methods</h3>
+				<ul class="link-list">
+					
+					<li><a href="#method-i-absolute_suri">#absolute_suri</a></li>
+					
+					<li><a href="#method-i-client_ipaddress">#client_ipaddress</a></li>
+					
+					<li><a href="#method-i-cookie">#cookie</a></li>
+					
+					<li><a href="#method-i-cookie%3F">#cookie?</a></li>
+					
+					<li><a href="#method-i-current_absolute_uri">#current_absolute_uri</a></li>
+					
+					<li><a href="#method-i-current_server">#current_server</a></li>
+					
+					<li><a href="#method-i-current_server_name">#current_server_name</a></li>
+					
+					<li><a href="#method-i-http_host">#http_host</a></li>
+					
+					<li><a href="#method-i-local%3F">#local?</a></li>
+					
+					<li><a href="#method-i-request_method">#request_method</a></li>
+					
+					<li><a href="#method-i-request_path">#request_path</a></li>
+					
+					<li><a href="#method-i-request_uri">#request_uri</a></li>
+					
+					<li><a href="#method-i-root_path">#root_path</a></li>
+					
+					<li><a href="#method-i-secure%3F">#secure?</a></li>
+					
+					<li><a href="#method-i-user_agent">#user_agent</a></li>
+					
+				</ul>
+			</div>
+			
+
+			<!-- Included Modules -->
+			
+		</div>
+
+		<div id="project-metadata">
+			
+			
+			<div id="fileindex-section" class="section project-section">
+				<h3 class="section-header">Files</h3>
+				<ul>
+				
+					<li class="file"><a href="../LICENSE_txt.html">LICENSE.txt</a></li>
+				
+				</ul>
+			</div>
+			
+
+			<div id="classindex-section" class="section project-section">
+				<h3 class="section-header">Class Index
+					<span class="search-toggle"><img src="../images/find.png"
+						height="16" width="16" alt="[+]"
+						title="show/hide quicksearch" /></span></h3>
+				<form action="#" method="get" accept-charset="utf-8" class="initially-hidden">
+				<fieldset>
+					<legend>Quicksearch</legend>
+					<input type="text" name="quicksearch" value=""
+						class="quicksearch-field" />
+				</fieldset>
+				</form>
+
+				<ul class="link-list">
+				
+					<li><a href="../Otto.html">Otto</a></li>
+				
+					<li><a href="../Otto/RequestHelpers.html">Otto::RequestHelpers</a></li>
+				
+					<li><a href="../Otto/ResponseHelpers.html">Otto::ResponseHelpers</a></li>
+				
+					<li><a href="../Otto/Route.html">Otto::Route</a></li>
+				
+					<li><a href="../Otto/Route/ClassMethods.html">Otto::Route::ClassMethods</a></li>
+				
+					<li><a href="../Otto/Static.html">Otto::Static</a></li>
+				
+					<li><a href="../Otto/VERSION.html">Otto::VERSION</a></li>
+				
+				</ul>
+				<div id="no-class-search-results" style="display: none;">No matching classes.</div>
+			</div>
+
+			
+		</div>
+	</div>
+
+	<div id="documentation">
+		<h1 class="module">Otto::RequestHelpers</h1>
+
+		<div id="description">
+			
+		</div>
+
+		<!-- Constants -->
+		
+
+		<!-- Attributes -->
+		
+
+		<!-- Methods -->
+		
+		<div id="public-instance-method-details" class="method-section section">
+			<h3 class="section-header">Public Instance Methods</h3>
+
+		
+			<div id="absolute-suri-method" class="method-detail ">
+				<a name="method-i-absolute_suri"></a>
+
+				<div class="method-heading">
+				
+					<span class="method-name">absolute_suri</span><span
+						class="method-args">(host=current_server_name)</span>
+					<span class="method-click-advice">click to toggle source</span>
+				
+				</div>
+
+				<div class="method-description">
+					
+					
+					
+
+					
+					<div class="method-source-code"
+						id="absolute-suri-source">
+<pre>
+     <span class="ruby-comment cmt"># File lib/otto.rb, line 363</span>
+363:     <span class="ruby-keyword kw">def</span> <span class="ruby-identifier">absolute_suri</span> <span class="ruby-identifier">host</span>=<span class="ruby-identifier">current_server_name</span>
+364:       <span class="ruby-identifier">prefix</span> = <span class="ruby-identifier">local?</span> <span class="ruby-operator">?</span> <span class="ruby-value str">'http://'</span> <span class="ruby-operator">:</span> <span class="ruby-value str">'https://'</span>
+365:       [<span class="ruby-identifier">prefix</span>, <span class="ruby-identifier">host</span>, <span class="ruby-identifier">request_path</span>].<span class="ruby-identifier">join</span>
+366:     <span class="ruby-keyword kw">end</span></pre>
+					</div>
+					
+				</div>
+
+				
+
+				
+			</div>
+
+		
+			<div id="client-ipaddress-method" class="method-detail ">
+				<a name="method-i-client_ipaddress"></a>
+
+				<div class="method-heading">
+				
+					<span class="method-name">client_ipaddress</span><span
+						class="method-args">()</span>
+					<span class="method-click-advice">click to toggle source</span>
+				
+				</div>
+
+				<div class="method-description">
+					
+					<p>
+HTTP_X_FORWARDED_FOR is from the ELB (non-https only) and it can take the
+form: 74.121.244.2, 10.252.130.147 HTTP_X_REAL_IP is from nginx REMOTE_ADDR
+is from thin There&#8217;s no way to get the client IP address in HTTPS. 
+</p>
+					
+
+					
+					<div class="method-source-code"
+						id="client-ipaddress-source">
+<pre>
+     <span class="ruby-comment cmt"># File lib/otto.rb, line 331</span>
+331:     <span class="ruby-keyword kw">def</span> <span class="ruby-identifier">client_ipaddress</span>
+332:       <span class="ruby-identifier">env</span>[<span class="ruby-value str">'HTTP_X_FORWARDED_FOR'</span>].<span class="ruby-identifier">to_s</span>.<span class="ruby-identifier">split</span>(<span class="ruby-regexp re">/,\s*/</span>).<span class="ruby-identifier">first</span> <span class="ruby-operator">||</span>
+333:       <span class="ruby-identifier">env</span>[<span class="ruby-value str">'HTTP_X_REAL_IP'</span>] <span class="ruby-operator">||</span> <span class="ruby-identifier">env</span>[<span class="ruby-value str">'REMOTE_ADDR'</span>]
+334:     <span class="ruby-keyword kw">end</span></pre>
+					</div>
+					
+				</div>
+
+				
+
+				
+			</div>
+
+		
+			<div id="cookie-method" class="method-detail ">
+				<a name="method-i-cookie"></a>
+
+				<div class="method-heading">
+				
+					<span class="method-name">cookie</span><span
+						class="method-args">(name)</span>
+					<span class="method-click-advice">click to toggle source</span>
+				
+				</div>
+
+				<div class="method-description">
+					
+					
+					
+
+					
+					<div class="method-source-code"
+						id="cookie-source">
+<pre>
+     <span class="ruby-comment cmt"># File lib/otto.rb, line 378</span>
+378:     <span class="ruby-keyword kw">def</span> <span class="ruby-identifier">cookie</span> <span class="ruby-identifier">name</span>
+379:       <span class="ruby-identifier">cookies</span>[<span class="ruby-identifier">name</span>.<span class="ruby-identifier">to_s</span>]
+380:     <span class="ruby-keyword kw">end</span></pre>
+					</div>
+					
+				</div>
+
+				
+
+				
+			</div>
+
+		
+			<div id="cookie--method" class="method-detail ">
+				<a name="method-i-cookie%3F"></a>
+
+				<div class="method-heading">
+				
+					<span class="method-name">cookie?</span><span
+						class="method-args">(name)</span>
+					<span class="method-click-advice">click to toggle source</span>
+				
+				</div>
+
+				<div class="method-description">
+					
+					
+					
+
+					
+					<div class="method-source-code"
+						id="cookie--source">
+<pre>
+     <span class="ruby-comment cmt"># File lib/otto.rb, line 382</span>
+382:     <span class="ruby-keyword kw">def</span> <span class="ruby-identifier">cookie?</span> <span class="ruby-identifier">name</span>
+383:       <span class="ruby-operator">!</span><span class="ruby-identifier">cookie</span>(<span class="ruby-identifier">name</span>).<span class="ruby-identifier">to_s</span>.<span class="ruby-identifier">empty?</span>
+384:     <span class="ruby-keyword kw">end</span></pre>
+					</div>
+					
+				</div>
+
+				
+
+				
+			</div>
+
+		
+			<div id="current-absolute-uri-method" class="method-detail ">
+				<a name="method-i-current_absolute_uri"></a>
+
+				<div class="method-heading">
+				
+					<span class="method-name">current_absolute_uri</span><span
+						class="method-args">()</span>
+					<span class="method-click-advice">click to toggle source</span>
+				
+				</div>
+
+				<div class="method-description">
+					
+					
+					
+
+					
+					<div class="method-source-code"
+						id="current-absolute-uri-source">
+<pre>
+     <span class="ruby-comment cmt"># File lib/otto.rb, line 386</span>
+386:     <span class="ruby-keyword kw">def</span> <span class="ruby-identifier">current_absolute_uri</span>
+387:       <span class="ruby-identifier">prefix</span> = <span class="ruby-identifier">secure?</span> <span class="ruby-operator">&amp;&amp;</span> <span class="ruby-operator">!</span><span class="ruby-identifier">local?</span> <span class="ruby-operator">?</span> <span class="ruby-value str">'https://'</span> <span class="ruby-operator">:</span> <span class="ruby-value str">'http://'</span>
+388:       [<span class="ruby-identifier">prefix</span>, <span class="ruby-identifier">http_host</span>, <span class="ruby-identifier">request_path</span>].<span class="ruby-identifier">join</span>
+389:     <span class="ruby-keyword kw">end</span></pre>
+					</div>
+					
+				</div>
+
+				
+
+				
+			</div>
+
+		
+			<div id="current-server-method" class="method-detail ">
+				<a name="method-i-current_server"></a>
+
+				<div class="method-heading">
+				
+					<span class="method-name">current_server</span><span
+						class="method-args">()</span>
+					<span class="method-click-advice">click to toggle source</span>
+				
+				</div>
+
+				<div class="method-description">
+					
+					
+					
+
+					
+					<div class="method-source-code"
+						id="current-server-source">
+<pre>
+     <span class="ruby-comment cmt"># File lib/otto.rb, line 340</span>
+340:     <span class="ruby-keyword kw">def</span> <span class="ruby-identifier">current_server</span>
+341:       [<span class="ruby-identifier">current_server_name</span>, <span class="ruby-identifier">env</span>[<span class="ruby-value str">'SERVER_PORT'</span>]].<span class="ruby-identifier">join</span>(<span class="ruby-value str">':'</span>)
+342:     <span class="ruby-keyword kw">end</span></pre>
+					</div>
+					
+				</div>
+
+				
+
+				
+			</div>
+
+		
+			<div id="current-server-name-method" class="method-detail ">
+				<a name="method-i-current_server_name"></a>
+
+				<div class="method-heading">
+				
+					<span class="method-name">current_server_name</span><span
+						class="method-args">()</span>
+					<span class="method-click-advice">click to toggle source</span>
+				
+				</div>
+
+				<div class="method-description">
+					
+					
+					
+
+					
+					<div class="method-source-code"
+						id="current-server-name-source">
+<pre>
+     <span class="ruby-comment cmt"># File lib/otto.rb, line 344</span>
+344:     <span class="ruby-keyword kw">def</span> <span class="ruby-identifier">current_server_name</span>
+345:       <span class="ruby-identifier">env</span>[<span class="ruby-value str">'SERVER_NAME'</span>]
+346:     <span class="ruby-keyword kw">end</span></pre>
+					</div>
+					
+				</div>
+
+				
+
+				
+			</div>
+
+		
+			<div id="http-host-method" class="method-detail ">
+				<a name="method-i-http_host"></a>
+
+				<div class="method-heading">
+				
+					<span class="method-name">http_host</span><span
+						class="method-args">()</span>
+					<span class="method-click-advice">click to toggle source</span>
+				
+				</div>
+
+				<div class="method-description">
+					
+					
+					
+
+					
+					<div class="method-source-code"
+						id="http-host-source">
+<pre>
+     <span class="ruby-comment cmt"># File lib/otto.rb, line 348</span>
+348:     <span class="ruby-keyword kw">def</span> <span class="ruby-identifier">http_host</span>
+349:       <span class="ruby-identifier">env</span>[<span class="ruby-value str">'HTTP_HOST'</span>]
+350:     <span class="ruby-keyword kw">end</span></pre>
+					</div>
+					
+				</div>
+
+				
+
+				
+			</div>
+
+		
+			<div id="local--method" class="method-detail ">
+				<a name="method-i-local%3F"></a>
+
+				<div class="method-heading">
+				
+					<span class="method-name">local?</span><span
+						class="method-args">()</span>
+					<span class="method-click-advice">click to toggle source</span>
+				
+				</div>
+
+				<div class="method-description">
+					
+					
+					
+
+					
+					<div class="method-source-code"
+						id="local--source">
+<pre>
+     <span class="ruby-comment cmt"># File lib/otto.rb, line 368</span>
+368:     <span class="ruby-keyword kw">def</span> <span class="ruby-identifier">local?</span>
+369:       <span class="ruby-constant">Otto</span>.<span class="ruby-identifier">env?</span>(<span class="ruby-value">:dev</span>, <span class="ruby-value">:development</span>) <span class="ruby-operator">&amp;&amp;</span> <span class="ruby-identifier">client_ipaddress</span> <span class="ruby-operator">==</span> <span class="ruby-value str">'127.0.0.1'</span> 
+370:     <span class="ruby-keyword kw">end</span></pre>
+					</div>
+					
+				</div>
+
+				
+
+				
+			</div>
+
+		
+			<div id="request-method-method" class="method-detail ">
+				<a name="method-i-request_method"></a>
+
+				<div class="method-heading">
+				
+					<span class="method-name">request_method</span><span
+						class="method-args">()</span>
+					<span class="method-click-advice">click to toggle source</span>
+				
+				</div>
+
+				<div class="method-description">
+					
+					
+					
+
+					
+					<div class="method-source-code"
+						id="request-method-source">
+<pre>
+     <span class="ruby-comment cmt"># File lib/otto.rb, line 336</span>
+336:     <span class="ruby-keyword kw">def</span> <span class="ruby-identifier">request_method</span>
+337:       <span class="ruby-identifier">env</span>[<span class="ruby-value str">'REQUEST_METHOD'</span>]
+338:     <span class="ruby-keyword kw">end</span></pre>
+					</div>
+					
+				</div>
+
+				
+
+				
+			</div>
+
+		
+			<div id="request-path-method" class="method-detail ">
+				<a name="method-i-request_path"></a>
+
+				<div class="method-heading">
+				
+					<span class="method-name">request_path</span><span
+						class="method-args">()</span>
+					<span class="method-click-advice">click to toggle source</span>
+				
+				</div>
+
+				<div class="method-description">
+					
+					
+					
+
+					
+					<div class="method-source-code"
+						id="request-path-source">
+<pre>
+     <span class="ruby-comment cmt"># File lib/otto.rb, line 351</span>
+351:     <span class="ruby-keyword kw">def</span> <span class="ruby-identifier">request_path</span>
+352:       <span class="ruby-identifier">env</span>[<span class="ruby-value str">'REQUEST_PATH'</span>]
+353:     <span class="ruby-keyword kw">end</span></pre>
+					</div>
+					
+				</div>
+
+				
+
+				
+			</div>
+
+		
+			<div id="request-uri-method" class="method-detail ">
+				<a name="method-i-request_uri"></a>
+
+				<div class="method-heading">
+				
+					<span class="method-name">request_uri</span><span
+						class="method-args">()</span>
+					<span class="method-click-advice">click to toggle source</span>
+				
+				</div>
+
+				<div class="method-description">
+					
+					
+					
+
+					
+					<div class="method-source-code"
+						id="request-uri-source">
+<pre>
+     <span class="ruby-comment cmt"># File lib/otto.rb, line 355</span>
+355:     <span class="ruby-keyword kw">def</span> <span class="ruby-identifier">request_uri</span>
+356:       <span class="ruby-identifier">env</span>[<span class="ruby-value str">'REQUEST_URI'</span>]
+357:     <span class="ruby-keyword kw">end</span></pre>
+					</div>
+					
+				</div>
+
+				
+
+				
+			</div>
+
+		
+			<div id="root-path-method" class="method-detail ">
+				<a name="method-i-root_path"></a>
+
+				<div class="method-heading">
+				
+					<span class="method-name">root_path</span><span
+						class="method-args">()</span>
+					<span class="method-click-advice">click to toggle source</span>
+				
+				</div>
+
+				<div class="method-description">
+					
+					
+					
+
+					
+					<div class="method-source-code"
+						id="root-path-source">
+<pre>
+     <span class="ruby-comment cmt"># File lib/otto.rb, line 359</span>
+359:     <span class="ruby-keyword kw">def</span> <span class="ruby-identifier">root_path</span>
+360:       <span class="ruby-identifier">env</span>[<span class="ruby-value str">'SCRIPT_NAME'</span>]
+361:     <span class="ruby-keyword kw">end</span></pre>
+					</div>
+					
+				</div>
+
+				
+
+				
+			</div>
+
+		
+			<div id="secure--method" class="method-detail ">
+				<a name="method-i-secure%3F"></a>
+
+				<div class="method-heading">
+				
+					<span class="method-name">secure?</span><span
+						class="method-args">()</span>
+					<span class="method-click-advice">click to toggle source</span>
+				
+				</div>
+
+				<div class="method-description">
+					
+					
+					
+
+					
+					<div class="method-source-code"
+						id="secure--source">
+<pre>
+     <span class="ruby-comment cmt"># File lib/otto.rb, line 372</span>
+372:     <span class="ruby-keyword kw">def</span> <span class="ruby-identifier">secure?</span>
+373:       <span class="ruby-comment cmt"># X-Scheme is set by nginx</span>
+374:       <span class="ruby-comment cmt"># X-FORWARDED-PROTO is set by elastic load balancer</span>
+375:       (<span class="ruby-identifier">env</span>[<span class="ruby-value str">'HTTP_X_FORWARDED_PROTO'</span>] <span class="ruby-operator">==</span> <span class="ruby-value str">'https'</span> <span class="ruby-operator">||</span> <span class="ruby-identifier">env</span>[<span class="ruby-value str">'HTTP_X_SCHEME'</span>] <span class="ruby-operator">==</span> <span class="ruby-value str">&quot;https&quot;</span>)
+376:     <span class="ruby-keyword kw">end</span></pre>
+					</div>
+					
+				</div>
+
+				
+
+				
+			</div>
+
+		
+			<div id="user-agent-method" class="method-detail ">
+				<a name="method-i-user_agent"></a>
+
+				<div class="method-heading">
+				
+					<span class="method-name">user_agent</span><span
+						class="method-args">()</span>
+					<span class="method-click-advice">click to toggle source</span>
+				
+				</div>
+
+				<div class="method-description">
+					
+					
+					
+
+					
+					<div class="method-source-code"
+						id="user-agent-source">
+<pre>
+     <span class="ruby-comment cmt"># File lib/otto.rb, line 322</span>
+322:     <span class="ruby-keyword kw">def</span> <span class="ruby-identifier">user_agent</span>
+323:       <span class="ruby-identifier">env</span>[<span class="ruby-value str">'HTTP_USER_AGENT'</span>] <span class="ruby-operator">||</span> <span class="ruby-value str">'[no-user-agent]'</span>
+324:     <span class="ruby-keyword kw">end</span></pre>
+					</div>
+					
+				</div>
+
+				
+
+				
+			</div>
+
+		
+		</div>
+	
+
+	</div>
+
+
+	<div id="rdoc-debugging-section-dump" class="debugging-section">
+	
+		<p>Disabled; run with --debug to generate this.</p>
+	
+	</div>
+
+	<div id="validator-badges">
+		<p><small><a href="http://validator.w3.org/check/referer">[Validate]</a></small></p>
+		<p><small>Generated with the <a href="http://deveiate.org/projects/Darkfish-Rdoc/">Darkfish
+			Rdoc Generator</a> 1.1.6</small>.</p>
+	</div>
+
+</body>
+</html>
+

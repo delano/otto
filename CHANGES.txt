@@ -1,5 +1,10 @@
 OTTO, CHANGES
 
+#### 0.2.2 (2011-12-17) ###############################
+
+* ADDED: Example app, better docs in readme
+* CHANGE: No default value for user agent
+
 #### 0.2.1 (2011-07-07) ###############################
 
 * ADDED: Otto#add_static_path

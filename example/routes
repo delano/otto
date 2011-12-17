@@ -1,9 +1,9 @@
 # OTTO - ROUTES EXAMPLE
 
-# Define a basic webapp. Each route has three parts:
+# Each route has three parts:
 #  * HTTP verb (GET, POST, PUT, DELETE or HEAD)
 #  * URI path
-#  * The class and method to call
+#  * Ruby class and method to call
 
 GET   /                         App#index
 POST  /                         App#receive_feedback

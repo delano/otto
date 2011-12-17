@@ -1,0 +1,8 @@
+
+
+GET   /                         App#index
+POST  /                         App#receive_feedback
+
+GET   /redirect                 App#redirect
+
+GET   /robots.txt               App#robots_text

@@ -1,8 +1,17 @@
+# OTTO - ROUTES EXAMPLE
 
+# Define a basic webapp. Each route has three parts:
+#  * HTTP verb (GET, POST, PUT, DELETE or HEAD)
+#  * URI path
+#  * The class and method to call
 
 GET   /                         App#index
 POST  /                         App#receive_feedback
-
 GET   /redirect                 App#redirect
-
 GET   /robots.txt               App#robots_text
+GET   /product/:prodid          App#display_product
+
+# You can also define these handlers when no 
+# route can be found or there's a server error. (optional) 
+GET   /404                      App#not_found
+GET   /500                      App#server_error

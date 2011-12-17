@@ -16,9 +16,10 @@ class App
   
   def index
     lines = [
-      '<img src="/img/otto.jpg" /><br/>',
+      '<img src="/img/otto.jpg" /><br/><br/>',
       'Send feedback:<br/>',
-      '<form method="post"><input name="msg" /><input type="submit" /></form>'
+      '<form method="post"><input name="msg" /><input type="submit" /></form>',
+      '<a href="/product/100">A product example</a>'
     ]
     res.body = lines.join($/)
   end
@@ -35,6 +36,22 @@ class App
     res.header['Content-Type'] = "text/plain"
     rules = 'User-agent: *', 'Disallow: /private'
     res.body = rules.join($/)
+  end
+  
+  def display_product
+    res.header['Content-Type'] = "application/json; charset=utf-8"
+    prodid = req.params[:prodid]
+    res.body = '{"product":%s,"msg":"Hint: try another value"}' % [prodid]
+  end
+  
+  def not_found
+    res.status = 404
+    res.body = "Item not found!"
+  end
+
+  def server_error
+    res.status = 500
+    res.body = "There was a server error!"
   end
   
 end

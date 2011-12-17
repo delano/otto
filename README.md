@@ -17,9 +17,8 @@ See the examples/ directory for a working app.
 
 ### Routes ###
 
-The routes file is just a plain-text file which defines the end points of your application.
+The routes file is just a plain-text file which defines the end points of your application. Each route has three parts:
 
-Each route has three parts:
  * HTTP verb (GET, POST, PUT, DELETE or HEAD)
  * URI path
  * Ruby class and method to call
@@ -39,23 +38,19 @@ Here is an example:
 
 ### App ###
 
-There is nothing special about the Ruby class. The only requirement is that the first two arguments to initialize be a Rack::Request object and a Rack::Response object. Otherwise, you can do anything you want. You're free to use any templating engine, any database mapper, etc. There is no magic here.
+There is nothing special about the Ruby class. The only requirement is that the first two arguments to initialize be a Rack::Request object and a Rack::Response object. Otherwise, you can do anything you want. You're free to use any templating engine, any database mapper, etc. There is no magic.
 
     class App
-
-      # An instance of Rack::Request
-      attr_reader :req
-      # An instance of Rack::Response
-      attr_reader :res
+      attr_reader :req, :res
 
       # Otto creates an instance of this class for every request
       # and passess the Rack::Request and Rack::Response objects.
       def initialize req, res
         @req, @res = req, res
-        res.header['Content-Type'] = "text/html; charset=utf-8"
       end
 
       def index
+        res.header['Content-Type'] = "text/html; charset=utf-8"
         lines = [
           '<img src="/img/otto.jpg" /><br/><br/>',
           'Send feedback:<br/>',
@@ -129,12 +124,17 @@ You can also download via [tarball](http://github.com/delano/otto/tarball/latest
 * [RDocs](http://solutious.com/otto)
 
 
+## In the wild ##
+
+Services that use Otto:
+
+* [One-Time Secret](https://onetimesecret.com/) -- A safe way to share sensitive data.
+* [BlameStella](https://www.blamestella.com/) -- Web monitoring for devs and designers.
+
+
 ## Credits
 
 * [Delano Mandelbaum](http://solutious.com)
-
-
-## Thanks 
 
 
 ## Related Projects

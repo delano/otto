@@ -5,11 +5,11 @@
 
 Gem::Specification.new do |s|
   s.name = "otto"
-  s.version = "0.2.1.003"
+  s.version = "0.3.0"
 
   s.required_rubygems_version = Gem::Requirement.new(">= 0") if s.respond_to? :required_rubygems_version=
   s.authors = ["Delano Mandelbaum"]
-  s.date = "2011-10-19"
+  s.date = "2011-12-20"
   s.description = "Auto-define your rack-apps in plaintext."
   s.email = "delano@solutious.com"
   s.extra_rdoc_files = [
@@ -22,6 +22,11 @@ Gem::Specification.new do |s|
     "README.md",
     "Rakefile",
     "VERSION.yml",
+    "example/app.rb",
+    "example/config.ru",
+    "example/public/favicon.ico",
+    "example/public/img/otto.jpg",
+    "example/routes",
     "lib/otto.rb",
     "otto.gemspec"
   ]

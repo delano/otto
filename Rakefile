@@ -17,7 +17,7 @@ name = "otto"
 begin
   require "jeweler"
   Jeweler::Tasks.new do |gem|
-    gem.version = "#{config[:MAJOR]}.#{config[:MINOR]}.#{config[:PATCH]}.#{config[:BUILD]}"
+    gem.version = "#{config[:MAJOR]}.#{config[:MINOR]}.#{config[:PATCH]}"
     gem.name = "otto"
     gem.rubyforge_project = gem.name
     gem.summary = "Auto-define your rack-apps in plaintext."
@@ -35,7 +35,7 @@ end
 
 
 Rake::RDocTask.new do |rdoc|
-  version = "#{config[:MAJOR]}.#{config[:MINOR]}.#{config[:PATCH]}.#{config[:BUILD]}"
+  version = "#{config[:MAJOR]}.#{config[:MINOR]}.#{config[:PATCH]}"
   rdoc.rdoc_dir = "doc"
   rdoc.title = "otto #{version}"
   rdoc.rdoc_files.include("README*")

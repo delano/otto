@@ -13,8 +13,7 @@ class Otto
       [@version[:MAJOR], @version[:MINOR], @version[:PATCH]].join('.')
     end
     def self.inspect
-      load_config
-      [@version[:MAJOR], @version[:MINOR], @version[:PATCH], @version[:BUILD]].join('.')
+      to_s
     end
     def self.load_config
       require 'yaml'

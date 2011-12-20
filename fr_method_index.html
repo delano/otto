@@ -1,7 +1,7 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
 <html lang='en'>
   <head>
-    <title>Methods [otto 0.2.0.001]</title>
+    <title>Methods [otto 0.3.0]</title>
     <meta content='text/html; charset=UTF-8' http-equiv='Content-Type'>
     <link href='rdoc-style.css' media='screen' rel='stylesheet' type='text/css'>
     <base target='docwin'>
@@ -4331,45 +4331,47 @@
         
         Element.addMethods();
         var search_index = [
-          { method: 'absolute_suri', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000027"><span class="method_name">absolute_suri</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
-          { method: 'call', module: 'otto', html: '<a href="classes/Otto.html#M000004"><span class="method_name">call</span> <span class="module_name">(Otto)</span></a>' },
-          { method: 'call', module: 'otto::route', html: '<a href="classes/Otto/Route.html#M000038"><span class="method_name">call</span> <span class="module_name">(Otto::Route)</span></a>' },
-          { method: 'client_ipaddress', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000019"><span class="method_name">client_ipaddress</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
-          { method: 'compile', module: 'otto::route', html: '<a href="classes/Otto/Route.html#M000039"><span class="method_name">compile</span> <span class="module_name">(Otto::Route)</span></a>' },
-          { method: 'cookie', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000030"><span class="method_name">cookie</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
-          { method: 'cookie?', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000031"><span class="method_name">cookie?</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
-          { method: 'current_absolute_uri', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000032"><span class="method_name">current_absolute_uri</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
-          { method: 'current_server', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000021"><span class="method_name">current_server</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
-          { method: 'current_server_name', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000022"><span class="method_name">current_server_name</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
-          { method: 'default', module: 'otto', html: '<a href="classes/Otto.html#M000006"><span class="method_name">default</span> <span class="module_name">(Otto)</span></a>' },
-          { method: 'delete_cookie', module: 'otto::responsehelpers', html: '<a href="classes/Otto/ResponseHelpers.html#M000035"><span class="method_name">delete_cookie</span> <span class="module_name">(Otto::ResponseHelpers)</span></a>' },
-          { method: 'env?', module: 'otto', html: '<a href="classes/Otto.html#M000010"><span class="method_name">env?</span> <span class="module_name">(Otto)</span></a>' },
-          { method: 'http_host', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000023"><span class="method_name">http_host</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
-          { method: 'indifferent_hash', module: 'otto::static', html: '<a href="classes/Otto/Static.html#M000017"><span class="method_name">indifferent_hash</span> <span class="module_name">(Otto::Static)</span></a>' },
-          { method: 'indifferent_params', module: 'otto::static', html: '<a href="classes/Otto/Static.html#M000016"><span class="method_name">indifferent_params</span> <span class="module_name">(Otto::Static)</span></a>' },
-          { method: 'inspect', module: 'otto::version', html: '<a href="classes/Otto/VERSION.html#M000012"><span class="method_name">inspect</span> <span class="module_name">(Otto::VERSION)</span></a>' },
-          { method: 'load', module: 'otto', html: '<a href="classes/Otto.html#M000007"><span class="method_name">load</span> <span class="module_name">(Otto)</span></a>' },
+          { method: 'absolute_suri', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000029"><span class="method_name">absolute_suri</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
+          { method: 'add_static_path', module: 'otto', html: '<a href="classes/Otto.html#M000005"><span class="method_name">add_static_path</span> <span class="module_name">(Otto)</span></a>' },
+          { method: 'call', module: 'otto::route', html: '<a href="classes/Otto/Route.html#M000040"><span class="method_name">call</span> <span class="module_name">(Otto::Route)</span></a>' },
+          { method: 'call', module: 'otto', html: '<a href="classes/Otto.html#M000006"><span class="method_name">call</span> <span class="module_name">(Otto)</span></a>' },
+          { method: 'client_ipaddress', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000021"><span class="method_name">client_ipaddress</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
+          { method: 'compile', module: 'otto::route', html: '<a href="classes/Otto/Route.html#M000041"><span class="method_name">compile</span> <span class="module_name">(Otto::Route)</span></a>' },
+          { method: 'cookie', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000032"><span class="method_name">cookie</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
+          { method: 'cookie?', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000033"><span class="method_name">cookie?</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
+          { method: 'current_absolute_uri', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000034"><span class="method_name">current_absolute_uri</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
+          { method: 'current_server', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000023"><span class="method_name">current_server</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
+          { method: 'current_server_name', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000024"><span class="method_name">current_server_name</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
+          { method: 'default', module: 'otto', html: '<a href="classes/Otto.html#M000008"><span class="method_name">default</span> <span class="module_name">(Otto)</span></a>' },
+          { method: 'delete_cookie', module: 'otto::responsehelpers', html: '<a href="classes/Otto/ResponseHelpers.html#M000037"><span class="method_name">delete_cookie</span> <span class="module_name">(Otto::ResponseHelpers)</span></a>' },
+          { method: 'env?', module: 'otto', html: '<a href="classes/Otto.html#M000012"><span class="method_name">env?</span> <span class="module_name">(Otto)</span></a>' },
+          { method: 'http_host', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000025"><span class="method_name">http_host</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
+          { method: 'indifferent_hash', module: 'otto::static', html: '<a href="classes/Otto/Static.html#M000019"><span class="method_name">indifferent_hash</span> <span class="module_name">(Otto::Static)</span></a>' },
+          { method: 'indifferent_params', module: 'otto::static', html: '<a href="classes/Otto/Static.html#M000018"><span class="method_name">indifferent_params</span> <span class="module_name">(Otto::Static)</span></a>' },
+          { method: 'inspect', module: 'otto::version', html: '<a href="classes/Otto/VERSION.html#M000014"><span class="method_name">inspect</span> <span class="module_name">(Otto::VERSION)</span></a>' },
           { method: 'load', module: 'otto', html: '<a href="classes/Otto.html#M000002"><span class="method_name">load</span> <span class="module_name">(Otto)</span></a>' },
-          { method: 'load_config', module: 'otto::version', html: '<a href="classes/Otto/VERSION.html#M000013"><span class="method_name">load_config</span> <span class="module_name">(Otto::VERSION)</span></a>' },
-          { method: 'local?', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000028"><span class="method_name">local?</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
-          { method: 'new', module: 'otto::route', html: '<a href="classes/Otto/Route.html#M000036"><span class="method_name">new</span> <span class="module_name">(Otto::Route)</span></a>' },
+          { method: 'load', module: 'otto', html: '<a href="classes/Otto.html#M000009"><span class="method_name">load</span> <span class="module_name">(Otto)</span></a>' },
+          { method: 'load_config', module: 'otto::version', html: '<a href="classes/Otto/VERSION.html#M000015"><span class="method_name">load_config</span> <span class="module_name">(Otto::VERSION)</span></a>' },
+          { method: 'local?', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000030"><span class="method_name">local?</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
+          { method: 'new', module: 'otto::route', html: '<a href="classes/Otto/Route.html#M000038"><span class="method_name">new</span> <span class="module_name">(Otto::Route)</span></a>' },
           { method: 'new', module: 'otto', html: '<a href="classes/Otto.html#M000001"><span class="method_name">new</span> <span class="module_name">(Otto)</span></a>' },
-          { method: 'not_found', module: 'otto::static', html: '<a href="classes/Otto/Static.html#M000015"><span class="method_name">not_found</span> <span class="module_name">(Otto::Static)</span></a>' },
-          { method: 'path', module: 'otto', html: '<a href="classes/Otto.html#M000008"><span class="method_name">path</span> <span class="module_name">(Otto)</span></a>' },
-          { method: 'pattern_regexp', module: 'otto::route', html: '<a href="classes/Otto/Route.html#M000037"><span class="method_name">pattern_regexp</span> <span class="module_name">(Otto::Route)</span></a>' },
-          { method: 'request_method', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000020"><span class="method_name">request_method</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
-          { method: 'request_path', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000024"><span class="method_name">request_path</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
-          { method: 'request_uri', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000025"><span class="method_name">request_uri</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
-          { method: 'root_path', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000026"><span class="method_name">root_path</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
-          { method: 'routes', module: 'otto', html: '<a href="classes/Otto.html#M000009"><span class="method_name">routes</span> <span class="module_name">(Otto)</span></a>' },
+          { method: 'not_found', module: 'otto::static', html: '<a href="classes/Otto/Static.html#M000017"><span class="method_name">not_found</span> <span class="module_name">(Otto::Static)</span></a>' },
+          { method: 'path', module: 'otto', html: '<a href="classes/Otto.html#M000010"><span class="method_name">path</span> <span class="module_name">(Otto)</span></a>' },
+          { method: 'pattern_regexp', module: 'otto::route', html: '<a href="classes/Otto/Route.html#M000039"><span class="method_name">pattern_regexp</span> <span class="module_name">(Otto::Route)</span></a>' },
+          { method: 'request_method', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000022"><span class="method_name">request_method</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
+          { method: 'request_path', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000026"><span class="method_name">request_path</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
+          { method: 'request_uri', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000027"><span class="method_name">request_uri</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
+          { method: 'root_path', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000028"><span class="method_name">root_path</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
+          { method: 'routes', module: 'otto', html: '<a href="classes/Otto.html#M000011"><span class="method_name">routes</span> <span class="module_name">(Otto)</span></a>' },
+          { method: 'safe_dir?', module: 'otto', html: '<a href="classes/Otto.html#M000004"><span class="method_name">safe_dir?</span> <span class="module_name">(Otto)</span></a>' },
           { method: 'safe_file?', module: 'otto', html: '<a href="classes/Otto.html#M000003"><span class="method_name">safe_file?</span> <span class="module_name">(Otto)</span></a>' },
-          { method: 'secure?', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000029"><span class="method_name">secure?</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
-          { method: 'send_cookie', module: 'otto::responsehelpers', html: '<a href="classes/Otto/ResponseHelpers.html#M000034"><span class="method_name">send_cookie</span> <span class="module_name">(Otto::ResponseHelpers)</span></a>' },
-          { method: 'send_secure_cookie', module: 'otto::responsehelpers', html: '<a href="classes/Otto/ResponseHelpers.html#M000033"><span class="method_name">send_secure_cookie</span> <span class="module_name">(Otto::ResponseHelpers)</span></a>' },
-          { method: 'server_error', module: 'otto::static', html: '<a href="classes/Otto/Static.html#M000014"><span class="method_name">server_error</span> <span class="module_name">(Otto::Static)</span></a>' },
-          { method: 'to_s', module: 'otto::version', html: '<a href="classes/Otto/VERSION.html#M000011"><span class="method_name">to_s</span> <span class="module_name">(Otto::VERSION)</span></a>' },
-          { method: 'uri', module: 'otto', html: '<a href="classes/Otto.html#M000005"><span class="method_name">uri</span> <span class="module_name">(Otto)</span></a>' },
-          { method: 'user_agent', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000018"><span class="method_name">user_agent</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
+          { method: 'secure?', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000031"><span class="method_name">secure?</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
+          { method: 'send_cookie', module: 'otto::responsehelpers', html: '<a href="classes/Otto/ResponseHelpers.html#M000036"><span class="method_name">send_cookie</span> <span class="module_name">(Otto::ResponseHelpers)</span></a>' },
+          { method: 'send_secure_cookie', module: 'otto::responsehelpers', html: '<a href="classes/Otto/ResponseHelpers.html#M000035"><span class="method_name">send_secure_cookie</span> <span class="module_name">(Otto::ResponseHelpers)</span></a>' },
+          { method: 'server_error', module: 'otto::static', html: '<a href="classes/Otto/Static.html#M000016"><span class="method_name">server_error</span> <span class="module_name">(Otto::Static)</span></a>' },
+          { method: 'to_s', module: 'otto::version', html: '<a href="classes/Otto/VERSION.html#M000013"><span class="method_name">to_s</span> <span class="module_name">(Otto::VERSION)</span></a>' },
+          { method: 'uri', module: 'otto', html: '<a href="classes/Otto.html#M000007"><span class="method_name">uri</span> <span class="module_name">(Otto)</span></a>' },
+          { method: 'user_agent', module: 'otto::requesthelpers', html: '<a href="classes/Otto/RequestHelpers.html#M000020"><span class="method_name">user_agent</span> <span class="module_name">(Otto::RequestHelpers)</span></a>' },
         ]
         $(document).observe('dom:loaded', function() {
         	// Setup search-during-typing.
@@ -4440,45 +4442,47 @@
       </form>
       <ol class='methods' id='search-results' style='display: none'></ol>
       <ol class='methods' id='index-entries'>
-        <li><a href="classes/Otto/RequestHelpers.html#M000027"><span class="method_name">absolute_suri</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
-        <li><a href="classes/Otto.html#M000004"><span class="method_name">call</span> <span class="module_name">(Otto)</span></a></li>
-        <li><a href="classes/Otto/Route.html#M000038"><span class="method_name">call</span> <span class="module_name">(Otto::Route)</span></a></li>
-        <li><a href="classes/Otto/RequestHelpers.html#M000019"><span class="method_name">client_ipaddress</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
-        <li><a href="classes/Otto/Route.html#M000039"><span class="method_name">compile</span> <span class="module_name">(Otto::Route)</span></a></li>
-        <li><a href="classes/Otto/RequestHelpers.html#M000030"><span class="method_name">cookie</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
-        <li><a href="classes/Otto/RequestHelpers.html#M000031"><span class="method_name">cookie?</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
-        <li><a href="classes/Otto/RequestHelpers.html#M000032"><span class="method_name">current_absolute_uri</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
-        <li><a href="classes/Otto/RequestHelpers.html#M000021"><span class="method_name">current_server</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
-        <li><a href="classes/Otto/RequestHelpers.html#M000022"><span class="method_name">current_server_name</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
-        <li><a href="classes/Otto.html#M000006"><span class="method_name">default</span> <span class="module_name">(Otto)</span></a></li>
-        <li><a href="classes/Otto/ResponseHelpers.html#M000035"><span class="method_name">delete_cookie</span> <span class="module_name">(Otto::ResponseHelpers)</span></a></li>
-        <li><a href="classes/Otto.html#M000010"><span class="method_name">env?</span> <span class="module_name">(Otto)</span></a></li>
-        <li><a href="classes/Otto/RequestHelpers.html#M000023"><span class="method_name">http_host</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
-        <li><a href="classes/Otto/Static.html#M000017"><span class="method_name">indifferent_hash</span> <span class="module_name">(Otto::Static)</span></a></li>
-        <li><a href="classes/Otto/Static.html#M000016"><span class="method_name">indifferent_params</span> <span class="module_name">(Otto::Static)</span></a></li>
-        <li><a href="classes/Otto/VERSION.html#M000012"><span class="method_name">inspect</span> <span class="module_name">(Otto::VERSION)</span></a></li>
-        <li><a href="classes/Otto.html#M000007"><span class="method_name">load</span> <span class="module_name">(Otto)</span></a></li>
+        <li><a href="classes/Otto/RequestHelpers.html#M000029"><span class="method_name">absolute_suri</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
+        <li><a href="classes/Otto.html#M000005"><span class="method_name">add_static_path</span> <span class="module_name">(Otto)</span></a></li>
+        <li><a href="classes/Otto/Route.html#M000040"><span class="method_name">call</span> <span class="module_name">(Otto::Route)</span></a></li>
+        <li><a href="classes/Otto.html#M000006"><span class="method_name">call</span> <span class="module_name">(Otto)</span></a></li>
+        <li><a href="classes/Otto/RequestHelpers.html#M000021"><span class="method_name">client_ipaddress</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
+        <li><a href="classes/Otto/Route.html#M000041"><span class="method_name">compile</span> <span class="module_name">(Otto::Route)</span></a></li>
+        <li><a href="classes/Otto/RequestHelpers.html#M000032"><span class="method_name">cookie</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
+        <li><a href="classes/Otto/RequestHelpers.html#M000033"><span class="method_name">cookie?</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
+        <li><a href="classes/Otto/RequestHelpers.html#M000034"><span class="method_name">current_absolute_uri</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
+        <li><a href="classes/Otto/RequestHelpers.html#M000023"><span class="method_name">current_server</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
+        <li><a href="classes/Otto/RequestHelpers.html#M000024"><span class="method_name">current_server_name</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
+        <li><a href="classes/Otto.html#M000008"><span class="method_name">default</span> <span class="module_name">(Otto)</span></a></li>
+        <li><a href="classes/Otto/ResponseHelpers.html#M000037"><span class="method_name">delete_cookie</span> <span class="module_name">(Otto::ResponseHelpers)</span></a></li>
+        <li><a href="classes/Otto.html#M000012"><span class="method_name">env?</span> <span class="module_name">(Otto)</span></a></li>
+        <li><a href="classes/Otto/RequestHelpers.html#M000025"><span class="method_name">http_host</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
+        <li><a href="classes/Otto/Static.html#M000019"><span class="method_name">indifferent_hash</span> <span class="module_name">(Otto::Static)</span></a></li>
+        <li><a href="classes/Otto/Static.html#M000018"><span class="method_name">indifferent_params</span> <span class="module_name">(Otto::Static)</span></a></li>
+        <li><a href="classes/Otto/VERSION.html#M000014"><span class="method_name">inspect</span> <span class="module_name">(Otto::VERSION)</span></a></li>
         <li><a href="classes/Otto.html#M000002"><span class="method_name">load</span> <span class="module_name">(Otto)</span></a></li>
-        <li><a href="classes/Otto/VERSION.html#M000013"><span class="method_name">load_config</span> <span class="module_name">(Otto::VERSION)</span></a></li>
-        <li><a href="classes/Otto/RequestHelpers.html#M000028"><span class="method_name">local?</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
-        <li><a href="classes/Otto/Route.html#M000036"><span class="method_name">new</span> <span class="module_name">(Otto::Route)</span></a></li>
+        <li><a href="classes/Otto.html#M000009"><span class="method_name">load</span> <span class="module_name">(Otto)</span></a></li>
+        <li><a href="classes/Otto/VERSION.html#M000015"><span class="method_name">load_config</span> <span class="module_name">(Otto::VERSION)</span></a></li>
+        <li><a href="classes/Otto/RequestHelpers.html#M000030"><span class="method_name">local?</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
+        <li><a href="classes/Otto/Route.html#M000038"><span class="method_name">new</span> <span class="module_name">(Otto::Route)</span></a></li>
         <li><a href="classes/Otto.html#M000001"><span class="method_name">new</span> <span class="module_name">(Otto)</span></a></li>
-        <li><a href="classes/Otto/Static.html#M000015"><span class="method_name">not_found</span> <span class="module_name">(Otto::Static)</span></a></li>
-        <li><a href="classes/Otto.html#M000008"><span class="method_name">path</span> <span class="module_name">(Otto)</span></a></li>
-        <li><a href="classes/Otto/Route.html#M000037"><span class="method_name">pattern_regexp</span> <span class="module_name">(Otto::Route)</span></a></li>
-        <li><a href="classes/Otto/RequestHelpers.html#M000020"><span class="method_name">request_method</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
-        <li><a href="classes/Otto/RequestHelpers.html#M000024"><span class="method_name">request_path</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
-        <li><a href="classes/Otto/RequestHelpers.html#M000025"><span class="method_name">request_uri</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
-        <li><a href="classes/Otto/RequestHelpers.html#M000026"><span class="method_name">root_path</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
-        <li><a href="classes/Otto.html#M000009"><span class="method_name">routes</span> <span class="module_name">(Otto)</span></a></li>
+        <li><a href="classes/Otto/Static.html#M000017"><span class="method_name">not_found</span> <span class="module_name">(Otto::Static)</span></a></li>
+        <li><a href="classes/Otto.html#M000010"><span class="method_name">path</span> <span class="module_name">(Otto)</span></a></li>
+        <li><a href="classes/Otto/Route.html#M000039"><span class="method_name">pattern_regexp</span> <span class="module_name">(Otto::Route)</span></a></li>
+        <li><a href="classes/Otto/RequestHelpers.html#M000022"><span class="method_name">request_method</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
+        <li><a href="classes/Otto/RequestHelpers.html#M000026"><span class="method_name">request_path</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
+        <li><a href="classes/Otto/RequestHelpers.html#M000027"><span class="method_name">request_uri</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
+        <li><a href="classes/Otto/RequestHelpers.html#M000028"><span class="method_name">root_path</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
+        <li><a href="classes/Otto.html#M000011"><span class="method_name">routes</span> <span class="module_name">(Otto)</span></a></li>
+        <li><a href="classes/Otto.html#M000004"><span class="method_name">safe_dir?</span> <span class="module_name">(Otto)</span></a></li>
         <li><a href="classes/Otto.html#M000003"><span class="method_name">safe_file?</span> <span class="module_name">(Otto)</span></a></li>
-        <li><a href="classes/Otto/RequestHelpers.html#M000029"><span class="method_name">secure?</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
-        <li><a href="classes/Otto/ResponseHelpers.html#M000034"><span class="method_name">send_cookie</span> <span class="module_name">(Otto::ResponseHelpers)</span></a></li>
-        <li><a href="classes/Otto/ResponseHelpers.html#M000033"><span class="method_name">send_secure_cookie</span> <span class="module_name">(Otto::ResponseHelpers)</span></a></li>
-        <li><a href="classes/Otto/Static.html#M000014"><span class="method_name">server_error</span> <span class="module_name">(Otto::Static)</span></a></li>
-        <li><a href="classes/Otto/VERSION.html#M000011"><span class="method_name">to_s</span> <span class="module_name">(Otto::VERSION)</span></a></li>
-        <li><a href="classes/Otto.html#M000005"><span class="method_name">uri</span> <span class="module_name">(Otto)</span></a></li>
-        <li><a href="classes/Otto/RequestHelpers.html#M000018"><span class="method_name">user_agent</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
+        <li><a href="classes/Otto/RequestHelpers.html#M000031"><span class="method_name">secure?</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
+        <li><a href="classes/Otto/ResponseHelpers.html#M000036"><span class="method_name">send_cookie</span> <span class="module_name">(Otto::ResponseHelpers)</span></a></li>
+        <li><a href="classes/Otto/ResponseHelpers.html#M000035"><span class="method_name">send_secure_cookie</span> <span class="module_name">(Otto::ResponseHelpers)</span></a></li>
+        <li><a href="classes/Otto/Static.html#M000016"><span class="method_name">server_error</span> <span class="module_name">(Otto::Static)</span></a></li>
+        <li><a href="classes/Otto/VERSION.html#M000013"><span class="method_name">to_s</span> <span class="module_name">(Otto::VERSION)</span></a></li>
+        <li><a href="classes/Otto.html#M000007"><span class="method_name">uri</span> <span class="module_name">(Otto)</span></a></li>
+        <li><a href="classes/Otto/RequestHelpers.html#M000020"><span class="method_name">user_agent</span> <span class="module_name">(Otto::RequestHelpers)</span></a></li>
       </ol>
     </div>
   </body>

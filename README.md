@@ -1,10 +1,10 @@
-# Otto - 0.2
+# Otto - 0.3
 
 **Auto-define your rack-apps in plain-text.**
 
 ## Overview ##
 
-Apps build with Otto have three, basic parts: a rackup file, a ruby file, and a routes file. If you've built a [Rack app](http://rack.rubyforge.org/) before, then you've seen a rackup file before. The ruby file is your actual app and the routes file is what Otto uses to map URI paths to a Ruby method.
+Apps built with Otto have three, basic parts: a rackup file, a ruby file, and a routes file. If you've built a [Rack app](http://rack.rubyforge.org/) before, then you've seen a rackup file before. The ruby file is your actual app and the routes file is what Otto uses to map URI paths to a Ruby class and method.
 
 A barebones app directory looks something like this:
 

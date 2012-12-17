@@ -3,8 +3,8 @@ require "rake"
 require "rake/clean"
 require 'yaml'
 
-require 'hanna/rdoctask'
- 
+require 'rdoc/task'
+
 config = YAML.load_file("VERSION.yml")
 task :default => ["build"]
 CLEAN.include [ 'pkg', 'doc' ]
@@ -30,7 +30,7 @@ rescue LoadError
 end
 
 
-Rake::RDocTask.new do |rdoc|
+RDoc::Task.new do |rdoc|
   version = "#{config[:MAJOR]}.#{config[:MINOR]}.#{config[:PATCH]}"
   rdoc.rdoc_dir = "doc"
   rdoc.title = "otto #{version}"

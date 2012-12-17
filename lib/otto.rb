@@ -5,8 +5,9 @@ require 'rack/utils'
 require 'addressable/uri'
 
 class Otto
+  @debug = ENV['OTTO_DEBUG'] == 'true'
   LIB_HOME = File.expand_path File.dirname(__FILE__) unless defined?(Otto::LIB_HOME)
-  
+
   module VERSION
     def self.to_s
       load_config
@@ -49,7 +50,7 @@ class Otto
         route.otto = self
         path_clean = path.gsub /\/$/, ''
         @route_definitions[route.definition] = route
-        STDERR.puts "route: #{route.pattern}"
+        STDERR.puts "route: #{route.pattern}" if Otto.debug
         @routes[route.verb] ||= []
         @routes[route.verb] << route
         @routes_literal[route.verb] ||= {}
@@ -66,25 +67,25 @@ class Otto
     pathstr = File.join(option[:public], path)
     File.fnmatch?(globstr, pathstr) && (File.owned?(pathstr) || File.grpowned?(pathstr)) && File.readable?(pathstr) && !File.directory?(pathstr)
   end
-  
+
   def safe_dir? path
     (File.owned?(path) || File.grpowned?(path)) && File.directory?(path)
   end
-  
+
   def add_static_path path
     if safe_file?(path)
       base_path = File.split(path).first
       # Files in the root directory can refer to themselves
       base_path = path if base_path == '/'
       static_path = File.join(option[:public], base_path)
-      STDERR.puts "new static route: #{base_path} (#{path})"
+      STDERR.puts "new static route: #{base_path} (#{path})" if Otto.debug
       routes_static[:GET][base_path] = base_path
     end
   end
-  
+
   def call env
     if option[:public] && safe_dir?(option[:public])
-      @static_route ||= Rack::File.new(option[:public]) 
+      @static_route ||= Rack::File.new(option[:public])
     end
     path_info = Rack::Utils.unescape(env['PATH_INFO'])
     path_info = '/' if path_info.to_s.empty?
@@ -112,7 +113,7 @@ class Otto
       found_route = nil
       valid_routes = routes[http_verb] || []
       valid_routes.push *routes[:GET] if http_verb == :HEAD
-      valid_routes.each { |route| 
+      valid_routes.each { |route|
         #STDERR.puts " request: #{http_verb} #{path_info} (trying route: #{route.verb} #{route.pattern})"
         if (match = route.pattern.match(path_info))
           values = match.captures.to_a
@@ -154,8 +155,8 @@ class Otto
       @server_error || Otto::Static.server_error
     end
   end
-  
-  
+
+
   # Return the URI path for the given +route_definition+
   # e.g.
   #
@@ -172,7 +173,7 @@ class Otto
       end
       local_params.each_pair { |k,v|
         next unless local_path.match(":#{k}")
-        local_path.gsub!(":#{k}", local_params.delete(k)) 
+        local_path.gsub!(":#{k}", local_params.delete(k))
       }
       uri = Addressable::URI.new
       uri.path = local_path
@@ -180,7 +181,7 @@ class Otto
       uri.to_s
     end
   end
-  
+
   module Static
     extend self
     def server_error
@@ -213,7 +214,7 @@ class Otto
     end
   end
   #
-  # e.g. 
+  # e.g.
   #
   #      GET   /uri/path      YourApp.method
   #      GET   /uri/path2     YourApp#method
@@ -300,6 +301,7 @@ class Otto
     end
   end
   class << self
+    attr_accessor :debug
     def default
       @default ||= Otto.new
       @default
@@ -325,7 +327,7 @@ class Otto
     # and it can take the form: 74.121.244.2, 10.252.130.147
     # HTTP_X_REAL_IP is from nginx
     # REMOTE_ADDR is from thin
-    # There's no way to get the client IP address in HTTPS. 
+    # There's no way to get the client IP address in HTTPS.
     def client_ipaddress
       env['HTTP_X_FORWARDED_FOR'].to_s.split(/,\s*/).first ||
       env['HTTP_X_REAL_IP'] || env['REMOTE_ADDR']
@@ -356,13 +358,20 @@ class Otto
       [prefix, host, request_path].join
     end
     def local?
-      Otto.env?(:dev, :development) && client_ipaddress == '127.0.0.1' 
+      Otto.env?(:dev, :development) &&
+       (client_ipaddress == '127.0.0.1' ||
+       !client_ipaddress.match(/^10\.0\./).nil? ||
+       !client_ipaddress.match(/^192\.168\./).nil?)
     end
     def secure?
       # X-Scheme is set by nginx
       # X-FORWARDED-PROTO is set by elastic load balancer
       (env['HTTP_X_FORWARDED_PROTO'] == 'https' || env['HTTP_X_SCHEME'] == "https")
-    end 
+    end
+    # See: http://stackoverflow.com/questions/10013812/how-to-prevent-jquery-ajax-from-following-a-redirect-after-a-post
+    def ajax?
+      env['HTTP_X_REQUESTED_WITH'].to_s.downcase == 'xmlhttprequest'
+    end
     def cookie name
       cookies[name.to_s]
     end
@@ -382,8 +391,8 @@ class Otto
     def send_cookie name, value, ttl, secure=true
       secure = false if request.local?
       opts = {
-        :value    => value, 
-        :path     => '/', 
+        :value    => value,
+        :path     => '/',
         :expires  => (Time.now + ttl + 10).utc,
         :secure   => secure
       }

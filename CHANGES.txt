@@ -1,5 +1,12 @@
 OTTO, CHANGES
 
+#### 0.3.1 (2012-12-17) ###############################
+
+* ADDED: Otto.debug (set w/ Otto.debug= or env variable OTTO_DEBUG)
+* ADDED: RequestHelpers#ajax?
+* CHANGE: Added internal subnets to RequestHelpers#local?
+
+
 #### 0.3.0 (2011-12-17) ###############################
 
 * ADDED: Example app, better docs in readme

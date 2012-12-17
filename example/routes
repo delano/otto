@@ -11,6 +11,8 @@ GET   /redirect                 App#redirect
 GET   /robots.txt               App#robots_text
 GET   /product/:prodid          App#display_product
 
+GET   /bogus                    App#no_such_method
+
 # You can also define these handlers when no 
 # route can be found or there's a server error. (optional) 
 GET   /404                      App#not_found

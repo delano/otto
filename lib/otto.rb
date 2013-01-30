@@ -393,11 +393,10 @@ class Otto
       opts = {
         :value    => value,
         :path     => '/',
-        :expires  => (Time.now + ttl + 10).utc,
+        :expires  => (Time.now.utc + ttl + 10),
         :secure   => secure
       }
-      opts[:domain] = request.env['SERVER_NAME']
-      #pp [:cookie, name, opts]
+      #opts[:domain] = request.env['SERVER_NAME']
       set_cookie name, opts
     end
     def delete_cookie name

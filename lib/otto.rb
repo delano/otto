@@ -33,7 +33,8 @@ class Otto
     @routes_literal = { :GET => {} }
     @route_definitions = {}
     @option = opts.merge({
-      :public => nil
+      :public => nil,
+      :locale => 'en'
     })
     load(path) unless path.nil?
     super()
@@ -84,6 +85,8 @@ class Otto
   end
 
   def call env
+    locale = determine_locale env
+    env['rack.locale'] = locale || self.option[:locale]
     if option[:public] && safe_dir?(option[:public])
       @static_route ||= Rack::File.new(option[:public])
     end
@@ -180,6 +183,20 @@ class Otto
       uri.query_values = local_params
       uri.to_s
     end
+  end
+
+  def determine_locale env
+    accept_langs = env['HTTP_ACCEPT_LANGUAGE']
+    locales = accept_langs.split(',').map { |l|
+      l += ';q=1.0' unless l =~ /;q=\d+(?:\.\d+)?$/
+      l.split(';q=')
+    }.sort_by { |locale, qvalue|
+      qvalue.to_f
+    }.collect { |locale, qvalue|
+      locale
+    }.reverse
+    STDERR.puts "locale: #{locales} (#{accept_langs})" if Otto.debug
+    locales.empty? ? nil : locales
   end
 
   module Static

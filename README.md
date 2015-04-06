@@ -1,4 +1,4 @@
-# Otto - 0.3
+# Otto - 0.4
 
 **Auto-define your rack-apps in plain-text.**
 
@@ -31,8 +31,8 @@ Here is an example:
     GET   /robots.txt               App#robots_text
     GET   /product/:prodid          App#display_product
 
-    # You can also define these handlers when no 
-    # route can be found or there's a server error. (optional) 
+    # You can also define these handlers when no
+    # route can be found or there's a server error. (optional)
     GET   /404                      App#not_found
     GET   /500                      App#server_error
 
@@ -73,13 +73,13 @@ There is nothing special about the Ruby class. The only requirement is that the 
         rules = 'User-agent: *', 'Disallow: /private'
         res.body = rules.join($/)
       end
-      
+
       def display_product
         res.header['Content-Type'] = "application/json; charset=utf-8"
         prodid = req.params[:prodid]
         res.body = '{"product":%s,"msg":"Hint: try another value"}' % [prodid]
       end
-      
+
       def not_found
         res.status = 404
         res.body = "Item not found!"
@@ -93,29 +93,29 @@ There is nothing special about the Ruby class. The only requirement is that the 
 
 ### Rackup ###
 
-There is also nothing special about the rackup file. It just builds a Rack app using your routes file. 
+There is also nothing special about the rackup file. It just builds a Rack app using your routes file.
 
     require 'otto'
     require 'app'
-    
+
     app = Otto.new("./routes")
-    
-    map('/') { 
+
+    map('/') {
       run app
     }
 
 See the examples/ directory for a working app.
 
-    
+
 ## Installation
 
 Get it in one of the following ways:
-     
+
     $ gem install otto
     $ sudo gem install otto
     $ git clone git://github.com/delano/otto.git
 
-You can also download via [tarball](http://github.com/delano/otto/tarball/latest) or [zip](http://github.com/delano/otto/zipball/latest). 
+You can also download via [tarball](http://github.com/delano/otto/tarball/latest) or [zip](http://github.com/delano/otto/zipball/latest).
 
 
 ## More Information

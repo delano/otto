@@ -86,7 +86,7 @@ class Otto
 
   def call env
     locale = determine_locale env
-    env['rack.locale'] = locale || self.option[:locale]
+    env['rack.locale'] = locale
     if option[:public] && safe_dir?(option[:public])
       @static_route ||= Rack::File.new(option[:public])
     end
@@ -187,14 +187,18 @@ class Otto
 
   def determine_locale env
     accept_langs = env['HTTP_ACCEPT_LANGUAGE']
-    locales = accept_langs.split(',').map { |l|
-      l += ';q=1.0' unless l =~ /;q=\d+(?:\.\d+)?$/
-      l.split(';q=')
-    }.sort_by { |locale, qvalue|
-      qvalue.to_f
-    }.collect { |locale, qvalue|
-      locale
-    }.reverse
+    accept_langs = self.option[:locale] if accept_langs.to_s.empty?
+    locales = []
+    unless accept_langs.empty?
+      locales = accept_langs.split(',').map { |l|
+        l += ';q=1.0' unless l =~ /;q=\d+(?:\.\d+)?$/
+        l.split(';q=')
+      }.sort_by { |locale, qvalue|
+        qvalue.to_f
+      }.collect { |locale, qvalue|
+        locale
+      }.reverse
+    end
     STDERR.puts "locale: #{locales} (#{accept_langs})" if Otto.debug
     locales.empty? ? nil : locales
   end

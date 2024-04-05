@@ -26,8 +26,7 @@ Gem::Specification.new do |s|
   s.rubygems_version = "3.2.22" # Update to the latest version
 
   s.required_ruby_version = '>= 2.6.8'
-  # s.add_runtime_dependency(%q<rack>, [">= 1.2.1"])
-  # s.add_runtime_dependency(%q<addressable>, [">= 2.2.6"])
-  s.add_dependency 'rack'
-  s.add_dependency 'addressable'
+
+  s.add_dependency 'addressable', '~> 2.2', '>= 2.2.6'
+  s.add_dependency 'rack', '~> 1.2', '>= 1.2.1'
 end

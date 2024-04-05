@@ -1,0 +1,66 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    addressable (2.8.6)
+      public_suffix (>= 2.0.2, < 6.0)
+    ast (2.4.2)
+    byebug (11.1.3)
+    coderay (1.1.3)
+    drydock (0.6.9)
+    json (2.7.2)
+    language_server-protocol (3.17.0.3)
+    method_source (1.0.0)
+    parallel (1.24.0)
+    parser (3.3.0.5)
+      ast (~> 2.4.1)
+      racc
+    pry (0.14.2)
+      coderay (~> 1.1)
+      method_source (~> 1.0)
+    pry-byebug (3.10.1)
+      byebug (~> 11.0)
+      pry (>= 0.13, < 0.15)
+    public_suffix (5.0.5)
+    racc (1.7.3)
+    rack (3.0.10)
+    rainbow (3.1.1)
+    regexp_parser (2.9.0)
+    rexml (3.2.6)
+    rubocop (1.62.1)
+      json (~> 2.3)
+      language_server-protocol (>= 3.17.0)
+      parallel (~> 1.10)
+      parser (>= 3.3.0.2)
+      rainbow (>= 2.2.2, < 4.0)
+      regexp_parser (>= 1.8, < 3.0)
+      rexml (>= 3.2.5, < 4.0)
+      rubocop-ast (>= 1.31.1, < 2.0)
+      ruby-progressbar (~> 1.7)
+      unicode-display_width (>= 2.4.0, < 3.0)
+    rubocop-ast (1.31.2)
+      parser (>= 3.3.0.4)
+    ruby-progressbar (1.13.0)
+    storable (0.10.0)
+    sysinfo (0.10.0)
+      drydock (< 1.0)
+      storable (~> 0.10)
+    tryouts (2.2.0)
+      sysinfo (~> 0.10)
+    unicode-display_width (2.5.0)
+
+PLATFORMS
+  arm64-darwin-22
+  ruby
+
+DEPENDENCIES
+  addressable
+  pry-byebug
+  rack
+  rubocop
+  tryouts
+
+RUBY VERSION
+   ruby 3.2.0p0
+
+BUNDLED WITH
+   2.5.7

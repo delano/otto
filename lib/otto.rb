@@ -42,7 +42,7 @@ class Otto
   alias_method :options, :option
   def load path
     path = File.expand_path(path)
-    raise ArgumentError, "Bad path: #{path}" unless File.exists?(path)
+    raise ArgumentError, "Bad path: #{path}" unless File.exist?(path)
     raw = File.readlines(path).select { |line| line =~ /^\w/ }.collect { |line| line.strip.split(/\s+/) }
     raw.each { |entry|
       begin

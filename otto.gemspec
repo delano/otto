@@ -2,7 +2,7 @@
 
 Gem::Specification.new do |spec|
   spec.name = "otto"
-  spec.version = "1.0.1"
+  spec.version = "1.0.2"
   spec.summary = "Auto-define your rack-apps in plaintext."
   spec.description = "Otto: #{spec.summary}"
   spec.email = "gems@solutious.com"

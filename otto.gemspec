@@ -11,7 +11,6 @@ Gem::Specification.new do |spec|
   spec.files = [
     "LICENSE.txt",
     "README.md",
-    "Rakefile",
     "VERSION.yml",
     "example/app.rb",
     "example/config.ru",
@@ -26,9 +25,6 @@ Gem::Specification.new do |spec|
   spec.rubygems_version = "3.2.22" # Update to the latest version
 
   spec.required_ruby_version = ['>= 2.6.8', '< 4.0']
-
-  spec.add_dependency 'rack'
-  spec.add_dependency 'addressable'
 
   spec.add_dependency 'addressable', '>= 2.2.6'
   spec.add_dependency 'rack', '>= 1.2.1'

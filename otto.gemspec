@@ -2,24 +2,15 @@
 
 Gem::Specification.new do |spec|
   spec.name = "otto"
-  spec.version = "1.0.2"
+  spec.version = "1.1.0-alpha1"
   spec.summary = "Auto-define your rack-apps in plaintext."
   spec.description = "Otto: #{spec.summary}"
   spec.email = "gems@solutious.com"
   spec.authors = ["Delano Mandelbaum"]
   spec.license = "MIT"
-  spec.files = [
-    "LICENSE.txt",
-    "README.md",
-    "VERSION.yml",
-    "example/app.rb",
-    "example/config.ru",
-    "example/public/favicon.ico",
-    "example/public/img/otto.jpg",
-    "example/routes",
-    "lib/otto.rb",
-    "otto.gemspec"
-  ]
+  spec.files = Dir.chdir(File.expand_path(__dir__)) do
+    `git ls-files -z`.split("\x0").reject { |f| f.match(%r{^(test|spec|features)/}) }
+  end
   spec.homepage = "https://github.com/delano/otto"
   spec.require_paths = ["lib"]
   spec.rubygems_version = "3.2.22" # Update to the latest version

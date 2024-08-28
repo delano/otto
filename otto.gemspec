@@ -19,6 +19,6 @@ Gem::Specification.new do |spec|
 
   spec.required_ruby_version = ['>= 2.6.8', '< 4.0']
 
-  spec.add_runtime_dependency 'addressable', '~> 2.2', '>= 2.2.6'
-  spec.add_runtime_dependency 'rack', '~> 1.2', '>= 1.2.1'
+  spec.add_runtime_dependency 'addressable', '~> 2.2', '< 3'
+  spec.add_runtime_dependency 'rack', '~> 2.2', '< 3.0'
 end

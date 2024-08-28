@@ -151,7 +151,8 @@ class Otto
       end
     end
   rescue => ex
-    Otto.logger.error ex.message, ex.backtrace
+    Otto.logger.error "#{ex.class}: #{ex.message} #{ex.backtrace.join("\n")}"
+
     if found_route = literal_routes['/500']
       found_route.call env
     else

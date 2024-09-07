@@ -92,7 +92,23 @@ class Otto
     end
     path_info = Rack::Utils.unescape(env['PATH_INFO'])
     path_info = '/' if path_info.to_s.empty?
-    path_info_clean = path_info.gsub /\/$/, ''
+
+    begin
+      path_info_clean = path_info
+        .encode(
+          'UTF-8',           # Target encoding
+          invalid: :replace, # Replace invalid byte sequences
+          undef: :replace,   # Replace characters undefined in UTF-8
+          replace: ''        # Use empty string for replacement
+        )
+        .gsub(/\/$/, '')     # Remove trailing slash, if present
+    rescue ArgumentError => ex
+      # Log the error
+      Otto.logger.error "[Otto.call] Error cleaning `#{path_info}`: #{ex.message}"
+      # Set a default value or use the original path_info
+      path_info_clean = path_info
+    end
+
     base_path = File.split(path_info).first
     # Files in the root directory can refer to themselves
     base_path = path_info if base_path == '/'

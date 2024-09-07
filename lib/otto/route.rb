@@ -47,7 +47,7 @@ class Otto
       req.params.replace Otto::Static.indifferent_params(req.params)
       klass.extend Otto::Route::ClassMethods
       klass.otto = self.otto
-      Otto.logger.debug "Route class: #{klass}"
+
       case kind
       when :instance
         inst = klass.new req, res

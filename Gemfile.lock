@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    otto (1.1.0.pre.alpha3)
+    otto (1.1.0.pre.alpha4)
       addressable (~> 2.2, < 3)
       rack (~> 2.2, < 3.0)
       rexml (>= 3.3.6)

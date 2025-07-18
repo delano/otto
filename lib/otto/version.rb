@@ -6,12 +6,13 @@ class Otto
   module VERSION
     def self.to_a
       load_config
-      [@version[:MAJOR], @version[:MINOR], @version[:PATCH]]
+      version = [@version[:MAJOR], @version[:MINOR], @version[:PATCH]]
+      version << @version[:PRE] unless @version.fetch(:PRE, nil).to_s.empty?
+      version
     end
 
     def self.to_s
-      version = to_a.join('.')
-      "#{version}-#{@version[:PRE]}" if @version[:PRE]
+      to_a.join('.')
     end
 
     def self.inspect

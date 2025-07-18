@@ -8,25 +8,25 @@ class Otto
 
     def client_ipaddress
       remote_addr = env['REMOTE_ADDR']
-      
+
       # If we don't have a security config or trusted proxies, use direct connection
       if !otto_security_config || !trusted_proxy?(remote_addr)
         return validate_ip_address(remote_addr)
       end
-      
+
       # Check forwarded headers from trusted proxies
       forwarded_ips = [
         env['HTTP_X_FORWARDED_FOR'],
         env['HTTP_X_REAL_IP'],
         env['HTTP_CLIENT_IP']
       ].compact.map { |header| header.split(/,\s*/) }.flatten
-      
+
       # Return the first valid IP that's not a private/loopback address
       forwarded_ips.each do |ip|
         clean_ip = validate_ip_address(ip.strip)
         return clean_ip if clean_ip && !private_ip?(clean_ip)
       end
-      
+
       # Fallback to remote address
       validate_ip_address(remote_addr)
     end
@@ -66,26 +66,26 @@ class Otto
 
     def local?
       return false unless Otto.env?(:dev, :development)
-      
+
       ip = client_ipaddress
       return false unless ip
-      
+
       local_or_private_ip?(ip)
     end
 
     def secure?
       # Check direct HTTPS connection
       return true if env['HTTPS'] == 'on' || env['SERVER_PORT'] == '443'
-      
+
       remote_addr = env['REMOTE_ADDR']
-      
+
       # Only trust forwarded proto headers from trusted proxies
       if otto_security_config && trusted_proxy?(remote_addr)
         # X-Scheme is set by nginx
         # X-FORWARDED-PROTO is set by elastic load balancer
         return env['HTTP_X_FORWARDED_PROTO'] == 'https' || env['HTTP_X_SCHEME'] == 'https'
       end
-      
+
       false
     end
 
@@ -123,29 +123,29 @@ class Otto
     def trusted_proxy?(ip)
       config = otto_security_config
       return false unless config
-      
+
       config.trusted_proxy?(ip)
     end
 
     def validate_ip_address(ip)
       return nil if ip.nil? || ip.empty?
-      
+
       # Remove any port number
       clean_ip = ip.split(':').first
-      
+
       # Basic IP format validation
       return nil unless clean_ip.match?(/\A\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\z/)
-      
+
       # Validate each octet
       octets = clean_ip.split('.')
       return nil unless octets.all? { |octet| (0..255).include?(octet.to_i) }
-      
+
       clean_ip
     end
 
     def private_ip?(ip)
       return false unless ip
-      
+
       # RFC 1918 private ranges and loopback
       private_ranges = [
         /\A10\./,                    # 10.0.0.0/8
@@ -155,16 +155,16 @@ class Otto
         /\A224\./,                   # 224.0.0.0/4 (multicast)
         /\A0\./                      # 0.0.0.0/8
       ]
-      
+
       private_ranges.any? { |range| ip.match?(range) }
     end
 
     def local_or_private_ip?(ip)
       return false unless ip
-      
+
       # Check for localhost
       return true if ip == '127.0.0.1' || ip == '::1'
-      
+
       # Check for private IP ranges
       private_ip?(ip)
     end

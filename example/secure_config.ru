@@ -7,10 +7,10 @@ require_relative 'secure_app'
 app = Otto.new("./secure_routes", {
   # Enable CSRF protection for POST, PUT, DELETE requests
   csrf_protection: true,
-  
+
   # Enable input validation and sanitization
   request_validation: true,
-  
+
   # Configure trusted proxy servers (adjust for your infrastructure)
   trusted_proxies: [
     '127.0.0.1',        # Local development
@@ -18,7 +18,7 @@ app = Otto.new("./secure_routes", {
     '172.16.0.0/12',    # Private networks  
     '192.168.0.0/16'    # Private networks
   ],
-  
+
   # Custom security headers
   security_headers: {
     'content-security-policy' => "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'",
@@ -40,7 +40,7 @@ app.security_config.max_param_keys = 50                 # Limit parameters per r
 if ENV['RACK_ENV'] == 'production'
   # Production-specific settings
   app.security_config.require_secure_cookies = true
-  
+
   # More restrictive CSP for production
   app.set_security_headers({
     'content-security-policy' => "default-src 'self'; style-src 'self'; script-src 'self'; object-src 'none'",
@@ -50,12 +50,11 @@ else
   # Development-specific settings
   puts "🔒 Security features enabled:"
   puts "   ✓ CSRF Protection"
-  puts "   ✓ Input Validation" 
+  puts "   ✓ Input Validation"
   puts "   ✓ Request Size Limits"
   puts "   ✓ Security Headers"
   puts "   ✓ Trusted Proxy Support"
   puts ""
-  puts "Visit http://localhost:9292 to see the secure app in action!"
 end
 
 # Mount the application

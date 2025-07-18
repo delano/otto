@@ -213,10 +213,10 @@ class Otto
 
     # Raised when a request exceeds the configured size limit
     class RequestTooLargeError < StandardError; end
-    
+
     # Raised when CSRF token validation fails
     class CSRFError < StandardError; end
-    
+
     # Raised when input validation fails (XSS, SQL injection, etc.)
     class ValidationError < StandardError; end
   end

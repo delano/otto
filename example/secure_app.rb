@@ -3,7 +3,7 @@
 class SecureApp
   # An instance of Rack::Request
   attr_reader :req
-  # An instance of Rack::Response  
+  # An instance of Rack::Response
   attr_reader :res
 
   # Otto creates an instance of this class for every request
@@ -67,7 +67,7 @@ class SecureApp
     begin
       # Validate and sanitize the message input
       message = req.params['message']
-      
+
       if respond_to?(:validate_input)
         # Use built-in validation helper
         safe_message = validate_input(message, max_length: 1000, allow_html: false)
@@ -78,7 +78,7 @@ class SecureApp
           raise "Message too long"
         end
       end
-      
+
       if safe_message.empty?
         content = [
           '<h2>Error</h2>',
@@ -96,7 +96,7 @@ class SecureApp
           '<p><a href="/">← Back to form</a></p>'
         ]
       end
-      
+
     rescue Otto::Security::ValidationError => e
       content = [
         '<h2>Security Validation Failed</h2>',
@@ -111,14 +111,14 @@ class SecureApp
         '<p><a href="/">← Back to form</a></p>'
       ]
     end
-    
+
     res.body = html_wrapper(content.join("\n"))
   end
 
   def upload_file
     begin
       uploaded_file = req.params['upload_file']
-      
+
       if uploaded_file.nil? || uploaded_file.empty?
         content = [
           '<h2>Upload Error</h2>',
@@ -128,7 +128,7 @@ class SecureApp
       else
         # Get the original filename
         filename = uploaded_file[:filename] rescue uploaded_file.original_filename rescue 'unknown'
-        
+
         # Sanitize the filename using security helper if available
         if respond_to?(:sanitize_filename)
           safe_filename = sanitize_filename(filename)
@@ -136,7 +136,7 @@ class SecureApp
           # Basic filename sanitization
           safe_filename = File.basename(filename.to_s).gsub(/[^\w\-_\.]/, '_')
         end
-        
+
         content = [
           '<h2>File Upload Successful</h2>',
           '<p style="color: green;">File processed successfully!</p>',
@@ -149,7 +149,7 @@ class SecureApp
           '<p><a href="/">← Back to form</a></p>'
         ]
       end
-      
+
     rescue Otto::Security::ValidationError => e
       content = [
         '<h2>File Validation Failed</h2>',
@@ -163,16 +163,16 @@ class SecureApp
         '<p><a href="/">← Back to form</a></p>'
       ]
     end
-    
+
     res.body = html_wrapper(content.join("\n"))
   end
 
   def update_profile
     begin
       name = req.params['name']
-      email = req.params['email'] 
+      email = req.params['email']
       bio = req.params['bio']
-      
+
       # Validate inputs using security helpers if available
       if respond_to?(:validate_input)
         safe_name = validate_input(name, max_length: 100)
@@ -184,12 +184,12 @@ class SecureApp
         safe_email = email.to_s.strip[0..254]
         safe_bio = bio.to_s.strip[0..499]
       end
-      
+
       # Basic email format validation
       unless safe_email.match?(/\A[^@\s]+@[^@\s]+\z/)
         raise Otto::Security::ValidationError, "Invalid email format"
       end
-      
+
       content = [
         '<h2>Profile Updated</h2>',
         '<p style="color: green;">Your profile has been updated successfully!</p>',
@@ -200,7 +200,7 @@ class SecureApp
         '</div>',
         '<p><a href="/">← Back to form</a></p>'
       ]
-      
+
     rescue Otto::Security::ValidationError => e
       content = [
         '<h2>Profile Validation Failed</h2>',
@@ -215,13 +215,13 @@ class SecureApp
         '<p><a href="/">← Back to form</a></p>'
       ]
     end
-    
+
     res.body = html_wrapper(content.join("\n"))
   end
 
   def show_headers
     res.headers['content-type'] = 'application/json; charset=utf-8'
-    
+
     # Show request headers (filtered for security)
     safe_headers = {}
     req.env.each do |key, value|
@@ -229,14 +229,14 @@ class SecureApp
         safe_headers[key] = value.to_s[0..200] # Limit length for safety
       end
     end
-    
+
     response_data = {
       message: "Request headers (filtered for security)",
       client_ip: req.respond_to?(:client_ipaddress) ? req.client_ipaddress : req.ip,
       secure_connection: req.respond_to?(:secure?) ? req.secure? : false,
       headers: safe_headers
     }
-    
+
     require 'json'
     res.body = JSON.pretty_generate(response_data)
   end
@@ -284,10 +284,10 @@ class SecureApp
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <title>Secure Otto App</title>
           <style>
-              body { 
-                  font-family: Arial, sans-serif; 
-                  max-width: 800px; 
-                  margin: 0 auto; 
+              body {
+                  font-family: Arial, sans-serif;
+                  max-width: 800px;
+                  margin: 0 auto;
                   padding: 20px;
                   background-color: #f9f9f9;
               }

@@ -78,7 +78,7 @@ class Otto
         Thread ThreadGroup Fiber
         ObjectSpace GC
       ]
-      
+
       if forbidden_classes.include?(class_name) || class_name.start_with?('::')
         raise ArgumentError, "Forbidden class name: #{class_name}"
       end
@@ -97,7 +97,7 @@ class Otto
     end
 
     # Execute the route by calling the associated class method
-    # 
+    #
     # This method handles the complete request/response cycle with built-in security:
     # - Processes parameters through the security layer
     # - Adds configured security headers to the response
@@ -114,18 +114,18 @@ class Otto
       req.extend Otto::RequestHelpers
       res.extend Otto::ResponseHelpers
       res.request = req
-      
+
       # Process parameters through security layer
       req.params.merge! extra_params
       req.params.replace Otto::Static.indifferent_params(req.params)
-      
+
       # Add security headers
       if otto.respond_to?(:security_config) && otto.security_config
         otto.security_config.security_headers.each do |header, value|
           res.headers[header] = value
         end
       end
-      
+
       klass.extend Otto::Route::ClassMethods
       klass.otto = otto
 
@@ -133,7 +133,7 @@ class Otto
       if otto.respond_to?(:security_config) && otto.security_config&.csrf_enabled?
         res.extend Otto::Security::CSRFHelpers
       end
-      
+
       # Add validation helpers
       res.extend Otto::Security::ValidationHelpers
 

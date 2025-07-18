@@ -11,7 +11,7 @@ class App
   def initialize(req, res)
     @req = req
     @res = res
-    res.headers['Content-Type'] = 'text/html; charset=utf-8'
+    res.headers['content-type'] = 'text/html; charset=utf-8'
   end
 
   def index
@@ -21,6 +21,7 @@ class App
       '<form method="post"><input name="msg" /><input type="submit" /></form>',
       '<a href="/product/100">A product example</a>'
     ]
+    p res.headers
     res.send_cookie :sess, 1_234_567, 3600
     res.body = lines.join($/)
   end
@@ -34,13 +35,13 @@ class App
   end
 
   def robots_text
-    res.headers['Content-Type'] = 'text/plain'
+    res.headers['content-type'] = 'text/plain'
     rules = 'User-agent: *', 'Disallow: /private'
     res.body = rules.join($/)
   end
 
   def display_product
-    res.headers['Content-Type'] = 'application/json; charset=utf-8'
+    res.headers['content-type'] = 'application/json; charset=utf-8'
     prodid = req.params[:prodid]
     res.body = format('{"product":%s,"msg":"Hint: try another value"}', prodid)
   end

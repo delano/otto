@@ -1,4 +1,4 @@
-# Otto - 1.0 (2024-04-05)
+# Otto - 1.0 (2024-08-18)
 
 **Auto-define your rack-apps in plain-text.**
 

@@ -1,3 +1,5 @@
+# example/app.rb
+
 class App
   # An instance of Rack::Request
   attr_reader :req
@@ -9,7 +11,7 @@ class App
   def initialize(req, res)
     @req = req
     @res = res
-    res.header['Content-Type'] = 'text/html; charset=utf-8'
+    res.headers['Content-Type'] = 'text/html; charset=utf-8'
   end
 
   def index
@@ -32,13 +34,13 @@ class App
   end
 
   def robots_text
-    res.header['Content-Type'] = 'text/plain'
+    res.headers['Content-Type'] = 'text/plain'
     rules = 'User-agent: *', 'Disallow: /private'
     res.body = rules.join($/)
   end
 
   def display_product
-    res.header['Content-Type'] = 'application/json; charset=utf-8'
+    res.headers['Content-Type'] = 'application/json; charset=utf-8'
     prodid = req.params[:prodid]
     res.body = format('{"product":%s,"msg":"Hint: try another value"}', prodid)
   end

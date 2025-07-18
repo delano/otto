@@ -1,3 +1,5 @@
+# example/config.ru
+
 # OTTO EXAMPLE APP CONFIG - 2011-12-17
 #
 # Usage:
@@ -27,8 +29,8 @@ if Otto.env?(:dev) # DEV: Run web apps with extra logging and reloading
     run app
   end
   # Specify static paths to serve in dev-mode only
-  map('/etc/') { run Rack::File.new("#{PUBLIC_DIR}/etc") }
-  map('/img/') { run Rack::File.new("#{PUBLIC_DIR}/img") }
+  map('/etc/') { run Rack::Files.new("#{PUBLIC_DIR}/etc") }
+  map('/img/') { run Rack::Files.new("#{PUBLIC_DIR}/img") }
 
 else # PROD: run barebones webapp
   map('/') { run app }

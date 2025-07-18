@@ -1,3 +1,5 @@
+# lib/otto/static.rb
+
 class Otto
   module Static
     extend self

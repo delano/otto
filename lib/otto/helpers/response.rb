@@ -1,3 +1,5 @@
+# lib/otto/helpers/response.rb
+
 class Otto
   module ResponseHelpers
     attr_accessor :request

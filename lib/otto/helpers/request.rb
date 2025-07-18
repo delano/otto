@@ -1,3 +1,5 @@
+# lib/otto/helpers/request.rb
+
 class Otto
   module RequestHelpers
     def user_agent

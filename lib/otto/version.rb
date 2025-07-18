@@ -1,3 +1,5 @@
+# lib/otto/version.rb
+
 class Otto
   # Otto::VERSION
   #

@@ -85,7 +85,7 @@ class Otto
   def call(env)
     locale = determine_locale env
     env['rack.locale'] = locale
-    @static_route ||= Rack::File.new(option[:public]) if option[:public] && safe_dir?(option[:public])
+    @static_route ||= Rack::Files.new(option[:public]) if option[:public] && safe_dir?(option[:public])
     path_info = Rack::Utils.unescape(env['PATH_INFO'])
     path_info = '/' if path_info.to_s.empty?
 

@@ -1,4 +1,4 @@
-# example/secure_app.rb
+# examples/security_features/app.rb
 
 class SecureApp
   # An instance of Rack::Request

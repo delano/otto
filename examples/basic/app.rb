@@ -1,4 +1,4 @@
-# example/app.rb
+# examples/basic/app.rb
 
 class App
   # An instance of Rack::Request

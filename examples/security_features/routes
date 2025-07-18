@@ -1,3 +1,5 @@
+# examples/security_features/routes
+
 GET   /                         SecureApp#index
 POST  /feedback                 SecureApp#receive_feedback
 POST  /upload                   SecureApp#upload_file

@@ -1,10 +1,16 @@
-# example/secure_config.ru
+# examples/security_features/config.ru
 
+# OTTO SECURE EXAMPLE APP CONFIG - 2025-07-18
+#
+# Usage:
+#
+#     $ thin -e dev -R config.ru -p 10770 start
+#
 require_relative '../lib/otto'
-require_relative 'secure_app'
+require_relative 'app'
 
 # Create Otto app with security features enabled
-app = Otto.new("./secure_routes", {
+app = Otto.new("./routes", {
   # Enable CSRF protection for POST, PUT, DELETE requests
   csrf_protection: true,
 

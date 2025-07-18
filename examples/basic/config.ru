@@ -1,11 +1,10 @@
-# example/config.ru
+# examples/basic/config.ru
 
 # OTTO EXAMPLE APP CONFIG - 2011-12-17
 #
 # Usage:
 #
 #     $ thin -e dev -R config.ru -p 10770 start
-#     $ tail -f /var/log/system.log
 
 ENV['RACK_ENV'] ||= 'prod'
 ENV['APP_ROOT'] = File.expand_path(File.join(File.dirname(__FILE__)))

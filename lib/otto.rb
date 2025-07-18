@@ -1,4 +1,5 @@
 require 'logger'
+require 'securerandom'
 
 require 'rack/request'
 require 'rack/response'
@@ -10,9 +11,23 @@ require_relative 'otto/static'
 require_relative 'otto/helpers/request'
 require_relative 'otto/helpers/response'
 require_relative 'otto/version'
+require_relative 'otto/security/config'
+require_relative 'otto/security/csrf'
+require_relative 'otto/security/validator'
 
 # Otto is a simple Rack router that allows you to define routes in a file
+# with built-in security features including CSRF protection, input validation,
+# and trusted proxy support.
 #
+# Basic usage:
+#   otto = Otto.new('routes.txt')
+#
+# With security features:
+#   otto = Otto.new('routes.txt', {
+#     csrf_protection: true,
+#     request_validation: true,
+#     trusted_proxies: ['10.0.0.0/8']
+#   })
 #
 class Otto
   LIB_HOME = __dir__ unless defined?(Otto::LIB_HOME)
@@ -20,8 +35,8 @@ class Otto
   @debug = ENV['OTTO_DEBUG'] == 'true'
   @logger = Logger.new($stdout, Logger::INFO)
 
-  attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route
-  attr_accessor :not_found, :server_error
+  attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route, :security_config
+  attr_accessor :not_found, :server_error, :middleware_stack
 
   def initialize(path = nil, opts = {})
     @routes_static =  { GET: {} }
@@ -32,6 +47,12 @@ class Otto
                            public: nil,
       locale: 'en'
                          })
+    @security_config = Otto::Security::Config.new
+    @middleware_stack = []
+    
+    # Configure security based on options
+    configure_security(opts)
+    
     Otto.logger.debug "new Otto: #{opts}" if Otto.debug
     load(path) unless path.nil?
     super()
@@ -61,14 +82,43 @@ class Otto
   end
 
   def safe_file?(path)
-    globstr = File.join(option[:public], '*')
-    pathstr = File.join(option[:public], path)
-    File.fnmatch?(globstr,
-                  pathstr) && (File.owned?(pathstr) || File.grpowned?(pathstr)) && File.readable?(pathstr) && !File.directory?(pathstr)
+    return false if option[:public].nil? || option[:public].empty?
+    return false if path.nil? || path.empty?
+    
+    # Normalize and resolve the public directory path
+    public_dir = File.expand_path(option[:public])
+    return false unless File.directory?(public_dir)
+    
+    # Clean the requested path - remove null bytes and normalize
+    clean_path = path.gsub("\0", "").strip
+    return false if clean_path.empty?
+    
+    # Join and expand to get the full resolved path
+    requested_path = File.expand_path(File.join(public_dir, clean_path))
+    
+    # Ensure the resolved path is within the public directory (prevents path traversal)
+    return false unless requested_path.start_with?(public_dir + File::SEPARATOR)
+    
+    # Check file exists, is readable, and is not a directory
+    File.exist?(requested_path) && 
+      File.readable?(requested_path) && 
+      !File.directory?(requested_path) &&
+      (File.owned?(requested_path) || File.grpowned?(requested_path))
   end
 
   def safe_dir?(path)
-    (File.owned?(path) || File.grpowned?(path)) && File.directory?(path)
+    return false if path.nil? || path.empty?
+    
+    # Clean and expand the path
+    clean_path = path.gsub("\0", "").strip
+    return false if clean_path.empty?
+    
+    expanded_path = File.expand_path(clean_path)
+    
+    # Check directory exists, is readable, and has proper ownership
+    File.directory?(expanded_path) && 
+      File.readable?(expanded_path) &&
+      (File.owned?(expanded_path) || File.grpowned?(expanded_path))
   end
 
   def add_static_path(path)
@@ -83,6 +133,20 @@ class Otto
   end
 
   def call(env)
+    # Apply middleware stack
+    app = lambda { |e| handle_request(e) }
+    @middleware_stack.reverse.each do |middleware|
+      app = middleware.new(app, @security_config)
+    end
+    
+    begin
+      app.call(env)
+    rescue StandardError => e
+      handle_error(e, env)
+    end
+  end
+  
+  def handle_request(env)
     locale = determine_locale env
     env['rack.locale'] = locale
     @static_route ||= Rack::Files.new(option[:public]) if option[:public] && safe_dir?(option[:public])
@@ -99,8 +163,9 @@ class Otto
                         )
                         .gsub(%r{/$}, '') # Remove trailing slash, if present
     rescue ArgumentError => e
-      # Log the error
-      Otto.logger.error "[Otto.call] Error cleaning `#{path_info}`: #{e.message}"
+      # Log the error but don't expose details
+      Otto.logger.error "[Otto.handle_request] Path encoding error"
+      Otto.logger.debug "[Otto.handle_request] Error details: #{e.message}" if Otto.debug
       # Set a default value or use the original path_info
       path_info_clean = path_info
     end
@@ -119,8 +184,7 @@ class Otto
       # Otto.logger.debug " request: #{http_verb} #{path_info} (literal route: #{route.verb} #{route.path})"
       route.call(env)
     elsif static_route && http_verb == :GET && safe_file?(path_info)
-      File.join(option[:public], base_path)
-      Otto.logger.debug " new static route: #{base_path} (#{path_info})"
+      Otto.logger.debug " new static route: #{base_path} (#{path_info})" if Otto.debug
       routes_static[:GET][base_path] = base_path
       static_route.call(env)
     else
@@ -160,14 +224,6 @@ class Otto
       else
         @not_found || Otto::Static.not_found
       end
-    end
-  rescue StandardError => e
-    Otto.logger.error "#{e.class}: #{e.message} #{e.backtrace.join("\n")}"
-
-    if found_route = literal_routes['/500']
-      found_route.call env
-    else
-      @server_error || Otto::Static.server_error
     end
   end
 
@@ -213,6 +269,127 @@ class Otto
     end
     Otto.logger.debug "locale: #{locales} (#{accept_langs})" if Otto.debug
     locales.empty? ? nil : locales
+  end
+
+  # Add middleware to the stack
+  # 
+  # @param middleware [Class] The middleware class to add
+  # @param args [Array] Additional arguments for the middleware
+  # @param block [Proc] Optional block for middleware configuration
+  def use(middleware, *args, &block)
+    @middleware_stack << middleware
+  end
+  
+  # Enable CSRF protection for POST, PUT, DELETE, and PATCH requests.
+  # This will automatically add CSRF tokens to HTML forms and validate
+  # them on unsafe HTTP methods.
+  #
+  # @example
+  #   otto.enable_csrf_protection!
+  def enable_csrf_protection!
+    @security_config.enable_csrf_protection!
+    use Otto::Security::CSRFMiddleware unless middleware_enabled?(Otto::Security::CSRFMiddleware)
+  end
+  
+  # Enable request validation including input sanitization, size limits,
+  # and protection against XSS and SQL injection attacks.
+  #
+  # @example
+  #   otto.enable_request_validation!
+  def enable_request_validation!
+    @security_config.input_validation = true
+    use Otto::Security::ValidationMiddleware unless middleware_enabled?(Otto::Security::ValidationMiddleware)
+  end
+  
+  # Add a trusted proxy server for accurate client IP detection.
+  # Only requests from trusted proxies will have their forwarded headers honored.
+  #
+  # @param proxy [String, Regexp] IP address, CIDR range, or regex pattern
+  # @example
+  #   otto.add_trusted_proxy('10.0.0.0/8')
+  #   otto.add_trusted_proxy(/^172\.16\./)
+  def add_trusted_proxy(proxy)
+    @security_config.add_trusted_proxy(proxy)
+  end
+  
+  # Set custom security headers that will be added to all responses.
+  # These merge with the default security headers.
+  #
+  # @param headers [Hash] Hash of header name => value pairs
+  # @example
+  #   otto.set_security_headers({
+  #     'content-security-policy' => "default-src 'self'",
+  #     'strict-transport-security' => 'max-age=31536000'
+  #   })
+  def set_security_headers(headers)
+    @security_config.security_headers.merge!(headers)
+  end
+
+  private
+  
+  def configure_security(opts)
+    # Enable CSRF protection if requested
+    if opts[:csrf_protection]
+      enable_csrf_protection!
+    end
+    
+    # Enable request validation if requested
+    if opts[:request_validation]
+      enable_request_validation!
+    end
+    
+    # Add trusted proxies if provided
+    if opts[:trusted_proxies]
+      Array(opts[:trusted_proxies]).each { |proxy| add_trusted_proxy(proxy) }
+    end
+    
+    # Set custom security headers
+    if opts[:security_headers]
+      set_security_headers(opts[:security_headers])
+    end
+  end
+  
+  def middleware_enabled?(middleware_class)
+    @middleware_stack.any? { |m| m == middleware_class }
+  end
+  
+  def handle_error(error, env)
+    # Log error details internally but don't expose them
+    error_id = SecureRandom.hex(8)
+    Otto.logger.error "[#{error_id}] #{error.class}: #{error.message}"
+    Otto.logger.debug "[#{error_id}] Backtrace: #{error.backtrace.join("\n")}" if Otto.debug
+    
+    # Check for custom error routes
+    request = Rack::Request.new(env) rescue nil
+    literal_routes = @routes_literal[:GET] || {}
+    
+    # Try custom 500 route first
+    if found_route = literal_routes['/500']
+      begin
+        env['otto.error_id'] = error_id
+        return found_route.call(env)
+      rescue StandardError => route_error
+        Otto.logger.error "[#{error_id}] Error in custom error handler: #{route_error.message}"
+      end
+    end
+    
+    # Fallback to built-in error response
+    @server_error || secure_error_response(error_id)
+  end
+  
+  def secure_error_response(error_id)
+    body = if Otto.env?(:dev, :development)
+             "Server error (ID: #{error_id}). Check logs for details."
+           else
+             "An error occurred. Please try again later."
+           end
+    
+    headers = {
+      'content-type' => 'text/plain',
+      'content-length' => body.bytesize.to_s
+    }.merge(@security_config.security_headers)
+    
+    [500, headers, [body]]
   end
 
   class << self

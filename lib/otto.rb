@@ -29,6 +29,13 @@ require_relative 'otto/security/validator'
 #     trusted_proxies: ['10.0.0.0/8']
 #   })
 #
+# Security headers are applied conservatively by default (only basic headers
+# like X-Content-Type-Options). Restrictive headers like HSTS, CSP, and
+# X-Frame-Options must be enabled explicitly:
+#   otto.enable_hsts!
+#   otto.enable_csp!
+#   otto.enable_frame_protection!
+#
 class Otto
   LIB_HOME = __dir__ unless defined?(Otto::LIB_HOME)
 
@@ -324,6 +331,38 @@ class Otto
   def set_security_headers(headers)
     @security_config.security_headers.merge!(headers)
   end
+
+  # Enable HTTP Strict Transport Security (HSTS) header.
+  # WARNING: This can make your domain inaccessible if HTTPS is not properly
+  # configured. Only enable this when you're certain HTTPS is working correctly.
+  #
+  # @param max_age [Integer] Maximum age in seconds (default: 1 year)
+  # @param include_subdomains [Boolean] Apply to all subdomains (default: true)
+  # @example
+  #   otto.enable_hsts!(max_age: 86400, include_subdomains: false)
+  def enable_hsts!(max_age: 31536000, include_subdomains: true)
+    @security_config.enable_hsts!(max_age: max_age, include_subdomains: include_subdomains)
+  end
+
+  # Enable Content Security Policy (CSP) header to prevent XSS attacks.
+  # The default policy only allows resources from the same origin.
+  #
+  # @param policy [String] CSP policy string (default: "default-src 'self'")
+  # @example
+  #   otto.enable_csp!("default-src 'self'; script-src 'self' 'unsafe-inline'")
+  def enable_csp!(policy = "default-src 'self'")
+    @security_config.enable_csp!(policy)
+  end
+
+  # Enable X-Frame-Options header to prevent clickjacking attacks.
+  #
+  # @param option [String] Frame options: 'DENY', 'SAMEORIGIN', or 'ALLOW-FROM uri'
+  # @example
+  #   otto.enable_frame_protection!('DENY')
+  def enable_frame_protection!(option = 'SAMEORIGIN')
+    @security_config.enable_frame_protection!(option)
+  end
+
 
   private
 

@@ -169,27 +169,76 @@ class Otto
         secure_compare(signature, expected_signature)
       end
 
+      # Enable HTTP Strict Transport Security (HSTS) header
+      #
+      # HSTS forces browsers to use HTTPS for all future requests to this domain.
+      # WARNING: This can make your domain inaccessible if HTTPS is not properly
+      # configured. Only enable this when you're certain HTTPS is working correctly.
+      #
+      # @param max_age [Integer] Maximum age in seconds (default: 1 year)
+      # @param include_subdomains [Boolean] Apply to all subdomains (default: true)
+      # @return [void]
+      def enable_hsts!(max_age: 31536000, include_subdomains: true)
+        hsts_value = "max-age=#{max_age}"
+        hsts_value += "; includeSubDomains" if include_subdomains
+        @security_headers['strict-transport-security'] = hsts_value
+      end
+
+      # Enable Content Security Policy (CSP) header
+      #
+      # CSP helps prevent XSS attacks by controlling which resources can be loaded.
+      # The default policy only allows resources from the same origin.
+      #
+      # @param policy [String] CSP policy string (default: "default-src 'self'")
+      # @return [void]
+      #
+      # @example Custom policy
+      #   config.enable_csp!("default-src 'self'; script-src 'self' 'unsafe-inline'")
+      def enable_csp!(policy = "default-src 'self'")
+        @security_headers['content-security-policy'] = policy
+      end
+
+      # Enable X-Frame-Options header to prevent clickjacking
+      #
+      # @param option [String] Frame options: 'DENY', 'SAMEORIGIN', or 'ALLOW-FROM uri'
+      # @return [void]
+      def enable_frame_protection!(option = 'SAMEORIGIN')
+        @security_headers['x-frame-options'] = option
+      end
+
+      # Set custom security headers
+      #
+      # @param headers [Hash] Hash of header name => value pairs
+      # @return [void]
+      #
+      # @example
+      #   config.set_custom_headers({
+      #     'permissions-policy' => 'geolocation=(), microphone=()',
+      #     'cross-origin-opener-policy' => 'same-origin'
+      #   })
+      def set_custom_headers(headers)
+        @security_headers.merge!(headers)
+      end
+
       private
 
       # Default security headers applied to all responses
       #
-      # These headers provide defense-in-depth against common web vulnerabilities:
-      # - x-frame-options: Prevents clickjacking attacks
+      # These headers provide basic defense against common web vulnerabilities:
       # - x-content-type-options: Prevents MIME type sniffing
-      # - x-xss-protection: Enables browser XSS filtering
+      # - x-xss-protection: Enables browser XSS filtering (legacy browsers)
       # - referrer-policy: Controls referrer information leakage
-      # - content-security-policy: Prevents XSS and injection attacks
-      # - strict-transport-security: Enforces HTTPS connections
+      #
+      # Note: Restrictive headers like HSTS, CSP, and X-Frame-Options are not
+      # included by default to avoid breaking downstream applications. These
+      # should be configured explicitly when appropriate.
       #
       # @return [Hash] Hash of header names and values (all lowercase for Rack 3+)
       def default_security_headers
         {
-          'x-frame-options' => 'DENY',
           'x-content-type-options' => 'nosniff',
           'x-xss-protection' => '1; mode=block',
-          'referrer-policy' => 'strict-origin-when-cross-origin',
-          'content-security-policy' => "default-src 'self'",
-          'strict-transport-security' => 'max-age=31536000; includeSubDomains'
+          'referrer-policy' => 'strict-origin-when-cross-origin'
         }
       end
 

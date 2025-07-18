@@ -1,5 +1,3 @@
-#
-
 class Otto
   # Otto::VERSION
   #
@@ -21,6 +19,7 @@ class Otto
 
     def self.load_config
       return if @version
+
       require 'yaml'
       @version = YAML.load_file(File.join(__dir__, '..', '..', 'VERSION.yml'))
     end

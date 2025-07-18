@@ -18,49 +18,49 @@ class SecureApp
     # CSRF token will be automatically injected into HTML responses
     # when CSRF protection is enabled
     csrf_tag = respond_to?(:csrf_form_tag) ? csrf_form_tag : ''
-    
-    lines = [
-      '<h1>Secure Otto App Example</h1>',
-      '<h2>Security Features Demo</h2>',
-      '<div style="margin: 20px 0;">',
-      '  <h3>Send Feedback (CSRF Protected)</h3>',
-      '  <form method="post" action="/feedback">',
-      "    #{csrf_tag}",
-      '    <label>Message:</label><br>',
-      '    <textarea name="message" rows="4" cols="50" placeholder="Enter your feedback..."></textarea><br><br>',
-      '    <input type="submit" value="Submit Feedback">',
-      '  </form>',
-      '</div>',
-      '<div style="margin: 20px 0;">',
-      '  <h3>File Upload (Validation Demo)</h3>',
-      '  <form method="post" action="/upload" enctype="multipart/form-data">',
-      "    #{csrf_tag}",
-      '    <label>Choose file:</label><br>',
-      '    <input type="file" name="upload_file"><br><br>',
-      '    <input type="submit" value="Upload File">',
-      '  </form>',
-      '</div>',
-      '<div style="margin: 20px 0;">',
-      '  <h3>User Profile (Input Validation)</h3>',
-      '  <form method="post" action="/profile">',
-      "    #{csrf_tag}",
-      '    <label>Name:</label><br>',
-      '    <input type="text" name="name" placeholder="Your name"><br><br>',
-      '    <label>Email:</label><br>',
-      '    <input type="email" name="email" placeholder="your@email.com"><br><br>',
-      '    <label>Bio:</label><br>',
-      '    <textarea name="bio" rows="3" cols="50" placeholder="Tell us about yourself..."></textarea><br><br>',
-      '    <input type="submit" value="Update Profile">',
-      '  </form>',
-      '</div>',
-      '<div style="margin: 20px 0;">',
-      '  <p><strong>Security Headers:</strong> Check your browser\'s developer tools to see the security headers in action!</p>',
-      '  <p><strong>Try an XSS attack:</strong> Enter <code>&lt;script&gt;alert("XSS")&lt;/script&gt;</code> in any form field.</p>',
-      '  <p><strong>View Headers:</strong> <a href="/headers">See all request headers</a></p>',
-      '</div>'
-    ]
-    
-    res.body = html_wrapper(lines.join("\n"))
+
+    lines = <<~HTML
+      <h1>Secure Otto App Example</h1>
+      <h2>Security Features Demo</h2>
+      <div style="margin: 20px 0;">
+        <h3>Send Feedback (CSRF Protected)</h3>
+        <form method="post" action="/feedback">
+          #{csrf_tag}
+          <label>Message:</label><br>
+          <textarea name="message" rows="4" cols="50" placeholder="Enter your feedback..."></textarea><br><br>
+          <input type="submit" value="Submit Feedback">
+        </form>
+      </div>
+      <div style="margin: 20px 0;">
+        <h3>File Upload (Validation Demo)</h3>
+        <form method="post" action="/upload" enctype="multipart/form-data">
+          #{csrf_tag}
+          <label>Choose file:</label><br>
+          <input type="file" name="upload_file"><br><br>
+          <input type="submit" value="Upload File">
+        </form>
+      </div>
+      <div style="margin: 20px 0;">
+        <h3>User Profile (Input Validation)</h3>
+        <form method="post" action="/profile">
+          #{csrf_tag}
+          <label>Name:</label><br>
+          <input type="text" name="name" placeholder="Your name"><br><br>
+          <label>Email:</label><br>
+          <input type="email" name="email" placeholder="your@email.com"><br><br>
+          <label>Bio:</label><br>
+          <textarea name="bio" rows="3" cols="50" placeholder="Tell us about yourself..."></textarea><br><br>
+          <input type="submit" value="Update Profile">
+        </form>
+      </div>
+      <div style="margin: 20px 0;">
+        <p><strong>Security Headers:</strong> Check your browser's developer tools to see the security headers in action!</p>
+        <p><strong>Try an XSS attack:</strong> Enter <code>&lt;script&gt;alert("XSS")&lt;/script&gt;</code> in any form field.</p>
+        <p><strong>View Headers:</strong> <a href="/headers">See all request headers</a></p>
+      </div>
+    HTML
+
+    res.body = html_wrapper(lines)
   end
 
   def receive_feedback

@@ -17,7 +17,7 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
   spec.rubygems_version = "3.5.15" # Update to the latest version
 
-  spec.required_ruby_version = ['>= 2.6.8', '< 4.0']
+  spec.required_ruby_version = ['>= 3.4', '< 4.0']
 
   # https://github.com/delano/otto/security/dependabot/5
   spec.add_dependency 'rexml', '>= 3.3.6'

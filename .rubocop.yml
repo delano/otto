@@ -23,7 +23,7 @@ AllCops:
   NewCops: enable
   UseCache: true
   MaxFilesInCache: 100
-  TargetRubyVersion: 3.0
+  TargetRubyVersion: 3.4
   Exclude:
     - "migrate/**/*.rb"
     - "migrate/*.rb"

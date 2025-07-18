@@ -3,7 +3,8 @@ PATH
   specs:
     otto (1.1.0)
       addressable (~> 2.2, < 3)
-      rack (~> 2.2, < 3.0)
+      rack (~> 3.1, < 4.0)
+      rack-parser (~> 0.7)
       rexml (>= 3.3.6)
 
 GEM
@@ -33,7 +34,9 @@ GEM
       pry (>= 0.13, < 0.15)
     public_suffix (6.0.1)
     racc (1.7.3)
-    rack (2.2.9)
+    rack (3.1.16)
+    rack-parser (0.7.0)
+      rack
     rainbow (3.1.1)
     rbs (3.9.4)
       logger

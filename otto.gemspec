@@ -22,7 +22,7 @@ Gem::Specification.new do |spec|
   # https://github.com/delano/otto/security/dependabot/5
   spec.add_dependency 'rexml', '>= 3.3.6'
 
-  # spec.add_runtime_dependency 'rack-parser', '~> 0.7'
   spec.add_runtime_dependency 'addressable', '~> 2.2', '< 3'
-  spec.add_runtime_dependency 'rack', '~> 2.2', '< 3.0'
+  spec.add_runtime_dependency 'rack', '~> 3.1', '< 4.0'
+  spec.add_runtime_dependency 'rack-parser', '~> 0.7'
 end

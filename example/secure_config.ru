@@ -13,10 +13,20 @@ app = Otto.new("./secure_routes", {
 
   # Configure trusted proxy servers (adjust for your infrastructure)
   trusted_proxies: [
+    # The primary RFC 1918 private ranges
     '127.0.0.1',        # Local development
-    '10.0.0.0/8',       # Private networks
-    '172.16.0.0/12',    # Private networks  
-    '192.168.0.0/16'    # Private networks
+    '10.0.0.0/8',       # Private Class A
+    '172.16.0.0/12',    # Private Class B
+    '192.168.0.0/16',   # Private Class C
+
+    # Other reserved ranges that I often forget about
+    # '127.0.0.0/8',      # Loopback
+    # '100.64.0.0/10',    # Carrier-grade NAT
+    # '169.254.0.0/16',   # RFC 3927 - Automatic Private IP Addressing (APIPA)
+    # '198.18.0.0/15',    # RFC 2544 - Benchmarking methodology
+    # '203.0.113.0/24',   # RFC 5737 - Documentation examples
+    # '224.0.0.0/4',      # Multicast
+    # '240.0.0.0/4',      # RFC 1112 - Class E (experimental)
   ],
 
   # Custom security headers

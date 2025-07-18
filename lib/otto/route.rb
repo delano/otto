@@ -50,7 +50,6 @@ class Otto
       res.extend Otto::ResponseHelpers
       res.request = req
       req.params.merge! extra_params
-      req.params.replace Otto::Static.indifferent_params(req.params)
       klass.extend Otto::Route::ClassMethods
       klass.otto = otto
 

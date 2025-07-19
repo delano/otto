@@ -294,8 +294,10 @@ class Otto
   # @example
   #   otto.enable_csrf_protection!
   def enable_csrf_protection!
+    return if middleware_enabled?(Otto::Security::CSRFMiddleware)
+
     @security_config.enable_csrf_protection!
-    use Otto::Security::CSRFMiddleware unless middleware_enabled?(Otto::Security::CSRFMiddleware)
+    use Otto::Security::CSRFMiddleware
   end
 
   # Enable request validation including input sanitization, size limits,
@@ -304,8 +306,10 @@ class Otto
   # @example
   #   otto.enable_request_validation!
   def enable_request_validation!
+    return if middleware_enabled?(Otto::Security::ValidationMiddleware)
+
     @security_config.input_validation = true
-    use Otto::Security::ValidationMiddleware unless middleware_enabled?(Otto::Security::ValidationMiddleware)
+    use Otto::Security::ValidationMiddleware
   end
 
   # Add a trusted proxy server for accurate client IP detection.

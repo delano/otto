@@ -6,6 +6,9 @@
 #
 #     $ thin -e dev -R config.ru -p 10770 start
 #
+
+public_path = File.expand_path('../../public', __dir__)
+
 require_relative '../../lib/otto'
 require_relative 'app'
 
@@ -49,8 +52,7 @@ app.security_config.max_param_depth = 10                # Limit parameter nestin
 app.security_config.max_param_keys = 50                 # Limit parameters per request
 
 # Optional: Add static file serving with security
-# Uncomment and adjust path as needed
-# app.option[:public] = File.expand_path('./public', __dir__)
+app.option[:public] = public_path
 
 # Development vs Production configuration
 if ENV['RACK_ENV'] == 'production'

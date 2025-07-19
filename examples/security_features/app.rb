@@ -18,6 +18,7 @@ class SecureApp
 
     content = <<~HTML
       <div class="otto-card otto-text-center">
+        <img src="/img/otto.jpg" alt="Otto Framework" class="otto-logo" />
         <h1>Otto Security Features</h1>
         <p class="otto-mb-md">Comprehensive security demonstration for the Otto framework</p>
       </div>
@@ -78,8 +79,7 @@ class SecureApp
           </p>
 
           <p class="otto-mt-md">
-            #{otto_link("View Request Headers", "/headers")} |
-            #{otto_link("Security Documentation", "https://github.com/otto-framework/security", external: true)}
+            #{otto_link("View Request Headers", "/headers")}
           </p>
         INFO
       end}

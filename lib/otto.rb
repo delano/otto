@@ -367,19 +367,14 @@ class Otto
     @security_config.enable_frame_protection!(option)
   end
 
-
   private
 
   def configure_security(opts)
     # Enable CSRF protection if requested
-    if opts[:csrf_protection]
-      enable_csrf_protection!
-    end
+    enable_csrf_protection! if opts[:csrf_protection]
 
     # Enable request validation if requested
-    if opts[:request_validation]
-      enable_request_validation!
-    end
+    enable_request_validation! if opts[:request_validation]
 
     # Add trusted proxies if provided
     if opts[:trusted_proxies]

@@ -4,6 +4,7 @@ require_relative '../../lib/otto/design_system'
 
 class SecureApp
   include Otto::DesignSystem
+  include Otto::Security::CSRFHelpers
 
   attr_reader :req, :res
 
@@ -11,6 +12,10 @@ class SecureApp
     @req = req
     @res = res
     res.headers['content-type'] = 'text/html; charset=utf-8'
+  end
+
+  def otto
+    self.class.otto
   end
 
   def index

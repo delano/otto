@@ -6,7 +6,7 @@
 #
 #     $ thin -e dev -R config.ru -p 10770 start
 #
-require_relative '../lib/otto'
+require_relative '../../lib/otto'
 require_relative 'app'
 
 # Create Otto app with security features enabled

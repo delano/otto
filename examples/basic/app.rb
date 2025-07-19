@@ -1,13 +1,12 @@
-# examples/basic/app.rb
+# examples/basic/app.rb (Streamlined with Design System)
+
+require_relative '../../lib/otto/design_system'
 
 class App
-  # An instance of Rack::Request
-  attr_reader :req
-  # An instance of Rack::Response
-  attr_reader :res
+  include Otto::DesignSystem
 
-  # Otto creates an instance of this class for every request
-  # and passess the Rack::Request and Rack::Response objects.
+  attr_reader :req, :res
+
   def initialize(req, res)
     @req = req
     @res = res
@@ -15,19 +14,41 @@ class App
   end
 
   def index
-    lines = [
-      '<img src="/img/otto.jpg" /><br/><br/>',
-      'Send feedback:<br/>',
-      '<form method="post"><input name="msg" /><input type="submit" /></form>',
-      '<a href="/product/100">A product example</a>'
-    ]
-    p res.headers
+    content = <<~HTML
+      <div class="otto-card otto-text-center">
+        <img src="/img/otto.jpg" alt="Otto Framework" class="otto-logo" />
+        <h1>Otto Framework</h1>
+        <p>Minimal Ruby web framework with style</p>
+      </div>
+
+      #{otto_card("Send Feedback") do
+        otto_form_wrapper do
+          otto_input("msg", placeholder: "Your message...") +
+          otto_button("Send Feedback")
+        end
+      end}
+
+      #{otto_card("Examples") do
+        otto_link("Product Example", "/product/100") + " → Dynamic routing demo"
+      end}
+    HTML
+
     res.send_cookie :sess, 1_234_567, 3600
-    res.body = lines.join($/)
+    res.body = otto_page(content)
   end
 
   def receive_feedback
-    res.body = req.params.inspect
+    message = req.params['msg']&.strip
+
+    content = if message.nil? || message.empty?
+      otto_alert("error", "Empty Message", "Please enter a message before submitting.")
+    else
+      otto_alert("success", "Feedback Received", "Thanks for your message!") +
+      otto_card("Your Message") { otto_code_block(message, 'text') }
+    end
+
+    content += "<p>#{otto_link("← Back", "/")}</p>"
+    res.body = otto_page(content, "Feedback")
   end
 
   def redirect
@@ -36,8 +57,7 @@ class App
 
   def robots_text
     res.headers['content-type'] = 'text/plain'
-    rules = 'User-agent: *', 'Disallow: /private'
-    res.body = rules.join($/)
+    res.body = ['User-agent: *', 'Disallow: /private'].join($/)
   end
 
   def display_product
@@ -48,11 +68,15 @@ class App
 
   def not_found
     res.status = 404
-    res.body = 'Item not found!'
+    content = otto_alert("error", "Not Found", "The requested page could not be found.")
+    content += "<p>#{otto_link("← Home", "/")}</p>"
+    res.body = otto_page(content, "404")
   end
 
   def server_error
     res.status = 500
-    res.body = 'There was a server error!'
+    content = otto_alert("error", "Server Error", "An internal server error occurred.")
+    content += "<p>#{otto_link("← Home", "/")}</p>"
+    res.body = otto_page(content, "500")
   end
 end

@@ -6,31 +6,25 @@
 #
 #     $ thin -e dev -R config.ru -p 10770 start
 
-ENV['RACK_ENV'] ||= 'prod'
-ENV['APP_ROOT'] = File.expand_path(File.join(File.dirname(__FILE__)))
-$:.unshift(File.join(ENV.fetch('APP_ROOT', nil)))
-$:.unshift(File.join(ENV.fetch('APP_ROOT', nil), '..', 'lib'))
+public_path = File.expand_path('public', __dir__)
 
-require 'otto'
-require 'app'
+require_relative '../../lib/otto'
+require_relative 'app'
 
-PUBLIC_DIR = "#{ENV.fetch('APP_ROOT', nil)}/public"
-APP_DIR = "#{ENV.fetch('APP_ROOT', nil)}"
+app = Otto.new("routes")
 
-app = Otto.new("#{APP_DIR}/routes")
+# DEV: Run web apps with extra logging and reloading
+if Otto.env?(:dev)
 
-if Otto.env?(:dev) # DEV: Run web apps with extra logging and reloading
   map('/') do
     use Rack::CommonLogger
     use Rack::Reloader, 0
-    app.option[:public] = PUBLIC_DIR
+    app.option[:public] = public_path
     app.add_static_path '/favicon.ico'
     run app
   end
-  # Specify static paths to serve in dev-mode only
-  map('/etc/') { run Rack::Files.new("#{PUBLIC_DIR}/etc") }
-  map('/img/') { run Rack::Files.new("#{PUBLIC_DIR}/img") }
 
-else # PROD: run barebones webapp
+# PROD: run the webapp on the metal
+else
   map('/') { run app }
 end

@@ -1,6 +1,6 @@
 # examples/basic/config.ru
 
-# OTTO EXAMPLE APP CONFIG - 2011-12-17
+# OTTO EXAMPLE APP CONFIG - 2025-08-18
 #
 # Usage:
 #

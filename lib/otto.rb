@@ -50,10 +50,10 @@ class Otto
     @routes =         { GET: [] }
     @routes_literal = { GET: {} }
     @route_definitions = {}
-    @option = opts.merge({
-                           public: nil,
+    @option = {
+      public: nil,
       locale: 'en'
-                         })
+    }.merge(opts)
     @security_config = Otto::Security::Config.new
     @middleware_stack = []
 
@@ -111,7 +111,7 @@ class Otto
       File.readable?(requested_path) &&
       !File.directory?(requested_path) &&
       (File.owned?(requested_path) || File.grpowned?(requested_path))
-  end
+end
 
   def safe_dir?(path)
     return false if path.nil? || path.empty?
@@ -246,17 +246,16 @@ class Otto
 
     local_params = params.clone
     local_path = route.path.clone
-    if objid = local_params.delete(:id) || local_params.delete('id')
-      local_path.gsub!('*', objid)
-    end
-    local_params.each_pair do |k, _v|
+
+    local_params.each_pair do |k, v|
       next unless local_path.match(":#{k}")
 
-      local_path.gsub!(":#{k}", local_params.delete(k))
+      local_path.gsub!(":#{k}", v.to_s)
+      local_params.delete(k)
     end
     uri = Addressable::URI.new
     uri.path = local_path
-    uri.query_values = local_params
+    uri.query_values = local_params unless local_params.empty?
     uri.to_s
   end
 

@@ -427,7 +427,6 @@ RSpec.describe Otto::Security::CSRFHelpers do
       include Otto::Security::CSRFHelpers
       
       attr_reader :otto, :req
-      attr_accessor :csrf_token
       
       def initialize(otto, req)
         @otto = otto
@@ -448,6 +447,7 @@ RSpec.describe Otto::Security::CSRFHelpers do
     let(:mock_request) do
       req = double('request')
       allow(req).to receive(:session).and_return(mock_session)
+      allow(req).to receive(:cookies).and_return({})
       req
     end
     let(:mock_otto) do

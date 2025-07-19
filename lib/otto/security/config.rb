@@ -134,38 +134,40 @@ class Otto
         true
       end
 
-      # Generate a cryptographically secure CSRF token
-      #
-      # The token consists of a random component and a signature based on the
-      # session ID to prevent token reuse across sessions.
-      #
-      # @param session_id [String, nil] Optional session identifier for token binding
-      # @return [String] CSRF token in format "token:signature"
       def generate_csrf_token(session_id = nil)
-        base = session_id || SecureRandom.hex(16)
+        base = session_id || 'no-session'
         token = SecureRandom.hex(32)
         signature = Digest::SHA256.hexdigest("#{base}:#{token}")
+
+        puts "=== CSRF Generation ==="
+        puts "session_id: #{session_id.inspect}"
+        puts "base: #{base.inspect}"
+        puts "token: #{token.inspect}"
+        puts "hash_input: #{(base + ':' + token).inspect}"
+        puts "signature: #{signature}"
+        puts "final_token: #{(token + ':' + signature).inspect}"
+
         "#{token}:#{signature}"
       end
 
-      # Verify a CSRF token's authenticity and validity
-      #
-      # Uses constant-time comparison to prevent timing attacks.
-      #
-      # @param token [String, nil] CSRF token to verify
-      # @param session_id [String, nil] Session identifier for token binding
-      # @return [Boolean] true if token is valid and authentic
       def verify_csrf_token(token, session_id = nil)
         return false if token.nil? || token.empty?
 
-        parts = token.split(':')
-        return false if parts.length != 2
+        token_part, signature = token.split(':')
+        return false if token_part.nil? || signature.nil?
 
-        token_part, signature = parts
-        base = session_id || SecureRandom.hex(16)
+        base = session_id || 'no-session'
         expected_signature = Digest::SHA256.hexdigest("#{base}:#{token_part}")
 
-        # Use secure comparison to prevent timing attacks
+        puts "=== CSRF Verification ==="
+        puts "session_id: #{session_id.inspect}"
+        puts "base: #{base.inspect}"
+        puts "token_part: #{token_part.inspect}"
+        puts "hash_input: #{(base + ':' + token_part).inspect}"
+        puts "received_signature: #{signature}"
+        puts "expected_signature: #{expected_signature}"
+        puts "match: #{secure_compare(signature, expected_signature)}"
+
         secure_compare(signature, expected_signature)
       end
 
@@ -218,6 +220,48 @@ class Otto
       #   })
       def set_custom_headers(headers)
         @security_headers.merge!(headers)
+      end
+
+      def get_or_create_session_id(request)
+        # Try existing sources first
+        session_id = extract_existing_session_id(request)
+
+        # Create and persist if none found
+        if session_id.nil? || session_id.empty?
+          session_id = SecureRandom.hex(16)
+          store_session_id(request, session_id)
+        end
+
+        session_id
+      end
+
+      private
+
+      def extract_existing_session_id(request)
+        # Try session first
+        begin
+          session = request.session
+          if session
+            return session.id if session.respond_to?(:id) && session.id
+            return session['_csrf_session_id'] if session['_csrf_session_id']
+          end
+        rescue
+          # Fall through to cookies
+        end
+
+        # Try cookies
+        request.cookies['_otto_session'] ||
+        request.cookies['session_id'] ||
+        request.cookies['_session_id']
+      end
+
+      def store_session_id(request, session_id)
+        begin
+          session = request.session
+          session['_csrf_session_id'] = session_id if session
+        rescue
+          # Cookie fallback handled in inject_csrf_token
+        end
       end
 
       private

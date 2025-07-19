@@ -1,5 +1,7 @@
 # lib/otto/security/csrf.rb
 
+require 'securerandom'
+
 class Otto
   module Security
     class CSRFMiddleware
@@ -18,7 +20,7 @@ class Otto
         # Skip CSRF protection for safe methods
         if safe_method?(request.request_method)
           response = @app.call(env)
-          inject_csrf_token(request, response) if html_response?(response)
+          response = inject_csrf_token(request, response) if html_response?(response)
           return response
         end
 
@@ -40,7 +42,7 @@ class Otto
         token = extract_csrf_token(request)
         return false if token.nil? || token.empty?
 
-        session_id = extract_session_id(request)
+        session_id = @config.get_or_create_session_id(request)
         @config.verify_csrf_token(token, session_id)
       end
 
@@ -59,12 +61,7 @@ class Otto
       end
 
       def extract_session_id(request)
-        # Try to get session ID from cookies or session store
-        session = request.session rescue nil
-        return session['session_id'] if session && session['session_id']
-
-        # Fallback to cookie-based session ID
-        request.cookies['session_id'] || request.cookies['_session_id']
+        @config.get_or_create_session_id(request)
       end
 
       def inject_csrf_token(request, response)
@@ -75,19 +72,16 @@ class Otto
 
         return response unless content_type&.include?('text/html')
 
-        # Generate new CSRF token
-        session_id = extract_session_id(request)
-        csrf_token = @config.generate_csrf_token(session_id)
+        # Get or create session ID
+        session_id =  @config.get_or_create_session_id(request)
 
-        # Store token in session if available
-        if request.respond_to?(:session) && request.session
-          request.session[@config.csrf_token_key] = csrf_token
-        end
+        # Generate new CSRF token
+        csrf_token = @config.generate_csrf_token(session_id)
 
         # Inject meta tag into HTML head
         body_content = body.respond_to?(:join) ? body.join : body.to_s
 
-        if body_content.include?('<head>')
+        if body_content.match?(/<head>/i)
           meta_tag = %(<meta name="csrf-token" content="#{csrf_token}">)
           body_content = body_content.sub(/<head>/i, "<head>\n#{meta_tag}")
 
@@ -128,16 +122,21 @@ class Otto
           message: 'The request could not be authenticated. Please refresh the page and try again.'
         }.to_json
       end
+
     end
 
     module CSRFHelpers
       def csrf_token
         if @csrf_token.nil? && otto.respond_to?(:security_config)
-          session_id = req.session['session_id'] rescue nil
+          session_id = otto.security_config.get_or_create_session_id(req)
           @csrf_token = otto.security_config.generate_csrf_token(session_id)
         end
         @csrf_token
       end
+
+      private
+
+      public
 
       def csrf_meta_tag
         %(<meta name="csrf-token" content="#{csrf_token}">)

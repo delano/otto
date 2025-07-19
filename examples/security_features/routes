@@ -1,0 +1,11 @@
+# examples/security_features/routes
+
+GET   /                         SecureApp#index
+POST  /feedback                 SecureApp#receive_feedback
+POST  /upload                   SecureApp#upload_file
+POST  /profile                  SecureApp#update_profile
+GET   /headers                  SecureApp#show_headers
+
+# Error handlers (optional)
+GET   /404                      SecureApp#not_found
+GET   /500                      SecureApp#server_error

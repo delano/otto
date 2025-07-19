@@ -16,3 +16,5 @@ log
 tmp
 vendor
 *.gem
+.ruby-lsp
+.rspec_status

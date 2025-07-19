@@ -1,3 +1,5 @@
+# .rubocop.yml
+
 ##
 # This is the RuboCop configuration file.
 # It contains the rules and settings for the RuboCop linter.
@@ -13,7 +15,7 @@
 #
 inherit_from: .rubocop_todo.yml
 
-require:
+plugins:
   - rubocop-performance
   - rubocop-thread_safety
 
@@ -21,13 +23,13 @@ AllCops:
   NewCops: enable
   UseCache: true
   MaxFilesInCache: 100
-  TargetRubyVersion: 3.0
+  TargetRubyVersion: 3.4
   Exclude:
-    - 'migrate/**/*.rb'
-    - 'migrate/*.rb'
-    - 'try/**/*'
-    - 'try/*.rb'
-    - 'vendor/**/*'
+    - "migrate/**/*.rb"
+    - "migrate/*.rb"
+    - "try/**/*"
+    - "try/*.rb"
+    - "vendor/**/*"
 
 Gemspec/DeprecatedAttributeAssignment:
   Enabled: true
@@ -55,12 +57,12 @@ Metrics/CyclomaticComplexity:
 Metrics/MethodLength:
   Enabled: true
   Max: 40
-  CountAsOne: ['method_call']
+  CountAsOne: ["method_call"]
 
 Metrics/ModuleLength:
   Enabled: true
   Max: 250
-  CountAsOne: ['method_call']
+  CountAsOne: ["method_call"]
 
 Performance/Size:
   Enabled: true

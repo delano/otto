@@ -4,6 +4,11 @@ source 'https://rubygems.org'
 
 gemspec
 
+group :development, :test do
+  gem 'rspec', '~> 3.12'
+  gem 'rack-test'
+end
+
 group 'development' do
   gem 'pry-byebug', require: false
   gem 'rubocop', require: false

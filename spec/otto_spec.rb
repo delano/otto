@@ -447,7 +447,7 @@ RSpec.describe Otto do
     describe '#uri' do
       it 'generates URIs for route definitions' do
         uri = otto.uri('TestApp.index')
-        expect(uri).to eq('/?')  # Implementation adds query string even when empty
+        expect(uri).to eq('/')  # Simple path without parameters
         
         puts "\n=== DEBUG: Generated URI ==="
         puts "Route: TestApp.index -> #{uri}"
@@ -456,7 +456,7 @@ RSpec.describe Otto do
 
       it 'generates URIs with parameters' do
         uri = otto.uri('TestApp.show', id: '123')
-        expect(uri).to eq('/show/123?')  # Implementation adds query string
+        expect(uri).to eq('/show/123')  # Should replace :id with 123
       end
 
       it 'handles query parameters' do

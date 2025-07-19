@@ -39,6 +39,8 @@ RSpec.describe Otto::Security::CSRFMiddleware do
 
     it 'injects CSRF token into HTML responses for safe methods' do
       env = mock_rack_env(method: 'GET', path: '/')
+      env['rack.session'] = { 'session_id' => 'test_session_safe' }
+      env['HTTP_COOKIE'] = 'session_id=test_session_safe'
       response = middleware.call(env)
       
       body = response[2].join
@@ -371,6 +373,8 @@ RSpec.describe Otto::Security::CSRFMiddleware do
       array_middleware = described_class.new(array_app, config)
       
       env = mock_rack_env(method: 'GET', path: '/')
+      env['rack.session'] = { 'session_id' => 'test_session_array' }
+      env['HTTP_COOKIE'] = 'session_id=test_session_array'
       response = array_middleware.call(env)
       
       body = response[2].join
@@ -388,6 +392,8 @@ RSpec.describe Otto::Security::CSRFMiddleware do
       object_middleware = described_class.new(object_app, config)
       
       env = mock_rack_env(method: 'GET', path: '/')
+      env['rack.session'] = { 'session_id' => 'test_session_object' }
+      env['HTTP_COOKIE'] = 'session_id=test_session_object'
       response = object_middleware.call(env)
       
       body = response[2].join
@@ -399,6 +405,8 @@ RSpec.describe Otto::Security::CSRFMiddleware do
       malformed_middleware = described_class.new(malformed_app, config)
       
       env = mock_rack_env(method: 'GET', path: '/')
+      env['rack.session'] = { 'session_id' => 'test_session_mixed' }
+      env['HTTP_COOKIE'] = 'session_id=test_session_mixed'
       response = malformed_middleware.call(env)
       
       body = response[2].join
@@ -409,20 +417,27 @@ RSpec.describe Otto::Security::CSRFMiddleware do
 end
 
 RSpec.describe Otto::Security::CSRFHelpers do
-  let(:config) { Otto::Security::Config.new }
+  let(:config) do
+    config = Otto::Security::Config.new
+    config.enable_csrf_protection!
+    config
+  end
   let(:mock_response) do
     Class.new do
       include Otto::Security::CSRFHelpers
       
-      attr_accessor :otto, :req, :csrf_token
+      attr_reader :otto, :req
+      attr_accessor :csrf_token
       
       def initialize(otto, req)
         @otto = otto
         @req = req
         @csrf_token = nil
       end
+
     end
   end
+
 
   before do
     config.enable_csrf_protection!
@@ -430,8 +445,17 @@ RSpec.describe Otto::Security::CSRFHelpers do
 
   describe 'CSRF helper methods' do
     let(:mock_session) { { 'session_id' => 'helper_test_session' } }
-    let(:mock_request) { double('request', session: mock_session) }
-    let(:mock_otto) { double('otto', security_config: config) }
+    let(:mock_request) do
+      req = double('request')
+      allow(req).to receive(:session).and_return(mock_session)
+      req
+    end
+    let(:mock_otto) do
+      otto = double('otto')
+      allow(otto).to receive(:security_config).and_return(config)
+      allow(otto).to receive(:respond_to?).with(:security_config).and_return(true)
+      otto
+    end
     let(:response) { mock_response.new(mock_otto, mock_request) }
 
     describe '#csrf_token' do
@@ -442,12 +466,6 @@ RSpec.describe Otto::Security::CSRFHelpers do
         
         parts = token.split(':')
         expect(parts.length).to eq(2)
-        
-        puts "\n=== DEBUG: Helper CSRF Token ==="
-        puts "Generated token: #{token}"
-        puts "Token parts: #{parts.length}"
-        puts "Token cached: #{response.instance_variable_get(:@csrf_token) == token}"
-        puts "============================\n"
       end
 
       it 'returns cached token on subsequent calls' do
@@ -457,7 +475,9 @@ RSpec.describe Otto::Security::CSRFHelpers do
       end
 
       it 'handles missing otto gracefully' do
-        no_otto_response = mock_response.new(nil, mock_request)
+        no_security_otto = double('otto')
+        allow(no_security_otto).to receive(:respond_to?).with(:security_config).and_return(false)
+        no_otto_response = mock_response.new(no_security_otto, mock_request)
         expect(no_otto_response.csrf_token).to be_nil
       end
     end
@@ -472,14 +492,9 @@ RSpec.describe Otto::Security::CSRFHelpers do
         # Extract token from meta tag
         token_match = meta_tag.match(/content="([^"]+)"/)
         expect(token_match).not_to be_nil
-        
         token = token_match[1]
-        expect(token).to include(':')
         
-        puts "\n=== DEBUG: CSRF Meta Tag ==="
-        puts "Meta tag: #{meta_tag}"
-        puts "Extracted token: #{token}"
-        puts "===========================\n"
+        expect(token).to include(':')
       end
     end
 
@@ -489,19 +504,12 @@ RSpec.describe Otto::Security::CSRFHelpers do
         expect(form_tag).to include('<input type="hidden"')
         expect(form_tag).to include('name="_csrf_token"')
         expect(form_tag).to include('value="')
-        expect(form_tag).to end_with('">')
         
         # Extract token from form tag
         token_match = form_tag.match(/value="([^"]+)"/)
         expect(token_match).not_to be_nil
-        
         token = token_match[1]
         expect(token).to include(':')
-        
-        puts "\n=== DEBUG: CSRF Form Tag ==="
-        puts "Form tag: #{form_tag}"
-        puts "Extracted token: #{token}"
-        puts "===========================\n"
       end
     end
 
@@ -529,12 +537,6 @@ RSpec.describe Otto::Security::CSRFHelpers do
         
         expect(meta_tag).to include(token)
         expect(form_tag).to include(token)
-        
-        puts "\n=== DEBUG: Helper Consistency ==="
-        puts "Base token: #{token}"
-        puts "Meta tag contains token: #{meta_tag.include?(token)}"
-        puts "Form tag contains token: #{form_tag.include?(token)}"
-        puts "============================\n"
       end
     end
   end

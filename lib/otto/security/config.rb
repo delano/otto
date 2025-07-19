@@ -137,17 +137,16 @@ class Otto
       def generate_csrf_token(session_id = nil)
         base = session_id || 'no-session'
         token = SecureRandom.hex(32)
-        signature = Digest::SHA256.hexdigest("#{base}:#{token}")
+        hash_input = base + ':' + token
+        signature = Digest::SHA256.hexdigest(hash_input)
+        csrf_token = "#{token}:#{signature}"
 
         puts "=== CSRF Generation ==="
-        puts "session_id: #{session_id.inspect}"
-        puts "base: #{base.inspect}"
-        puts "token: #{token.inspect}"
-        puts "hash_input: #{(base + ':' + token).inspect}"
+        puts "hash_input: #{hash_input.inspect}"
         puts "signature: #{signature}"
-        puts "final_token: #{(token + ':' + signature).inspect}"
+        puts "csrf_token: #{csrf_token}"
 
-        "#{token}:#{signature}"
+        csrf_token
       end
 
       def verify_csrf_token(token, session_id = nil)
@@ -157,18 +156,17 @@ class Otto
         return false if token_part.nil? || signature.nil?
 
         base = session_id || 'no-session'
-        expected_signature = Digest::SHA256.hexdigest("#{base}:#{token_part}")
+        hash_input = "#{base}:#{token_part}"
+        expected_signature = Digest::SHA256.hexdigest(hash_input)
+        comparison_result = secure_compare(signature, expected_signature)
 
         puts "=== CSRF Verification ==="
-        puts "session_id: #{session_id.inspect}"
-        puts "base: #{base.inspect}"
-        puts "token_part: #{token_part.inspect}"
-        puts "hash_input: #{(base + ':' + token_part).inspect}"
+        puts "hash_input: #{hash_input.inspect}"
         puts "received_signature: #{signature}"
         puts "expected_signature: #{expected_signature}"
-        puts "match: #{secure_compare(signature, expected_signature)}"
+        puts "match: #{comparison_result}"
 
-        secure_compare(signature, expected_signature)
+        comparison_result
       end
 
       # Enable HTTP Strict Transport Security (HSTS) header

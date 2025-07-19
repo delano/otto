@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    otto (1.1.0)
+    otto (1.2.0)
       addressable (~> 2.2, < 3)
       rack (~> 3.1, < 4.0)
       rack-parser (~> 0.7)

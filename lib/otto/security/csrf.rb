@@ -73,7 +73,10 @@ class Otto
         return response unless content_type&.include?('text/html')
 
         # Get or create session ID
-        session_id =  @config.get_or_create_session_id(request)
+        session_id = @config.get_or_create_session_id(request)
+
+        # Ensure session ID is saved to cookie if it was newly created
+        ensure_session_cookie(request, headers, session_id)
 
         # Generate new CSRF token
         csrf_token = @config.generate_csrf_token(session_id)
@@ -94,6 +97,29 @@ class Otto
           [status, headers, [body_content]]
         else
           response
+        end
+      end
+
+      def ensure_session_cookie(request, headers, session_id)
+        # Check if session ID already exists in cookies
+        existing_cookie = request.cookies['_otto_session']
+        return if existing_cookie == session_id
+
+        # Set the session cookie
+        cookie_value = "#{session_id}; Path=/; HttpOnly; SameSite=Lax"
+        cookie_value += "; Secure" if request.scheme == 'https'
+
+        # Handle existing Set-Cookie headers
+        existing_cookies = headers['set-cookie'] || headers['Set-Cookie']
+        if existing_cookies
+          # Append to existing cookies (handle both string and array formats)
+          if existing_cookies.is_a?(Array)
+            existing_cookies << "_otto_session=#{cookie_value}"
+          else
+            headers['set-cookie'] = [existing_cookies, "_otto_session=#{cookie_value}"]
+          end
+        else
+          headers['set-cookie'] = "_otto_session=#{cookie_value}"
         end
       end
 

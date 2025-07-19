@@ -32,6 +32,7 @@ RSpec.describe Otto::Security::Config do
     it 'configures CSRF token keys' do
       expect(config.csrf_token_key).to eq('_csrf_token')
       expect(config.csrf_header_key).to eq('HTTP_X_CSRF_TOKEN')
+      expect(config.csrf_session_key).to eq('_csrf_session_id')
     end
   end
 

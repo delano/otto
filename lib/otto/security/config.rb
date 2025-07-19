@@ -21,7 +21,7 @@ class Otto
     #   config.max_request_size = 5 * 1024 * 1024  # 5MB
     #   config.max_param_depth = 16
     class Config
-      attr_accessor :csrf_protection, :csrf_token_key, :csrf_header_key,
+      attr_accessor :csrf_protection, :csrf_token_key, :csrf_header_key, :csrf_session_key,
                     :max_request_size, :max_param_depth, :max_param_keys,
                     :trusted_proxies, :require_secure_cookies,
                     :security_headers, :input_validation
@@ -34,6 +34,7 @@ class Otto
         @csrf_protection = false
         @csrf_token_key = '_csrf_token'
         @csrf_header_key = 'HTTP_X_CSRF_TOKEN'
+        @csrf_session_key = '_csrf_session_id'
         @max_request_size = 10 * 1024 * 1024 # 10MB
         @max_param_depth = 32
         @max_param_keys = 64
@@ -241,7 +242,8 @@ class Otto
           session = request.session
           if session
             return session.id if session.respond_to?(:id) && session.id
-            return session['_csrf_session_id'] if session['_csrf_session_id']
+            return session[csrf_session_key] if session[csrf_session_key]
+            return session['session_id'] if session['session_id']
           end
         rescue
           # Fall through to cookies
@@ -256,7 +258,7 @@ class Otto
       def store_session_id(request, session_id)
         begin
           session = request.session
-          session['_csrf_session_id'] = session_id if session
+          session[csrf_session_key] = session_id if session
         rescue
           # Cookie fallback handled in inject_csrf_token
         end

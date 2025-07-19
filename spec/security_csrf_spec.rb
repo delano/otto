@@ -198,6 +198,21 @@ RSpec.describe Otto::Security::CSRFMiddleware do
       expect(extracted_id).to eq(session_id)
     end
 
+    it 'uses configurable session key for extraction' do
+      # Create config with custom session key
+      custom_config = Otto::Security::Config.new
+      custom_config.enable_csrf_protection!
+      custom_config.csrf_session_key = 'custom_session_key'
+      custom_middleware = described_class.new(app, custom_config)
+      
+      session_id = 'custom_session_test'
+      env = mock_rack_env(method: 'GET', path: '/')
+      env['rack.session'] = { 'custom_session_key' => session_id }
+      
+      extracted_id = custom_middleware.send(:extract_session_id, Rack::Request.new(env))
+      expect(extracted_id).to eq(session_id)
+    end
+
     it 'falls back to cookie-based session ID' do
       env = mock_rack_env(method: 'GET', path: '/')
       env['HTTP_COOKIE'] = 'session_id=cookie_session_test'
@@ -216,11 +231,12 @@ RSpec.describe Otto::Security::CSRFMiddleware do
       expect(extracted_id).to eq('alt_session_test')
     end
 
-    it 'returns nil when no session ID found' do
+    it 'creates session ID when none found' do
       env = mock_rack_env(method: 'GET', path: '/')
       request = Rack::Request.new(env)
       extracted_id = middleware.send(:extract_session_id, request)
-      expect(extracted_id).to be_nil
+      expect(extracted_id).to be_a(String)
+      expect(extracted_id).not_to be_empty
     end
   end
 

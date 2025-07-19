@@ -25,16 +25,6 @@ class Otto
       HTML
     end
 
-    def otto_form_wrapper(csrf_tag = "", &block)
-      content = block_given? ? yield : ""
-      <<~HTML
-        <form method="post" class="otto-form">
-          #{csrf_tag}
-          #{content}
-        </form>
-      HTML
-    end
-
     def otto_input(name, type: "text", placeholder: "", value: "", required: false)
       req_attr = required ? "required" : ""
       val_attr = value.empty? ? "" : %{value="#{escape_html(value)}"}

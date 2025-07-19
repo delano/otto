@@ -25,17 +25,20 @@ class SecureApp
       <div class="otto-card otto-text-center">
         <img src="/img/otto.jpg" alt="Otto Framework" class="otto-logo" />
         <h1>Otto Security Features</h1>
-        <p class="otto-mb-md">Comprehensive security demonstration for the Otto framework</p>
+        <p class="otto-mb-md">Security demonstration for the Otto framework</p>
       </div>
 
       #{otto_card("CSRF Protected Feedback") do
-        otto_form_wrapper(csrf_tag) do
-          <<~FORM
+
+        <<~FORM
+          <form method="post" action="/feedback" class="otto-form">
+            #{csrf_tag}
             <label>Message:</label>
             #{otto_textarea("message", placeholder: "Enter your feedback...", required: true)}
             #{otto_button("Submit Feedback", variant: "primary")}
-          FORM
-        end
+          </form>
+        FORM
+
       end}
 
       #{otto_card("File Upload Validation") do

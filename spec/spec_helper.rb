@@ -13,8 +13,27 @@ Otto.debug = ENV['OTTO_DEBUG'] == 'true'
 Otto.logger.level = Logger::WARN unless Otto.debug
 
 RSpec.configure do |config|
-  # Enable flags like --only-failures and --next-failure
-  config.example_status_persistence_file_path = '.rspec_status'
+
+  config.mock_with :rspec do |mocks|
+    # When enabled, RSpec will:
+    #
+    # - Verify that stubbed methods actually exist on the real object
+    # - Check method arity (number of arguments) matches
+    # - Ensure you're not stubbing non-existent methods
+    #
+    mocks.verify_partial_doubles = true
+  end
+
+  # Applies shared context metadata to host groups, enhancing test organization.
+  # Will be default in RSpec 4
+  config.shared_context_metadata_behavior = :apply_to_host_groups
+
+  # RSpec will create this file to keep track of example statuses, and
+  # powers the the --only-failures flag.
+  config.example_status_persistence_file_path = 'spec/.rspec_status'
+
+  # Suppresses Ruby warnings during test runs for a cleaner output.
+  config.warnings = true
 
   # Disable RSpec exposing methods globally on Module and main
   config.disable_monkey_patching!
@@ -32,7 +51,7 @@ RSpec.configure do |config|
     # Reset environment variables
     ENV['RACK_ENV'] = 'test'
     ENV['OTTO_DEBUG'] = 'false' unless ENV['OTTO_DEBUG'] == 'true'
-    
+
     # Clean up any test files in spec/fixtures
     Dir.glob('spec/fixtures/test_routes_*.txt').each { |f| File.delete(f) if File.exist?(f) }
   end
@@ -88,22 +107,22 @@ module OttoTestHelpers
 
   def extract_security_headers(response)
     return {} unless response.is_a?(Array) && response.length >= 2
-    
+
     headers = response[1]
     security_headers = {}
-    
+
     headers.each do |key, value|
       if key.downcase.match?(/^(x-|strict-transport|content-security|referrer)/i)
         security_headers[key.downcase] = value
       end
     end
-    
+
     security_headers
   end
 
   def debug_response(response)
     return unless Otto.debug
-    
+
     puts "\n=== DEBUG RESPONSE ==="
     puts "Status: #{response[0]}"
     puts "Headers:"

@@ -133,7 +133,7 @@ RSpec.describe Otto::Security::ValidationMiddleware do
   end
 
   describe 'parameter structure validation' do
-    xit 'validates parameter depth limits' do
+    it 'validates parameter depth limits' do
       # Create deeply nested params beyond the limit
       deep_params = {}
       current = deep_params
@@ -148,7 +148,8 @@ RSpec.describe Otto::Security::ValidationMiddleware do
 
       expect(response[0]).to eq(400)
       body = JSON.parse(response[2].join)
-      expect(body['message']).to include('Parameter depth exceeds maximum')
+      # Accept either our custom validation message or Rack's query limit error
+      expect(body['message']).to match(/Parameter (depth exceeds maximum|structure too complex)/)
 
       puts "\n=== DEBUG: Parameter Depth Validation ==="
       puts "Max depth: #{config.max_param_depth}"

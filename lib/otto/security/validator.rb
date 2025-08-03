@@ -46,7 +46,12 @@ class Otto
           validate_content_type(request)
 
           # Validate and sanitize parameters
-          validate_parameters(request) if request.params
+          begin
+            validate_parameters(request) if request.params
+          rescue Rack::QueryParser::QueryLimitError => e
+            # Handle Rack's built-in query parsing limits
+            raise Otto::Security::ValidationError, "Parameter structure too complex: #{e.message}"
+          end
 
           # Validate headers
           validate_headers(request)

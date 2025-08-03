@@ -3,12 +3,14 @@
 require 'securerandom'
 
 class Otto
+  # CSRF protection middleware for Otto framework
   module Security
+    # Middleware that provides Cross-Site Request Forgery (CSRF) protection
     class CSRFMiddleware
       SAFE_METHODS = %w[GET HEAD OPTIONS TRACE].freeze
 
       def initialize(app, config = nil)
-        @app = app
+        @app    = app
         @config = config || Otto::Security::Config.new
       end
 
@@ -25,9 +27,7 @@ class Otto
         end
 
         # Validate CSRF token for unsafe methods
-        unless valid_csrf_token?(request)
-          return csrf_error_response
-        end
+        return csrf_error_response unless valid_csrf_token?(request)
 
         @app.call(env)
       end
@@ -54,8 +54,7 @@ class Otto
         token ||= request.env[@config.csrf_header_key]
 
         # Try alternative header format
-        token ||= request.env['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest' ?
-                    request.env['HTTP_X_CSRF_TOKEN'] : nil
+        token ||= request.env['HTTP_X_CSRF_TOKEN'] if request.env['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest'
 
         token
       end
@@ -68,7 +67,7 @@ class Otto
         return response unless response.is_a?(Array) && response.length >= 3
 
         status, headers, body = response
-        content_type = headers.find { |k, v| k.downcase == 'content-type' }&.last
+        content_type          = headers.find { |k, _v| k.downcase == 'content-type' }&.last
 
         return response unless content_type&.include?('text/html')
 
@@ -85,14 +84,12 @@ class Otto
         body_content = body.respond_to?(:join) ? body.join : body.to_s
 
         if body_content.match?(/<head>/i)
-          meta_tag = %(<meta name="csrf-token" content="#{csrf_token}">)
+          meta_tag     = %(<meta name="csrf-token" content="#{csrf_token}">)
           body_content = body_content.sub(/<head>/i, "<head>\n#{meta_tag}")
 
           # Update content length if present
-          content_length_key = headers.keys.find { |k| k.downcase == 'content-length' }
-          if content_length_key
-            headers[content_length_key] = body_content.bytesize.to_s
-          end
+          content_length_key          = headers.keys.find { |k| k.downcase == 'content-length' }
+          headers[content_length_key] = body_content.bytesize.to_s if content_length_key
 
           [status, headers, [body_content]]
         else
@@ -106,8 +103,8 @@ class Otto
         return if existing_cookie == session_id
 
         # Set the session cookie
-        cookie_value = "#{session_id}; Path=/; HttpOnly; SameSite=Lax"
-        cookie_value += "; Secure" if request.scheme == 'https'
+        cookie_value  = "#{session_id}; Path=/; HttpOnly; SameSite=Lax"
+        cookie_value += '; Secure' if request.scheme == 'https'
 
         # Handle existing Set-Cookie headers
         existing_cookies = headers['set-cookie'] || headers['Set-Cookie']
@@ -126,8 +123,8 @@ class Otto
       def html_response?(response)
         return false unless response.is_a?(Array) && response.length >= 2
 
-        headers = response[1]
-        content_type = headers.find { |k, v| k.downcase == 'content-type' }&.last
+        headers      = response[1]
+        content_type = headers.find { |k, _v| k.downcase == 'content-type' }&.last
         content_type&.include?('text/html')
       end
 
@@ -136,33 +133,29 @@ class Otto
           403,
           {
             'content-type' => 'application/json',
-            'content-length' => csrf_error_body.bytesize.to_s
+            'content-length' => csrf_error_body.bytesize.to_s,
           },
-          [csrf_error_body]
+          [csrf_error_body],
         ]
       end
 
       def csrf_error_body
         {
           error: 'CSRF token validation failed',
-          message: 'The request could not be authenticated. Please refresh the page and try again.'
+          message: 'The request could not be authenticated. Please refresh the page and try again.',
         }.to_json
       end
-
     end
 
+    # Helper methods for CSRF token handling in views and controllers
     module CSRFHelpers
       def csrf_token
         if @csrf_token.nil? && otto.respond_to?(:security_config)
-          session_id = otto.security_config.get_or_create_session_id(req)
+          session_id  = otto.security_config.get_or_create_session_id(req)
           @csrf_token = otto.security_config.generate_csrf_token(session_id)
         end
         @csrf_token
       end
-
-      private
-
-      public
 
       def csrf_meta_tag
         %(<meta name="csrf-token" content="#{csrf_token}">)
@@ -173,8 +166,11 @@ class Otto
       end
 
       def csrf_token_key
-        otto.respond_to?(:security_config) ?
-          otto.security_config.csrf_token_key : '_csrf_token'
+        if otto.respond_to?(:security_config)
+          otto.security_config.csrf_token_key
+        else
+          '_csrf_token'
+        end
       end
     end
   end

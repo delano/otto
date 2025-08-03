@@ -1,0 +1,5 @@
+GET / TestApp.index
+GET /show/:id TestApp.show
+GET /users/:user_id/posts/:post_id TestApp.user_post
+GET /search TestApp.search
+PUT /update/:id TestApp.update

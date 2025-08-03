@@ -11,7 +11,7 @@ public_path = File.expand_path('../../public', __dir__)
 require_relative '../../lib/otto'
 require_relative 'app'
 
-app = Otto.new("routes")
+app = Otto.new('routes')
 
 # DEV: Run web apps with extra logging and reloading
 if Otto.env?(:dev)

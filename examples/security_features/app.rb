@@ -9,8 +9,8 @@ class SecureApp
   attr_reader :req, :res
 
   def initialize(req, res)
-    @req = req
-    @res = res
+    @req                        = req
+    @res                        = res
     res.headers['content-type'] = 'text/html; charset=utf-8'
   end
 
@@ -28,49 +28,47 @@ class SecureApp
         <p class="otto-mb-md">Security demonstration for the Otto framework</p>
       </div>
 
-      #{otto_card("CSRF Protected Feedback") do
-
+      #{otto_card('CSRF Protected Feedback') do
         <<~FORM
           <form method="post" action="/feedback" class="otto-form">
             #{csrf_tag}
             <label>Message:</label>
-            #{otto_textarea("message", placeholder: "Enter your feedback...", required: true)}
-            #{otto_button("Submit Feedback", variant: "primary")}
+            #{otto_textarea('message', placeholder: 'Enter your feedback...', required: true)}
+            #{otto_button('Submit Feedback', variant: 'primary')}
           </form>
         FORM
-
       end}
 
-      #{otto_card("File Upload Validation") do
+      #{otto_card('File Upload Validation') do
         <<~UPLOAD
           <form method="post" action="/upload" enctype="multipart/form-data" class="otto-form">
             #{csrf_tag}
             <label>Choose file:</label>
             <input type="file" name="upload_file" class="otto-input">
-            #{otto_button("Upload File", variant: "primary")}
+            #{otto_button('Upload File', variant: 'primary')}
           </form>
         UPLOAD
       end}
 
-      #{otto_card("User Profile Input Validation") do
+      #{otto_card('User Profile Input Validation') do
         <<~PROFILE
           <form method="post" action="/profile" class="otto-form">
             #{csrf_tag}
             <label>Name:</label>
-            #{otto_input("name", placeholder: "Your name", required: true)}
+            #{otto_input('name', placeholder: 'Your name', required: true)}
 
             <label>Email:</label>
-            #{otto_input("email", type: "email", placeholder: "your@email.com", required: true)}
+            #{otto_input('email', type: 'email', placeholder: 'your@email.com', required: true)}
 
             <label>Bio:</label>
-            #{otto_textarea("bio", placeholder: "Tell us about yourself...")}
+            #{otto_textarea('bio', placeholder: 'Tell us about yourself...')}
 
-            #{otto_button("Update Profile", variant: "primary")}
+            #{otto_button('Update Profile', variant: 'primary')}
           </form>
         PROFILE
       end}
 
-      #{otto_card("Security Information") do
+      #{otto_card('Security Information') do
         <<~INFO
           <h3>Security Features Active:</h3>
           <ul>
@@ -87,13 +85,13 @@ class SecureApp
           </p>
 
           <p class="otto-mt-md">
-            #{otto_link("View Request Headers", "/headers")}
+            #{otto_link('View Request Headers', '/headers')}
           </p>
         INFO
       end}
     HTML
 
-    res.body = otto_page(content, "Otto Security Features")
+    res.body = otto_page(content, 'Otto Security Features')
   end
 
   def receive_feedback
@@ -104,29 +102,28 @@ class SecureApp
         safe_message = validate_input(message, max_length: 1000, allow_html: false)
       else
         safe_message = message.to_s.strip
-        raise "Message too long" if safe_message.length > 1000
+        raise 'Message too long' if safe_message.length > 1000
       end
 
-      if safe_message.empty?
-        content = otto_alert("error", "Validation Error", "Message cannot be empty.")
+      content = if safe_message.empty?
+        otto_alert('error', 'Validation Error', 'Message cannot be empty.')
       else
-        content = <<~HTML
-          #{otto_alert("success", "Feedback Received", "Thank you for your feedback!")}
+        <<~HTML
+          #{otto_alert('success', 'Feedback Received', 'Thank you for your feedback!')}
 
-          #{otto_card("Your Message") do
+          #{otto_card('Your Message') do
             otto_code_block(safe_message, 'text')
           end}
         HTML
-      end
-
-    rescue Otto::Security::ValidationError => e
-      content = otto_alert("error", "Security Validation Failed", e.message)
-    rescue => e
-      content = otto_alert("error", "Processing Error", "An error occurred processing your request.")
+                end
+    rescue Otto::Security::ValidationError => ex
+      content = otto_alert('error', 'Security Validation Failed', ex.message)
+    rescue StandardError
+      content = otto_alert('error', 'Processing Error', 'An error occurred processing your request.')
     end
 
-    content += "<p class=\"otto-mt-lg\">#{otto_link("← Back to form", "/")}</p>"
-    res.body = otto_page(content, "Feedback Response")
+    content += "<p class=\"otto-mt-lg\">#{otto_link('← Back to form', '/')}</p>"
+    res.body = otto_page(content, 'Feedback Response')
   end
 
   def upload_file
@@ -134,31 +131,39 @@ class SecureApp
       uploaded_file = req.params['upload_file']
 
       if uploaded_file.nil? || uploaded_file.empty?
-        content = otto_alert("error", "Upload Error", "No file was selected.")
+        content = otto_alert('error', 'Upload Error', 'No file was selected.')
       else
-        filename = uploaded_file[:filename] rescue uploaded_file.original_filename rescue 'unknown'
-
-        if respond_to?(:sanitize_filename)
-          safe_filename = sanitize_filename(filename)
-        else
-          safe_filename = File.basename(filename.to_s).gsub(/[^\w\-_\.]/, '_')
+        begin
+          filename = begin
+                     uploaded_file[:filename]
+          rescue StandardError
+                     uploaded_file.original_filename
+          end
+        rescue StandardError
+          'unknown'
         end
 
+        safe_filename = if respond_to?(:sanitize_filename)
+          sanitize_filename(filename)
+        else
+          File.basename(filename.to_s).gsub(/[^\w\-_\.]/, '_')
+                        end
+
         file_info = {
-          "Original filename" => filename,
-          "Sanitized filename" => safe_filename,
-          "Content type" => uploaded_file[:type] || 'unknown',
-          "Security status" => "File validated and processed safely"
+          'Original filename' => filename,
+          'Sanitized filename' => safe_filename,
+          'Content type' => uploaded_file[:type] || 'unknown',
+          'Security status' => 'File validated and processed safely',
         }
 
-        info_html = file_info.map { |key, value|
+        info_html = file_info.map do |key, value|
           "<p><strong>#{key}:</strong> #{escape_html(value)}</p>"
-        }.join
+        end.join
 
         content = <<~HTML
-          #{otto_alert("success", "File Upload Successful", "File processed and validated successfully!")}
+          #{otto_alert('success', 'File Upload Successful', 'File processed and validated successfully!')}
 
-          #{otto_card("File Information") do
+          #{otto_card('File Information') do
             info_html
           end}
 
@@ -168,64 +173,62 @@ class SecureApp
           </div>
         HTML
       end
-
-    rescue Otto::Security::ValidationError => e
-      content = otto_alert("error", "File Validation Failed", e.message)
-    rescue => e
-      content = otto_alert("error", "Upload Error", "An error occurred during file upload.")
+    rescue Otto::Security::ValidationError => ex
+      content = otto_alert('error', 'File Validation Failed', ex.message)
+    rescue StandardError
+      content = otto_alert('error', 'Upload Error', 'An error occurred during file upload.')
     end
 
-    content += "<p class=\"otto-mt-lg\">#{otto_link("← Back to form", "/")}</p>"
-    res.body = otto_page(content, "Upload Response")
+    content += "<p class=\"otto-mt-lg\">#{otto_link('← Back to form', '/')}</p>"
+    res.body = otto_page(content, 'Upload Response')
   end
 
   def update_profile
     begin
-      name = req.params['name']
+      name  = req.params['name']
       email = req.params['email']
-      bio = req.params['bio']
+      bio   = req.params['bio']
 
       if respond_to?(:validate_input)
-        safe_name = validate_input(name, max_length: 100)
+        safe_name  = validate_input(name, max_length: 100)
         safe_email = validate_input(email, max_length: 255)
-        safe_bio = validate_input(bio, max_length: 500, allow_html: false)
+        safe_bio   = validate_input(bio, max_length: 500, allow_html: false)
       else
-        safe_name = name.to_s.strip[0..99]
+        safe_name  = name.to_s.strip[0..99]
         safe_email = email.to_s.strip[0..254]
-        safe_bio = bio.to_s.strip[0..499]
+        safe_bio   = bio.to_s.strip[0..499]
       end
 
       unless safe_email.match?(/\A[^@\s]+@[^@\s]+\z/)
-        raise Otto::Security::ValidationError, "Invalid email format"
+        raise Otto::Security::ValidationError, 'Invalid email format'
       end
 
       profile_data = {
-        "Name" => safe_name,
-        "Email" => safe_email,
-        "Bio" => safe_bio,
-        "Updated" => Time.now.strftime("%Y-%m-%d %H:%M:%S UTC")
+        'Name' => safe_name,
+        'Email' => safe_email,
+        'Bio' => safe_bio,
+        'Updated' => Time.now.strftime('%Y-%m-%d %H:%M:%S UTC'),
       }
 
-      profile_html = profile_data.map { |key, value|
+      profile_html = profile_data.map do |key, value|
         "<p><strong>#{key}:</strong> #{escape_html(value)}</p>"
-      }.join
+      end.join
 
       content = <<~HTML
-        #{otto_alert("success", "Profile Updated", "Your profile has been updated successfully!")}
+        #{otto_alert('success', 'Profile Updated', 'Your profile has been updated successfully!')}
 
-        #{otto_card("Profile Data") do
+        #{otto_card('Profile Data') do
           profile_html
         end}
       HTML
-
-    rescue Otto::Security::ValidationError => e
-      content = otto_alert("error", "Profile Validation Failed", e.message)
-    rescue => e
-      content = otto_alert("error", "Update Error", "An error occurred updating your profile.")
+    rescue Otto::Security::ValidationError => ex
+      content = otto_alert('error', 'Profile Validation Failed', ex.message)
+    rescue StandardError
+      content = otto_alert('error', 'Update Error', 'An error occurred updating your profile.')
     end
 
-    content += "<p class=\"otto-mt-lg\">#{otto_link("← Back to form", "/")}</p>"
-    res.body = otto_page(content, "Profile Update")
+    content += "<p class=\"otto-mt-lg\">#{otto_link('← Back to form', '/')}</p>"
+    res.body = otto_page(content, 'Profile Update')
   end
 
   def show_headers
@@ -239,16 +242,16 @@ class SecureApp
     end
 
     response_data = {
-      message: "Request headers analysis (filtered for security)",
+      message: 'Request headers analysis (filtered for security)',
       client_ip: req.respond_to?(:client_ipaddress) ? req.client_ipaddress : req.ip,
       secure_connection: req.respond_to?(:secure?) ? req.secure? : false,
       timestamp: Time.now.utc.iso8601,
       headers: safe_headers,
       security_analysis: {
-        csrf_protection: respond_to?(:csrf_token_valid?) ? "Active" : "Basic",
-        content_security: "Headers validated and filtered",
-        xss_protection: "HTML escaping enabled"
-      }
+        csrf_protection: respond_to?(:csrf_token_valid?) ? 'Active' : 'Basic',
+        content_security: 'Headers validated and filtered',
+        xss_protection: 'HTML escaping enabled',
+      },
     }
 
     require 'json'
@@ -257,17 +260,17 @@ class SecureApp
 
   def not_found
     res.status = 404
-    content = otto_alert("error", "Page Not Found", "The requested page could not be found.")
-    content += "<p>#{otto_link("← Back to home", "/")}</p>"
-    res.body = otto_page(content, "404 - Not Found")
+    content    = otto_alert('error', 'Page Not Found', 'The requested page could not be found.')
+    content   += "<p>#{otto_link('← Back to home', '/')}</p>"
+    res.body   = otto_page(content, '404 - Not Found')
   end
 
   def server_error
     res.status = 500
-    error_id = req.env['otto.error_id'] || SecureRandom.hex(8)
-    content = otto_alert("error", "Server Error", "An internal server error occurred.")
-    content += "<p><small>Error ID: #{escape_html(error_id)}</small></p>"
-    content += "<p>#{otto_link("← Back to home", "/")}</p>"
-    res.body = otto_page(content, "500 - Server Error")
+    error_id   = req.env['otto.error_id'] || SecureRandom.hex(8)
+    content    = otto_alert('error', 'Server Error', 'An internal server error occurred.')
+    content   += "<p><small>Error ID: #{escape_html(error_id)}</small></p>"
+    content   += "<p>#{otto_link('← Back to home', '/')}</p>"
+    res.body   = otto_page(content, '500 - Server Error')
   end
 end

@@ -1,10 +1,11 @@
+require 'json'
 require 'logger'
 require 'securerandom'
+require 'uri'
 
 require 'rack/request'
 require 'rack/response'
 require 'rack/utils'
-require 'addressable/uri'
 
 require_relative 'otto/route'
 require_relative 'otto/static'
@@ -39,23 +40,23 @@ require_relative 'otto/security/validator'
 class Otto
   LIB_HOME = __dir__ unless defined?(Otto::LIB_HOME)
 
-  @debug = ENV['OTTO_DEBUG'] == 'true'
+  @debug  = ENV['OTTO_DEBUG'] == 'true'
   @logger = Logger.new($stdout, Logger::INFO)
 
   attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route, :security_config
   attr_accessor :not_found, :server_error, :middleware_stack
 
   def initialize(path = nil, opts = {})
-    @routes_static =  { GET: {} }
-    @routes =         { GET: [] }
-    @routes_literal = { GET: {} }
+    @routes_static     = { GET: {} }
+    @routes            = { GET: [] }
+    @routes_literal    = { GET: {} }
     @route_definitions = {}
-    @option = {
+    @option            = {
       public: nil,
-      locale: 'en'
+      locale: 'en',
     }.merge(opts)
-    @security_config = Otto::Security::Config.new
-    @middleware_stack = []
+    @security_config   = Otto::Security::Config.new
+    @middleware_stack  = []
 
     # Configure security based on options
     configure_security(opts)
@@ -72,15 +73,15 @@ class Otto
 
     raw = File.readlines(path).select { |line| line =~ /^\w/ }.collect { |line| line.strip.split(/\s+/) }
     raw.each do |entry|
-      verb, path, definition = *entry
-      route = Otto::Route.new verb, path, definition
-      route.otto = self
-      path_clean = path.gsub(%r{/$}, '')
-      @route_definitions[route.definition] = route
+      verb, path, definition                  = *entry
+      route                                   = Otto::Route.new verb, path, definition
+      route.otto                              = self
+      path_clean                              = path.gsub(%r{/$}, '')
+      @route_definitions[route.definition]    = route
       Otto.logger.debug "route: #{route.pattern}" if Otto.debug
-      @routes[route.verb] ||= []
+      @routes[route.verb]                   ||= []
       @routes[route.verb] << route
-      @routes_literal[route.verb] ||= {}
+      @routes_literal[route.verb]           ||= {}
       @routes_literal[route.verb][path_clean] = route
     rescue StandardError
       Otto.logger.error "Bad route in #{path}: #{entry}"
@@ -97,7 +98,7 @@ class Otto
     return false unless File.directory?(public_dir)
 
     # Clean the requested path - remove null bytes and normalize
-    clean_path = path.gsub("\0", "").strip
+    clean_path = path.delete("\0").strip
     return false if clean_path.empty?
 
     # Join and expand to get the full resolved path
@@ -111,13 +112,13 @@ class Otto
       File.readable?(requested_path) &&
       !File.directory?(requested_path) &&
       (File.owned?(requested_path) || File.grpowned?(requested_path))
-end
+  end
 
   def safe_dir?(path)
     return false if path.nil? || path.empty?
 
     # Clean and expand the path
-    clean_path = path.gsub("\0", "").strip
+    clean_path = path.delete("\0").strip
     return false if clean_path.empty?
 
     expanded_path = File.expand_path(clean_path)
@@ -131,9 +132,9 @@ end
   def add_static_path(path)
     return unless safe_file?(path)
 
-    base_path = File.split(path).first
+    base_path                      = File.split(path).first
     # Files in the root directory can refer to themselves
-    base_path = path if base_path == '/'
+    base_path                      = path if base_path == '/'
     File.join(option[:public], base_path)
     Otto.logger.debug "new static route: #{base_path} (#{path})" if Otto.debug
     routes_static[:GET][base_path] = base_path
@@ -141,46 +142,46 @@ end
 
   def call(env)
     # Apply middleware stack
-    app = lambda { |e| handle_request(e) }
-    @middleware_stack.reverse.each do |middleware|
+    app = ->(e) { handle_request(e) }
+    @middleware_stack.reverse_each do |middleware|
       app = middleware.new(app, @security_config)
     end
 
     begin
       app.call(env)
-    rescue StandardError => e
-      handle_error(e, env)
+    rescue StandardError => ex
+      handle_error(ex, env)
     end
   end
 
   def handle_request(env)
-    locale = determine_locale env
+    locale             = determine_locale env
     env['rack.locale'] = locale
-    @static_route ||= Rack::Files.new(option[:public]) if option[:public] && safe_dir?(option[:public])
-    path_info = Rack::Utils.unescape(env['PATH_INFO'])
-    path_info = '/' if path_info.to_s.empty?
+    @static_route    ||= Rack::Files.new(option[:public]) if option[:public] && safe_dir?(option[:public])
+    path_info          = Rack::Utils.unescape(env['PATH_INFO'])
+    path_info          = '/' if path_info.to_s.empty?
 
     begin
       path_info_clean = path_info
-                        .encode(
-                          'UTF-8', # Target encoding
-                          invalid: :replace, # Replace invalid byte sequences
-                          undef: :replace,   # Replace characters undefined in UTF-8
-                          replace: ''        # Use empty string for replacement
-                        )
-                        .gsub(%r{/$}, '') # Remove trailing slash, if present
-    rescue ArgumentError => e
+        .encode(
+          'UTF-8', # Target encoding
+          invalid: :replace, # Replace invalid byte sequences
+          undef: :replace,   # Replace characters undefined in UTF-8
+          replace: '',        # Use empty string for replacement
+        )
+        .gsub(%r{/$}, '') # Remove trailing slash, if present
+    rescue ArgumentError => ex
       # Log the error but don't expose details
-      Otto.logger.error "[Otto.handle_request] Path encoding error"
-      Otto.logger.debug "[Otto.handle_request] Error details: #{e.message}" if Otto.debug
+      Otto.logger.error '[Otto.handle_request] Path encoding error'
+      Otto.logger.debug "[Otto.handle_request] Error details: #{ex.message}" if Otto.debug
       # Set a default value or use the original path_info
       path_info_clean = path_info
     end
 
-    base_path = File.split(path_info).first
+    base_path      = File.split(path_info).first
     # Files in the root directory can refer to themselves
-    base_path = path_info if base_path == '/'
-    http_verb = env['REQUEST_METHOD'].upcase.to_sym
+    base_path      = path_info if base_path == '/'
+    http_verb      = env['REQUEST_METHOD'].upcase.to_sym
     literal_routes = routes_literal[http_verb] || {}
     literal_routes.merge! routes_literal[:GET] if http_verb == :HEAD
     if static_route && http_verb == :GET && routes_static[:GET].member?(base_path)
@@ -195,15 +196,15 @@ end
       routes_static[:GET][base_path] = base_path
       static_route.call(env)
     else
-      extra_params = {}
-      found_route = nil
-      valid_routes = routes[http_verb] || []
+      extra_params  = {}
+      found_route   = nil
+      valid_routes  = routes[http_verb] || []
       valid_routes.push(*routes[:GET]) if http_verb == :HEAD
       valid_routes.each do |route|
         # Otto.logger.debug " request: #{http_verb} #{path_info} (trying route: #{route.verb} #{route.pattern})"
         next unless (match = route.pattern.match(path_info))
 
-        values = match.captures.to_a
+        values       = match.captures.to_a
         # The first capture returned is the entire matched string b/c
         # we wrapped the entire regex in parens. We don't need it to
         # the full match.
@@ -222,7 +223,7 @@ end
           else
             {}
           end
-        found_route = route
+        found_route  = route
         break
       end
       found_route ||= literal_routes['/404']
@@ -245,7 +246,7 @@ end
     return if route.nil?
 
     local_params = params.clone
-    local_path = route.path.clone
+    local_path   = route.path.clone
 
     local_params.each_pair do |k, v|
       next unless local_path.match(":#{k}")
@@ -253,16 +254,19 @@ end
       local_path.gsub!(":#{k}", v.to_s)
       local_params.delete(k)
     end
-    uri = Addressable::URI.new
-    uri.path = local_path
-    uri.query_values = local_params unless local_params.empty?
+
+    uri = URI::HTTP.new(nil, nil, nil, nil, nil, local_path, nil, nil, nil)
+    unless local_params.empty?
+      query_string = local_params.map { |k, v| "#{URI.encode_www_form_component(k)}=#{URI.encode_www_form_component(v)}" }.join('&')
+      uri.query    = query_string
+    end
     uri.to_s
   end
 
   def determine_locale(env)
     accept_langs = env['HTTP_ACCEPT_LANGUAGE']
     accept_langs = option[:locale] if accept_langs.to_s.empty?
-    locales = []
+    locales      = []
     unless accept_langs.empty?
       locales = accept_langs.split(',').map do |l|
         l += ';q=1.0' unless /;q=\d+(?:\.\d+)?$/.match?(l)
@@ -282,7 +286,7 @@ end
   # @param middleware [Class] The middleware class to add
   # @param args [Array] Additional arguments for the middleware
   # @param block [Proc] Optional block for middleware configuration
-  def use(middleware, *args, &block)
+  def use(middleware, *, &)
     @middleware_stack << middleware
   end
 
@@ -343,7 +347,7 @@ end
   # @param include_subdomains [Boolean] Apply to all subdomains (default: true)
   # @example
   #   otto.enable_hsts!(max_age: 86400, include_subdomains: false)
-  def enable_hsts!(max_age: 31536000, include_subdomains: true)
+  def enable_hsts!(max_age: 31_536_000, include_subdomains: true)
     @security_config.enable_hsts!(max_age: max_age, include_subdomains: include_subdomains)
   end
 
@@ -396,8 +400,12 @@ end
     Otto.logger.error "[#{error_id}] #{error.class}: #{error.message}"
     Otto.logger.debug "[#{error_id}] Backtrace: #{error.backtrace.join("\n")}" if Otto.debug
 
-    # Check for custom error routes
-    request = Rack::Request.new(env) rescue nil
+    # Parse request for content negotiation
+    begin
+      Rack::Request.new(env)
+    rescue StandardError
+      nil
+    end
     literal_routes = @routes_literal[:GET] || {}
 
     # Try custom 500 route first
@@ -405,9 +413,15 @@ end
       begin
         env['otto.error_id'] = error_id
         return found_route.call(env)
-      rescue StandardError => route_error
-        Otto.logger.error "[#{error_id}] Error in custom error handler: #{route_error.message}"
+      rescue StandardError => ex
+        Otto.logger.error "[#{error_id}] Error in custom error handler: #{ex.message}"
       end
+    end
+
+    # Content negotiation for built-in error response
+    accept_header = env['HTTP_ACCEPT'].to_s
+    if accept_header.include?('application/json')
+      return json_error_response(error_id)
     end
 
     # Fallback to built-in error response
@@ -418,12 +432,35 @@ end
     body = if Otto.env?(:dev, :development)
              "Server error (ID: #{error_id}). Check logs for details."
            else
-             "An error occurred. Please try again later."
+             'An error occurred. Please try again later.'
            end
 
     headers = {
       'content-type' => 'text/plain',
-      'content-length' => body.bytesize.to_s
+      'content-length' => body.bytesize.to_s,
+    }.merge(@security_config.security_headers)
+
+    [500, headers, [body]]
+  end
+
+  def json_error_response(error_id)
+    error_data = if Otto.env?(:dev, :development)
+      {
+        error: 'Internal Server Error',
+        message: 'Server error occurred. Check logs for details.',
+        error_id: error_id,
+      }
+    else
+      {
+        error: 'Internal Server Error',
+        message: 'An error occurred. Please try again later.',
+      }
+    end
+
+    body    = JSON.generate(error_data)
+    headers = {
+      'content-type' => 'application/json',
+      'content-length' => body.bytesize.to_s,
     }.merge(@security_config.security_headers)
 
     [500, headers, [body]]

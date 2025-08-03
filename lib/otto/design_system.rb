@@ -1,11 +1,10 @@
 # lib/otto/design_system.rb
 
 class Otto
+  # Shared design system for Otto framework examples
+  # Provides consistent styling, components, and utilities
   module DesignSystem
-    # Shared design system for Otto framework examples
-    # Provides consistent styling, components, and utilities
-
-    def otto_page(content, title = "Otto Framework", additional_head = "")
+    def otto_page(content, title = 'Otto Framework', additional_head = '')
       <<~HTML
         <!DOCTYPE html>
         <html lang="en">
@@ -25,9 +24,9 @@ class Otto
       HTML
     end
 
-    def otto_input(name, type: "text", placeholder: "", value: "", required: false)
-      req_attr = required ? "required" : ""
-      val_attr = value.empty? ? "" : %{value="#{escape_html(value)}"}
+    def otto_input(name, type: 'text', placeholder: '', value: '', required: false)
+      req_attr = required ? 'required' : ''
+      val_attr = value.empty? ? '' : %(value="#{escape_html(value)}")
 
       <<~HTML
         <input
@@ -41,8 +40,8 @@ class Otto
       HTML
     end
 
-    def otto_textarea(name, placeholder: "", value: "", rows: 4, required: false)
-      req_attr = required ? "required" : ""
+    def otto_textarea(name, placeholder: '', value: '', rows: 4, required: false)
+      req_attr = required ? 'required' : ''
 
       <<~HTML
         <textarea
@@ -55,8 +54,8 @@ class Otto
       HTML
     end
 
-    def otto_button(text, type: "submit", variant: "primary", size: "default")
-      size_class = size == "small" ? "otto-btn-sm" : ""
+    def otto_button(text, type: 'submit', variant: 'primary', size: 'default')
+      size_class = size == 'small' ? 'otto-btn-sm' : ''
 
       <<~HTML
         <button type="#{type}" class="otto-btn otto-btn-#{variant} #{size_class}">
@@ -66,7 +65,7 @@ class Otto
     end
 
     def otto_alert(type, title, message, dismissible: false)
-      dismiss_btn = dismissible ? '<button class="otto-alert-dismiss" onclick="this.parentElement.remove()">×</button>' : ""
+      dismiss_btn = dismissible ? '<button class="otto-alert-dismiss" onclick="this.parentElement.remove()">×</button>' : ''
 
       <<~HTML
         <div class="otto-alert otto-alert-#{type}">
@@ -77,9 +76,9 @@ class Otto
       HTML
     end
 
-    def otto_card(title = nil, &block)
-      content = block_given? ? yield : ""
-      title_html = title ? "<h2 class=\"otto-card-title\">#{escape_html(title)}</h2>" : ""
+    def otto_card(title = nil, &)
+      content    = block_given? ? yield : ''
+      title_html = title ? "<h2 class=\"otto-card-title\">#{escape_html(title)}</h2>" : ''
 
       <<~HTML
         <div class="otto-card">
@@ -90,7 +89,7 @@ class Otto
     end
 
     def otto_link(text, href, external: false)
-      target_attr = external ? 'target="_blank" rel="noopener noreferrer"' : ""
+      target_attr = external ? 'target="_blank" rel="noopener noreferrer"' : ''
 
       <<~HTML
         <a href="#{escape_html(href)}" class="otto-link" #{target_attr}>
@@ -99,7 +98,7 @@ class Otto
       HTML
     end
 
-    def otto_code_block(code, language = "")
+    def otto_code_block(code, language = '')
       <<~HTML
         <div class="otto-code-block">
           <pre><code class="language-#{language}">#{escape_html(code)}</code></pre>
@@ -111,12 +110,13 @@ class Otto
 
     def escape_html(text)
       return '' if text.nil?
+
       text.to_s
-          .gsub('&', '&amp;')
-          .gsub('<', '&lt;')
-          .gsub('>', '&gt;')
-          .gsub('"', '&quot;')
-          .gsub("'", '&#x27;')
+        .gsub('&', '&amp;')
+        .gsub('<', '&lt;')
+        .gsub('>', '&gt;')
+        .gsub('"', '&quot;')
+        .gsub("'", '&#x27;')
     end
 
     def otto_styles

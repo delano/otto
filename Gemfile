@@ -5,8 +5,8 @@ source 'https://rubygems.org'
 gemspec
 
 group :development, :test do
-  gem 'rspec', '~> 3.12'
   gem 'rack-test'
+  gem 'rspec', '~> 3.12'
 end
 
 group 'development' do

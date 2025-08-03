@@ -33,20 +33,20 @@ class Otto
     # @param definition [String] Class and method definition (Class.method or Class#method)
     # @raise [ArgumentError] if definition format is invalid or class name is unsafe
     def initialize(verb, path, definition)
-      @verb = verb.to_s.upcase.to_sym
-      @path = path
-      @definition = definition
+      @verb           = verb.to_s.upcase.to_sym
+      @path           = path
+      @definition     = definition
       @pattern, @keys = *compile(@path)
       if !@definition.index('.').nil?
         @klass, @name = @definition.split('.')
-        @kind = :class
+        @kind         = :class
       elsif !@definition.index('#').nil?
         @klass, @name = @definition.split('#')
-        @kind = :instance
+        @kind         = :instance
       else
         raise ArgumentError, "Bad definition: #{@definition}"
       end
-      @klass = safe_const_get(@klass)
+      @klass          = safe_const_get(@klass)
       # @method = @klass.method(@name)
     end
 
@@ -85,8 +85,8 @@ class Otto
 
       begin
         Object.const_get(class_name)
-      rescue NameError => e
-        raise ArgumentError, "Class not found: #{class_name} - #{e.message}"
+      rescue NameError => ex
+        raise ArgumentError, "Class not found: #{class_name} - #{ex.message}"
       end
     end
 
@@ -109,11 +109,11 @@ class Otto
     # @return [Array] Rack response array [status, headers, body]
     def call(env, extra_params = {})
       extra_params ||= {}
-      req = Rack::Request.new(env)
-      res = Rack::Response.new
+      req            = Rack::Request.new(env)
+      res            = Rack::Response.new
       req.extend Otto::RequestHelpers
       res.extend Otto::ResponseHelpers
-      res.request = req
+      res.request    = req
 
       # Process parameters through security layer
       req.params.merge! extra_params
@@ -158,7 +158,7 @@ class Otto
       keys = []
       if path.respond_to? :to_str
         special_chars = %w[. + ( ) $]
-        pattern =
+        pattern       =
           path.to_str.gsub(/((:\w+)|[\*#{special_chars.join}])/) do |match|
             case match
             when '*'

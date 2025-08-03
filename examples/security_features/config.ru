@@ -13,7 +13,7 @@ require_relative '../../lib/otto'
 require_relative 'app'
 
 # Create Otto app with security features enabled
-app = Otto.new("./routes", {
+app = Otto.new('./routes', {
   # Enable CSRF protection for POST, PUT, DELETE requests
   csrf_protection: true,
 
@@ -42,14 +42,15 @@ app = Otto.new("./routes", {
   security_headers: {
     'content-security-policy' => "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'",
     'strict-transport-security' => 'max-age=31536000; includeSubDomains',
-    'x-frame-options' => 'DENY'
-  }
-})
+    'x-frame-options' => 'DENY',
+  },
+}
+)
 
 # Optional: Configure additional security settings
 app.security_config.max_request_size = 5 * 1024 * 1024  # 5MB limit
-app.security_config.max_param_depth = 10                # Limit parameter nesting
-app.security_config.max_param_keys = 50                 # Limit parameters per request
+app.security_config.max_param_depth  = 10                # Limit parameter nesting
+app.security_config.max_param_keys   = 50                 # Limit parameters per request
 
 # Optional: Add static file serving with security
 app.option[:public] = public_path
@@ -62,20 +63,21 @@ if ENV['RACK_ENV'] == 'production'
   # More restrictive CSP for production
   app.set_security_headers({
     'content-security-policy' => "default-src 'self'; style-src 'self'; script-src 'self'; object-src 'none'",
-    'strict-transport-security' => 'max-age=63072000; includeSubDomains; preload'
-  })
+    'strict-transport-security' => 'max-age=63072000; includeSubDomains; preload',
+  },
+                          )
 else
   # Development-specific settings
-  puts "🔒 Security features enabled:"
-  puts "   ✓ CSRF Protection"
-  puts "   ✓ Input Validation"
-  puts "   ✓ Request Size Limits"
-  puts "   ✓ Security Headers"
-  puts "   ✓ Trusted Proxy Support"
-  puts ""
+  puts '🔒 Security features enabled:'
+  puts '   ✓ CSRF Protection'
+  puts '   ✓ Input Validation'
+  puts '   ✓ Request Size Limits'
+  puts '   ✓ Security Headers'
+  puts '   ✓ Trusted Proxy Support'
+  puts ''
 end
 
 # Mount the application
-map('/') {
+map('/') do
   run app
-}
+end

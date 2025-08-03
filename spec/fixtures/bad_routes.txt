@@ -1,0 +1,4 @@
+INVALID_VERB /path TestApp.method
+GET
+GET /path
+GET /path BadClass.method

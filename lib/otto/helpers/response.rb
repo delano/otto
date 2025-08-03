@@ -76,5 +76,57 @@ class Otto
 
       headers
     end
+
+    # Set Content Security Policy (CSP) headers with nonce support
+    #
+    # This method generates and sets CSP headers with the provided nonce value,
+    # following the same usage pattern as send_cookie methods. The CSP policy
+    # is generated dynamically based on the security configuration and environment.
+    #
+    # @param content_type [String] Content-Type header value to set
+    # @param nonce [String] Nonce value to include in CSP directives
+    # @param opts [Hash] Options for CSP generation
+    # @option opts [Otto::Security::Config] :security_config Security config to use
+    # @option opts [Boolean] :development_mode Use development-friendly CSP directives
+    # @option opts [Boolean] :debug Enable debug logging for this request
+    # @return [void]
+    #
+    # @example Basic usage
+    #   nonce = SecureRandom.base64(16)
+    #   res.send_csp_headers('text/html; charset=utf-8', nonce)
+    #
+    # @example With options
+    #   res.send_csp_headers('text/html; charset=utf-8', nonce, {
+    #     development_mode: Rails.env.development?,
+    #     debug: true
+    #   })
+    def send_csp_headers(content_type, nonce, opts = {})
+      # Set content type if not already set
+      headers['content-type'] ||= content_type
+
+      # Skip if CSP already set
+      return if headers['content-security-policy']
+
+      # Get security configuration
+      security_config = opts[:security_config] || 
+                       (request&.env && request.env['otto.security_config']) ||
+                       nil
+
+      # Skip if CSP nonce support is not enabled
+      return unless security_config&.csp_nonce_enabled?
+
+      # Generate CSP policy with nonce
+      development_mode = opts[:development_mode] || false
+      csp_policy = security_config.generate_nonce_csp(nonce, development_mode: development_mode)
+
+      # Debug logging if enabled
+      debug_enabled = opts[:debug] || security_config.debug_csp?
+      if debug_enabled && defined?(Otto.logger)
+        Otto.logger.debug "[CSP] #{csp_policy}"
+      end
+
+      # Set the CSP header
+      headers['content-security-policy'] = csp_policy
+    end
   end
 end

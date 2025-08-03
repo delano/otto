@@ -297,5 +297,82 @@ class Otto
       paths.unshift(env['SCRIPT_NAME']) if env['SCRIPT_NAME']
       paths.join('/').gsub('//', '/')
     end
+
+    # Set the locale for the request based on multiple sources
+    #
+    # This method determines the locale to be used for the request by checking
+    # the following sources in order of precedence:
+    # 1. The locale parameter passed to the method
+    # 2. The locale query parameter in the request
+    # 3. The customer's saved locale preference (if provided)
+    # 4. The rack.locale environment variable
+    #
+    # If a valid locale is found, it's stored in the request environment.
+    # If no valid locale is found, the default locale is used.
+    #
+    # @param locale [String, nil] The locale to use, if specified
+    # @param opts [Hash] Configuration options
+    # @option opts [Hash] :available_locales Hash of available locales to validate against (required)
+    # @option opts [String] :default_locale Default locale to use as fallback (required)
+    # @option opts [String, nil] :customer_locale Customer's saved locale preference
+    # @option opts [String] :locale_env_key Environment key to store the locale (default: 'locale')
+    # @option opts [Boolean] :debug Enable debug logging for locale selection
+    # @return [String] The selected locale
+    #
+    # @example Basic usage
+    #   check_locale!(
+    #     available_locales: { 'en' => 'English', 'es' => 'Spanish' },
+    #     default_locale: 'en'
+    #   )
+    #   # => 'en'
+    #
+    # @example With customer preference
+    #   check_locale!(nil, {
+    #     available_locales: { 'en' => 'English', 'es' => 'Spanish' },
+    #     default_locale: 'en',
+    #     customer_locale: 'es'
+    #   })
+    #   # => 'es'
+    #
+    def check_locale!(locale = nil, opts = {})
+      # Get configuration from options or environment
+      available_locales = opts[:available_locales] || env['otto.available_locales']
+      default_locale    = opts[:default_locale] || env['otto.default_locale']
+      customer_locale   = opts[:customer_locale]
+      locale_env_key    = opts[:locale_env_key] || 'locale'
+      debug_enabled     = opts[:debug] || false
+
+      # Guard clause - required configuration must be present
+      unless available_locales && default_locale
+        raise ArgumentError, 'available_locales and default_locale are required'
+      end
+
+      # Check sources in order of precedence
+      locale ||= env['rack.request.query_hash'] && env['rack.request.query_hash']['locale']
+      locale ||= customer_locale if customer_locale
+      locale ||= (env['rack.locale'] || []).first
+
+      # Validate locale against available translations
+      have_translations = locale && available_locales.key?(locale.to_s)
+
+      # Debug logging if enabled
+      if debug_enabled && defined?(Otto.logger)
+        message = format(
+          '[check_locale!] sources[param=%s query=%s customer=%s rack=%s] valid=%s',
+          locale,
+          env.dig('rack.request.query_hash', 'locale'),
+          customer_locale,
+          (env['rack.locale'] || []).first,
+          have_translations
+        )
+        Otto.logger.debug message
+      end
+
+      # Set the locale in request environment
+      selected_locale = have_translations ? locale : default_locale
+      env[locale_env_key] = selected_locale
+
+      selected_locale
+    end
   end
 end

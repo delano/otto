@@ -70,7 +70,11 @@ class Otto
       ip = client_ipaddress
       return false unless ip
 
-      local_or_private_ip?(ip)
+      # Check both IP and server name for comprehensive localhost detection
+      server_name        = env['SERVER_NAME']
+      local_server_names = ['localhost', '127.0.0.1', '0.0.0.0']
+
+      local_or_private_ip?(ip) && local_server_names.include?(server_name)
     end
 
     def secure?
@@ -180,6 +184,7 @@ class Otto
     #   collect_proxy_headers
     #   # => "X-Forwarded-For: 203.0.113.195 Remote-Addr: 192.0.2.1"
     #
+    #
     # @example With custom prefix
     #   collect_proxy_headers(header_prefix: 'X_CUSTOM_')
     #   # => "X-Forwarded-For: 203.0.113.195 X-Custom-Token: abc123"
@@ -266,6 +271,28 @@ class Otto
           user_agent_string.include?(agent.to_s.downcase)
         end
       end
+    end
+
+    # Build application path by joining path segments
+    #
+    # This method safely joins multiple path segments, handling
+    # duplicate slashes and ensuring proper path formatting.
+    # Includes the script name (mount point) as the first segment.
+    #
+    # @param paths [Array<String>] Path segments to join
+    # @return [String] Properly formatted path
+    #
+    # @example
+    #   app_path('api', 'v1', 'users')
+    #   # => "/myapp/api/v1/users"
+    #
+    # @example
+    #   app_path(['admin', 'settings'])
+    #   # => "/myapp/admin/settings"
+    def app_path(*paths)
+      paths = paths.flatten.compact
+      paths.unshift(env['SCRIPT_NAME']) if env['SCRIPT_NAME']
+      paths.join('/').gsub('//', '/')
     end
   end
 end

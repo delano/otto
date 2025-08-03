@@ -136,7 +136,7 @@ class Otto
 
       # Validate each octet
       octets = clean_ip.split('.')
-      return nil unless octets.all? { |octet| (0..255).include?(octet.to_i) }
+      return nil unless octets.all? { |octet| (0..255).cover?(octet.to_i) }
 
       clean_ip
     end
@@ -165,6 +165,107 @@ class Otto
 
       # Check for private IP ranges
       private_ip?(ip)
+    end
+
+    # Collect and format HTTP header details from the request environment
+    #
+    # This method extracts and formats specific HTTP headers, including
+    # Cloudflare and proxy-related headers, for logging and debugging purposes.
+    #
+    # @param header_prefix [String, nil] Custom header prefix to include (e.g. 'X_SECRET_')
+    # @param additional_keys [Array<String>] Additional header keys to collect
+    # @return [String] Formatted header details as "key: value" pairs
+    #
+    # @example Basic usage
+    #   collect_proxy_headers
+    #   # => "X-Forwarded-For: 203.0.113.195 Remote-Addr: 192.0.2.1"
+    #
+    # @example With custom prefix
+    #   collect_proxy_headers(header_prefix: 'X_CUSTOM_')
+    #   # => "X-Forwarded-For: 203.0.113.195 X-Custom-Token: abc123"
+    def collect_proxy_headers(header_prefix: nil, additional_keys: [])
+      keys = %w[
+        HTTP_FLY_REQUEST_ID
+        HTTP_VIA
+        HTTP_X_FORWARDED_PROTO
+        HTTP_X_FORWARDED_FOR
+        HTTP_X_FORWARDED_HOST
+        HTTP_X_FORWARDED_PORT
+        HTTP_X_SCHEME
+        HTTP_X_REAL_IP
+        HTTP_CF_IPCOUNTRY
+        HTTP_CF_RAY
+        REMOTE_ADDR
+      ]
+
+      # Add any header that begins with the specified prefix
+      if header_prefix
+        prefix_keys = env.keys.select { |key| key.upcase.start_with?("HTTP_#{header_prefix.upcase}") }
+        keys.concat(prefix_keys)
+      end
+
+      # Add any additional keys requested
+      keys.concat(additional_keys) if additional_keys.any?
+
+      keys.sort.filter_map do |key|
+        value = env[key]
+        next unless value
+
+        # Normalize the header name to look like browser dev console
+        # e.g. Content-Type instead of HTTP_CONTENT_TYPE
+        pretty_name = key.sub(/^HTTP_/, '').split('_').map(&:capitalize).join('-')
+        "#{pretty_name}: #{value}"
+      end.join(' ')
+    end
+
+    # Format request details as a single string for logging
+    #
+    # This method combines IP address, HTTP method, path, query parameters,
+    # and proxy header details into a single formatted string suitable for logging.
+    #
+    # @param header_prefix [String, nil] Custom header prefix for proxy headers
+    # @return [String] Formatted request details
+    #
+    # @example
+    #   format_request_details
+    #   # => "192.0.2.1; GET /path?query=string; Proxy[X-Forwarded-For: 203.0.113.195 Remote-Addr: 192.0.2.1]"
+    def format_request_details(header_prefix: nil)
+      header_details = collect_proxy_headers(header_prefix: header_prefix)
+
+      details = [
+        client_ipaddress,
+        "#{request_method} #{env['PATH_INFO']}?#{env['QUERY_STRING']}",
+        "Proxy[#{header_details}]",
+      ]
+
+      details.join('; ')
+    end
+
+    # Check if user agent matches blocked patterns
+    #
+    # This method checks if the current request's user agent string
+    # matches any of the provided blocked agent patterns.
+    #
+    # @param blocked_agents [Array<String, Symbol, Regexp>] Patterns to check against
+    # @return [Boolean] true if user agent is allowed, false if blocked
+    #
+    # @example
+    #   blocked_user_agent?([:bot, :crawler, 'BadAgent'])
+    #   # => false if user agent contains 'bot', 'crawler', or 'BadAgent'
+    def blocked_user_agent?(blocked_agents: [])
+      return true if blocked_agents.empty?
+
+      user_agent_string = user_agent.to_s.downcase
+      return true if user_agent_string.empty?
+
+      blocked_agents.flatten.any? do |agent|
+        case agent
+        when Regexp
+          user_agent_string.match?(agent)
+        else
+          user_agent_string.include?(agent.to_s.downcase)
+        end
+      end
     end
   end
 end

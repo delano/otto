@@ -106,20 +106,20 @@ class Otto
 
       # Warn if CSP header already exists but don't skip
       if headers['content-security-policy']
-        warn "CSP header already set, overriding with nonce-based policy"
+        warn 'CSP header already set, overriding with nonce-based policy'
       end
 
       # Get security configuration
       security_config = opts[:security_config] ||
-                       (request&.env && request.env['otto.security_config']) ||
-                       nil
+                        (request&.env && request.env['otto.security_config']) ||
+                        nil
 
       # Skip if CSP nonce support is not enabled
       return unless security_config&.csp_nonce_enabled?
 
       # Generate CSP policy with nonce
       development_mode = opts[:development_mode] || false
-      csp_policy = security_config.generate_nonce_csp(nonce, development_mode: development_mode)
+      csp_policy       = security_config.generate_nonce_csp(nonce, development_mode: development_mode)
 
       # Debug logging if enabled
       debug_enabled = opts[:debug] || security_config.debug_csp?
@@ -129,6 +129,45 @@ class Otto
 
       # Set the CSP header
       headers['content-security-policy'] = csp_policy
+    end
+
+    # Set cache control headers to prevent caching
+    #
+    # This method sets comprehensive cache control headers to ensure that
+    # the response is not cached by browsers, proxies, or CDNs. This is
+    # particularly useful for sensitive pages or dynamic content that
+    # should always be fresh.
+    #
+    # @return [void]
+    #
+    # @example
+    #   res.no_cache!
+    def no_cache!
+      headers['cache-control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+      headers['expires']       = 'Mon, 7 Nov 2011 00:00:00 UTC'
+      headers['pragma']        = 'no-cache'
+    end
+
+    # Build application path by joining path segments
+    #
+    # This method safely joins multiple path segments, handling
+    # duplicate slashes and ensuring proper path formatting.
+    # Includes the script name (mount point) as the first segment.
+    #
+    # @param paths [Array<String>] Path segments to join
+    # @return [String] Properly formatted path
+    #
+    # @example
+    #   app_path('api', 'v1', 'users')
+    #   # => "/myapp/api/v1/users"
+    #
+    # @example
+    #   app_path(['admin', 'settings'])
+    #   # => "/myapp/admin/settings"
+    def app_path(*paths)
+      paths = paths.flatten.compact
+      paths.unshift(request.env['SCRIPT_NAME']) if request&.env&.[]('SCRIPT_NAME')
+      paths.join('/').gsub('//', '/')
     end
   end
 end

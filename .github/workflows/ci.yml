@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    timeout-minutes: 10
+    runs-on: ubuntu-24.04
+    name: "RSpec Tests (Ruby ${{ matrix.ruby }})"
+    strategy:
+      fail-fast: true
+      matrix:
+        ruby: [3.2", "3.3", "3.4", "3.5"]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+
+      - name: Run RSpec tests
+        run: bundle exec rspec

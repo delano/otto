@@ -276,6 +276,5 @@ class Otto
         end
       end
     end
-
   end
 end

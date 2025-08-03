@@ -2,7 +2,6 @@
 
 class Otto
   module BaseHelpers
-
     # Build application path by joining path segments
     #
     # This method safely joins multiple path segments, handling
@@ -24,6 +23,5 @@ class Otto
       paths.unshift(env['SCRIPT_NAME']) if env['SCRIPT_NAME']
       paths.join('/').gsub('//', '/')
     end
-
   end
 end

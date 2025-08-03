@@ -113,7 +113,7 @@ class Otto
       res            = Rack::Response.new
       req.extend Otto::RequestHelpers
       res.extend Otto::ResponseHelpers
-      res.request = req
+      res.request    = req
 
       # Make security config available to response helpers
       if otto.respond_to?(:security_config) && otto.security_config

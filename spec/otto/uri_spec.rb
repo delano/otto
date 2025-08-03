@@ -12,7 +12,7 @@ RSpec.describe Otto, '#uri' do
       'PUT /update/:id TestApp.update'
     ]
   end
-  
+
   let(:routes_file) { create_test_routes_file('uri_test_routes.txt', complex_routes) }
   subject(:otto) { described_class.new(routes_file) }
 
@@ -99,7 +99,7 @@ RSpec.describe Otto, '#uri' do
 
     it 'handles percent characters in values' do
       uri = otto.uri('TestApp.search', discount: '20%', completion: '100%')
-      expect(uri).to include('discount=20%25')  
+      expect(uri).to include('discount=20%25')
       expect(uri).to include('completion=100%25')
     end
   end
@@ -155,7 +155,7 @@ RSpec.describe Otto, '#uri' do
     it 'preserves original route and params objects' do
       original_params = { id: '123', page: '2' }
       uri = otto.uri('TestApp.show', original_params)
-      
+
       # Original params should not be modified
       expect(original_params).to eq({ id: '123', page: '2' })
       expect(uri).to eq('/show/123?page=2')
@@ -166,11 +166,11 @@ RSpec.describe Otto, '#uri' do
     it 'handles large numbers of query parameters efficiently' do
       large_params = {}
       (1..100).each { |i| large_params["param#{i}"] = "value#{i}" }
-      
+
       start_time = Time.now
       uri = otto.uri('TestApp.index', large_params)
       execution_time = Time.now - start_time
-      
+
       expect(uri).to start_with('/?')
       expect(execution_time).to be < 0.1  # Should complete in under 100ms
     end
@@ -181,7 +181,7 @@ RSpec.describe Otto, '#uri' do
         xml: '<root><item>value</item></root>',
         query: 'SELECT * FROM users WHERE name LIKE "%test%"'
       }
-      
+
       uri = otto.uri('TestApp.search', complex_params)
       expect(uri).to include('json=')
       expect(uri).to include('xml=')
@@ -192,24 +192,24 @@ RSpec.describe Otto, '#uri' do
   describe 'RFC compliance' do
     it 'generates valid URIs according to RFC 3986' do
       uri = otto.uri('TestApp.search', q: 'test query', type: 'exact')
-      
+
       # Should not contain unencoded spaces or special characters
       expect(uri).not_to include(' ')
       expect(uri).to match(%r{^/[^?]*(\?[^#]*)?$})  # Basic URI structure
     end
 
     it 'handles reserved characters correctly' do
-      reserved_chars = { 
+      reserved_chars = {
         'colon' => 'a:b',
-        'slash' => 'a/b', 
+        'slash' => 'a/b',
         'question' => 'a?b',
         'hash' => 'a#b',
         'bracket' => 'a[b]',
         'at' => 'a@b'
       }
-      
+
       uri = otto.uri('TestApp.search', reserved_chars)
-      
+
       # All reserved characters should be properly encoded
       expect(uri).to include('colon=a%3Ab')
       expect(uri).to include('slash=a%2Fb')

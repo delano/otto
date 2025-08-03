@@ -16,7 +16,7 @@ Gem::Specification.new do |spec|
   spec.homepage      = 'https://github.com/delano/otto'
   spec.require_paths = ['lib']
 
-  spec.required_ruby_version = ['>= 3.4', '< 4.0']
+  spec.required_ruby_version = ['>= 3.2', '< 4.0']
 
   # https://github.com/delano/otto/security/dependabot/5
   spec.add_dependency 'rexml', '>= 3.3.6'

@@ -1,4 +1,4 @@
-# Otto - 1.2 (2025-08-18)
+# Otto - A Ruby Gem
 
 **Define your rack-apps in plain-text with built-in security.**
 
@@ -76,7 +76,7 @@ Security features include CSRF protection, input validation, security headers, a
 
 ## Requirements
 
-- Ruby 3.4+
+- Ruby 3.2+
 - Rack 3.1+
 
 ## Installation

@@ -1,0 +1,88 @@
+##
+# Pre-Push Hooks Configuration
+#
+# Quality control checks that run before code is pushed to remote repositories
+#
+# Setup:
+#   1. Install the pre-push hook:
+#       $ pre-commit install --hook-type pre-push
+#
+#   2. Install required dependencies:
+#       - Ruby + Rubocop
+#       - Node.js + ESLint
+#       - TypeScript compiler
+#
+# Usage:
+#   Hooks run automatically on 'git push'
+#
+#   Manual execution:
+#   - Run all checks:
+#     $ pre-commit run --config .pre-push-config.yaml --all-files
+#
+#   - Run single check:
+#     $ pre-commit run <hook-id> --config .pre-push-config.yaml
+#     Example: pre-commit run rubocop --config .pre-push-config.yaml
+#
+# Included Checks:
+#   - Full codebase linting (Rubocop, ESLint)
+#   - YAML/JSON validation
+#   - TypeScript type checking
+#   - Code style enforcement
+#   - Security vulnerability scanning
+#
+# Related Files:
+#   - .pre-commit-config.yaml: Lightweight pre-commit checks
+#   - Documentation: https://pre-commit.com
+#
+# Note: These intensive checks run before pushing to catch issues early
+# but allow faster local development with lighter pre-commit hooks.
+
+# Allow all failures to happen so they can be corrected in one go
+fail_fast: false
+
+# Skip generated/dependency directories
+exclude: "^(vendor|node_modules|dist|build)/"
+
+default_install_hook_types:
+  - pre-push
+  - push
+
+default_stages: [push]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-yaml
+        name: Validate YAML files
+        args: ["--allow-multiple-documents"]
+        files: \.(yaml|yml)$
+
+      - id: check-toml
+        name: Validate TOML files
+        files: \.toml$
+
+      - id: check-json
+        name: Validate JSON files
+        files: \.json$
+
+      - id: pretty-format-json
+        name: Format JSON files
+        args: ["--autofix", "--no-sort-keys"]
+        files: \.json$
+
+      - id: mixed-line-ending
+        name: Check line endings
+        args: [--fix=lf]
+
+      - id: check-case-conflict
+        name: Check for case conflicts
+
+      - id: check-executables-have-shebangs
+        name: Check executable shebangs
+
+      - id: check-shebang-scripts-are-executable
+        name: Check shebang scripts are executable
+
+      - id: forbid-submodules
+        name: Check for submodules

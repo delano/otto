@@ -370,6 +370,16 @@ class Otto
     @security_config.enable_frame_protection!(option)
   end
 
+  # Enable Content Security Policy (CSP) with nonce support for dynamic header generation.
+  # This enables the res.send_csp_headers response helper method.
+  #
+  # @param debug [Boolean] Enable debug logging for CSP headers (default: false)
+  # @example
+  #   otto.enable_csp_with_nonce!(debug: true)
+  def enable_csp_with_nonce!(debug: false)
+    @security_config.enable_csp_with_nonce!(debug: debug)
+  end
+
   private
 
   def configure_security(opts)

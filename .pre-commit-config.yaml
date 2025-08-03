@@ -1,0 +1,97 @@
+##
+# Pre-Commit Hooks Configuration
+#
+# Fast, lightweight code quality checks that run before each commit
+#
+# Setup:
+#   1. Install pre-commit:
+#       $ pip install pre-commit
+#
+#   2. Install git hooks:
+#       $ pre-commit install
+#
+# Usage:
+#   Hooks run automatically on 'git commit'
+#
+#   Manual commands:
+#   - Check all files:
+#     $ pre-commit run --all-files
+#
+#   - Update hooks:
+#     $ pre-commit autoupdate
+#
+#   - Reinstall after config changes:
+#     $ pre-commit install
+#
+# Best Practices:
+#   - Reinstall hooks after modifying this config
+#   - Commit config changes in isolation
+#   - Keep checks fast to maintain workflow
+#
+# Resources:
+#   - Docs: https://pre-commit.com
+#   - Available hooks: https://pre-commit.com/hooks.html
+#
+# Note: These lightweight checks maintain code quality without
+# slowing down the local development process.
+
+# Hook installation configuration
+default_install_hook_types:
+  - pre-commit # Primary code quality checks
+  - prepare-commit-msg # Commit message preprocessing
+  - post-commit # Actions after successful commit
+  - post-checkout # Triggered after git checkout
+  - post-merge # Triggered after git merge
+
+# Default execution stage
+default_stages: [pre-commit]
+
+# Avoid multiple sequential commit failures
+fail_fast: false
+
+# Ignore generated and dependency directories
+exclude: "^$"
+
+repos:
+  # Meta hooks: basic checks for pre-commit config itself
+  - repo: meta
+    hooks:
+      - id: check-hooks-apply
+      - id: check-useless-excludes
+
+  # Standard pre-commit hooks: lightweight, universal checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # Formatting and basic sanitization
+      - id: trailing-whitespace # Remove trailing whitespaces
+      - id: end-of-file-fixer # Ensure files end with newline
+      - id: check-merge-conflict # Detect unresolved merge conflicts
+      - id: detect-private-key # Warn about committing private keys
+      - id: check-added-large-files # Prevent committing oversized files
+        args: ["--maxkb=2500"] # 2.5MB file size threshold
+      - id: no-commit-to-branch # Prevent direct commits to critical branches
+        args: ["--branch", "main", "--branch", "rel/.*"]
+
+  # Ruby code quality and style checks (using local bundler environment)
+  - repo: local
+    hooks:
+      - id: rubocop
+        name: RuboCop
+        description: Ruby static code analyzer and formatter
+        entry: bundle exec rubocop
+        language: system
+        files: \.rb$
+        pass_filenames: false
+
+  # Commit message issue tracking integration
+  - repo: https://github.com/avilaton/add-msg-issue-prefix-hook
+    rev: v0.0.12
+    hooks:
+      - id: add-msg-issue-prefix
+        stages: [prepare-commit-msg]
+        description: Automatically prefix commits with issue numbers
+        args:
+          - "--default="
+          - '--pattern=(?:i18n(?=\/)|[a-zA-Z0-9]{0,10}-?[0-9]{1,5})'
+          - "--template=[#{}]"

@@ -24,7 +24,8 @@ class Otto
       attr_accessor :csrf_protection, :csrf_token_key, :csrf_header_key, :csrf_session_key,
         :max_request_size, :max_param_depth, :max_param_keys,
         :trusted_proxies, :require_secure_cookies,
-        :security_headers, :input_validation
+        :security_headers, :input_validation,
+        :csp_nonce_enabled, :debug_csp
 
       # Initialize security configuration with safe defaults
       #
@@ -42,6 +43,8 @@ class Otto
         @require_secure_cookies = false
         @security_headers       = default_security_headers
         @input_validation       = true
+        @csp_nonce_enabled      = false
+        @debug_csp              = false
       end
 
       # Enable CSRF (Cross-Site Request Forgery) protection
@@ -199,6 +202,53 @@ class Otto
         @security_headers['content-security-policy'] = policy
       end
 
+      # Enable Content Security Policy (CSP) with nonce support
+      #
+      # This enables dynamic CSP header generation with nonces for enhanced security.
+      # Unlike enable_csp!, this doesn't set a static policy but enables the response
+      # helper to generate CSP headers with nonces on a per-request basis.
+      #
+      # @param debug [Boolean] Enable debug logging for CSP headers (default: false)
+      # @return [void]
+      #
+      # @example
+      #   config.enable_csp_with_nonce!(debug: true)
+      def enable_csp_with_nonce!(debug: false)
+        @csp_nonce_enabled = true
+        @debug_csp = debug
+      end
+
+      # Disable CSP nonce support
+      #
+      # @return [void]
+      def disable_csp_nonce!
+        @csp_nonce_enabled = false
+      end
+
+      # Check if CSP nonce support is enabled
+      #
+      # @return [Boolean] true if CSP nonce support is enabled
+      def csp_nonce_enabled?
+        @csp_nonce_enabled
+      end
+
+      # Check if CSP debug logging is enabled
+      #
+      # @return [Boolean] true if CSP debug logging is enabled
+      def debug_csp?
+        @debug_csp
+      end
+
+      # Generate a CSP policy string with the provided nonce
+      #
+      # @param nonce [String] The nonce value to include in the CSP
+      # @param development_mode [Boolean] Whether to use development-friendly directives
+      # @return [String] Complete CSP policy string
+      def generate_nonce_csp(nonce, development_mode: false)
+        directives = development_mode ? development_csp_directives(nonce) : production_csp_directives(nonce)
+        directives.join(' ')
+      end
+
       # Enable X-Frame-Options header to prevent clickjacking
       #
       # @param option [String] Frame options: 'DENY', 'SAMEORIGIN', or 'ALLOW-FROM uri'
@@ -297,6 +347,54 @@ class Otto
         result                                = 0
         a.bytes.zip(b.bytes) { |x, y| result |= x ^ y }
         result == 0
+      end
+
+      # Generate CSP directives for development environment
+      #
+      # Development mode allows inline scripts/styles and hot reloading connections
+      # for better developer experience with build tools like Vite.
+      #
+      # @param nonce [String] The nonce value to include in script-src
+      # @return [Array<String>] Array of CSP directive strings
+      def development_csp_directives(nonce)
+        [
+          "default-src 'none';",
+          "script-src 'nonce-#{nonce}' 'unsafe-inline';",  # Allow inline scripts for development tools
+          "style-src 'self' 'unsafe-inline';",
+          "connect-src 'self' ws: wss: http: https:;",      # Allow HTTP and all WebSocket connections for dev tools
+          "img-src 'self' data:;",
+          "font-src 'self';",
+          "object-src 'none';",
+          "base-uri 'self';",
+          "form-action 'self';",
+          "frame-ancestors 'none';",
+          "manifest-src 'self';",
+          "worker-src 'self' data:;",
+        ]
+      end
+
+      # Generate CSP directives for production environment
+      #
+      # Production mode is more restrictive, only allowing HTTPS connections
+      # and nonce-only scripts for enhanced XSS protection.
+      #
+      # @param nonce [String] The nonce value to include in script-src
+      # @return [Array<String>] Array of CSP directive strings
+      def production_csp_directives(nonce)
+        [
+          "default-src 'none';",                     # Restrict to same origin by default
+          "script-src 'nonce-#{nonce}';",            # Only allow scripts with valid nonce
+          "style-src 'self' 'unsafe-inline';",       # Allow inline styles and same-origin stylesheets
+          "connect-src 'self' wss: https:;",         # Only HTTPS and secure WebSockets
+          "img-src 'self' data:;",                   # Allow images from same origin and data URIs
+          "font-src 'self';",                        # Allow fonts from same origin only
+          "object-src 'none';",                      # Block <object>, <embed>, and <applet> elements
+          "base-uri 'self';",                        # Restrict <base> tag targets to same origin
+          "form-action 'self';",                     # Restrict form submissions to same origin
+          "frame-ancestors 'none';",                 # Prevent site from being embedded in frames
+          "manifest-src 'self';",                    # Allow web app manifests from same origin
+          "worker-src 'self' data:;",                # Allow Workers from same origin and data blobs
+        ]
       end
     end
 

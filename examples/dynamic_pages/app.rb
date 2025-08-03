@@ -35,7 +35,7 @@ class App
       end}
     HTML
 
-    res.send_cookie :sess, 1_234_567, 3600
+    res.send_secure_cookie :sess, 1_234_567, 3600
     res.body = otto_page(content)
   end
 

@@ -33,13 +33,13 @@ RSpec.configure do |config|
     ENV['RACK_ENV'] = 'test'
     ENV['OTTO_DEBUG'] = 'false' unless ENV['OTTO_DEBUG'] == 'true'
     
-    # Clean up any test files
-    Dir.glob('test_routes_*.txt').each { |f| File.delete(f) if File.exist?(f) }
+    # Clean up any test files in spec/fixtures
+    Dir.glob('spec/fixtures/test_routes_*.txt').each { |f| File.delete(f) if File.exist?(f) }
   end
 
   config.after(:each) do
-    # Clean up any test files created during tests
-    Dir.glob('test_routes_*.txt').each { |f| File.delete(f) if File.exist?(f) }
+    # Clean up any test files created during tests in spec/fixtures
+    Dir.glob('spec/fixtures/test_routes_*.txt').each { |f| File.delete(f) if File.exist?(f) }
   end
 
   # Configure output format
@@ -55,8 +55,10 @@ end
 # Test helpers
 module OttoTestHelpers
   def create_test_routes_file(filename, routes)
-    File.write(filename, routes.join("\n"))
-    filename
+    # Use spec/fixtures directory for test route files
+    file_path = File.join('spec', 'fixtures', filename)
+    File.write(file_path, routes.join("\n"))
+    file_path
   end
 
   def create_minimal_otto(routes_content = nil)

@@ -9,6 +9,7 @@
 *.md
 *.txt
 !LICENSE.txt
+!spec/fixtures/*.txt
 .ruby-version
 appendonlydir
 etc/config

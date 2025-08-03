@@ -1,7 +1,11 @@
 # lib/otto/helpers/request.rb
 
+require_relative 'base'
+
 class Otto
   module RequestHelpers
+    include Otto::BaseHelpers
+
     def user_agent
       env['HTTP_USER_AGENT']
     end
@@ -70,7 +74,11 @@ class Otto
       ip = client_ipaddress
       return false unless ip
 
-      local_or_private_ip?(ip)
+      # Check both IP and server name for comprehensive localhost detection
+      server_name        = env['SERVER_NAME']
+      local_server_names = ['localhost', '127.0.0.1', '0.0.0.0']
+
+      local_or_private_ip?(ip) && local_server_names.include?(server_name)
     end
 
     def secure?
@@ -180,6 +188,7 @@ class Otto
     #   collect_proxy_headers
     #   # => "X-Forwarded-For: 203.0.113.195 Remote-Addr: 192.0.2.1"
     #
+    #
     # @example With custom prefix
     #   collect_proxy_headers(header_prefix: 'X_CUSTOM_')
     #   # => "X-Forwarded-For: 203.0.113.195 X-Custom-Token: abc123"
@@ -267,5 +276,6 @@ class Otto
         end
       end
     end
+
   end
 end

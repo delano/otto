@@ -359,9 +359,9 @@ class Otto
       def development_csp_directives(nonce)
         [
           "default-src 'none';",
-          "script-src 'unsafe-inline' 'nonce-#{nonce}';",
+          "script-src 'nonce-#{nonce}' 'unsafe-inline';",  # Allow inline scripts for development tools
           "style-src 'self' 'unsafe-inline';",
-          "connect-src 'self' ws: wss: http: https:;",
+          "connect-src 'self' ws: wss: http: https:;",      # Allow HTTP and all WebSocket connections for dev tools
           "img-src 'self' data:;",
           "font-src 'self';",
           "object-src 'none';",
@@ -376,24 +376,24 @@ class Otto
       # Generate CSP directives for production environment
       #
       # Production mode is more restrictive, only allowing HTTPS connections
-      # and no unsafe-inline for scripts (nonce-only).
+      # and nonce-only scripts for enhanced XSS protection.
       #
       # @param nonce [String] The nonce value to include in script-src
       # @return [Array<String>] Array of CSP directive strings
       def production_csp_directives(nonce)
         [
-          "default-src 'none';",
-          "script-src 'unsafe-inline' 'nonce-#{nonce}';",
-          "style-src 'self' 'unsafe-inline';",
-          "connect-src 'self' wss: https:;",
-          "img-src 'self' data:;",
-          "font-src 'self';",
-          "object-src 'none';",
-          "base-uri 'self';",
-          "form-action 'self';",
-          "frame-ancestors 'none';",
-          "manifest-src 'self';",
-          "worker-src 'self' data:;",
+          "default-src 'none';",                     # Restrict to same origin by default
+          "script-src 'nonce-#{nonce}';",            # Only allow scripts with valid nonce
+          "style-src 'self' 'unsafe-inline';",       # Allow inline styles and same-origin stylesheets
+          "connect-src 'self' wss: https:;",         # Only HTTPS and secure WebSockets
+          "img-src 'self' data:;",                   # Allow images from same origin and data URIs
+          "font-src 'self';",                        # Allow fonts from same origin only
+          "object-src 'none';",                      # Block <object>, <embed>, and <applet> elements
+          "base-uri 'self';",                        # Restrict <base> tag targets to same origin
+          "form-action 'self';",                     # Restrict form submissions to same origin
+          "frame-ancestors 'none';",                 # Prevent site from being embedded in frames
+          "manifest-src 'self';",                    # Allow web app manifests from same origin
+          "worker-src 'self' data:;",                # Allow Workers from same origin and data blobs
         ]
       end
     end

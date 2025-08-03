@@ -104,11 +104,13 @@ class Otto
       # Set content type if not already set
       headers['content-type'] ||= content_type
 
-      # Skip if CSP already set
-      return if headers['content-security-policy']
+      # Warn if CSP header already exists but don't skip
+      if headers['content-security-policy']
+        warn "CSP header already set, overriding with nonce-based policy"
+      end
 
       # Get security configuration
-      security_config = opts[:security_config] || 
+      security_config = opts[:security_config] ||
                        (request&.env && request.env['otto.security_config']) ||
                        nil
 

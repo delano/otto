@@ -1,3 +1,4 @@
+require 'json'
 require 'logger'
 require 'securerandom'
 require 'uri'
@@ -285,7 +286,7 @@ class Otto
   # @param middleware [Class] The middleware class to add
   # @param args [Array] Additional arguments for the middleware
   # @param block [Proc] Optional block for middleware configuration
-  def use(middleware, *args, &)
+  def use(middleware, *, &)
     @middleware_stack << middleware
   end
 
@@ -399,11 +400,11 @@ class Otto
     Otto.logger.error "[#{error_id}] #{error.class}: #{error.message}"
     Otto.logger.debug "[#{error_id}] Backtrace: #{error.backtrace.join("\n")}" if Otto.debug
 
-    # Check for custom error routes
-    request        = begin
-                Rack::Request.new(env)
+    # Parse request for content negotiation
+    begin
+      Rack::Request.new(env)
     rescue StandardError
-                nil
+      nil
     end
     literal_routes = @routes_literal[:GET] || {}
 
@@ -415,6 +416,12 @@ class Otto
       rescue StandardError => ex
         Otto.logger.error "[#{error_id}] Error in custom error handler: #{ex.message}"
       end
+    end
+
+    # Content negotiation for built-in error response
+    accept_header = env['HTTP_ACCEPT'].to_s
+    if accept_header.include?('application/json')
+      return json_error_response(error_id)
     end
 
     # Fallback to built-in error response
@@ -430,6 +437,29 @@ class Otto
 
     headers = {
       'content-type' => 'text/plain',
+      'content-length' => body.bytesize.to_s,
+    }.merge(@security_config.security_headers)
+
+    [500, headers, [body]]
+  end
+
+  def json_error_response(error_id)
+    error_data = if Otto.env?(:dev, :development)
+      {
+        error: 'Internal Server Error',
+        message: 'Server error occurred. Check logs for details.',
+        error_id: error_id,
+      }
+    else
+      {
+        error: 'Internal Server Error',
+        message: 'An error occurred. Please try again later.',
+      }
+    end
+
+    body    = JSON.generate(error_data)
+    headers = {
+      'content-type' => 'application/json',
       'content-length' => body.bytesize.to_s,
     }.merge(@security_config.security_headers)
 

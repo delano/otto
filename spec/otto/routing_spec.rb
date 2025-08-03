@@ -124,6 +124,60 @@ RSpec.describe Otto, 'request handling and routing' do
         ENV['RACK_ENV'] = original_env
       end
     end
+
+    it 'returns JSON error response when Accept header includes application/json' do
+      env = mock_rack_env(method: 'GET', path: '/error', headers: { 'ACCEPT' => 'application/json' })
+      response = app.call(env)
+
+      expect(response[0]).to eq(500)
+      expect(response[1]['content-type']).to eq('application/json')
+
+      body = response[2].join
+      parsed = JSON.parse(body)
+      expect(parsed['error']).to eq('Internal Server Error')
+      expect(parsed['message']).to include('error occurred')
+
+      puts "\n=== DEBUG: JSON Error Response ==="
+      puts "Status: #{response[0]}"
+      puts "Content-Type: #{response[1]['content-type']}"
+      puts "Body: #{body}"
+      puts "===============================\n"
+    end
+
+    it 'returns JSON error response with error ID in development mode' do
+      original_env = ENV['RACK_ENV']
+      ENV['RACK_ENV'] = 'development'
+
+      begin
+        env = mock_rack_env(method: 'GET', path: '/error', headers: { 'ACCEPT' => 'application/json' })
+        response = app.call(env)
+
+        expect(response[0]).to eq(500)
+        expect(response[1]['content-type']).to eq('application/json')
+
+        body = response[2].join
+        parsed = JSON.parse(body)
+        expect(parsed['error']).to eq('Internal Server Error')
+        expect(parsed['message']).to include('Server error occurred')
+        expect(parsed['error_id']).to match(/[a-f0-9]{16}/)
+      ensure
+        ENV['RACK_ENV'] = original_env
+      end
+    end
+
+    it 'handles mixed Accept headers correctly (browser-style)' do
+      # Typical browser Accept header that includes application/json
+      accept_header = 'text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7'
+      env = mock_rack_env(method: 'GET', path: '/error', headers: { 'ACCEPT' => accept_header })
+      response = app.call(env)
+
+      expect(response[0]).to eq(500)
+      expect(response[1]['content-type']).to eq('application/json')
+
+      body = response[2].join
+      parsed = JSON.parse(body)
+      expect(parsed['error']).to eq('Internal Server Error')
+    end
   end
 
   describe 'HEAD request handling' do

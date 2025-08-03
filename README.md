@@ -76,7 +76,7 @@ Security features include CSRF protection, input validation, security headers, a
 
 ## Requirements
 
-- Ruby 3.4+
+- Ruby 3.2+
 - Rack 3.1+
 
 ## Installation

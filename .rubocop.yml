@@ -19,7 +19,7 @@ AllCops:
   DisabledByDefault: false # flip to true for a good autocorrect time
   UseCache: true
   MaxFilesInCache: 100
-  TargetRubyVersion: 3.4
+  TargetRubyVersion: 3.2
   Exclude:
     - "spec/**/*.rb"
     - "vendor/**/*"

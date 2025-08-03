@@ -115,8 +115,6 @@ class Otto
       [prefix, http_host, request_path].join
     end
 
-    private
-
     def otto_security_config
       # Try to get security config from various sources
       if respond_to?(:otto) && otto.respond_to?(:security_config)
@@ -238,6 +236,7 @@ class Otto
     # @example
     #   format_request_details
     #   # => "192.0.2.1; GET /path?query=string; Proxy[X-Forwarded-For: 203.0.113.195 Remote-Addr: 192.0.2.1]"
+    #
     def format_request_details(header_prefix: nil)
       header_details = collect_proxy_headers(header_prefix: header_prefix)
 

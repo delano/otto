@@ -1,4 +1,4 @@
-# Otto - 1.2 (2025-08-18)
+# Otto - A Ruby Gem
 
 **Define your rack-apps in plain-text with built-in security.**
 

@@ -10,7 +10,7 @@ class Otto
         secure: true,
         httponly: true,
         same_site: :strict,
-        path: '/'
+        path: '/',
       }
 
       # Merge with provided options
@@ -30,7 +30,7 @@ class Otto
       cookie_opts[:value] = value
 
       # Validate SameSite attribute
-      valid_same_site = [:strict, :lax, :none, 'Strict', 'Lax', 'None']
+      valid_same_site         = [:strict, :lax, :none, 'Strict', 'Lax', 'None']
       cookie_opts[:same_site] = :strict unless valid_same_site.include?(cookie_opts[:same_site])
 
       # If SameSite=None, Secure must be true
@@ -44,7 +44,7 @@ class Otto
       session_opts = opts.merge(
         secure: true,
         httponly: true,
-        samesite: :strict
+        samesite: :strict,
       )
 
       # Remove expiration-related options for session cookies

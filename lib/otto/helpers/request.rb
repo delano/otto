@@ -18,7 +18,7 @@ class Otto
       forwarded_ips = [
         env['HTTP_X_FORWARDED_FOR'],
         env['HTTP_X_REAL_IP'],
-        env['HTTP_CLIENT_IP']
+        env['HTTP_CLIENT_IP'],
       ].compact.map { |header| header.split(/,\s*/) }.flatten
 
       # Return the first valid IP that's not a private/loopback address
@@ -115,8 +115,6 @@ class Otto
         otto.security_config
       elsif defined?(Otto) && Otto.respond_to?(:security_config)
         Otto.security_config
-      else
-        nil
       end
     end
 
@@ -153,7 +151,7 @@ class Otto
         /\A192\.168\./,              # 192.168.0.0/16
         /\A169\.254\./,              # 169.254.0.0/16 (link-local)
         /\A224\./,                   # 224.0.0.0/4 (multicast)
-        /\A0\./                      # 0.0.0.0/8
+        /\A0\./,                      # 0.0.0.0/8
       ]
 
       private_ranges.any? { |range| ip.match?(range) }
@@ -163,7 +161,7 @@ class Otto
       return false unless ip
 
       # Check for localhost
-      return true if ip == '127.0.0.1' || ip == '::1'
+      return true if ['127.0.0.1', '::1'].include?(ip)
 
       # Check for private IP ranges
       private_ip?(ip)

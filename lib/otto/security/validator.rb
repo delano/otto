@@ -5,31 +5,32 @@ require 'cgi'
 
 class Otto
   module Security
+    # ValidationMiddleware provides input validation and sanitization for web requests
     class ValidationMiddleware
       # Character validation patterns
-      INVALID_CHARACTERS = /[\x00-\x1f\x7f-\xff]/n.freeze
-      NULL_BYTE = /\0/.freeze
+      INVALID_CHARACTERS = /[\x00-\x1f\x7f-\xff]/n
+      NULL_BYTE          = /\0/
 
       DANGEROUS_PATTERNS = [
         /<script[^>]*>/i,           # Script tags
         /javascript:/i,             # JavaScript protocol
         /data:.*base64/i,           # Data URLs with base64
-        /on\w+\s*=/i,              # Event handlers
+        /on\w+\s*=/i,               # Event handlers
         /expression\s*\(/i,         # CSS expressions
-        /url\s*\(/i,               # CSS url() functions
-        NULL_BYTE,                 # Null bytes
-        INVALID_CHARACTERS         # Control characters and extended ASCII
+        /url\s*\(/i,                # CSS url() functions
+        NULL_BYTE,                  # Null bytes
+        INVALID_CHARACTERS,         # Control characters and extended ASCII
       ].freeze
 
       SQL_INJECTION_PATTERNS = [
         /('|(\\')|(;)|(\\)|(--)|(%27)|(%3B)|(%3D))/i,
         /(union|select|insert|update|delete|drop|create|alter|exec|execute)/i,
         /(or|and)\s+\w+\s*=\s*\w+/i,
-        /\d+\s*(=|>|<|>=|<=|<>|!=)\s*\d+/i
+        /\d+\s*(=|>|<|>=|<=|<>|!=)\s*\d+/i,
       ].freeze
 
       def initialize(app, config = nil)
-        @app = app
+        @app    = app
         @config = config || Otto::Security::Config.new
       end
 
@@ -48,20 +49,19 @@ class Otto
           # Validate and sanitize parameters
           begin
             validate_parameters(request) if request.params
-          rescue Rack::QueryParser::QueryLimitError => e
+          rescue Rack::QueryParser::QueryLimitError => ex
             # Handle Rack's built-in query parsing limits
-            raise Otto::Security::ValidationError, "Parameter structure too complex: #{e.message}"
+            raise Otto::Security::ValidationError, "Parameter structure too complex: #{ex.message}"
           end
 
           # Validate headers
           validate_headers(request)
 
           @app.call(env)
-
-        rescue Otto::Security::ValidationError => e
-          return validation_error_response(e.message)
-        rescue Otto::Security::RequestTooLargeError => e
-          return request_too_large_response(e.message)
+        rescue Otto::Security::ValidationError => ex
+          validation_error_response(ex.message)
+        rescue Otto::Security::RequestTooLargeError => ex
+          request_too_large_response(ex.message)
         end
       end
 
@@ -81,7 +81,7 @@ class Otto
           'application/x-shockwave-flash',
           'application/x-silverlight-app',
           'text/vbscript',
-          'application/vbscript'
+          'application/vbscript',
         ]
 
         if dangerous_types.any? { |type| content_type.downcase.include?(type) }
@@ -153,14 +153,14 @@ class Otto
         # Check for dangerous patterns
         DANGEROUS_PATTERNS.each do |pattern|
           if value.match?(pattern)
-            raise Otto::Security::ValidationError, "Dangerous content detected in parameter"
+            raise Otto::Security::ValidationError, 'Dangerous content detected in parameter'
           end
         end
 
         # Check for SQL injection patterns
         SQL_INJECTION_PATTERNS.each do |pattern|
           if value.match?(pattern)
-            raise Otto::Security::ValidationError, "Potential SQL injection detected"
+            raise Otto::Security::ValidationError, 'Potential SQL injection detected'
           end
         end
 
@@ -174,9 +174,7 @@ class Otto
 
         # Additional sanitization for common attack vectors
         sanitized = sanitized.gsub(/<!--.*?-->/m, '') # Remove HTML comments
-        sanitized = sanitized.gsub(/<!\[CDATA\[.*?\]\]>/m, '') # Remove CDATA sections
-
-        sanitized
+        sanitized.gsub(/<!\[CDATA\[.*?\]\]>/m, '') # Remove CDATA sections
       end
 
       def validate_headers(request)
@@ -202,13 +200,13 @@ class Otto
         # Validate User-Agent length
         user_agent = request.env['HTTP_USER_AGENT']
         if user_agent && user_agent.length > 1000
-          raise Otto::Security::ValidationError, "User-Agent header too long"
+          raise Otto::Security::ValidationError, 'User-Agent header too long'
         end
 
         # Validate Referer header
         referer = request.env['HTTP_REFERER']
         if referer && referer.length > 2000
-          raise Otto::Security::ValidationError, "Referer header too long"
+          raise Otto::Security::ValidationError, 'Referer header too long'
         end
       end
 
@@ -217,9 +215,9 @@ class Otto
           400,
           {
             'content-type' => 'application/json',
-            'content-length' => validation_error_body(message).bytesize.to_s
+            'content-length' => validation_error_body(message).bytesize.to_s,
           },
-          [validation_error_body(message)]
+          [validation_error_body(message)],
         ]
       end
 
@@ -228,9 +226,9 @@ class Otto
           413,
           {
             'content-type' => 'application/json',
-            'content-length' => request_too_large_body(message).bytesize.to_s
+            'content-length' => request_too_large_body(message).bytesize.to_s,
           },
-          [request_too_large_body(message)]
+          [request_too_large_body(message)],
         ]
       end
 
@@ -238,7 +236,7 @@ class Otto
         require 'json'
         {
           error: 'Validation failed',
-          message: message
+          message: message,
         }.to_json
       end
 
@@ -246,7 +244,7 @@ class Otto
         require 'json'
         {
           error: 'Request too large',
-          message: message
+          message: message,
         }.to_json
       end
     end
@@ -266,7 +264,7 @@ class Otto
         unless allow_html
           ValidationMiddleware::DANGEROUS_PATTERNS.each do |pattern|
             if input_str.match?(pattern)
-              raise Otto::Security::ValidationError, "Dangerous content detected"
+              raise Otto::Security::ValidationError, 'Dangerous content detected'
             end
           end
         end
@@ -274,7 +272,7 @@ class Otto
         # Always check for SQL injection
         ValidationMiddleware::SQL_INJECTION_PATTERNS.each do |pattern|
           if input_str.match?(pattern)
-            raise Otto::Security::ValidationError, "Potential SQL injection detected"
+            raise Otto::Security::ValidationError, 'Potential SQL injection detected'
           end
         end
 

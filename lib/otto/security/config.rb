@@ -22,26 +22,26 @@ class Otto
     #   config.max_param_depth = 16
     class Config
       attr_accessor :csrf_protection, :csrf_token_key, :csrf_header_key, :csrf_session_key,
-                    :max_request_size, :max_param_depth, :max_param_keys,
-                    :trusted_proxies, :require_secure_cookies,
-                    :security_headers, :input_validation
+        :max_request_size, :max_param_depth, :max_param_keys,
+        :trusted_proxies, :require_secure_cookies,
+        :security_headers, :input_validation
 
       # Initialize security configuration with safe defaults
       #
       # All security features are disabled by default to maintain backward
       # compatibility with existing Otto applications.
       def initialize
-        @csrf_protection = false
-        @csrf_token_key = '_csrf_token'
-        @csrf_header_key = 'HTTP_X_CSRF_TOKEN'
-        @csrf_session_key = '_csrf_session_id'
-        @max_request_size = 10 * 1024 * 1024 # 10MB
-        @max_param_depth = 32
-        @max_param_keys = 64
-        @trusted_proxies = []
+        @csrf_protection        = false
+        @csrf_token_key         = '_csrf_token'
+        @csrf_header_key        = 'HTTP_X_CSRF_TOKEN'
+        @csrf_session_key       = '_csrf_session_id'
+        @max_request_size       = 10 * 1024 * 1024 # 10MB
+        @max_param_depth        = 32
+        @max_param_keys         = 64
+        @trusted_proxies        = []
         @require_secure_cookies = false
-        @security_headers = default_security_headers
-        @input_validation = true
+        @security_headers       = default_security_headers
+        @input_validation       = true
       end
 
       # Enable CSRF (Cross-Site Request Forgery) protection
@@ -96,7 +96,7 @@ class Otto
         when Array
           @trusted_proxies.concat(proxy)
         else
-          raise ArgumentError, "Proxy must be a String or Array"
+          raise ArgumentError, 'Proxy must be a String or Array'
         end
       end
 
@@ -130,19 +130,19 @@ class Otto
         size = content_length.to_i
         if size > @max_request_size
           raise Otto::Security::RequestTooLargeError,
-                "Request size #{size} exceeds maximum #{@max_request_size}"
+            "Request size #{size} exceeds maximum #{@max_request_size}"
         end
         true
       end
 
       def generate_csrf_token(session_id = nil)
-        base = session_id || 'no-session'
-        token = SecureRandom.hex(32)
+        base       = session_id || 'no-session'
+        token      = SecureRandom.hex(32)
         hash_input = base + ':' + token
-        signature = Digest::SHA256.hexdigest(hash_input)
+        signature  = Digest::SHA256.hexdigest(hash_input)
         csrf_token = "#{token}:#{signature}"
 
-        puts "=== CSRF Generation ==="
+        puts '=== CSRF Generation ==='
         puts "hash_input: #{hash_input.inspect}"
         puts "signature: #{signature}"
         puts "csrf_token: #{csrf_token}"
@@ -156,12 +156,12 @@ class Otto
         token_part, signature = token.split(':')
         return false if token_part.nil? || signature.nil?
 
-        base = session_id || 'no-session'
-        hash_input = "#{base}:#{token_part}"
+        base               = session_id || 'no-session'
+        hash_input         = "#{base}:#{token_part}"
         expected_signature = Digest::SHA256.hexdigest(hash_input)
-        comparison_result = secure_compare(signature, expected_signature)
+        comparison_result  = secure_compare(signature, expected_signature)
 
-        puts "=== CSRF Verification ==="
+        puts '=== CSRF Verification ==='
         puts "hash_input: #{hash_input.inspect}"
         puts "received_signature: #{signature}"
         puts "expected_signature: #{expected_signature}"
@@ -179,9 +179,9 @@ class Otto
       # @param max_age [Integer] Maximum age in seconds (default: 1 year)
       # @param include_subdomains [Boolean] Apply to all subdomains (default: true)
       # @return [void]
-      def enable_hsts!(max_age: 31536000, include_subdomains: true)
-        hsts_value = "max-age=#{max_age}"
-        hsts_value += "; includeSubDomains" if include_subdomains
+      def enable_hsts!(max_age: 31_536_000, include_subdomains: true)
+        hsts_value                                     = "max-age=#{max_age}"
+        hsts_value                                    += '; includeSubDomains' if include_subdomains
         @security_headers['strict-transport-security'] = hsts_value
       end
 
@@ -245,26 +245,22 @@ class Otto
             return session[csrf_session_key] if session[csrf_session_key]
             return session['session_id'] if session['session_id']
           end
-        rescue
+        rescue StandardError
           # Fall through to cookies
         end
 
         # Try cookies
         request.cookies['_otto_session'] ||
-        request.cookies['session_id'] ||
-        request.cookies['_session_id']
+          request.cookies['session_id'] ||
+          request.cookies['_session_id']
       end
 
       def store_session_id(request, session_id)
-        begin
-          session = request.session
+          session                   = request.session
           session[csrf_session_key] = session_id if session
-        rescue
-          # Cookie fallback handled in inject_csrf_token
-        end
+      rescue StandardError
+        # Cookie fallback handled in inject_csrf_token
       end
-
-      private
 
       # Default security headers applied to all responses
       #
@@ -282,7 +278,7 @@ class Otto
         {
           'x-content-type-options' => 'nosniff',
           'x-xss-protection' => '1; mode=block',
-          'referrer-policy' => 'strict-origin-when-cross-origin'
+          'referrer-policy' => 'strict-origin-when-cross-origin',
         }
       end
 
@@ -298,7 +294,7 @@ class Otto
       def secure_compare(a, b)
         return false if a.nil? || b.nil? || a.length != b.length
 
-        result = 0
+        result                                = 0
         a.bytes.zip(b.bytes) { |x, y| result |= x ^ y }
         result == 0
       end

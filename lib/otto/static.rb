@@ -17,7 +17,7 @@ class Otto
         'x-frame-options' => 'DENY',
         'x-content-type-options' => 'nosniff',
         'x-xss-protection' => '1; mode=block',
-        'referrer-policy' => 'strict-origin-when-cross-origin'
+        'referrer-policy' => 'strict-origin-when-cross-origin',
       }
     end
 

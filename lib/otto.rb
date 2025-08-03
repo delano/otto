@@ -1,10 +1,10 @@
 require 'logger'
 require 'securerandom'
+require 'uri'
 
 require 'rack/request'
 require 'rack/response'
 require 'rack/utils'
-require 'addressable/uri'
 
 require_relative 'otto/route'
 require_relative 'otto/static'
@@ -253,9 +253,12 @@ end
       local_path.gsub!(":#{k}", v.to_s)
       local_params.delete(k)
     end
-    uri = Addressable::URI.new
-    uri.path = local_path
-    uri.query_values = local_params unless local_params.empty?
+
+    uri = URI::HTTP.new(nil, nil, nil, nil, nil, local_path, nil, nil, nil)
+    unless local_params.empty?
+      query_string = local_params.map { |k, v| "#{URI.encode_www_form_component(k)}=#{URI.encode_www_form_component(v)}" }.join('&')
+      uri.query = query_string
+    end
     uri.to_s
   end
 

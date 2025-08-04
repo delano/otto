@@ -79,19 +79,31 @@ Security features include CSRF protection, input validation, security headers, a
 Otto provides built-in locale detection and management:
 
 ```ruby
-# Configure locale support
+# Global configuration (affects all Otto instances)
+Otto.configure do |opts|
+  opts.available_locales = { 'en' => 'English', 'es' => 'Spanish', 'fr' => 'French' }
+  opts.default_locale = 'en'
+end
+
+# Or configure during initialization
+app = Otto.new("./routes", {
+  available_locales: { 'en' => 'English', 'es' => 'Spanish', 'fr' => 'French' },
+  default_locale: 'en'
+})
+
+# Or configure at runtime
+app.configure(
+  available_locales: { 'en' => 'English', 'es' => 'Spanish' },
+  default_locale: 'en'
+)
+
+# Legacy support (still works)
 app = Otto.new("./routes", {
   locale_config: {
     available_locales: { 'en' => 'English', 'es' => 'Spanish', 'fr' => 'French' },
     default_locale: 'en'
   }
 })
-
-# Or configure at runtime
-app.configure_locale!(
-  available_locales: { 'en' => 'English', 'es' => 'Spanish' },
-  default_locale: 'en'
-)
 ```
 
 In your application, use the locale helper:

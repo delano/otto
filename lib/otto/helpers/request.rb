@@ -314,7 +314,7 @@ class Otto
     # @param opts [Hash] Configuration options
     # @option opts [Hash] :available_locales Hash of available locales to validate against (required unless configured at Otto level)
     # @option opts [String] :default_locale Default locale to use as fallback (required unless configured at Otto level)
-    # @option opts [String, nil] :user_locale User's saved locale preference
+    # @option opts [String, nil] :preferred_locale User's saved locale preference
     # @option opts [String] :locale_env_key Environment key to store the locale (default: 'locale')
     # @option opts [Boolean] :debug Enable debug logging for locale selection
     # @return [String] The selected locale
@@ -330,7 +330,7 @@ class Otto
     #   check_locale!(nil, {
     #     available_locales: { 'en' => 'English', 'es' => 'Spanish' },
     #     default_locale: 'en',
-    #     user_locale: 'es'
+    #     preferred_locale: 'es'
     #   })
     #   # => 'es'
     #
@@ -349,7 +349,7 @@ class Otto
       default_locale    = opts[:default_locale] ||
                           otto_config&.dig(:default_locale) ||
                           env['otto.default_locale']
-      user_locale       = opts[:user_locale]
+      preferred_locale  = opts[:preferred_locale]
       locale_env_key    = opts[:locale_env_key] || 'locale'
       debug_enabled     = opts[:debug] || false
 
@@ -360,7 +360,7 @@ class Otto
 
       # Check sources in order of precedence
       locale ||= env['rack.request.query_hash'] && env['rack.request.query_hash']['locale']
-      locale ||= user_locale if user_locale
+      locale ||= preferred_locale if preferred_locale
       locale ||= (env['rack.locale'] || []).first
 
       # Validate locale against available translations
@@ -372,7 +372,7 @@ class Otto
           '[check_locale!] sources[param=%s query=%s user=%s rack=%s] valid=%s',
           locale,
           env.dig('rack.request.query_hash', 'locale'),
-          user_locale,
+          preferred_locale,
           (env['rack.locale'] || []).first,
           have_translations
         )

@@ -70,7 +70,7 @@ RSpec.describe Otto::RequestHelpers do
         result = request_object.check_locale!(nil, {
           available_locales: available_locales,
           default_locale: default_locale,
-          user_locale: 'es'
+          preferred_locale: 'es'
         })
 
         expect(result).to eq('es')
@@ -106,7 +106,7 @@ RSpec.describe Otto::RequestHelpers do
         result = request_object.check_locale!('en', {
           available_locales: available_locales,
           default_locale: default_locale,
-          user_locale: 'es'
+          preferred_locale: 'es'
         })
 
         expect(result).to eq('en') # Parameter takes precedence

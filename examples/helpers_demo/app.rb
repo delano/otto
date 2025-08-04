@@ -84,7 +84,7 @@ class HelpersDemo
   def locale_demo
     # Demonstrate locale detection with Otto configuration
     current_locale = req.check_locale!(req.params['locale'], {
-      user_locale: 'es', # Simulate user preference
+      preferred_locale: 'es', # Simulate user preference
       locale_env_key: 'demo.locale',
       debug: true
     })

@@ -1,18 +1,18 @@
 require_relative '../../lib/otto'
 require_relative 'app'
 
-# Configure Otto with locale support and security features
-app = Otto.new("./routes", {
-  # Locale configuration
-  locale_config: {
-    available_locales: {
-      'en' => 'English',
-      'es' => 'Spanish',
-      'fr' => 'French'
-    },
-    default_locale: 'en'
-  },
+# Global configuration for all Otto instances
+Otto.configure do |opts|
+  opts.available_locales = {
+    'en' => 'English',
+    'es' => 'Spanish',
+    'fr' => 'French'
+  }
+  opts.default_locale = 'en'
+end
 
+# Configure Otto with security features
+app = Otto.new("./routes", {
   # Security features
   csrf_protection: true,
   request_validation: true,

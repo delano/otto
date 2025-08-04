@@ -215,7 +215,7 @@ class Otto
       #   config.enable_csp_with_nonce!(debug: true)
       def enable_csp_with_nonce!(debug: false)
         @csp_nonce_enabled = true
-        @debug_csp = debug
+        @debug_csp         = debug
       end
 
       # Disable CSP nonce support

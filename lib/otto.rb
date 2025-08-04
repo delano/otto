@@ -1,5 +1,6 @@
 require 'json'
 require 'logger'
+require 'ostruct'
 require 'securerandom'
 require 'uri'
 
@@ -42,8 +43,20 @@ class Otto
 
   @debug  = ENV['OTTO_DEBUG'] == 'true'
   @logger = Logger.new($stdout, Logger::INFO)
+  @global_config = {}
 
-  attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route, :security_config
+  # Global configuration for all Otto instances
+  def self.configure
+    config = OpenStruct.new(@global_config)
+    yield config
+    @global_config = config.to_h
+  end
+
+  def self.global_config
+    @global_config
+  end
+
+  attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route, :security_config, :locale_config
   attr_accessor :not_found, :server_error, :middleware_stack
 
   def initialize(path = nil, opts = {})
@@ -57,6 +70,9 @@ class Otto
     }.merge(opts)
     @security_config   = Otto::Security::Config.new
     @middleware_stack  = []
+
+    # Configure locale support (merge global config with instance options)
+    configure_locale(opts)
 
     # Configure security based on options
     configure_security(opts)
@@ -157,6 +173,7 @@ class Otto
   def handle_request(env)
     locale             = determine_locale env
     env['rack.locale'] = locale
+    env['otto.locale_config'] = @locale_config if @locale_config
     @static_route    ||= Rack::Files.new(option[:public]) if option[:public] && safe_dir?(option[:public])
     path_info          = Rack::Utils.unescape(env['PATH_INFO'])
     path_info          = '/' if path_info.to_s.empty?
@@ -380,7 +397,53 @@ class Otto
     @security_config.enable_csp_with_nonce!(debug: debug)
   end
 
+  # Configure locale settings for the application
+  #
+  # @param available_locales [Hash] Hash of available locales (e.g., { 'en' => 'English', 'es' => 'Spanish' })
+  # @param default_locale [String] Default locale to use as fallback
+  # @example
+  #   otto.configure(
+  #     available_locales: { 'en' => 'English', 'es' => 'Spanish', 'fr' => 'French' },
+  #     default_locale: 'en'
+  #   )
+  def configure(available_locales: nil, default_locale: nil)
+    @locale_config ||= {}
+    @locale_config[:available_locales] = available_locales if available_locales
+    @locale_config[:default_locale] = default_locale if default_locale
+  end
+
   private
+
+  def configure_locale(opts)
+    # Start with global configuration
+    global_config = self.class.global_config
+    @locale_config = nil
+
+    # Check if we have any locale configuration from any source
+    has_global_locale = global_config && (global_config[:available_locales] || global_config[:default_locale])
+    has_direct_options = opts[:available_locales] || opts[:default_locale]
+    has_legacy_config = opts[:locale_config]
+
+    # Only create locale_config if we have configuration from somewhere
+    if has_global_locale || has_direct_options || has_legacy_config
+      @locale_config = {}
+
+      # Apply global configuration first
+      @locale_config[:available_locales] = global_config[:available_locales] if global_config && global_config[:available_locales]
+      @locale_config[:default_locale] = global_config[:default_locale] if global_config && global_config[:default_locale]
+
+      # Apply direct instance options (these override global config)
+      @locale_config[:available_locales] = opts[:available_locales] if opts[:available_locales]
+      @locale_config[:default_locale] = opts[:default_locale] if opts[:default_locale]
+
+      # Legacy support: Configure locale if provided in initialization options via locale_config hash
+      if opts[:locale_config]
+        locale_opts = opts[:locale_config]
+        @locale_config[:available_locales] = locale_opts[:available_locales] || locale_opts[:available] if locale_opts[:available_locales] || locale_opts[:available]
+        @locale_config[:default_locale] = locale_opts[:default_locale] || locale_opts[:default] if locale_opts[:default_locale] || locale_opts[:default]
+      end
+    end
+  end
 
   def configure_security(opts)
     # Enable CSRF protection if requested

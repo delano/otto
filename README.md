@@ -74,6 +74,62 @@ app = Otto.new("./routes", {
 
 Security features include CSRF protection, input validation, security headers, and trusted proxy configuration.
 
+## Internationalization Support
+
+Otto provides built-in locale detection and management:
+
+```ruby
+# Global configuration (affects all Otto instances)
+Otto.configure do |opts|
+  opts.available_locales = { 'en' => 'English', 'es' => 'Spanish', 'fr' => 'French' }
+  opts.default_locale = 'en'
+end
+
+# Or configure during initialization
+app = Otto.new("./routes", {
+  available_locales: { 'en' => 'English', 'es' => 'Spanish', 'fr' => 'French' },
+  default_locale: 'en'
+})
+
+# Or configure at runtime
+app.configure(
+  available_locales: { 'en' => 'English', 'es' => 'Spanish' },
+  default_locale: 'en'
+)
+
+# Legacy support (still works)
+app = Otto.new("./routes", {
+  locale_config: {
+    available_locales: { 'en' => 'English', 'es' => 'Spanish', 'fr' => 'French' },
+    default_locale: 'en'
+  }
+})
+```
+
+In your application, use the locale helper:
+
+```ruby
+class App
+  def initialize(req, res)
+    @req, @res = req, res
+  end
+
+  def show_product
+    # Automatically detects locale from:
+    # 1. URL parameter: ?locale=es
+    # 2. User preference (if provided)
+    # 3. Accept-Language header
+    # 4. Default locale
+    locale = req.check_locale!
+
+    # Use locale for localized content
+    res.body = localized_content(locale)
+  end
+end
+```
+
+The locale helper checks multiple sources in order of precedence and validates against your configured locales.
+
 ## Requirements
 
 - Ruby 3.2+

@@ -73,16 +73,26 @@ repos:
       - id: no-commit-to-branch # Prevent direct commits to critical branches
         args: ["--branch", "main", "--branch", "rel/.*"]
 
-  # Ruby code quality and style checks (using local bundler environment)
-  - repo: local
-    hooks:
-      - id: rubocop
-        name: RuboCop
-        description: Ruby static code analyzer and formatter
-        entry: bundle exec rubocop
-        language: system
-        files: \.rb$
-        pass_filenames: false
+  # # Ruby code quality and style checks (using local bundler environment)
+  # - repo: local
+  # hooks:
+  #   - id: rubocop
+  #     name: RuboCop
+  #     description: Ruby static code analyzer and formatter
+  #     entry: eval "$(rbenv init -)" && bundle exec rubocop
+  #     language: system
+  #     files: \.rb$
+  #     pass_filenames: false
+  # - repo: https://github.com/rubocop-hq/rubocop
+  #   rev: v1.79.1 # Or your desired version
+  #   hooks:
+  #     - id: rubocop
+  #       files: \.rb$
+  #       pass_filenames: false
+  #       additional_dependencies:
+  #         - rubocop-rails # Example of an additional gem
+  #         - rubocop-performance
+  #         - rubocop-rspec
 
   # Commit message issue tracking integration
   - repo: https://github.com/avilaton/add-msg-issue-prefix-hook

@@ -23,6 +23,7 @@ RSpec.describe Otto do
       file_safety_spec.rb
       utilities_spec.rb
       request_helpers_spec.rb
+      locale_config_spec.rb
     ]
 
     actual_files = spec_files.map { |f| File.basename(f) }.sort

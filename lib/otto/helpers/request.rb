@@ -304,7 +304,7 @@ class Otto
     # the following sources in order of precedence:
     # 1. The locale parameter passed to the method
     # 2. The locale query parameter in the request
-    # 3. The customer's saved locale preference (if provided)
+    # 3. The user's saved locale preference (if provided)
     # 4. The rack.locale environment variable
     #
     # If a valid locale is found, it's stored in the request environment.
@@ -312,9 +312,9 @@ class Otto
     #
     # @param locale [String, nil] The locale to use, if specified
     # @param opts [Hash] Configuration options
-    # @option opts [Hash] :available_locales Hash of available locales to validate against (required)
-    # @option opts [String] :default_locale Default locale to use as fallback (required)
-    # @option opts [String, nil] :customer_locale Customer's saved locale preference
+    # @option opts [Hash] :available_locales Hash of available locales to validate against (required unless configured at Otto level)
+    # @option opts [String] :default_locale Default locale to use as fallback (required unless configured at Otto level)
+    # @option opts [String, nil] :user_locale User's saved locale preference
     # @option opts [String] :locale_env_key Environment key to store the locale (default: 'locale')
     # @option opts [Boolean] :debug Enable debug logging for locale selection
     # @return [String] The selected locale
@@ -326,30 +326,41 @@ class Otto
     #   )
     #   # => 'en'
     #
-    # @example With customer preference
+    # @example With user preference
     #   check_locale!(nil, {
     #     available_locales: { 'en' => 'English', 'es' => 'Spanish' },
     #     default_locale: 'en',
-    #     customer_locale: 'es'
+    #     user_locale: 'es'
     #   })
     #   # => 'es'
     #
+    # @example Using Otto-level configuration
+    #   # Otto configured with: Otto.new(routes, { locale_config: { available: {...}, default: 'en' } })
+    #   check_locale!('es')  # Uses Otto's config automatically
+    #   # => 'es'
+    #
     def check_locale!(locale = nil, opts = {})
-      # Get configuration from options or environment
-      available_locales = opts[:available_locales] || env['otto.available_locales']
-      default_locale    = opts[:default_locale] || env['otto.default_locale']
-      customer_locale   = opts[:customer_locale]
+      # Get configuration from options, Otto config, or environment (in that order)
+      otto_config = env['otto.locale_config']
+
+      available_locales = opts[:available_locales] ||
+                          otto_config&.dig(:available_locales) ||
+                          env['otto.available_locales']
+      default_locale    = opts[:default_locale] ||
+                          otto_config&.dig(:default_locale) ||
+                          env['otto.default_locale']
+      user_locale       = opts[:user_locale]
       locale_env_key    = opts[:locale_env_key] || 'locale'
       debug_enabled     = opts[:debug] || false
 
       # Guard clause - required configuration must be present
       unless available_locales && default_locale
-        raise ArgumentError, 'available_locales and default_locale are required'
+        raise ArgumentError, 'available_locales and default_locale are required (provide via opts or Otto configuration)'
       end
 
       # Check sources in order of precedence
       locale ||= env['rack.request.query_hash'] && env['rack.request.query_hash']['locale']
-      locale ||= customer_locale if customer_locale
+      locale ||= user_locale if user_locale
       locale ||= (env['rack.locale'] || []).first
 
       # Validate locale against available translations
@@ -358,10 +369,10 @@ class Otto
       # Debug logging if enabled
       if debug_enabled && defined?(Otto.logger)
         message = format(
-          '[check_locale!] sources[param=%s query=%s customer=%s rack=%s] valid=%s',
+          '[check_locale!] sources[param=%s query=%s user=%s rack=%s] valid=%s',
           locale,
           env.dig('rack.request.query_hash', 'locale'),
-          customer_locale,
+          user_locale,
           (env['rack.locale'] || []).first,
           have_translations
         )

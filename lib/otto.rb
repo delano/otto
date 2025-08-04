@@ -43,7 +43,7 @@ class Otto
   @debug  = ENV['OTTO_DEBUG'] == 'true'
   @logger = Logger.new($stdout, Logger::INFO)
 
-  attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route, :security_config
+  attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route, :security_config, :locale_config
   attr_accessor :not_found, :server_error, :middleware_stack
 
   def initialize(path = nil, opts = {})
@@ -57,6 +57,9 @@ class Otto
     }.merge(opts)
     @security_config   = Otto::Security::Config.new
     @middleware_stack  = []
+
+    # Configure locale support
+    configure_locale(opts)
 
     # Configure security based on options
     configure_security(opts)
@@ -157,6 +160,7 @@ class Otto
   def handle_request(env)
     locale             = determine_locale env
     env['rack.locale'] = locale
+    env['otto.locale_config'] = @locale_config if @locale_config
     @static_route    ||= Rack::Files.new(option[:public]) if option[:public] && safe_dir?(option[:public])
     path_info          = Rack::Utils.unescape(env['PATH_INFO'])
     path_info          = '/' if path_info.to_s.empty?
@@ -380,7 +384,34 @@ class Otto
     @security_config.enable_csp_with_nonce!(debug: debug)
   end
 
+  # Configure locale settings for the application
+  #
+  # @param available_locales [Hash] Hash of available locales (e.g., { 'en' => 'English', 'es' => 'Spanish' })
+  # @param default_locale [String] Default locale to use as fallback
+  # @example
+  #   otto.configure_locale!(
+  #     available_locales: { 'en' => 'English', 'es' => 'Spanish', 'fr' => 'French' },
+  #     default_locale: 'en'
+  #   )
+  def configure_locale!(available_locales:, default_locale:)
+    @locale_config = {
+      available_locales: available_locales,
+      default_locale: default_locale
+    }
+  end
+
   private
+
+  def configure_locale(opts)
+    # Configure locale if provided in initialization options
+    if opts[:locale_config]
+      locale_opts = opts[:locale_config]
+      @locale_config = {
+        available_locales: locale_opts[:available_locales] || locale_opts[:available],
+        default_locale: locale_opts[:default_locale] || locale_opts[:default]
+      }
+    end
+  end
 
   def configure_security(opts)
     # Enable CSRF protection if requested

@@ -221,38 +221,38 @@ class Otto
 
     private
 
-    # Brazenly borrowed from Sinatra::Base:
-    # https://github.com/sinatra/sinatra/blob/v1.2.6/lib/sinatra/base.rb#L1156
     def compile(path)
       keys = []
-      if path.respond_to? :to_str
-        special_chars = %w[. + ( ) $]
-        pattern       =
-          path.to_str.gsub(/((:\w+)|[\*#{special_chars.join}])/) do |match|
-            case match
-            when '*'
-              keys << 'splat'
-              '(.*?)'
-            when *special_chars
-              Regexp.escape(match)
-            else
-              keys << ::Regexp.last_match(2)[1..-1]
-              '([^/?#]+)'
-            end
-          end
-        # Wrap the regex in parens so the regex works properly.
-        # They can fail when there's an | for example (matching only the last one).
-        # Note: this means we also need to remove the first matched value.
-        [/\A(#{pattern})\z/, keys]
-      elsif path.respond_to?(:keys) && path.respond_to?(:match)
-        [path, path.keys]
-      elsif path.respond_to?(:names) && path.respond_to?(:match)
-        [path, path.names]
-      elsif path.respond_to? :match
+
+      case path
+      in { keys: route_keys, match: _ }
+        [path, route_keys]
+      in { names: route_names, match: _ }
+        [path, route_names]
+      in { match: _ }
         [path, keys]
       else
-        raise TypeError, path
+        compile_string_path(path, keys)
       end
+    end
+
+    def compile_string_path(path, keys)
+      raise TypeError, path unless path.respond_to?(:to_str)
+
+      pattern = path.to_str.gsub(/((:\w+)|[.*+()$])/) do |match|
+        case match
+        when '*'
+          keys << 'splat'
+          '(.*?)'
+        when '.', '+', '(', ')', '$'
+          Regexp.escape(match)
+        else
+          keys << match[1..-1] # Remove the colon
+          '([^/?#]+)'
+        end
+      end
+
+      [/\A(#{pattern})\z/, keys]
     end
   end
 end

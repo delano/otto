@@ -48,6 +48,33 @@ class TestApp
     res.headers['Content-Type'] = 'text/html'
     res.write('<html><head></head><body><h1>Hello HTML</h1></body></html>')
   end
+
+  def self.test(req, res)
+    res.write('test response')
+  end
+
+  def self.signin(req, res)
+    res.write('signin response')
+  end
+
+  def self.api_users(req, res)
+    res.write('api users response')
+  end
+
+  def self.json_data(req, res)
+    # Return data for JSON handler
+    { message: 'Hello JSON', timestamp: Time.now.to_i }
+  end
+
+  def self.redirect_test(req, res)
+    # Return redirect path
+    '/redirected'
+  end
+
+  def self.view_test(req, res)
+    # Return HTML content
+    '<h1>View Test</h1>'
+  end
 end
 
 class TestInstanceApp
@@ -58,5 +85,18 @@ class TestInstanceApp
 
   def show
     @res.write("Instance showing #{@req.params['id']}")
+  end
+end
+
+# Namespaced test classes for enhanced routing tests
+module V2
+  module Logic
+    module Admin
+      class Panel
+        def self.Panel(req, res)
+          res.write('admin panel response')
+        end
+      end
+    end
   end
 end

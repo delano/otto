@@ -12,6 +12,7 @@ require_relative 'otto/route'
 require_relative 'otto/static'
 require_relative 'otto/helpers/request'
 require_relative 'otto/helpers/response'
+require_relative 'otto/response_handlers'
 require_relative 'otto/version'
 require_relative 'otto/security/config'
 require_relative 'otto/security/csrf'
@@ -87,9 +88,12 @@ class Otto
     path = File.expand_path(path)
     raise ArgumentError, "Bad path: #{path}" unless File.exist?(path)
 
-    raw = File.readlines(path).select { |line| line =~ /^\w/ }.collect { |line| line.strip.split(/\s+/) }
+    raw = File.readlines(path).select { |line| line =~ /^\w/ }.collect { |line| line.strip }
     raw.each do |entry|
-      verb, path, definition                  = *entry
+      # Enhanced parsing: split only on first two whitespace boundaries
+      # This preserves parameters in the definition part
+      parts = entry.split(/\s+/, 3)
+      verb, path, definition = parts[0], parts[1], parts[2]
       route                                   = Otto::Route.new verb, path, definition
       route.otto                              = self
       path_clean                              = path.gsub(%r{/$}, '')

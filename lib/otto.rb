@@ -8,6 +8,7 @@ require 'rack/request'
 require 'rack/response'
 require 'rack/utils'
 
+require_relative 'otto/route_definition'
 require_relative 'otto/route'
 require_relative 'otto/static'
 require_relative 'otto/helpers/request'

@@ -23,7 +23,12 @@ class Otto
     module ClassMethods
       attr_accessor :otto
     end
-    attr_reader :verb, :path, :pattern, :method, :klass, :name, :definition, :keys, :kind, :route_options
+    # @return [Otto::RouteDefinition] The immutable route definition
+    attr_reader :route_definition
+    
+    # @return [Class] The resolved class object
+    attr_reader :klass
+    
     attr_accessor :otto
 
     # Initialize a new route with security validations
@@ -37,67 +42,50 @@ class Otto
     #     "V2::Logic::AuthSession auth=authenticated response=redirect" (enhanced)
     # @raise [ArgumentError] if definition format is invalid or class name is unsafe
     def initialize(verb, path, definition)
-      @verb           = verb.to_s.upcase.to_sym
-      @path           = path
-      @definition     = definition
-      @pattern, @keys = *compile(@path)
+      @pattern, @keys = *compile(path)
+      
+      # Create immutable route definition
+      @route_definition = Otto::RouteDefinition.new(verb, path, definition, pattern: @pattern, keys: @keys)
+      
+      # Resolve the class
+      @klass = safe_const_get(@route_definition.klass_name)
+    end
 
-      # NEW: Enhanced parsing with backward compatibility
-      @definition_parts = parse_definition_with_params(definition)
-      @route_options = @definition_parts[:options] || {}
-      @target_definition = @definition_parts[:target]
+    # Delegate common methods to route_definition for backward compatibility
+    def verb
+      @route_definition.verb
+    end
 
-      # Continue with existing Otto logic using @target_definition
-      if !@target_definition.index('.').nil?
-        @klass, @name = @target_definition.split('.')
-        @kind         = :class
-      elsif !@target_definition.index('#').nil?
-        @klass, @name = @target_definition.split('#')
-        @kind         = :instance
-      else
-        # For enhanced routes, if no . or # is found, treat as class with default method name
-        # This allows routes like "V2::Logic::Admin::Panel" to work
-        if @target_definition.match?(/\A[A-Z][a-zA-Z0-9_]*(?:::[A-Z][a-zA-Z0-9_]*)*\z/)
-          @klass = @target_definition
-          # Use the last part of the class name as the method name (e.g., Panel from V2::Logic::Admin::Panel)
-          @name = @target_definition.split('::').last
-          @kind = :class
-        else
-          raise ArgumentError, "Bad definition: #{@target_definition}"
-        end
-      end
-      @klass          = safe_const_get(@klass)
-      # @method = @klass.method(@name)
+    def path
+      @route_definition.path
+    end
+
+    def definition
+      @route_definition.definition
+    end
+
+    def pattern
+      @route_definition.pattern
+    end
+
+    def keys
+      @route_definition.keys
+    end
+
+    def name
+      @route_definition.method_name
+    end
+
+    def kind
+      @route_definition.kind
+    end
+
+    def route_options
+      @route_definition.options
     end
 
     private
 
-    # Parse route definition with optional key-value parameters
-    #
-    # Examples:
-    #   "Class.method" => { target: "Class.method", options: {} }
-    #   "V2::Logic::AuthSession auth=authenticated response=redirect"
-    #     => { target: "V2::Logic::AuthSession", options: { auth: "authenticated", response: "redirect" } }
-    #
-    # @param definition [String] Route definition with optional parameters
-    # @return [Hash] Hash with :target and :options keys
-    def parse_definition_with_params(definition)
-      parts = definition.split(/\s+/)
-      target = parts.shift
-      options = {}
-
-      parts.each do |part|
-        key, value = part.split('=', 2)
-        if key && value
-          options[key.to_sym] = value
-        else
-          # Malformed parameter, ignore for backward compatibility
-          Otto.logger.warn "Ignoring malformed route parameter: #{part}" if Otto.debug
-        end
-      end
-
-      { target: target, options: options }
-    end
 
     # Safely resolve a class name using Object.const_get with security validations
     # This replaces the previous eval() usage to prevent code injection attacks.
@@ -167,8 +155,9 @@ class Otto
         env['otto.security_config'] = otto.security_config
       end
 
-      # NEW: Make route options available to middleware and handlers
-      env['otto.route_options'] = @route_options
+      # NEW: Make route definition and options available to middleware and handlers
+      env['otto.route_definition'] = @route_definition
+      env['otto.route_options'] = @route_definition.options
 
       # Process parameters through security layer
       req.params.merge! extra_params
@@ -200,11 +189,11 @@ class Otto
                when :class
                  klass.send(name, req, res)
                else
-                 raise "Unsupported kind for #{@definition}: #{kind}"
+                 raise "Unsupported kind for #{definition}: #{kind}"
                end
 
       # NEW: Handle response based on route options
-      response_type = @route_options[:response] || 'default'
+      response_type = @route_definition.response_type
       if response_type != 'default'
         context = {
           logic_instance: (kind == :instance ? inst : nil),

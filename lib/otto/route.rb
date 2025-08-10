@@ -25,10 +25,10 @@ class Otto
     end
     # @return [Otto::RouteDefinition] The immutable route definition
     attr_reader :route_definition
-    
+
     # @return [Class] The resolved class object
     attr_reader :klass
-    
+
     attr_accessor :otto
 
     # Initialize a new route with security validations
@@ -43,10 +43,10 @@ class Otto
     # @raise [ArgumentError] if definition format is invalid or class name is unsafe
     def initialize(verb, path, definition)
       @pattern, @keys = *compile(path)
-      
+
       # Create immutable route definition
       @route_definition = Otto::RouteDefinition.new(verb, path, definition, pattern: @pattern, keys: @keys)
-      
+
       # Resolve the class
       @klass = safe_const_get(@route_definition.klass_name)
     end
@@ -181,31 +181,38 @@ class Otto
       # Add validation helpers
       res.extend Otto::Security::ValidationHelpers
 
-      # Execute the handler and capture the result
-      result = case kind
-               when :instance
-                 inst = klass.new req, res
-                 inst.send(name)
-               when :class
-                 klass.send(name, req, res)
-               else
-                 raise "Unsupported kind for #{definition}: #{kind}"
-               end
+      # NEW: Use the pluggable route handler factory (Phase 4)
+      # This replaces the hardcoded execution pattern with a factory approach
+      if otto&.route_handler_factory
+        handler = otto.route_handler_factory.create_handler(@route_definition, otto)
+        return handler.call(env, extra_params)
+      else
+        # Fallback to legacy behavior for backward compatibility
+        result = case kind
+                 when :instance
+                   inst = klass.new req, res
+                   inst.send(name)
+                 when :class
+                   klass.send(name, req, res)
+                 else
+                   raise "Unsupported kind for #{definition}: #{kind}"
+                 end
 
-      # NEW: Handle response based on route options
-      response_type = @route_definition.response_type
-      if response_type != 'default'
-        context = {
-          logic_instance: (kind == :instance ? inst : nil),
-          status_code: nil,
-          redirect_path: nil
-        }
+        # Handle response based on route options
+        response_type = @route_definition.response_type
+        if response_type != 'default'
+          context = {
+            logic_instance: (kind == :instance ? inst : nil),
+            status_code: nil,
+            redirect_path: nil
+          }
 
-        Otto::ResponseHandlers::HandlerFactory.handle_response(result, res, response_type, context)
+          Otto::ResponseHandlers::HandlerFactory.handle_response(result, res, response_type, context)
+        end
+
+        res.body = [res.body] unless res.body.respond_to?(:each)
+        res.finish
       end
-
-      res.body = [res.body] unless res.body.respond_to?(:each)
-      res.finish
     end
 
     private

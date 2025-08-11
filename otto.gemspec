@@ -23,5 +23,9 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'ostruct'
   spec.add_dependency 'rack', '~> 3.1', '< 4.0'
   spec.add_dependency 'rack-parser', '~> 0.7'
+
+  # Optional MCP dependencies
+  spec.add_dependency 'json_schemer', '~> 2.0', '>= 2.0.0'
+  spec.add_dependency 'rack-attack', '~> 6.7', '>= 6.7.0'
   spec.metadata['rubygems_mfa_required'] = 'true'
 end

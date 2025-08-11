@@ -186,24 +186,34 @@ class Otto
           })
 
         rescue => e
-          # Error handling - return 500 with proper headers like main Otto error handler
-          error_id = SecureRandom.hex(8)
-          Otto.logger.error "[#{error_id}] #{e.class}: #{e.message}"
-          Otto.logger.debug "[#{error_id}] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
-
-          res.status = 500
-          res.headers['content-type'] = 'text/plain'
-
-          if Otto.env?(:dev, :development)
-            res.write "Server error (ID: #{error_id}). Check logs for details."
+          # Check if we're being called through Otto's integrated context (vs direct handler testing)
+          # In integrated context, let Otto's centralized error handler manage the response
+          # In direct testing context, handle errors locally for unit testing
+          if otto_instance
+            # Log error for handler-specific context but let Otto's centralized error handler manage the response
+            Otto.logger.error "[LogicClassHandler] #{e.class}: #{e.message}"
+            Otto.logger.debug "[LogicClassHandler] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
+            raise e  # Re-raise to let Otto's centralized error handler manage the response
           else
-            res.write "An error occurred. Please try again later."
-          end
+            # Direct handler testing context - handle errors locally with security improvements
+            error_id = SecureRandom.hex(8)
+            Otto.logger.error "[#{error_id}] #{e.class}: #{e.message}"
+            Otto.logger.debug "[#{error_id}] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
 
-          # Add security headers if available
-          if otto_instance&.respond_to?(:security_config) && otto_instance.security_config
-            otto_instance.security_config.security_headers.each do |header, value|
-              res.headers[header] = value
+            res.status = 500
+            res.headers['content-type'] = 'text/plain'
+
+            if Otto.env?(:dev, :development)
+              res.write "Server error (ID: #{error_id}). Check logs for details."
+            else
+              res.write "An error occurred. Please try again later."
+            end
+
+            # Add security headers if available
+            if otto_instance&.respond_to?(:security_config) && otto_instance.security_config
+              otto_instance.security_config.security_headers.each do |header, value|
+                res.headers[header] = value
+              end
             end
           end
         end
@@ -236,24 +246,34 @@ class Otto
           end
 
         rescue => e
-          # Error handling - return 500 with proper headers like main Otto error handler
-          error_id = SecureRandom.hex(8)
-          Otto.logger.error "[#{error_id}] #{e.class}: #{e.message}"
-          Otto.logger.debug "[#{error_id}] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
-
-          res.status = 500
-          res.headers['content-type'] = 'text/plain'
-
-          if Otto.env?(:dev, :development)
-            res.write "Server error (ID: #{error_id}). Check logs for details."
+          # Check if we're being called through Otto's integrated context (vs direct handler testing)
+          # In integrated context, let Otto's centralized error handler manage the response
+          # In direct testing context, handle errors locally for unit testing
+          if otto_instance
+            # Log error for handler-specific context but let Otto's centralized error handler manage the response
+            Otto.logger.error "[InstanceMethodHandler] #{e.class}: #{e.message}"
+            Otto.logger.debug "[InstanceMethodHandler] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
+            raise e  # Re-raise to let Otto's centralized error handler manage the response
           else
-            res.write "An error occurred. Please try again later."
-          end
+            # Direct handler testing context - handle errors locally with security improvements
+            error_id = SecureRandom.hex(8)
+            Otto.logger.error "[#{error_id}] #{e.class}: #{e.message}"
+            Otto.logger.debug "[#{error_id}] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
 
-          # Add security headers if available
-          if otto_instance&.respond_to?(:security_config) && otto_instance.security_config
-            otto_instance.security_config.security_headers.each do |header, value|
-              res.headers[header] = value
+            res.status = 500
+            res.headers['content-type'] = 'text/plain'
+
+            if Otto.env?(:dev, :development)
+              res.write "Server error (ID: #{error_id}). Check logs for details."
+            else
+              res.write "An error occurred. Please try again later."
+            end
+
+            # Add security headers if available
+            if otto_instance&.respond_to?(:security_config) && otto_instance.security_config
+              otto_instance.security_config.security_headers.each do |header, value|
+                res.headers[header] = value
+              end
             end
           end
         end
@@ -285,43 +305,53 @@ class Otto
           end
 
         rescue => e
-          # Error handling - return 500 with proper headers like main Otto error handler
-          error_id = SecureRandom.hex(8)
-          Otto.logger.error "[#{error_id}] #{e.class}: #{e.message}"
-          Otto.logger.debug "[#{error_id}] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
-
-          res.status = 500
-
-          # Content negotiation for error response
-          accept_header = env['HTTP_ACCEPT'].to_s
-          if accept_header.include?('application/json')
-            res.headers['content-type'] = 'application/json'
-            error_data = if Otto.env?(:dev, :development)
-              {
-                error: 'Internal Server Error',
-                message: 'Server error occurred. Check logs for details.',
-                error_id: error_id,
-              }
-            else
-              {
-                error: 'Internal Server Error',
-                message: 'An error occurred. Please try again later.',
-              }
-            end
-            res.write JSON.generate(error_data)
+          # Check if we're being called through Otto's integrated context (vs direct handler testing)
+          # In integrated context, let Otto's centralized error handler manage the response
+          # In direct testing context, handle errors locally for unit testing
+          if otto_instance
+            # Log error for handler-specific context but let Otto's centralized error handler manage the response
+            Otto.logger.error "[ClassMethodHandler] #{e.class}: #{e.message}"
+            Otto.logger.debug "[ClassMethodHandler] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
+            raise e  # Re-raise to let Otto's centralized error handler manage the response
           else
-            res.headers['content-type'] = 'text/plain'
-            if Otto.env?(:dev, :development)
-              res.write "Server error (ID: #{error_id}). Check logs for details."
-            else
-              res.write "An error occurred. Please try again later."
-            end
-          end
+            # Direct handler testing context - handle errors locally with security improvements
+            error_id = SecureRandom.hex(8)
+            Otto.logger.error "[#{error_id}] #{e.class}: #{e.message}"
+            Otto.logger.debug "[#{error_id}] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
 
-          # Add security headers if available
-          if otto_instance&.respond_to?(:security_config) && otto_instance.security_config
-            otto_instance.security_config.security_headers.each do |header, value|
-              res.headers[header] = value
+            res.status = 500
+
+            # Content negotiation for error response
+            accept_header = env['HTTP_ACCEPT'].to_s
+            if accept_header.include?('application/json')
+              res.headers['content-type'] = 'application/json'
+              error_data = if Otto.env?(:dev, :development)
+                {
+                  error: 'Internal Server Error',
+                  message: 'Server error occurred. Check logs for details.',
+                  error_id: error_id,
+                }
+              else
+                {
+                  error: 'Internal Server Error',
+                  message: 'An error occurred. Please try again later.',
+                }
+              end
+              res.write JSON.generate(error_data)
+            else
+              res.headers['content-type'] = 'text/plain'
+              if Otto.env?(:dev, :development)
+                res.write "Server error (ID: #{error_id}). Check logs for details."
+              else
+                res.write "An error occurred. Please try again later."
+              end
+            end
+
+            # Add security headers if available
+            if otto_instance&.respond_to?(:security_config) && otto_instance.security_config
+              otto_instance.security_config.security_headers.each do |header, value|
+                res.headers[header] = value
+              end
             end
           end
         end

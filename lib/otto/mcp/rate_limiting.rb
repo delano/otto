@@ -15,15 +15,13 @@ class Otto
         return unless defined?(Rack::Attack)
 
         # Start with base configuration from general rate limiting
-        super(config)
+        super
 
         # Add MCP-specific rules
         configure_mcp_rules(config)
         configure_mcp_responses
         configure_mcp_logging
       end
-
-      private
 
       def self.configure_mcp_rules(config)
         # MCP endpoint requests - 60 per minute by default
@@ -57,7 +55,7 @@ class Otto
         # Override throttled responder to provide JSON-RPC formatted responses for MCP requests
         Rack::Attack.throttled_responder = lambda do |request|
           match_data = request.env['rack.attack.match_data']
-          now = match_data[:epoch_time]
+          now        = match_data[:epoch_time]
 
           headers = {
             'content-type' => 'application/json',
@@ -95,7 +93,7 @@ class Otto
               }
               [429, headers, [JSON.generate(error_response)]]
             else
-              body = "Rate limit exceeded. Retry after #{headers['retry-after']} seconds."
+              body                    = "Rate limit exceeded. Retry after #{headers['retry-after']} seconds."
               headers['content-type'] = 'text/plain'
               [429, headers, [body]]
             end
@@ -107,7 +105,7 @@ class Otto
         return unless defined?(ActiveSupport::Notifications)
 
         ActiveSupport::Notifications.subscribe('rack.attack') do |_name, _start, _finish, _request_id, payload|
-          req = payload[:request]
+          req      = payload[:request]
           endpoint = req.env['otto.mcp_http_endpoint'] || '/_mcp'
 
           if req.path.start_with?(endpoint)
@@ -121,8 +119,8 @@ class Otto
 
     class RateLimitMiddleware < Otto::Security::RateLimitMiddleware
       def initialize(app, security_config = nil)
-        @app = app
-        @security_config = security_config
+        @app                    = app
+        @security_config        = security_config
         @rate_limiter_available = defined?(Rack::Attack)
 
         if @rate_limiter_available
@@ -142,7 +140,8 @@ class Otto
         mcp_config = base_config.merge({
           mcp_requests_per_minute: 60,
           tool_calls_per_minute: 20,
-        })
+        },
+                                      )
 
         RateLimiter.configure_rack_attack!(mcp_config)
       end

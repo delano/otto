@@ -1,5 +1,7 @@
 require 'json'
 
+require 'concurrent_cache_store'
+
 begin
   require 'rack/attack'
 rescue LoadError
@@ -13,13 +15,7 @@ class Otto
         return unless defined?(Rack::Attack)
 
         # Configure memory store for rate limiting
-        # Use ActiveSupport::Cache::MemoryStore if available, otherwise use simple Hash-based store
-        Rack::Attack.cache.store = if defined?(ActiveSupport)
-          ActiveSupport::Cache::MemoryStore.new
-        else
-          # Simple fallback cache store for basic rate limiting
-          Hash.new { |h, k| h[k] = {} }
-        end
+        Rack::Attack.cache.store = ConcurrentCacheStore.new(default_ttl: 300)
 
         # Throttle MCP requests - 60 requests per minute per IP
         Rack::Attack.throttle('mcp_requests', limit: 60, period: 60) do |request|

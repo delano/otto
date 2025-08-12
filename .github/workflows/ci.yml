@@ -17,6 +17,7 @@ jobs:
     timeout-minutes: 10
     runs-on: ubuntu-24.04
     name: "RSpec Tests (Ruby ${{ matrix.ruby }})"
+    continue-on-error: ${{ matrix.ruby == '3.5' }}
     strategy:
       fail-fast: true
       matrix:

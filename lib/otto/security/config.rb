@@ -25,7 +25,8 @@ class Otto
         :max_request_size, :max_param_depth, :max_param_keys,
         :trusted_proxies, :require_secure_cookies,
         :security_headers, :input_validation,
-        :csp_nonce_enabled, :debug_csp, :mcp_auth
+        :csp_nonce_enabled, :debug_csp, :mcp_auth,
+        :rate_limiting_config
 
       # Initialize security configuration with safe defaults
       #
@@ -45,6 +46,7 @@ class Otto
         @input_validation       = true
         @csp_nonce_enabled      = false
         @debug_csp              = false
+        @rate_limiting_config   = {}
       end
 
       # Enable CSRF (Cross-Site Request Forgery) protection

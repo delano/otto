@@ -64,7 +64,7 @@ class Otto
 
         # Configure rate limiting
         if @enable_rate_limiting
-          @otto_instance.use Otto::MCP::RateLimitMiddleware
+          @otto_instance.use Otto::MCP::RateLimitMiddleware, @otto_instance.security_config
           Otto.logger.debug '[MCP] Rate limiting enabled' if Otto.debug
         end
       end

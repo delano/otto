@@ -20,6 +20,7 @@ require_relative 'otto/security/config'
 require_relative 'otto/security/csrf'
 require_relative 'otto/security/validator'
 require_relative 'otto/security/authentication'
+require_relative 'otto/security/rate_limiting'
 require_relative 'otto/mcp/server'
 
 # Otto is a simple Rack router that allows you to define routes in a file
@@ -357,6 +358,52 @@ class Otto
     use Otto::Security::ValidationMiddleware
   end
 
+  # Enable rate limiting to protect against abuse and DDoS attacks.
+  # This will automatically add rate limiting rules based on client IP.
+  #
+  # @param options [Hash] Rate limiting configuration options
+  # @option options [Integer] :requests_per_minute Maximum requests per minute per IP (default: 100)
+  # @option options [Hash] :custom_rules Custom rate limiting rules
+  # @example
+  #   otto.enable_rate_limiting!(requests_per_minute: 50)
+  def enable_rate_limiting!(options = {})
+    return if middleware_enabled?(Otto::Security::RateLimitMiddleware)
+
+    configure_rate_limiting(options)
+    use Otto::Security::RateLimitMiddleware
+  end
+
+  # Configure rate limiting settings.
+  #
+  # @param config [Hash] Rate limiting configuration
+  # @option config [Integer] :requests_per_minute Maximum requests per minute per IP
+  # @option config [Hash] :custom_rules Hash of custom rate limiting rules
+  # @option config [Object] :cache_store Custom cache store for rate limiting
+  # @example
+  #   otto.configure_rate_limiting({
+  #     requests_per_minute: 50,
+  #     custom_rules: {
+  #       'api_calls' => { limit: 30, period: 60, condition: ->(req) { req.path.start_with?('/api') }}
+  #     }
+  #   })
+  def configure_rate_limiting(config)
+    @security_config.rate_limiting_config.merge!(config)
+  end
+
+  # Add a custom rate limiting rule.
+  #
+  # @param name [String, Symbol] Rule name
+  # @param options [Hash] Rule configuration
+  # @option options [Integer] :limit Maximum requests
+  # @option options [Integer] :period Time period in seconds (default: 60)
+  # @option options [Proc] :condition Optional condition proc that receives request
+  # @example
+  #   otto.add_rate_limit_rule('uploads', limit: 5, period: 300, condition: ->(req) { req.post? && req.path.include?('upload') })
+  def add_rate_limit_rule(name, options)
+    @security_config.rate_limiting_config[:custom_rules] ||= {}
+    @security_config.rate_limiting_config[:custom_rules][name.to_s] = options
+  end
+
   # Add a trusted proxy server for accurate client IP detection.
   # Only requests from trusted proxies will have their forwarded headers honored.
   #
@@ -542,6 +589,12 @@ class Otto
 
     # Enable request validation if requested
     enable_request_validation! if opts[:request_validation]
+
+    # Enable rate limiting if requested
+    if opts[:rate_limiting]
+      rate_limiting_opts = opts[:rate_limiting].is_a?(Hash) ? opts[:rate_limiting] : {}
+      enable_rate_limiting!(rate_limiting_opts)
+    end
 
     # Add trusted proxies if provided
     if opts[:trusted_proxies]

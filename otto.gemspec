@@ -16,7 +16,6 @@ Gem::Specification.new do |spec|
 
   spec.required_ruby_version = ['>= 3.2', '< 4.0']
 
-  # https://github.com/delano/otto/security/dependabot/5
   spec.add_dependency 'ostruct'
   spec.add_dependency 'rack', '~> 3.1', '< 4.0'
   spec.add_dependency 'rack-parser', '~> 0.7'

@@ -94,9 +94,9 @@ class Otto
       private
 
       def mcp_endpoint?(env)
-        mcp_endpoint = env['otto.mcp_http_endpoint']
-        return false unless mcp_endpoint
-        env['PATH_INFO'] == mcp_endpoint
+        endpoint = env['otto.mcp_http_endpoint'] || '/_mcp'
+        path = env['PATH_INFO'].to_s
+        path.start_with?(endpoint)
       end
 
       def validation_error_response(id, message)

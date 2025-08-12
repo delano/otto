@@ -23,14 +23,14 @@ class Otto
 
         # Throttle MCP requests - 60 requests per minute per IP
         Rack::Attack.throttle('mcp_requests', limit: 60, period: 60) do |request|
-          mcp_endpoint = request.env['otto.mcp_http_endpoint']
-          request.ip if mcp_endpoint && request.path == mcp_endpoint
+          endpoint = request.env['otto.mcp_http_endpoint'] || '/_mcp'
+          request.ip if request.path.start_with?(endpoint)
         end
 
         # Throttle tool calls more strictly - 20 tool calls per minute per IP
         Rack::Attack.throttle('mcp_tool_calls', limit: 20, period: 60) do |request|
-          mcp_endpoint = request.env['otto.mcp_http_endpoint']
-          if mcp_endpoint && request.path == mcp_endpoint && request.post?
+          endpoint = request.env['otto.mcp_http_endpoint'] || '/_mcp'
+          if request.path.start_with?(endpoint) && request.post?
             begin
               body = request.body.read
               data = JSON.parse(body)

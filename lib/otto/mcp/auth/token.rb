@@ -41,7 +41,7 @@ class Otto
           return @app.call(env) unless mcp_endpoint?(env)
 
           # Get auth instance from security config
-          auth = @security_config&.instance_variable_get(:@mcp_auth)
+          auth = @security_config&.mcp_auth
           if auth && !auth.authenticate(env)
             return unauthorized_response
           end

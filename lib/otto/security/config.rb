@@ -25,7 +25,7 @@ class Otto
         :max_request_size, :max_param_depth, :max_param_keys,
         :trusted_proxies, :require_secure_cookies,
         :security_headers, :input_validation,
-        :csp_nonce_enabled, :debug_csp
+        :csp_nonce_enabled, :debug_csp, :mcp_auth
 
       # Initialize security configuration with safe defaults
       #

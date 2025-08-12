@@ -51,7 +51,7 @@ class Otto
         # Store MCP auth in Otto's security config for middleware access
         if @auth_tokens.any?
           @auth = Otto::MCP::Auth::TokenAuth.new(@auth_tokens)
-          @otto_instance.security_config.instance_variable_set(:@mcp_auth, @auth)
+          @otto_instance.security_config.mcp_auth = @auth
           @otto_instance.use Otto::MCP::Auth::TokenMiddleware
           Otto.logger.debug "[MCP] Token authentication enabled" if Otto.debug
         end

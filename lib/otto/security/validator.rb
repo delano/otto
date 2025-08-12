@@ -179,25 +179,9 @@ class Otto
         sanitized
       end
 
+      include ValidationHelpers
+
       private
-
-      # Check if content looks like it contains HTML tags or entities
-      def contains_html_like_content?(content)
-        content.match?(/[<>&]/) || content.match?(/&\w+;/)
-      end
-
-      # Detect likely script injection attempts that should be rejected
-      def looks_like_script_injection?(content)
-        dangerous_patterns = [
-          /javascript:/i,
-          /<script[^>]*>/i,
-          /on\w+\s*=/i,  # event handlers like onclick=
-          /expression\s*\(/i,
-          /data:.*base64/i
-        ]
-
-        dangerous_patterns.any? { |pattern| content.match?(pattern) }
-      end
 
       def validate_headers(request)
         # Check for dangerous headers

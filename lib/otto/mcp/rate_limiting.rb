@@ -13,7 +13,13 @@ class Otto
         return unless defined?(Rack::Attack)
 
         # Configure memory store for rate limiting
-        Rack::Attack.cache.store = ActiveSupport::Cache::MemoryStore.new if defined?(ActiveSupport)
+        # Use ActiveSupport::Cache::MemoryStore if available, otherwise use simple Hash-based store
+        if defined?(ActiveSupport)
+          Rack::Attack.cache.store = ActiveSupport::Cache::MemoryStore.new
+        else
+          # Simple fallback cache store for basic rate limiting
+          Rack::Attack.cache.store = Hash.new { |h, k| h[k] = {} }
+        end
 
         # Throttle MCP requests - 60 requests per minute per IP
         Rack::Attack.throttle('mcp_requests', limit: 60, period: 60) do |request|

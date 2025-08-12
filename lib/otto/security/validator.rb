@@ -2,24 +2,19 @@
 
 require 'json'
 require 'cgi'
+require 'loofah'
+require 'facets/file'
 
 class Otto
   module Security
     # ValidationMiddleware provides input validation and sanitization for web requests
+    # Uses Loofah for HTML/XSS sanitization and Facets for filename sanitization
     class ValidationMiddleware
       # Character validation patterns
       INVALID_CHARACTERS = /[\x00-\x1f\x7f-\xff]/n
       NULL_BYTE          = /\0/
 
-      # Script-based patterns that should be blocked
-      SCRIPT_PATTERNS = [
-        /<script[^>]*>/i,           # Script tags
-        /javascript:/i,             # JavaScript protocol
-        /data:.*base64/i,           # Data URLs with base64
-        /on\w+\s*=/i,               # Event handlers
-        /expression\s*\(/i,         # CSS expressions
-        /url\s*\(/i,                # CSS url() functions
-      ].freeze
+      # HTML/XSS sanitization is handled by Loofah library for better security coverage
 
       SQL_INJECTION_PATTERNS = [
         /('|(\\')|(;)|(\\)|(--)|(%27)|(%3B)|(%3D))/i,
@@ -155,26 +150,24 @@ class Otto
         end
 
         # Start with the original value
-        sanitized = value.dup
+        original = value.dup
 
         # Check for null bytes first (these should be rejected, not sanitized)
-        if sanitized.match?(NULL_BYTE)
+        if original.match?(NULL_BYTE)
           raise Otto::Security::ValidationError, 'Dangerous content detected in parameter'
         end
 
-        # Remove HTML comments and CDATA sections first (these should be sanitized, not blocked)
-        sanitized = sanitized.gsub(/<!--.*?-->/m, '') # Remove HTML comments
-        sanitized = sanitized.gsub(/<!\[CDATA\[.*?\]\]>/m, '') # Remove CDATA sections
+        # Check for script injection first (these should always be rejected)
+        if looks_like_script_injection?(original)
+          raise Otto::Security::ValidationError, 'Dangerous content detected in parameter'
+        end
+
+        # Use Loofah to sanitize HTML/XSS content for less dangerous HTML
+        # Loofah.fragment removes dangerous HTML but preserves safe content
+        sanitized = Loofah.fragment(original).scrub!(:whitewash).to_s
 
         # Remove control characters (sanitize, don't block)
         sanitized = sanitized.gsub(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/, '')
-
-        # Now check for dangerous patterns that should be blocked
-        SCRIPT_PATTERNS.each do |pattern|
-          if sanitized.match?(pattern)
-            raise Otto::Security::ValidationError, 'Dangerous content detected in parameter'
-          end
-        end
 
         # Check for SQL injection patterns
         SQL_INJECTION_PATTERNS.each do |pattern|
@@ -184,6 +177,26 @@ class Otto
         end
 
         sanitized
+      end
+
+      private
+
+      # Check if content looks like it contains HTML tags or entities
+      def contains_html_like_content?(content)
+        content.match?(/[<>&]/) || content.match?(/&\w+;/)
+      end
+
+      # Detect likely script injection attempts that should be rejected
+      def looks_like_script_injection?(content)
+        dangerous_patterns = [
+          /javascript:/i,
+          /<script[^>]*>/i,
+          /on\w+\s*=/i,  # event handlers like onclick=
+          /expression\s*\(/i,
+          /data:.*base64/i
+        ]
+
+        dangerous_patterns.any? { |pattern| content.match?(pattern) }
       end
 
       def validate_headers(request)
@@ -259,6 +272,28 @@ class Otto
     end
 
     module ValidationHelpers
+      private
+
+      # Check if content looks like it contains HTML tags or entities
+      def contains_html_like_content?(content)
+        content.match?(/[<>&]/) || content.match?(/&\w+;/)
+      end
+
+      # Detect likely script injection attempts that should be rejected
+      def looks_like_script_injection?(content)
+        dangerous_patterns = [
+          /javascript:/i,
+          /<script[^>]*>/i,
+          /on\w+\s*=/i,  # event handlers like onclick=
+          /expression\s*\(/i,
+          /data:.*base64/i
+        ]
+
+        dangerous_patterns.any? { |pattern| content.match?(pattern) }
+      end
+
+      public
+
       def validate_input(input, max_length: 1000, allow_html: false)
         return input if input.nil?
 
@@ -270,13 +305,16 @@ class Otto
           raise Otto::Security::ValidationError, "Input too long (#{input_str.length} > #{max_length})"
         end
 
-        # Check for dangerous patterns unless HTML is allowed
+        # Use Loofah for HTML sanitization and validation
         unless allow_html
-          ValidationMiddleware::SCRIPT_PATTERNS.each do |pattern|
-            if input_str.match?(pattern)
-              raise Otto::Security::ValidationError, 'Dangerous content detected'
-            end
+          # Check for script injection first (these should always be rejected)
+          if looks_like_script_injection?(input_str)
+            raise Otto::Security::ValidationError, 'Dangerous content detected'
           end
+
+          # Use Loofah to sanitize less dangerous HTML content
+          sanitized_input = Loofah.fragment(input_str).scrub!(:whitewash).to_s
+          input_str = sanitized_input
         end
 
         # Always check for SQL injection
@@ -293,14 +331,20 @@ class Otto
         return nil if filename.nil?
         return 'file' if filename.empty?
 
-        # Remove path components and dangerous characters
-        clean_name = File.basename(filename.to_s)
-        clean_name = clean_name.gsub(/[^\w\-_\.]/, '_')
-        clean_name = clean_name.gsub(/_{2,}/, '_')
-        clean_name = clean_name.gsub(/^_+|_+$/, '')
+        # Use Facets File.sanitize for basic filesystem-safe filename
+        clean_name = File.sanitize(filename.to_s)
 
-        # Ensure it's not empty and has reasonable length
-        clean_name = 'file' if clean_name.empty?
+        # Handle edge cases and improve on Facets behavior to match test expectations
+        if clean_name.nil? || clean_name.empty?
+          clean_name = 'file'
+        else
+          # Additional cleanup that Facets doesn't do but our tests expect
+          clean_name = clean_name.gsub(/_{2,}/, '_')        # Collapse multiple underscores
+          clean_name = clean_name.gsub(/^_+|_+$/, '')       # Remove leading/trailing underscores
+          clean_name = 'file' if clean_name.empty?          # Handle case where only underscores remain
+        end
+
+        # Ensure reasonable length (255 is filesystem limit, leave some padding)
         clean_name = clean_name[0..99] if clean_name.length > 100
 
         clean_name

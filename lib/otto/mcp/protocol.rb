@@ -91,7 +91,7 @@ class Otto
         if resource
           success_response(data['id'], resource)
         else
-          error_response(data['id'], -32_603, 'Internal error', "Resource not found: #{uri}")
+          error_response(data['id'], -32_001, 'Resource not found', "Resource not found: #{uri}")
         end
       end
 
@@ -140,7 +140,27 @@ class Otto
         },
                             )
 
-        [400, { 'content-type' => 'application/json' }, [body]]
+        # Map JSON-RPC error codes to appropriate HTTP status codes
+        http_status = case code
+                      when -32700..-32600 # Parse error, Invalid Request, Method not found
+                        400
+                      when -32000         # Server error (generic)
+                        500
+                      when -32001         # Resource not found
+                        404
+                      when -32002         # Tool not found
+                        404
+                      when -32601         # Method not found
+                        404
+                      when -32602         # Invalid params
+                        400
+                      when -32603         # Internal error
+                        500
+                      else
+                        400 # Default to 400 for other client errors
+                      end
+
+        [http_status, { 'content-type' => 'application/json' }, [body]]
       end
     end
   end

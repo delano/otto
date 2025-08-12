@@ -17,11 +17,19 @@ jobs:
     timeout-minutes: 10
     runs-on: ubuntu-24.04
     name: "RSpec Tests (Ruby ${{ matrix.ruby }})"
-    continue-on-error: ${{ matrix.ruby == '3.5' }}
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: true
       matrix:
-        ruby: ["3.2", "3.3", "3.4", "3.5"]
+        include:
+          - ruby: "3.2"
+            experimental: false
+          - ruby: "3.3"
+            experimental: false
+          - ruby: "3.4"
+            experimental: false
+          - ruby: "3.5"
+            experimental: true
 
     steps:
       - uses: actions/checkout@v4

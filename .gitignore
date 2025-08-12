@@ -19,3 +19,4 @@ vendor
 *.gem
 .ruby-lsp
 .rspec_status
+.mcp.json

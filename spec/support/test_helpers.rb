@@ -5,7 +5,7 @@ module OttoTestHelpers
   def create_test_routes_file(filename, routes)
     # Use spec/fixtures directory for test route files
     file_path = File.join('spec', 'fixtures', filename)
-    File.write(file_path, routes.join("\n"))
+    File.write(file_path, routes.join("\n") + "\n")
     file_path
   end
 

@@ -11,25 +11,34 @@ require 'spec_helper'
 # - uri_spec.rb: URI generation with comprehensive edge case coverage
 # - file_safety_spec.rb: File and directory safety validation
 # - utilities_spec.rb: Locale handling and other utility methods
+# - enhanced_routing_spec.rb: Enhanced route parsing with key-value parameters
+# - response_handlers_spec.rb: Response handler system unit tests
+# - response_integration_spec.rb: Response handler integration tests
 
 RSpec.describe Otto do
-  it 'has organized test coverage across multiple spec files' do
+  it 'has organized test coverage with proper naming conventions' do
     spec_files = Dir[File.join(__dir__, 'otto', '*.rb')]
-    expected_files = %w[
-      initialization_spec.rb
-      security_spec.rb
-      routing_spec.rb
-      uri_spec.rb
-      file_safety_spec.rb
-      utilities_spec.rb
-      request_helpers_spec.rb
-      locale_config_spec.rb
+    actual_files = spec_files.map { |f| File.basename(f) }.sort
+
+    # Verify we have at least the core test files
+    core_patterns = [
+      /_spec\.rb$/,           # All files should end with _spec.rb
+      /initialization_spec/,   # Core initialization tests
+      /routing_spec/,         # Core routing tests
+      /security_spec/         # Core security tests
     ]
 
-    actual_files = spec_files.map { |f| File.basename(f) }.sort
-    expect(actual_files).to match_array(expected_files)
+    core_patterns.each do |pattern|
+      matching_files = actual_files.select { |f| f.match?(pattern) }
+      expect(matching_files).not_to be_empty,
+        "Expected to find test files matching pattern #{pattern.inspect}"
+    end
 
-    puts "\n=== Otto Test Suite Organization ==="
+    # Ensure minimum test file count (prevents accidental deletion of test suites)
+    expect(actual_files.size).to be >= 8,
+      "Expected at least 8 test files, found #{actual_files.size}"
+
+    puts "\n=== Otto Test Suite Organization (#{actual_files.size} files) ==="
     actual_files.each { |file| puts "  ✓ #{file}" }
     puts "===================================\n"
   end

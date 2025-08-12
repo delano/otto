@@ -23,34 +23,69 @@ class Otto
     module ClassMethods
       attr_accessor :otto
     end
-    attr_reader :verb, :path, :pattern, :method, :klass, :name, :definition, :keys, :kind
+    # @return [Otto::RouteDefinition] The immutable route definition
+    attr_reader :route_definition
+
+    # @return [Class] The resolved class object
+    attr_reader :klass
+
     attr_accessor :otto
 
     # Initialize a new route with security validations
     #
     # @param verb [String] HTTP verb (GET, POST, PUT, DELETE, etc.)
     # @param path [String] URL path pattern with optional parameters
-    # @param definition [String] Class and method definition (Class.method or Class#method)
+    # @param definition [String] Class and method definition with optional key-value parameters
+    #   Examples:
+    #     "Class.method" (traditional)
+    #     "Class#method" (traditional)
+    #     "V2::Logic::AuthSession auth=authenticated response=redirect" (enhanced)
     # @raise [ArgumentError] if definition format is invalid or class name is unsafe
     def initialize(verb, path, definition)
-      @verb           = verb.to_s.upcase.to_sym
-      @path           = path
-      @definition     = definition
-      @pattern, @keys = *compile(@path)
-      if !@definition.index('.').nil?
-        @klass, @name = @definition.split('.')
-        @kind         = :class
-      elsif !@definition.index('#').nil?
-        @klass, @name = @definition.split('#')
-        @kind         = :instance
-      else
-        raise ArgumentError, "Bad definition: #{@definition}"
-      end
-      @klass          = safe_const_get(@klass)
-      # @method = @klass.method(@name)
+      @pattern, @keys = *compile(path)
+
+      # Create immutable route definition
+      @route_definition = Otto::RouteDefinition.new(verb, path, definition, pattern: @pattern, keys: @keys)
+
+      # Resolve the class
+      @klass = safe_const_get(@route_definition.klass_name)
+    end
+
+    # Delegate common methods to route_definition for backward compatibility
+    def verb
+      @route_definition.verb
+    end
+
+    def path
+      @route_definition.path
+    end
+
+    def definition
+      @route_definition.definition
+    end
+
+    def pattern
+      @route_definition.pattern
+    end
+
+    def keys
+      @route_definition.keys
+    end
+
+    def name
+      @route_definition.method_name
+    end
+
+    def kind
+      @route_definition.kind
+    end
+
+    def route_options
+      @route_definition.options
     end
 
     private
+
 
     # Safely resolve a class name using Object.const_get with security validations
     # This replaces the previous eval() usage to prevent code injection attacks.
@@ -120,6 +155,10 @@ class Otto
         env['otto.security_config'] = otto.security_config
       end
 
+      # NEW: Make route definition and options available to middleware and handlers
+      env['otto.route_definition'] = @route_definition
+      env['otto.route_options'] = @route_definition.options
+
       # Process parameters through security layer
       req.params.merge! extra_params
       req.params.replace Otto::Static.indifferent_params(req.params)
@@ -142,53 +181,80 @@ class Otto
       # Add validation helpers
       res.extend Otto::Security::ValidationHelpers
 
-      case kind
-      when :instance
-        inst = klass.new req, res
-        inst.send(name)
-      when :class
-        klass.send(name, req, res)
+      # NEW: Use the pluggable route handler factory (Phase 4)
+      # This replaces the hardcoded execution pattern with a factory approach
+      if otto&.route_handler_factory
+        handler = otto.route_handler_factory.create_handler(@route_definition, otto)
+        return handler.call(env, extra_params)
       else
-        raise "Unsupported kind for #{@definition}: #{kind}"
+        # Fallback to legacy behavior for backward compatibility
+        inst = nil
+        result = case kind
+                 when :instance
+                   inst = klass.new req, res
+                   inst.send(name)
+                 when :class
+                   klass.send(name, req, res)
+                 else
+                   raise "Unsupported kind for #{definition}: #{kind}"
+                 end
+
+        # Handle response based on route options
+        response_type = @route_definition.response_type
+        if response_type != 'default'
+          context = {
+            logic_instance: (kind == :instance ? inst : nil),
+            status_code: nil,
+            redirect_path: nil
+          }
+
+          Otto::ResponseHandlers::HandlerFactory.handle_response(result, res, response_type, context)
+        end
+
+        res.body = [res.body] unless res.body.respond_to?(:each)
+        res.finish
       end
-      res.body = [res.body] unless res.body.respond_to?(:each)
-      res.finish
     end
 
     private
 
-    # Brazenly borrowed from Sinatra::Base:
-    # https://github.com/sinatra/sinatra/blob/v1.2.6/lib/sinatra/base.rb#L1156
     def compile(path)
       keys = []
-      if path.respond_to? :to_str
-        special_chars = %w[. + ( ) $]
-        pattern       =
-          path.to_str.gsub(/((:\w+)|[\*#{special_chars.join}])/) do |match|
-            case match
-            when '*'
-              keys << 'splat'
-              '(.*?)'
-            when *special_chars
-              Regexp.escape(match)
-            else
-              keys << ::Regexp.last_match(2)[1..-1]
-              '([^/?#]+)'
-            end
-          end
-        # Wrap the regex in parens so the regex works properly.
-        # They can fail when there's an | for example (matching only the last one).
-        # Note: this means we also need to remove the first matched value.
-        [/\A(#{pattern})\z/, keys]
-      elsif path.respond_to?(:keys) && path.respond_to?(:match)
-        [path, path.keys]
-      elsif path.respond_to?(:names) && path.respond_to?(:match)
-        [path, path.names]
-      elsif path.respond_to? :match
-        [path, keys]
+
+      # Handle string paths first (most common case)
+      if path.respond_to?(:to_str)
+        compile_string_path(path, keys)
       else
-        raise TypeError, path
+        case path
+        in { keys: route_keys, match: _ }
+          [path, route_keys]
+        in { names: route_names, match: _ }
+          [path, route_names]
+        in { match: _ }
+          [path, keys]
+        else
+          raise TypeError, path
+        end
       end
+    end
+
+    def compile_string_path(path, keys)
+      raise TypeError, path unless path.respond_to?(:to_str)
+
+      pattern = path.to_str.gsub(/((:\w+)|[.*+()$])/) do |match|
+        case match
+        when '*'
+          keys << 'splat'
+          '(.*?)'
+        when '.', '+', '(', ')', '$'
+          Regexp.escape(match)
+        else
+          keys << match[1..-1] # Remove the colon
+          '([^/?#]+)'
+        end
+      end
+
+      [/\A(#{pattern})\z/, keys]
     end
   end
 end

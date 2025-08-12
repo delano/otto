@@ -8,14 +8,18 @@ require 'rack/request'
 require 'rack/response'
 require 'rack/utils'
 
+require_relative 'otto/route_definition'
 require_relative 'otto/route'
 require_relative 'otto/static'
 require_relative 'otto/helpers/request'
 require_relative 'otto/helpers/response'
+require_relative 'otto/response_handlers'
+require_relative 'otto/route_handlers'
 require_relative 'otto/version'
 require_relative 'otto/security/config'
 require_relative 'otto/security/csrf'
 require_relative 'otto/security/validator'
+require_relative 'otto/security/authentication'
 
 # Otto is a simple Rack router that allows you to define routes in a file
 # with built-in security features including CSRF protection, input validation,
@@ -56,7 +60,7 @@ class Otto
     @global_config
   end
 
-  attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route, :security_config, :locale_config
+  attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route, :security_config, :locale_config, :auth_config, :route_handler_factory
   attr_accessor :not_found, :server_error, :middleware_stack
 
   def initialize(path = nil, opts = {})
@@ -70,12 +74,16 @@ class Otto
     }.merge(opts)
     @security_config   = Otto::Security::Config.new
     @middleware_stack  = []
+    @route_handler_factory = opts[:route_handler_factory] || Otto::RouteHandlers::HandlerFactory
 
     # Configure locale support (merge global config with instance options)
     configure_locale(opts)
 
     # Configure security based on options
     configure_security(opts)
+
+    # Configure authentication based on options
+    configure_authentication(opts)
 
     Otto.logger.debug "new Otto: #{opts}" if Otto.debug
     load(path) unless path.nil?
@@ -87,9 +95,12 @@ class Otto
     path = File.expand_path(path)
     raise ArgumentError, "Bad path: #{path}" unless File.exist?(path)
 
-    raw = File.readlines(path).select { |line| line =~ /^\w/ }.collect { |line| line.strip.split(/\s+/) }
+    raw = File.readlines(path).select { |line| line =~ /^\w/ }.collect { |line| line.strip }
     raw.each do |entry|
-      verb, path, definition                  = *entry
+      # Enhanced parsing: split only on first two whitespace boundaries
+      # This preserves parameters in the definition part
+      parts = entry.split(/\s+/, 3)
+      verb, path, definition = parts[0], parts[1], parts[2]
       route                                   = Otto::Route.new verb, path, definition
       route.otto                              = self
       path_clean                              = path.gsub(%r{/$}, '')
@@ -412,6 +423,49 @@ class Otto
     @locale_config[:default_locale] = default_locale if default_locale
   end
 
+  # Enable authentication middleware for route-level access control.
+  # This will automatically check route auth parameters and enforce authentication.
+  #
+  # @example
+  #   otto.enable_authentication!
+  def enable_authentication!
+    return if middleware_enabled?(Otto::Security::AuthenticationMiddleware)
+
+    use Otto::Security::AuthenticationMiddleware, @auth_config
+  end
+
+  # Configure authentication strategies for route-level access control.
+  #
+  # @param strategies [Hash] Hash mapping strategy names to strategy instances
+  # @param default_strategy [String] Default strategy to use when none specified
+  # @example
+  #   otto.configure_auth_strategies({
+  #     'publically' => Otto::Security::PublicStrategy.new,
+  #     'authenticated' => Otto::Security::SessionStrategy.new(session_key: 'user_id'),
+  #     'role:admin' => Otto::Security::RoleStrategy.new(['admin']),
+  #     'api_key' => Otto::Security::APIKeyStrategy.new(api_keys: ['secret123'])
+  #   })
+  def configure_auth_strategies(strategies, default_strategy: 'publically')
+    @auth_config ||= {}
+    @auth_config[:auth_strategies] = strategies
+    @auth_config[:default_auth_strategy] = default_strategy
+
+    enable_authentication! unless strategies.empty?
+  end
+
+  # Add a single authentication strategy
+  #
+  # @param name [String] Strategy name
+  # @param strategy [Otto::Security::AuthStrategy] Strategy instance
+  # @example
+  #   otto.add_auth_strategy('custom', MyCustomStrategy.new)
+  def add_auth_strategy(name, strategy)
+    @auth_config ||= { auth_strategies: {}, default_auth_strategy: 'publically' }
+    @auth_config[:auth_strategies][name] = strategy
+
+    enable_authentication!
+  end
+
   private
 
   def configure_locale(opts)
@@ -465,6 +519,19 @@ class Otto
 
   def middleware_enabled?(middleware_class)
     @middleware_stack.any? { |m| m == middleware_class }
+  end
+
+  def configure_authentication(opts)
+    # Configure authentication strategies
+    @auth_config = {
+      auth_strategies: opts[:auth_strategies] || {},
+      default_auth_strategy: opts[:default_auth_strategy] || 'publically'
+    }
+
+    # Enable authentication middleware if strategies are configured
+    if opts[:auth_strategies] && !opts[:auth_strategies].empty?
+      enable_authentication!
+    end
   end
 
   def handle_error(error, env)

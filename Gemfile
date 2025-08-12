@@ -7,7 +7,13 @@ group :development, :test do
   gem 'rspec', '~> 3.12'
 end
 
-group 'development' do
+# bundle config set with 'optional'
+group :development, :test, optional: true do
+  gem 'json_schemer'
+  gem 'rack-attack'
+end
+
+group :development do
   gem 'pry-byebug', require: false
   gem 'rubocop', require: false
   gem 'rubocop-performance', require: false
@@ -16,5 +22,5 @@ group 'development' do
   gem 'ruby-lsp', require: false
   gem 'stackprof', require: false
   gem 'syntax_tree', require: false
-  gem 'tryouts', '~> 3.3.1', require: false
+  gem 'tryouts', '~> 3.3.2', require: false
 end

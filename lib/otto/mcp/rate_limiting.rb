@@ -14,11 +14,11 @@ class Otto
 
         # Configure memory store for rate limiting
         # Use ActiveSupport::Cache::MemoryStore if available, otherwise use simple Hash-based store
-        if defined?(ActiveSupport)
-          Rack::Attack.cache.store = ActiveSupport::Cache::MemoryStore.new
+        Rack::Attack.cache.store = if defined?(ActiveSupport)
+          ActiveSupport::Cache::MemoryStore.new
         else
           # Simple fallback cache store for basic rate limiting
-          Rack::Attack.cache.store = Hash.new { |h, k| h[k] = {} }
+          Hash.new { |h, k| h[k] = {} }
         end
 
         # Throttle MCP requests - 60 requests per minute per IP
@@ -46,52 +46,54 @@ class Otto
         # Custom response for rate limited requests (updated API)
         Rack::Attack.throttled_responder = lambda do |request|
           match_data = request.env['rack.attack.match_data']
-          now = match_data[:epoch_time]
+          now        = match_data[:epoch_time]
 
           headers = {
             'content-type' => 'application/json',
-            'retry-after' => (match_data[:period] - (now % match_data[:period])).to_s
+            'retry-after' => (match_data[:period] - (now % match_data[:period])).to_s,
           }
 
           error_response = {
             jsonrpc: '2.0',
             id: nil,
             error: {
-              code: -32000,
+              code: -32_000,
               message: 'Rate limit exceeded',
               data: {
                 retry_after: headers['retry-after'].to_i,
                 limit: match_data[:limit],
-                period: match_data[:period]
-              }
-            }
+                period: match_data[:period],
+              },
+            },
           }
 
           [429, headers, [JSON.generate(error_response)]]
         end
 
         # Log blocked requests
-        ActiveSupport::Notifications.subscribe('rack.attack') do |name, start, finish, request_id, payload|
+        return unless defined?(ActiveSupport::Notifications)
+
+        ActiveSupport::Notifications.subscribe('rack.attack') do |_name, _start, _finish, _request_id, payload|
           req = payload[:request]
           Otto.logger.warn "[MCP] Rate limit #{payload[:match_type]} for #{req.ip}: #{payload[:matched]}"
-        end if defined?(ActiveSupport::Notifications)
+        end
       end
     end
 
     class RateLimitMiddleware
-      def initialize(app, security_config = nil)
-        @app = app
+      def initialize(app, _security_config = nil)
+        @app                    = app
         @rate_limiter_available = defined?(Rack::Attack)
 
         if @rate_limiter_available
           # Use default limits for now - we'll make this configurable later
           @limits = {
             requests_per_minute: 60,
-            tools_per_minute: 20
+            tools_per_minute: 20,
           }
           configure_limits
         else
-          Otto.logger.warn "[MCP] rack-attack not available - rate limiting disabled"
+          Otto.logger.warn '[MCP] rack-attack not available - rate limiting disabled'
         end
       end
 

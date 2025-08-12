@@ -3,7 +3,7 @@ class Otto
     class Registry
       def initialize
         @resources = {}
-        @tools = {}
+        @tools     = {}
       end
 
       def register_resource(uri, name, description, mime_type, handler)
@@ -12,7 +12,7 @@ class Otto
           name: name,
           description: description,
           mimeType: mime_type,
-          handler: handler
+          handler: handler,
         }
       end
 
@@ -21,7 +21,7 @@ class Otto
           name: name,
           description: description,
           inputSchema: input_schema,
-          handler: handler
+          handler: handler,
         }
       end
 
@@ -31,7 +31,7 @@ class Otto
             uri: resource[:uri],
             name: resource[:name],
             description: resource[:description],
-            mimeType: resource[:mimeType]
+            mimeType: resource[:mimeType],
           }
         end
       end
@@ -41,7 +41,7 @@ class Otto
           {
             name: tool[:name],
             description: tool[:description],
-            inputSchema: tool[:inputSchema]
+            inputSchema: tool[:inputSchema],
           }
         end
       end
@@ -56,11 +56,11 @@ class Otto
             contents: [{
               uri: uri,
               mimeType: resource[:mimeType],
-              text: content.to_s
-            }]
+              text: content.to_s,
+            }],
           }
-        rescue => e
-          Otto.logger.error "[MCP] Resource read error for #{uri}: #{e.message}"
+        rescue StandardError => ex
+          Otto.logger.error "[MCP] Resource read error for #{uri}: #{ex.message}"
           nil
         end
       end
@@ -74,10 +74,10 @@ class Otto
           result = handler.call(arguments, env)
         elsif handler.is_a?(String) && handler.include?('.')
           klass_method = handler.split('.')
-          klass_name = klass_method[0..-2].join('::')
-          method_name = klass_method.last
+          klass_name   = klass_method[0..-2].join('::')
+          method_name  = klass_method.last
 
-          klass = Object.const_get(klass_name)
+          klass  = Object.const_get(klass_name)
           result = klass.public_send(method_name, arguments, env)
         else
           raise "Invalid tool handler: #{handler}"
@@ -86,8 +86,8 @@ class Otto
         {
           content: [{
             type: 'text',
-            text: result.to_s
-          }]
+            text: result.to_s,
+          }],
         }
       end
     end

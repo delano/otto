@@ -7,7 +7,7 @@ class Otto
       attr_reader :registry
 
       def initialize(otto_instance)
-        @otto = otto_instance
+        @otto     = otto_instance
         @registry = Registry.new
       end
 
@@ -15,18 +15,18 @@ class Otto
         request = Rack::Request.new(env)
 
         unless request.post? && request.content_type&.include?('application/json')
-          return error_response(nil, -32600, 'Invalid Request', 'Only JSON-RPC POST requests supported')
+          return error_response(nil, -32_600, 'Invalid Request', 'Only JSON-RPC POST requests supported')
         end
 
         begin
           body = request.body.read
           data = JSON.parse(body)
         rescue JSON::ParserError
-          return error_response(nil, -32700, 'Parse error', 'Invalid JSON')
+          return error_response(nil, -32_700, 'Parse error', 'Invalid JSON')
         end
 
         unless valid_jsonrpc_request?(data)
-          return error_response(data['id'], -32600, 'Invalid Request', 'Missing jsonrpc, method, or id fields')
+          return error_response(data['id'], -32_600, 'Invalid Request', 'Missing jsonrpc, method, or id fields')
         end
 
         case data['method']
@@ -41,7 +41,7 @@ class Otto
         when 'tools/call'
           handle_tools_call(data, env)
         else
-          error_response(data['id'], -32601, 'Method not found', "Unknown method: #{data['method']}")
+          error_response(data['id'], -32_601, 'Method not found', "Unknown method: #{data['method']}")
         end
       end
 
@@ -58,9 +58,9 @@ class Otto
         capabilities = {
           resources: {
             subscribe: false,
-            listChanged: false
+            listChanged: false,
           },
-          tools: {}
+          tools: {},
         }
 
         success_response(data['id'], {
@@ -68,9 +68,10 @@ class Otto
           capabilities: capabilities,
           serverInfo: {
             name: 'Otto MCP Server',
-            version: Otto::VERSION
-          }
-        })
+            version: Otto::VERSION,
+          },
+        }
+        )
       end
 
       def handle_resources_list(data)
@@ -80,17 +81,17 @@ class Otto
 
       def handle_resources_read(data)
         params = data['params'] || {}
-        uri = params['uri']
+        uri    = params['uri']
 
         unless uri
-          return error_response(data['id'], -32602, 'Invalid params', 'Missing uri parameter')
+          return error_response(data['id'], -32_602, 'Invalid params', 'Missing uri parameter')
         end
 
         resource = @registry.read_resource(uri)
         if resource
           success_response(data['id'], resource)
         else
-          error_response(data['id'], -32603, 'Internal error', "Resource not found: #{uri}")
+          error_response(data['id'], -32_603, 'Internal error', "Resource not found: #{uri}")
         end
       end
 
@@ -100,20 +101,20 @@ class Otto
       end
 
       def handle_tools_call(data, env)
-        params = data['params'] || {}
-        name = params['name']
+        params    = data['params'] || {}
+        name      = params['name']
         arguments = params['arguments'] || {}
 
         unless name
-          return error_response(data['id'], -32602, 'Invalid params', 'Missing name parameter')
+          return error_response(data['id'], -32_602, 'Invalid params', 'Missing name parameter')
         end
 
         begin
           result = @registry.call_tool(name, arguments, env)
           success_response(data['id'], result)
-        rescue => e
-          Otto.logger.error "[MCP] Tool call error: #{e.message}"
-          error_response(data['id'], -32603, 'Internal error', e.message)
+        rescue StandardError => ex
+          Otto.logger.error "[MCP] Tool call error: #{ex.message}"
+          error_response(data['id'], -32_603, 'Internal error', ex.message)
         end
       end
 
@@ -121,23 +122,25 @@ class Otto
         body = JSON.generate({
           jsonrpc: '2.0',
           id: id,
-          result: result
-        })
+          result: result,
+        },
+                            )
 
-        [200, {'content-type' => 'application/json'}, [body]]
+        [200, { 'content-type' => 'application/json' }, [body]]
       end
 
       def error_response(id, code, message, data = nil)
-        error = { code: code, message: message }
+        error        = { code: code, message: message }
         error[:data] = data if data
 
         body = JSON.generate({
           jsonrpc: '2.0',
           id: id,
-          error: error
-        })
+          error: error,
+        },
+                            )
 
-        [400, {'content-type' => 'application/json'}, [body]]
+        [400, { 'content-type' => 'application/json' }, [body]]
       end
     end
   end

@@ -1,5 +1,4 @@
 require 'json'
-require 'set'
 
 class Otto
   module MCP
@@ -22,7 +21,7 @@ class Otto
           # Try Authorization header first (Bearer token)
           auth_header = env['HTTP_AUTHORIZATION']
           if auth_header&.start_with?('Bearer ')
-            return auth_header[7..-1]
+            return auth_header[7..]
           end
 
           # Try X-MCP-Token header
@@ -32,7 +31,7 @@ class Otto
 
       class TokenMiddleware
         def initialize(app, security_config = nil)
-          @app = app
+          @app             = app
           @security_config = security_config
         end
 
@@ -53,7 +52,7 @@ class Otto
 
         def mcp_endpoint?(env)
           endpoint = env['otto.mcp_http_endpoint'] || '/_mcp'
-          path = env['PATH_INFO'].to_s
+          path     = env['PATH_INFO'].to_s
           path.start_with?(endpoint)
         end
 
@@ -62,13 +61,14 @@ class Otto
             jsonrpc: '2.0',
             id: nil,
             error: {
-              code: -32000,
+              code: -32_000,
               message: 'Unauthorized',
-              data: 'Valid token required'
-            }
-          })
+              data: 'Valid token required',
+            },
+          },
+                              )
 
-          [401, {'content-type' => 'application/json'}, [body]]
+          [401, { 'content-type' => 'application/json' }, [body]]
         end
       end
     end

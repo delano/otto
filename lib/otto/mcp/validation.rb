@@ -12,14 +12,14 @@ class Otto
 
     class Validator
       def initialize
-        @schemas = {}
+        @schemas                = {}
         @json_schemer_available = defined?(JSONSchemer)
       end
 
       def validate_request(data)
         return true unless @json_schemer_available
 
-        schema = mcp_request_schema
+        schema            = mcp_request_schema
         validation_errors = schema.validate(data).to_a
 
         unless validation_errors.empty?
@@ -33,7 +33,7 @@ class Otto
       def validate_tool_arguments(tool_name, arguments, schema)
         return true unless @json_schemer_available && schema
 
-        schemer = JSONSchemer.schema(schema)
+        schemer           = JSONSchemer.schema(schema)
         validation_errors = schemer.validate(arguments).to_a
 
         unless validation_errors.empty?
@@ -49,21 +49,22 @@ class Otto
       def mcp_request_schema
         @schemas[:mcp_request] ||= JSONSchemer.schema({
           type: 'object',
-          required: ['jsonrpc', 'method', 'id'],
+          required: %w[jsonrpc method id],
           properties: {
             jsonrpc: { const: '2.0' },
             method: { type: 'string' },
             id: {},
-            params: { type: 'object' }
+            params: { type: 'object' },
           },
-          additionalProperties: false
-        })
+          additionalProperties: false,
+        },
+                                                     )
       end
     end
 
     class ValidationMiddleware
-      def initialize(app, security_config = nil)
-        @app = app
+      def initialize(app, _security_config = nil)
+        @app       = app
         @validator = Validator.new
       end
 
@@ -81,10 +82,10 @@ class Otto
 
             # Reset body for downstream middleware
             request.body.rewind if request.body.respond_to?(:rewind)
-          rescue JSON::ParserError => e
-            return validation_error_response(nil, "Invalid JSON: #{e.message}")
-          rescue ValidationError => e
-            return validation_error_response(data&.dig('id'), e.message)
+          rescue JSON::ParserError => ex
+            return validation_error_response(nil, "Invalid JSON: #{ex.message}")
+          rescue ValidationError => ex
+            return validation_error_response(data&.dig('id'), ex.message)
           end
         end
 
@@ -95,7 +96,7 @@ class Otto
 
       def mcp_endpoint?(env)
         endpoint = env['otto.mcp_http_endpoint'] || '/_mcp'
-        path = env['PATH_INFO'].to_s
+        path     = env['PATH_INFO'].to_s
         path.start_with?(endpoint)
       end
 
@@ -104,13 +105,14 @@ class Otto
           jsonrpc: '2.0',
           id: id,
           error: {
-            code: -32600,
+            code: -32_600,
             message: 'Invalid Request',
-            data: message
-          }
-        })
+            data: message,
+          },
+        },
+                            )
 
-        [400, {'content-type' => 'application/json'}, [body]]
+        [400, { 'content-type' => 'application/json' }, [body]]
       end
     end
   end

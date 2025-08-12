@@ -3,7 +3,6 @@
 class Otto
   module Security
     module ValidationHelpers
-
       def validate_input(input, max_length: 1000, allow_html: false)
         return input if input.nil?
 
@@ -79,7 +78,6 @@ class Otto
 
         dangerous_patterns.any? { |pattern| content.match?(pattern) }
       end
-
     end
   end
 end

@@ -130,17 +130,17 @@ RSpec.describe Otto::RouteHandlers do
         status, headers, body = handler.call(env)
 
         expect(status).to eq(500)
-        expect(body.first).to include('Internal Server Error')
+        expect(body.first).to include('An error occurred. Please try again later.')
       end
 
-      it 'shows debug details when Otto.debug is true' do
-        allow(Otto).to receive(:debug).and_return(true)
+      it 'shows debug details when in development mode' do
+        allow(Otto).to receive(:env?).with(:dev, :development).and_return(true)
         allow_any_instance_of(TestLogic).to receive(:process).and_raise(StandardError, 'Test error')
 
         status, headers, body = handler.call(env)
 
         expect(status).to eq(500)
-        expect(body.first).to include('Logic Error: StandardError: Test error')
+        expect(body.first).to include('Server error (ID:')
       end
     end
   end
@@ -193,7 +193,7 @@ RSpec.describe Otto::RouteHandlers do
         status, headers, body = handler.call(env)
 
         expect(status).to eq(500)
-        expect(body.first).to include('Internal Server Error')
+        expect(body.first).to include('An error occurred. Please try again later.')
       end
     end
   end
@@ -239,7 +239,7 @@ RSpec.describe Otto::RouteHandlers do
         status, headers, body = handler.call(env)
 
         expect(status).to eq(500)
-        expect(body.first).to include('Internal Server Error')
+        expect(body.first).to include('An error occurred. Please try again later.')
       end
     end
   end

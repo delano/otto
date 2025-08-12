@@ -186,12 +186,25 @@ class Otto
           })
 
         rescue => e
-          # Error handling - return 500 with error details in development
+          # Error handling - return 500 with proper headers like main Otto error handler
+          error_id = SecureRandom.hex(8)
+          Otto.logger.error "[#{error_id}] #{e.class}: #{e.message}"
+          Otto.logger.debug "[#{error_id}] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
+
           res.status = 500
-          if Otto.debug
-            res.write "Logic Error: #{e.class}: #{e.message}\n#{e.backtrace.join("\n")}"
+          res.headers['content-type'] = 'text/plain'
+
+          if Otto.env?(:dev, :development)
+            res.write "Server error (ID: #{error_id}). Check logs for details."
           else
-            res.write "Internal Server Error"
+            res.write "An error occurred. Please try again later."
+          end
+
+          # Add security headers if available
+          if otto_instance&.respond_to?(:security_config) && otto_instance.security_config
+            otto_instance.security_config.security_headers.each do |header, value|
+              res.headers[header] = value
+            end
           end
         end
 
@@ -206,19 +219,43 @@ class Otto
         req = Rack::Request.new(env)
         res = Rack::Response.new
 
-        # Apply the same extensions and processing as original Route#call
-        setup_request_response(req, res, env, extra_params)
+        begin
+          # Apply the same extensions and processing as original Route#call
+          setup_request_response(req, res, env, extra_params)
 
-        # Create instance and call method (existing Otto behavior)
-        instance = target_class.new(req, res)
-        result = instance.send(route_definition.method_name)
+          # Create instance and call method (existing Otto behavior)
+          instance = target_class.new(req, res)
+          result = instance.send(route_definition.method_name)
 
-        # Only handle response if response_type is not default
-        if route_definition.response_type != 'default'
-          handle_response(result, res, {
-            instance: instance,
-            request: req
-          })
+          # Only handle response if response_type is not default
+          if route_definition.response_type != 'default'
+            handle_response(result, res, {
+              instance: instance,
+              request: req
+            })
+          end
+
+        rescue => e
+          # Error handling - return 500 with proper headers like main Otto error handler
+          error_id = SecureRandom.hex(8)
+          Otto.logger.error "[#{error_id}] #{e.class}: #{e.message}"
+          Otto.logger.debug "[#{error_id}] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
+
+          res.status = 500
+          res.headers['content-type'] = 'text/plain'
+
+          if Otto.env?(:dev, :development)
+            res.write "Server error (ID: #{error_id}). Check logs for details."
+          else
+            res.write "An error occurred. Please try again later."
+          end
+
+          # Add security headers if available
+          if otto_instance&.respond_to?(:security_config) && otto_instance.security_config
+            otto_instance.security_config.security_headers.each do |header, value|
+              res.headers[header] = value
+            end
+          end
         end
 
         finalize_response(res)
@@ -232,18 +269,61 @@ class Otto
         req = Rack::Request.new(env)
         res = Rack::Response.new
 
-        # Apply the same extensions and processing as original Route#call
-        setup_request_response(req, res, env, extra_params)
+        begin
+          # Apply the same extensions and processing as original Route#call
+          setup_request_response(req, res, env, extra_params)
 
-        # Call class method directly (existing Otto behavior)
-        result = target_class.send(route_definition.method_name, req, res)
+          # Call class method directly (existing Otto behavior)
+          result = target_class.send(route_definition.method_name, req, res)
 
-        # Only handle response if response_type is not default
-        if route_definition.response_type != 'default'
-          handle_response(result, res, {
-            class: target_class,
-            request: req
-          })
+          # Only handle response if response_type is not default
+          if route_definition.response_type != 'default'
+            handle_response(result, res, {
+              class: target_class,
+              request: req
+            })
+          end
+
+        rescue => e
+          # Error handling - return 500 with proper headers like main Otto error handler
+          error_id = SecureRandom.hex(8)
+          Otto.logger.error "[#{error_id}] #{e.class}: #{e.message}"
+          Otto.logger.debug "[#{error_id}] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
+
+          res.status = 500
+
+          # Content negotiation for error response
+          accept_header = env['HTTP_ACCEPT'].to_s
+          if accept_header.include?('application/json')
+            res.headers['content-type'] = 'application/json'
+            error_data = if Otto.env?(:dev, :development)
+              {
+                error: 'Internal Server Error',
+                message: 'Server error occurred. Check logs for details.',
+                error_id: error_id,
+              }
+            else
+              {
+                error: 'Internal Server Error',
+                message: 'An error occurred. Please try again later.',
+              }
+            end
+            res.write JSON.generate(error_data)
+          else
+            res.headers['content-type'] = 'text/plain'
+            if Otto.env?(:dev, :development)
+              res.write "Server error (ID: #{error_id}). Check logs for details."
+            else
+              res.write "An error occurred. Please try again later."
+            end
+          end
+
+          # Add security headers if available
+          if otto_instance&.respond_to?(:security_config) && otto_instance.security_config
+            otto_instance.security_config.security_headers.each do |header, value|
+              res.headers[header] = value
+            end
+          end
         end
 
         finalize_response(res)

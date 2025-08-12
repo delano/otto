@@ -48,7 +48,18 @@ class Otto
       private
 
       def configure_middleware(_options)
-        # Store MCP auth in Otto's security config for middleware access
+        # Configure middleware in security-optimal order:
+        # 1. Rate limiting (reject excessive requests early)
+        # 2. Authentication (validate credentials before parsing)
+        # 3. Validation (expensive JSON schema validation last)
+
+        # Configure rate limiting first
+        if @enable_rate_limiting
+          @otto_instance.use Otto::MCP::RateLimitMiddleware, @otto_instance.security_config
+          Otto.logger.debug '[MCP] Rate limiting enabled' if Otto.debug
+        end
+
+        # Configure authentication second
         if @auth_tokens.any?
           @auth                                   = Otto::MCP::Auth::TokenAuth.new(@auth_tokens)
           @otto_instance.security_config.mcp_auth = @auth
@@ -56,16 +67,10 @@ class Otto
           Otto.logger.debug '[MCP] Token authentication enabled' if Otto.debug
         end
 
-        # Configure validation
+        # Configure validation last (most expensive)
         if @enable_validation
           @otto_instance.use Otto::MCP::ValidationMiddleware
           Otto.logger.debug '[MCP] Request validation enabled' if Otto.debug
-        end
-
-        # Configure rate limiting
-        if @enable_rate_limiting
-          @otto_instance.use Otto::MCP::RateLimitMiddleware, @otto_instance.security_config
-          Otto.logger.debug '[MCP] Rate limiting enabled' if Otto.debug
         end
       end
 

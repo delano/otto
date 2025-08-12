@@ -275,9 +275,11 @@ class Otto
           'Content-Length' => body.bytesize.to_s
         }
 
-        # Add security headers if available
-        if @config.respond_to?(:security_headers)
-          headers.merge!(@config.security_headers)
+        # Add security headers if available from config hash or Otto instance
+        if @config.is_a?(Hash) && @config[:security_headers]
+          headers.merge!(@config[:security_headers])
+        elsif @config.respond_to?(:security_config) && @config.security_config
+          headers.merge!(@config.security_config.security_headers)
         end
 
         [401, headers, [body]]

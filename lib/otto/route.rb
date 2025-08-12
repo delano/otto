@@ -188,6 +188,7 @@ class Otto
         return handler.call(env, extra_params)
       else
         # Fallback to legacy behavior for backward compatibility
+        inst = nil
         result = case kind
                  when :instance
                    inst = klass.new req, res
@@ -220,15 +221,17 @@ class Otto
     def compile(path)
       keys = []
 
-      case path
-      in { keys: route_keys, match: _ }
-        [path, route_keys]
-      in { names: route_names, match: _ }
-        [path, route_names]
-      in { match: _ }
+      # Handle string paths first (most common case)
+      if path.respond_to?(:to_str)
+        compile_string_path(path, keys)
+      elsif path.respond_to?(:keys) && path.respond_to?(:match)
+        [path, path.keys]
+      elsif path.respond_to?(:names) && path.respond_to?(:match)
+        [path, path.names]
+      elsif path.respond_to?(:match)
         [path, keys]
       else
-        compile_string_path(path, keys)
+        raise TypeError, path
       end
     end
 

@@ -337,9 +337,16 @@ class Otto
         res = Rack::Response.new
 
         begin
-          # For lambda handlers, the klass_name contains the lambda definition
-          # This is a future extension point
-          lambda_proc = eval(route_definition.klass_name)
+          # Security: Lambda handlers require pre-configured procs from Otto instance
+          # This prevents code injection via eval and maintains security
+          handler_name = route_definition.klass_name
+          lambda_registry = otto_instance&.config&.dig(:lambda_handlers) || {}
+
+          lambda_proc = lambda_registry[handler_name]
+          unless lambda_proc.respond_to?(:call)
+            raise ArgumentError, "Lambda handler '#{handler_name}' not found in registry or not callable"
+          end
+
           result = lambda_proc.call(req, res, extra_params)
 
           handle_response(result, res, {
@@ -348,11 +355,24 @@ class Otto
           })
 
         rescue => e
+          error_id = SecureRandom.hex(8)
+          Otto.logger.error "[#{error_id}] #{e.class}: #{e.message}"
+          Otto.logger.debug "[#{error_id}] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
+
           res.status = 500
-          if Otto.debug
-            res.write "Lambda Error: #{e.class}: #{e.message}\n#{e.backtrace.join("\n")}"
+          res.headers['content-type'] = 'text/plain'
+
+          if Otto.env?(:dev, :development)
+            res.write "Lambda handler error (ID: #{error_id}). Check logs for details."
           else
-            res.write "Internal Server Error"
+            res.write "An error occurred. Please try again later."
+          end
+
+          # Add security headers if available
+          if otto_instance&.respond_to?(:security_config) && otto_instance.security_config
+            otto_instance.security_config.security_headers.each do |header, value|
+              res.headers[header] = value
+            end
           end
         end
 

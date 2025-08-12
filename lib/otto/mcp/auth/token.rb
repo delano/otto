@@ -52,7 +52,9 @@ class Otto
         private
 
         def mcp_endpoint?(env)
-          env['PATH_INFO']&.start_with?('/_mcp')
+          mcp_endpoint = env['otto.mcp_http_endpoint']
+          return false unless mcp_endpoint
+          env['PATH_INFO'] == mcp_endpoint
         end
 
         def unauthorized_response

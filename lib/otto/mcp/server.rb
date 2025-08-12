@@ -70,10 +70,8 @@ class Otto
       end
 
       def add_mcp_endpoint_route
-        # Store reference for handler
         InternalHandler.otto_instance = @otto_instance
 
-        # Add internal route for MCP protocol handler
         mcp_route = Otto::Route.new('POST', @http_endpoint, 'Otto::MCP::InternalHandler.handle_request')
         mcp_route.otto = @otto_instance
 
@@ -82,6 +80,14 @@ class Otto
 
         @otto_instance.routes_literal[:POST] ||= {}
         @otto_instance.routes_literal[:POST][@http_endpoint] = mcp_route
+
+        # Ensure env carries endpoint for middlewares
+        @otto_instance.use Proc.new { |app|
+          lambda { |env|
+            env['otto.mcp_http_endpoint'] = @http_endpoint
+            app.call(env)
+          }
+        }
       end
 
       def register_resource(route_info)

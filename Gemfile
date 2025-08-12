@@ -1,14 +1,17 @@
+# Gemfile
+
 source 'https://rubygems.org'
 
 gemspec
 
-group :development, :test do
+group :test do
   gem 'rack-test'
   gem 'rspec', '~> 3.12'
 end
 
 # bundle config set with 'optional'
 group :development, :test, optional: true do
+  # Keep gems that need to be in both environments
   gem 'json_schemer'
   gem 'rack-attack'
 end

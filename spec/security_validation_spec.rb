@@ -356,7 +356,7 @@ RSpec.describe Otto::Security::ValidationMiddleware do
       expect(response[0]).to eq(400)
     end
 
-    xit 'removes HTML comments' do
+    it 'removes HTML comments' do
       # Test the sanitization logic by accessing the private method
       sanitized = middleware.send(:sanitize_value, 'text <!-- comment --> more text')
       expect(sanitized).not_to include('<!-- comment -->')
@@ -374,7 +374,7 @@ RSpec.describe Otto::Security::ValidationMiddleware do
       expect(sanitized).to eq('text  more')
     end
 
-    xit 'removes control characters' do
+    it 'removes control characters' do
       input_with_controls = "text\x01\x02\x03more"
       sanitized = middleware.send(:sanitize_value, input_with_controls)
       expect(sanitized).to eq('textmore')
@@ -513,7 +513,7 @@ RSpec.describe Otto::Security::ValidationMiddleware do
       puts "==============================\n"
     end
 
-    xit 'still validates request size when disabled' do
+    it 'still validates request size when disabled' do
       # Request size validation might still be active even when input validation is disabled
       oversized = disabled_config.max_request_size + 1
       env = mock_rack_env(method: 'POST', path: '/')
@@ -521,7 +521,7 @@ RSpec.describe Otto::Security::ValidationMiddleware do
 
       response = disabled_middleware.call(env)
       # This depends on implementation - might still validate size
-      expect(response[0]).to be_in([200, 413])
+      expect([200, 413]).to include(response[0])
     end
   end
 
@@ -585,7 +585,7 @@ RSpec.describe Otto::Security::ValidationMiddleware do
       expect(response[0]).to eq(413)
     end
 
-    xit 'respects custom max_param_depth' do
+    it 'respects custom max_param_depth' do
       config.max_param_depth = 3
 
       deep_params = { 'l1' => { 'l2' => { 'l3' => { 'l4' => 'too deep' } } } }
@@ -668,7 +668,7 @@ RSpec.describe Otto::Security::ValidationHelpers do
       expect(mock_response.validate_input('')).to eq('')
     end
 
-    xit 'converts non-string input to string' do
+    it 'converts non-string input to string' do
       result = mock_response.validate_input(123)
       expect(result).to eq('123')
     end
@@ -702,7 +702,7 @@ RSpec.describe Otto::Security::ValidationHelpers do
       expect(result).to eq('filename')
     end
 
-    xit 'handles empty filenames' do
+    it 'handles empty filenames' do
       result = mock_response.sanitize_filename('')
       expect(result).to eq('file')
 
@@ -710,7 +710,7 @@ RSpec.describe Otto::Security::ValidationHelpers do
       expect(result).to be_nil
     end
 
-    xit 'truncates extremely long filenames' do
+    it 'truncates extremely long filenames' do
       long_filename = 'a' * 150 + '.txt'
       result = mock_response.sanitize_filename(long_filename)
       expect(result.length).to be <= 100

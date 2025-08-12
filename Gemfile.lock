@@ -42,9 +42,21 @@ GEM
       nokogiri (>= 1.12.0)
     method_source (1.1.0)
     minitest (5.25.5)
+    nokogiri (1.18.9-aarch64-linux-gnu)
+      racc (~> 1.4)
+    nokogiri (1.18.9-aarch64-linux-musl)
+      racc (~> 1.4)
+    nokogiri (1.18.9-arm-linux-gnu)
+      racc (~> 1.4)
+    nokogiri (1.18.9-arm-linux-musl)
+      racc (~> 1.4)
     nokogiri (1.18.9-arm64-darwin)
       racc (~> 1.4)
+    nokogiri (1.18.9-x86_64-darwin)
+      racc (~> 1.4)
     nokogiri (1.18.9-x86_64-linux-gnu)
+      racc (~> 1.4)
+    nokogiri (1.18.9-x86_64-linux-musl)
       racc (~> 1.4)
     ostruct (0.6.3)
     parallel (1.27.0)
@@ -81,7 +93,7 @@ GEM
     rdoc (6.14.2)
       erb
       psych (>= 4.0.0)
-    regexp_parser (2.11.1)
+    regexp_parser (2.11.2)
     reline (0.6.2)
       io-console (~> 0.5)
     rexml (3.4.1)
@@ -150,8 +162,14 @@ GEM
     unicode-emoji (4.0.4)
 
 PLATFORMS
-  arm64-darwin-24
-  x86_64-linux
+  aarch64-linux-gnu
+  aarch64-linux-musl
+  arm-linux-gnu
+  arm-linux-musl
+  arm64-darwin
+  x86_64-darwin
+  x86_64-linux-gnu
+  x86_64-linux-musl
 
 DEPENDENCIES
   json_schemer
@@ -170,4 +188,4 @@ DEPENDENCIES
   tryouts (~> 3.3.2)
 
 BUNDLED WITH
-   2.6.9
+   2.7.1

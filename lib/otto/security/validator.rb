@@ -11,15 +11,14 @@ class Otto
       INVALID_CHARACTERS = /[\x00-\x1f\x7f-\xff]/n
       NULL_BYTE          = /\0/
 
-      DANGEROUS_PATTERNS = [
+      # Script-based patterns that should be blocked
+      SCRIPT_PATTERNS = [
         /<script[^>]*>/i,           # Script tags
         /javascript:/i,             # JavaScript protocol
         /data:.*base64/i,           # Data URLs with base64
         /on\w+\s*=/i,               # Event handlers
         /expression\s*\(/i,         # CSS expressions
         /url\s*\(/i,                # CSS url() functions
-        NULL_BYTE,                  # Null bytes
-        INVALID_CHARACTERS,         # Control characters and extended ASCII
       ].freeze
 
       SQL_INJECTION_PATTERNS = [
@@ -95,7 +94,7 @@ class Otto
       end
 
       def validate_param_structure(params, depth = 0)
-        if depth > @config.max_param_depth
+        if depth >= @config.max_param_depth
           raise Otto::Security::ValidationError, "Parameter depth exceeds maximum (#{@config.max_param_depth})"
         end
 
@@ -150,31 +149,41 @@ class Otto
       def sanitize_value(value)
         return value unless value.is_a?(String)
 
-        # Check for dangerous patterns
-        DANGEROUS_PATTERNS.each do |pattern|
-          if value.match?(pattern)
+        # Check for extremely long values first
+        if value.length > 10_000
+          raise Otto::Security::ValidationError, "Parameter value too long (#{value.length} characters)"
+        end
+
+        # Start with the original value
+        sanitized = value.dup
+
+        # Check for null bytes first (these should be rejected, not sanitized)
+        if sanitized.match?(NULL_BYTE)
+          raise Otto::Security::ValidationError, 'Dangerous content detected in parameter'
+        end
+
+        # Remove HTML comments and CDATA sections first (these should be sanitized, not blocked)
+        sanitized = sanitized.gsub(/<!--.*?-->/m, '') # Remove HTML comments
+        sanitized = sanitized.gsub(/<!\[CDATA\[.*?\]\]>/m, '') # Remove CDATA sections
+
+        # Remove control characters (sanitize, don't block)
+        sanitized = sanitized.gsub(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/, '')
+
+        # Now check for dangerous patterns that should be blocked
+        SCRIPT_PATTERNS.each do |pattern|
+          if sanitized.match?(pattern)
             raise Otto::Security::ValidationError, 'Dangerous content detected in parameter'
           end
         end
 
         # Check for SQL injection patterns
         SQL_INJECTION_PATTERNS.each do |pattern|
-          if value.match?(pattern)
+          if sanitized.match?(pattern)
             raise Otto::Security::ValidationError, 'Potential SQL injection detected'
           end
         end
 
-        # Check for extremely long values
-        if value.length > 10_000
-          raise Otto::Security::ValidationError, "Parameter value too long (#{value.length} characters)"
-        end
-
-        # Basic sanitization - remove null bytes and control characters
-        sanitized = value.gsub(/\0/, '').gsub(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/, '')
-
-        # Additional sanitization for common attack vectors
-        sanitized = sanitized.gsub(/<!--.*?-->/m, '') # Remove HTML comments
-        sanitized.gsub(/<!\[CDATA\[.*?\]\]>/m, '') # Remove CDATA sections
+        sanitized
       end
 
       def validate_headers(request)
@@ -251,9 +260,10 @@ class Otto
 
     module ValidationHelpers
       def validate_input(input, max_length: 1000, allow_html: false)
-        return input if input.nil? || input.empty?
+        return input if input.nil?
 
         input_str = input.to_s
+        return input_str if input_str.empty?
 
         # Check length
         if input_str.length > max_length
@@ -262,7 +272,7 @@ class Otto
 
         # Check for dangerous patterns unless HTML is allowed
         unless allow_html
-          ValidationMiddleware::DANGEROUS_PATTERNS.each do |pattern|
+          ValidationMiddleware::SCRIPT_PATTERNS.each do |pattern|
             if input_str.match?(pattern)
               raise Otto::Security::ValidationError, 'Dangerous content detected'
             end
@@ -280,7 +290,8 @@ class Otto
       end
 
       def sanitize_filename(filename)
-        return nil if filename.nil? || filename.empty?
+        return nil if filename.nil?
+        return 'file' if filename.empty?
 
         # Remove path components and dangerous characters
         clean_name = File.basename(filename.to_s)
@@ -290,7 +301,7 @@ class Otto
 
         # Ensure it's not empty and has reasonable length
         clean_name = 'file' if clean_name.empty?
-        clean_name = clean_name[0..100] if clean_name.length > 100
+        clean_name = clean_name[0..99] if clean_name.length > 100
 
         clean_name
       end

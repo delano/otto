@@ -35,22 +35,22 @@ class Otto
     attr_reader :keys
 
     def initialize(verb, path, definition, pattern: nil, keys: nil)
-      @verb = verb.to_s.upcase.to_sym
-      @path = path
+      @verb       = verb.to_s.upcase.to_sym
+      @path       = path
       @definition = definition
-      @pattern = pattern
-      @keys = keys || []
+      @pattern    = pattern
+      @keys       = keys || []
 
       # Parse the definition into target and options
-      parsed = parse_definition(definition)
-      @target = parsed[:target]
+      parsed   = parse_definition(definition)
+      @target  = parsed[:target]
       @options = parsed[:options].freeze
 
       # Parse the target into class, method, and kind
       target_parsed = parse_target(@target)
-      @klass_name = target_parsed[:klass_name]
-      @method_name = target_parsed[:method_name]
-      @kind = target_parsed[:kind]
+      @klass_name   = target_parsed[:klass_name]
+      @method_name  = target_parsed[:method_name]
+      @kind         = target_parsed[:kind]
 
       # Freeze for immutability
       freeze
@@ -118,7 +118,7 @@ class Otto
         kind: @kind,
         options: @options,
         pattern: @pattern,
-        keys: @keys
+        keys: @keys,
       }
     end
 
@@ -131,7 +131,7 @@ class Otto
     # Detailed inspection
     # @return [String]
     def inspect
-      "#<Otto::RouteDefinition #{to_s} options=#{@options.inspect}>"
+      "#<Otto::RouteDefinition #{self} options=#{@options.inspect}>"
     end
 
     private
@@ -140,17 +140,17 @@ class Otto
     # @param definition [String] The route definition
     # @return [Hash] Hash with :target and :options keys
     def parse_definition(definition)
-      parts = definition.split(/\s+/)
-      target = parts.shift
+      parts   = definition.split(/\s+/)
+      target  = parts.shift
       options = {}
 
       parts.each do |part|
         key, value = part.split('=', 2)
         if key && value
           options[key.to_sym] = value
-        else
+        elsif Otto.debug
           # Malformed parameter, log warning if debug enabled
-          Otto.logger.warn "Ignoring malformed route parameter: #{part}" if Otto.debug
+          Otto.logger.warn "Ignoring malformed route parameter: #{part}"
         end
       end
 

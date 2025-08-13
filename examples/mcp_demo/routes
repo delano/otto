@@ -1,0 +1,9 @@
+# Basic HTTP routes
+GET     /           DemoApp.index
+GET     /health     DemoApp.health
+
+# MCP Resources - provide read-only data
+MCP     /users       UserAPI.mcp_list_users
+
+# MCP Tools - provide actions/operations
+TOOL    /create_user UserAPI.mcp_create_user

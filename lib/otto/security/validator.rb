@@ -2,25 +2,21 @@
 
 require 'json'
 require 'cgi'
+require 'loofah'
+require 'facets/file'
+
+require_relative '../helpers/validation'
 
 class Otto
   module Security
     # ValidationMiddleware provides input validation and sanitization for web requests
+    # Uses Loofah for HTML/XSS sanitization and Facets for filename sanitization
     class ValidationMiddleware
       # Character validation patterns
       INVALID_CHARACTERS = /[\x00-\x1f\x7f-\xff]/n
       NULL_BYTE          = /\0/
 
-      DANGEROUS_PATTERNS = [
-        /<script[^>]*>/i,           # Script tags
-        /javascript:/i,             # JavaScript protocol
-        /data:.*base64/i,           # Data URLs with base64
-        /on\w+\s*=/i,               # Event handlers
-        /expression\s*\(/i,         # CSS expressions
-        /url\s*\(/i,                # CSS url() functions
-        NULL_BYTE,                  # Null bytes
-        INVALID_CHARACTERS,         # Control characters and extended ASCII
-      ].freeze
+      # HTML/XSS sanitization is handled by Loofah library for better security coverage
 
       SQL_INJECTION_PATTERNS = [
         /('|(\\')|(;)|(\\)|(--)|(%27)|(%3B)|(%3D))/i,
@@ -95,7 +91,7 @@ class Otto
       end
 
       def validate_param_structure(params, depth = 0)
-        if depth > @config.max_param_depth
+        if depth >= @config.max_param_depth
           raise Otto::Security::ValidationError, "Parameter depth exceeds maximum (#{@config.max_param_depth})"
         end
 
@@ -150,32 +146,44 @@ class Otto
       def sanitize_value(value)
         return value unless value.is_a?(String)
 
-        # Check for dangerous patterns
-        DANGEROUS_PATTERNS.each do |pattern|
-          if value.match?(pattern)
-            raise Otto::Security::ValidationError, 'Dangerous content detected in parameter'
-          end
-        end
-
-        # Check for SQL injection patterns
-        SQL_INJECTION_PATTERNS.each do |pattern|
-          if value.match?(pattern)
-            raise Otto::Security::ValidationError, 'Potential SQL injection detected'
-          end
-        end
-
-        # Check for extremely long values
+        # Check for extremely long values first
         if value.length > 10_000
           raise Otto::Security::ValidationError, "Parameter value too long (#{value.length} characters)"
         end
 
-        # Basic sanitization - remove null bytes and control characters
-        sanitized = value.gsub(/\0/, '').gsub(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/, '')
+        # Start with the original value
+        original = value.dup
 
-        # Additional sanitization for common attack vectors
-        sanitized = sanitized.gsub(/<!--.*?-->/m, '') # Remove HTML comments
-        sanitized.gsub(/<!\[CDATA\[.*?\]\]>/m, '') # Remove CDATA sections
+        # Check for null bytes first (these should be rejected, not sanitized)
+        if original.match?(NULL_BYTE)
+          raise Otto::Security::ValidationError, 'Dangerous content detected in parameter'
+        end
+
+        # Check for script injection first (these should always be rejected)
+        if looks_like_script_injection?(original)
+          raise Otto::Security::ValidationError, 'Dangerous content detected in parameter'
+        end
+
+        # Use Loofah to sanitize HTML/XSS content for less dangerous HTML
+        # Loofah.fragment removes dangerous HTML but preserves safe content
+        sanitized = Loofah.fragment(original).scrub!(:whitewash).to_s
+
+        # Remove control characters (sanitize, don't block)
+        sanitized = sanitized.gsub(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/, '')
+
+        # Check for SQL injection patterns
+        SQL_INJECTION_PATTERNS.each do |pattern|
+          if sanitized.match?(pattern)
+            raise Otto::Security::ValidationError, 'Potential SQL injection detected'
+          end
+        end
+
+        sanitized
       end
+
+      include ValidationHelpers
+
+      private
 
       def validate_headers(request)
         # Check for dangerous headers
@@ -246,53 +254,6 @@ class Otto
           error: 'Request too large',
           message: message,
         }.to_json
-      end
-    end
-
-    module ValidationHelpers
-      def validate_input(input, max_length: 1000, allow_html: false)
-        return input if input.nil? || input.empty?
-
-        input_str = input.to_s
-
-        # Check length
-        if input_str.length > max_length
-          raise Otto::Security::ValidationError, "Input too long (#{input_str.length} > #{max_length})"
-        end
-
-        # Check for dangerous patterns unless HTML is allowed
-        unless allow_html
-          ValidationMiddleware::DANGEROUS_PATTERNS.each do |pattern|
-            if input_str.match?(pattern)
-              raise Otto::Security::ValidationError, 'Dangerous content detected'
-            end
-          end
-        end
-
-        # Always check for SQL injection
-        ValidationMiddleware::SQL_INJECTION_PATTERNS.each do |pattern|
-          if input_str.match?(pattern)
-            raise Otto::Security::ValidationError, 'Potential SQL injection detected'
-          end
-        end
-
-        input_str
-      end
-
-      def sanitize_filename(filename)
-        return nil if filename.nil? || filename.empty?
-
-        # Remove path components and dangerous characters
-        clean_name = File.basename(filename.to_s)
-        clean_name = clean_name.gsub(/[^\w\-_\.]/, '_')
-        clean_name = clean_name.gsub(/_{2,}/, '_')
-        clean_name = clean_name.gsub(/^_+|_+$/, '')
-
-        # Ensure it's not empty and has reasonable length
-        clean_name = 'file' if clean_name.empty?
-        clean_name = clean_name[0..100] if clean_name.length > 100
-
-        clean_name
       end
     end
   end

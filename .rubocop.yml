@@ -135,7 +135,7 @@ Style/BlockDelimiters:
   Enabled: true
 
 Naming/PredicateMethod:
-  Enabled: true
+  Enabled: false
   Mode: "conservative"
   AllowedMethods:
     - validate!

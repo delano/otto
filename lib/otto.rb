@@ -20,6 +20,8 @@ require_relative 'otto/security/config'
 require_relative 'otto/security/csrf'
 require_relative 'otto/security/validator'
 require_relative 'otto/security/authentication'
+require_relative 'otto/security/rate_limiting'
+require_relative 'otto/mcp/server'
 
 # Otto is a simple Rack router that allows you to define routes in a file
 # with built-in security features including CSRF protection, input validation,
@@ -60,7 +62,7 @@ class Otto
     @global_config
   end
 
-  attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route, :security_config, :locale_config, :auth_config, :route_handler_factory
+  attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route, :security_config, :locale_config, :auth_config, :route_handler_factory, :mcp_server
   attr_accessor :not_found, :server_error, :middleware_stack
 
   def initialize(path = nil, opts = {})
@@ -85,6 +87,9 @@ class Otto
     # Configure authentication based on options
     configure_authentication(opts)
 
+    # Initialize MCP server
+    configure_mcp(opts)
+
     Otto.logger.debug "new Otto: #{opts}" if Otto.debug
     load(path) unless path.nil?
     super()
@@ -101,6 +106,16 @@ class Otto
       # This preserves parameters in the definition part
       parts = entry.split(/\s+/, 3)
       verb, path, definition = parts[0], parts[1], parts[2]
+
+      # Check for MCP routes
+      if Otto::MCP::RouteParser.is_mcp_route?(definition)
+        handle_mcp_route(verb, path, definition) if @mcp_server
+        next
+      elsif Otto::MCP::RouteParser.is_tool_route?(definition)
+        handle_tool_route(verb, path, definition) if @mcp_server
+        next
+      end
+
       route                                   = Otto::Route.new verb, path, definition
       route.otto                              = self
       path_clean                              = path.gsub(%r{/$}, '')
@@ -343,6 +358,52 @@ class Otto
     use Otto::Security::ValidationMiddleware
   end
 
+  # Enable rate limiting to protect against abuse and DDoS attacks.
+  # This will automatically add rate limiting rules based on client IP.
+  #
+  # @param options [Hash] Rate limiting configuration options
+  # @option options [Integer] :requests_per_minute Maximum requests per minute per IP (default: 100)
+  # @option options [Hash] :custom_rules Custom rate limiting rules
+  # @example
+  #   otto.enable_rate_limiting!(requests_per_minute: 50)
+  def enable_rate_limiting!(options = {})
+    return if middleware_enabled?(Otto::Security::RateLimitMiddleware)
+
+    configure_rate_limiting(options)
+    use Otto::Security::RateLimitMiddleware
+  end
+
+  # Configure rate limiting settings.
+  #
+  # @param config [Hash] Rate limiting configuration
+  # @option config [Integer] :requests_per_minute Maximum requests per minute per IP
+  # @option config [Hash] :custom_rules Hash of custom rate limiting rules
+  # @option config [Object] :cache_store Custom cache store for rate limiting
+  # @example
+  #   otto.configure_rate_limiting({
+  #     requests_per_minute: 50,
+  #     custom_rules: {
+  #       'api_calls' => { limit: 30, period: 60, condition: ->(req) { req.path.start_with?('/api') }}
+  #     }
+  #   })
+  def configure_rate_limiting(config)
+    @security_config.rate_limiting_config.merge!(config)
+  end
+
+  # Add a custom rate limiting rule.
+  #
+  # @param name [String, Symbol] Rule name
+  # @param options [Hash] Rule configuration
+  # @option options [Integer] :limit Maximum requests
+  # @option options [Integer] :period Time period in seconds (default: 60)
+  # @option options [Proc] :condition Optional condition proc that receives request
+  # @example
+  #   otto.add_rate_limit_rule('uploads', limit: 5, period: 300, condition: ->(req) { req.post? && req.path.include?('upload') })
+  def add_rate_limit_rule(name, options)
+    @security_config.rate_limiting_config[:custom_rules] ||= {}
+    @security_config.rate_limiting_config[:custom_rules][name.to_s] = options
+  end
+
   # Add a trusted proxy server for accurate client IP detection.
   # Only requests from trusted proxies will have their forwarded headers honored.
   #
@@ -466,6 +527,29 @@ class Otto
     enable_authentication!
   end
 
+  # Enable MCP (Model Context Protocol) server support
+  #
+  # @param options [Hash] MCP configuration options
+  # @option options [Boolean] :http Enable HTTP endpoint (default: true)
+  # @option options [Boolean] :stdio Enable STDIO communication (default: false)
+  # @option options [String] :endpoint HTTP endpoint path (default: '/_mcp')
+  # @example
+  #   otto.enable_mcp!(http: true, endpoint: '/api/mcp')
+  def enable_mcp!(options = {})
+    unless @mcp_server
+      @mcp_server = Otto::MCP::Server.new(self)
+    end
+
+    @mcp_server.enable!(options)
+    Otto.logger.info "[MCP] Enabled MCP server" if Otto.debug
+  end
+
+  # Check if MCP is enabled
+  # @return [Boolean]
+  def mcp_enabled?
+    @mcp_server&.enabled?
+  end
+
   private
 
   def configure_locale(opts)
@@ -506,6 +590,12 @@ class Otto
     # Enable request validation if requested
     enable_request_validation! if opts[:request_validation]
 
+    # Enable rate limiting if requested
+    if opts[:rate_limiting]
+      rate_limiting_opts = opts[:rate_limiting].is_a?(Hash) ? opts[:rate_limiting] : {}
+      enable_rate_limiting!(rate_limiting_opts)
+    end
+
     # Add trusted proxies if provided
     if opts[:trusted_proxies]
       Array(opts[:trusted_proxies]).each { |proxy| add_trusted_proxy(proxy) }
@@ -531,6 +621,42 @@ class Otto
     # Enable authentication middleware if strategies are configured
     if opts[:auth_strategies] && !opts[:auth_strategies].empty?
       enable_authentication!
+    end
+  end
+
+  def configure_mcp(opts)
+    @mcp_server = nil
+
+    # Enable MCP if requested in options
+    if opts[:mcp_enabled] || opts[:mcp_http] || opts[:mcp_stdio]
+      @mcp_server = Otto::MCP::Server.new(self)
+
+      mcp_options = {}
+      mcp_options[:http_endpoint] = opts[:mcp_endpoint] if opts[:mcp_endpoint]
+
+      if opts[:mcp_http] != false  # Default to true unless explicitly disabled
+        @mcp_server.enable!(mcp_options)
+      end
+    end
+  end
+
+  def handle_mcp_route(verb, path, definition)
+    begin
+      route_info = Otto::MCP::RouteParser.parse_mcp_route(verb, path, definition)
+      @mcp_server.register_mcp_route(route_info)
+      Otto.logger.debug "[MCP] Registered resource route: #{definition}" if Otto.debug
+    rescue => e
+      Otto.logger.error "[MCP] Failed to parse MCP route: #{definition} - #{e.message}"
+    end
+  end
+
+  def handle_tool_route(verb, path, definition)
+    begin
+      route_info = Otto::MCP::RouteParser.parse_tool_route(verb, path, definition)
+      @mcp_server.register_mcp_route(route_info)
+      Otto.logger.debug "[MCP] Registered tool route: #{definition}" if Otto.debug
+    rescue => e
+      Otto.logger.error "[MCP] Failed to parse TOOL route: #{definition} - #{e.message}"
     end
   end
 

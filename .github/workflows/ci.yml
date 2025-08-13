@@ -8,6 +8,12 @@ on:
   pull_request:
 
   workflow_dispatch:
+    inputs:
+      debug_enabled:
+        type: boolean
+        description: "Run the build with tmate debugging enabled (https://github.com/marketplace/actions/debugging-with-tmate)"
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -24,12 +30,16 @@ jobs:
         include:
           - ruby: "3.2"
             experimental: false
+            continue-on-error: false
           - ruby: "3.3"
             experimental: false
+            continue-on-error: false
           - ruby: "3.4"
             experimental: false
+            continue-on-error: false
           - ruby: "3.5"
             experimental: true
+            continue-on-error: true
 
     steps:
       - uses: actions/checkout@v4
@@ -39,8 +49,23 @@ jobs:
           ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
 
-      - name: Install dependencies
-        run: bundle install
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@7b6a61a73bbb9793cb80ad69b8dd8ac19261834c # v3
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled }}
+        with:
+          detached: true
 
-      - name: Run RSpec tests
-        run: bundle exec rspec
+      - name: Install dependencies
+        continue-on-error: ${{ matrix.continue-on-error }}
+        run: |
+          bundle config path vendor/bundle
+          bundle install --jobs 4 --retry 3
+
+      - name: Run test specs
+        env:
+          REDIS_URL: "redis://127.0.0.1:2121/0"
+        run: |
+          mkdir tmp && bundle exec rspec \
+            --format progress \
+            --format json \
+            --out tmp/rspec_results.json

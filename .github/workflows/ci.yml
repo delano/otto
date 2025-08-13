@@ -61,6 +61,12 @@ jobs:
           bundle config path vendor/bundle
           bundle install --jobs 4 --retry 3 --with test
 
+      - name: Verify setup
+        run: |
+          bundle exec which rspec || echo "rspec not found"
+          bundle list | grep -E "(rspec|rake|test)"
+          ls -la bin/ || echo "No bin directory"
+
       - name: Run test specs
         env:
           REDIS_URL: "redis://127.0.0.1:2121/0"

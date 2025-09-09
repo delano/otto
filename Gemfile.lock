@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    otto (1.6.0)
+    otto (1.6.1.pre.pre1)
       facets (~> 3.1)
       loofah (~> 2.20)
       ostruct
@@ -145,7 +145,7 @@ GEM
     stringio (3.1.7)
     syntax_tree (6.3.0)
       prettier_print (>= 1.2.0)
-    tryouts (3.3.2)
+    tryouts (3.6.0)
       concurrent-ruby (~> 1.0)
       irb
       minitest (~> 5.0)
@@ -185,7 +185,7 @@ DEPENDENCIES
   ruby-lsp
   stackprof
   syntax_tree
-  tryouts (~> 3.3.2)
+  tryouts (~> 3.6.0)
 
 BUNDLED WITH
    2.7.1

@@ -145,7 +145,9 @@ class Otto
       private
 
       def middleware_enabled?(middleware_class)
-        @middleware_stack.any? { |m| m == middleware_class }
+        # Check both old and new middleware stacks for compatibility
+        @middleware_stack.any? { |m| m == middleware_class } ||
+          (@middleware && @middleware.includes?(middleware_class))
       end
     end
   end

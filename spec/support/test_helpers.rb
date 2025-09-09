@@ -1,4 +1,7 @@
-# frozen_string_literal: true
+# spec/support/test_helpers.rb
+
+require 'rack'
+require 'rack/test'
 
 # Test helpers for Otto specs
 module OttoTestHelpers
@@ -29,6 +32,7 @@ module OttoTestHelpers
   end
 
   def mock_rack_env(method: 'GET', path: '/', headers: {}, params: {})
+    # Requires rack-test gem for Rack::MockRequest
     env = Rack::MockRequest.env_for(path, method: method, params: params)
     headers.each { |k, v| env["HTTP_#{k.upcase.tr('-', '_')}"] = v }
     env

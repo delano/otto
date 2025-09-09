@@ -1,5 +1,10 @@
 # Gemfile
 
+# To install all development and test dependencies:
+#
+#   $ bundle config set with 'development test'
+#   $ bundle install
+
 source 'https://rubygems.org'
 
 gemspec

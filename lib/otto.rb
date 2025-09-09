@@ -59,8 +59,9 @@ class Otto
     @global_config = config.to_h
   end
 
-  attr_reader :global_config, :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route,
-              :security_config, :locale_config, :auth_config, :route_handler_factory, :mcp_server
+
+  attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route,
+    :security_config, :locale_config, :auth_config, :route_handler_factory, :mcp_server
   attr_accessor :not_found, :server_error, :middleware_stack
 
   def initialize(path = nil, opts = {})
@@ -737,7 +738,7 @@ class Otto
   end
 
   class << self
-    attr_accessor :debug, :logger
+    attr_accessor :debug, :logger, :global_config # rubocop:disable ThreadSafety/ClassAndModuleAttributes
   end
 
   module ClassMethods

@@ -8,6 +8,7 @@
 *.log
 *.md
 *.txt
+.*.json
 !LICENSE.txt
 !spec/fixtures/*.txt
 .ruby-version
@@ -20,3 +21,5 @@ vendor
 .ruby-lsp
 .rspec_status
 .mcp.json
+.claude
+.serena

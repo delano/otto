@@ -3,7 +3,8 @@ require 'json'
 
 class HelpersDemo
   def initialize(req, res)
-    @req, @res = req, res
+    @req = req
+    @res = res
   end
 
   attr_reader :req, :res
@@ -48,13 +49,13 @@ class HelpersDemo
       'Is Secure?' => req.secure?,
       'Is AJAX?' => req.ajax?,
       'Current Absolute URI' => req.current_absolute_uri,
-      'Request Method' => req.request_method
+      'Request Method' => req.request_method,
     }
 
     # Show collected proxy headers
     proxy_headers = req.collect_proxy_headers(
       header_prefix: 'X_DEMO_',
-      additional_keys: ['HTTP_ACCEPT', 'HTTP_ACCEPT_LANGUAGE']
+      additional_keys: %w[HTTP_ACCEPT HTTP_ACCEPT_LANGUAGE]
     )
 
     # Format request details for logging
@@ -84,10 +85,10 @@ class HelpersDemo
   def locale_demo
     # Demonstrate locale detection with Otto configuration
     current_locale = req.check_locale!(req.params['locale'], {
-      preferred_locale: 'es', # Simulate user preference
+                                         preferred_locale: 'es', # Simulate user preference
       locale_env_key: 'demo.locale',
-      debug: true
-    })
+      debug: true,
+                                       })
 
     # Show what was stored in environment
     stored_locale = req.env['demo.locale']
@@ -127,14 +128,14 @@ class HelpersDemo
   def secure_cookie
     # Demonstrate secure cookie helpers
     res.send_secure_cookie('demo_secure', 'secure_value_123', 3600, {
-      path: '/helpers_demo',
+                             path: '/helpers_demo',
       secure: !req.local?, # Only secure in production
-      same_site: :strict
-    })
+      same_site: :strict,
+                           })
 
     res.send_session_cookie('demo_session', 'session_value_456', {
-      path: '/helpers_demo'
-    })
+                              path: '/helpers_demo',
+                            })
 
     res.headers['content-type'] = 'text/html'
     res.body = <<~HTML
@@ -164,9 +165,9 @@ class HelpersDemo
     nonce = SecureRandom.base64(16)
 
     res.send_csp_headers('text/html; charset=utf-8', nonce, {
-      development_mode: req.local?,
-      debug: true
-    })
+                           development_mode: req.local?,
+      debug: true,
+                         })
 
     res.body = <<~HTML
       <h1>Content Security Policy Demo</h1>
@@ -197,11 +198,11 @@ class HelpersDemo
   def show_headers
     # Demonstrate response headers and security features
     res.set_cookie('demo_header', {
-      value: 'header_demo_value',
+                     value: 'header_demo_value',
       max_age: 1800,
       secure: !req.local?,
-      httponly: true
-    })
+      httponly: true,
+                   })
 
     # Add cache control
     res.no_cache!

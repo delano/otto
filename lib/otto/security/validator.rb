@@ -45,19 +45,19 @@ class Otto
           # Validate and sanitize parameters
           begin
             validate_parameters(request) if request.params
-          rescue Rack::QueryParser::QueryLimitError => ex
+          rescue Rack::QueryParser::QueryLimitError => e
             # Handle Rack's built-in query parsing limits
-            raise Otto::Security::ValidationError, "Parameter structure too complex: #{ex.message}"
+            raise Otto::Security::ValidationError, "Parameter structure too complex: #{e.message}"
           end
 
           # Validate headers
           validate_headers(request)
 
           @app.call(env)
-        rescue Otto::Security::ValidationError => ex
-          validation_error_response(ex.message)
-        rescue Otto::Security::RequestTooLargeError => ex
-          request_too_large_response(ex.message)
+        rescue Otto::Security::ValidationError => e
+          validation_error_response(e.message)
+        rescue Otto::Security::RequestTooLargeError => e
+          request_too_large_response(e.message)
         end
       end
 
@@ -80,9 +80,9 @@ class Otto
           'application/vbscript',
         ]
 
-        if dangerous_types.any? { |type| content_type.downcase.include?(type) }
-          raise Otto::Security::ValidationError, "Dangerous content type: #{content_type}"
-        end
+        return unless dangerous_types.any? { |type| content_type.downcase.include?(type) }
+
+        raise Otto::Security::ValidationError, "Dangerous content type: #{content_type}"
       end
 
       def validate_parameters(request)
@@ -98,7 +98,8 @@ class Otto
         case params
         when Hash
           if params.keys.length > @config.max_param_keys
-            raise Otto::Security::ValidationError, "Too many parameters (#{params.keys.length} > #{@config.max_param_keys})"
+            raise Otto::Security::ValidationError,
+                  "Too many parameters (#{params.keys.length} > #{@config.max_param_keys})"
           end
 
           params.each do |key, value|
@@ -107,7 +108,8 @@ class Otto
           end
         when Array
           if params.length > @config.max_param_keys
-            raise Otto::Security::ValidationError, "Too many array elements (#{params.length} > #{@config.max_param_keys})"
+            raise Otto::Security::ValidationError,
+                  "Too many array elements (#{params.length} > #{@config.max_param_keys})"
           end
 
           params.each do |value|
@@ -125,9 +127,9 @@ class Otto
         end
 
         # Check for suspiciously long parameter names
-        if key_str.length > 256
-          raise Otto::Security::ValidationError, "Parameter name too long: #{key_str[0..50]}..."
-        end
+        return unless key_str.length > 256
+
+        raise Otto::Security::ValidationError, "Parameter name too long: #{key_str[0..50]}..."
       end
 
       def sanitize_params(params)
@@ -155,9 +157,7 @@ class Otto
         original = value.dup
 
         # Check for null bytes first (these should be rejected, not sanitized)
-        if original.match?(NULL_BYTE)
-          raise Otto::Security::ValidationError, 'Dangerous content detected in parameter'
-        end
+        raise Otto::Security::ValidationError, 'Dangerous content detected in parameter' if original.match?(NULL_BYTE)
 
         # Check for script injection first (these should always be rejected)
         if looks_like_script_injection?(original)
@@ -173,17 +173,13 @@ class Otto
 
         # Check for SQL injection patterns
         SQL_INJECTION_PATTERNS.each do |pattern|
-          if sanitized.match?(pattern)
-            raise Otto::Security::ValidationError, 'Potential SQL injection detected'
-          end
+          raise Otto::Security::ValidationError, 'Potential SQL injection detected' if sanitized.match?(pattern)
         end
 
         sanitized
       end
 
       include ValidationHelpers
-
-      private
 
       def validate_headers(request)
         # Check for dangerous headers
@@ -207,15 +203,13 @@ class Otto
 
         # Validate User-Agent length
         user_agent = request.env['HTTP_USER_AGENT']
-        if user_agent && user_agent.length > 1000
-          raise Otto::Security::ValidationError, 'User-Agent header too long'
-        end
+        raise Otto::Security::ValidationError, 'User-Agent header too long' if user_agent && user_agent.length > 1000
 
         # Validate Referer header
         referer = request.env['HTTP_REFERER']
-        if referer && referer.length > 2000
-          raise Otto::Security::ValidationError, 'Referer header too long'
-        end
+        return unless referer && referer.length > 2000
+
+        raise Otto::Security::ValidationError, 'Referer header too long'
       end
 
       def validation_error_response(message)

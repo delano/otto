@@ -7,7 +7,7 @@ RSpec.describe Otto, 'rate limiting features' do
 
   before do
     # Skip rate limiting tests if rack-attack is not available
-    skip "rack-attack not available" unless defined?(Rack::Attack)
+    skip 'rack-attack not available' unless defined?(Rack::Attack)
   end
 
   describe '#enable_rate_limiting!' do
@@ -38,8 +38,8 @@ RSpec.describe Otto, 'rate limiting features' do
       config = {
         requests_per_minute: 75,
         custom_rules: {
-          'api_calls' => { limit: 30, period: 60 }
-        }
+          'api_calls' => { limit: 30, period: 60 },
+        },
       }
 
       otto.configure_rate_limiting(config)
@@ -129,8 +129,8 @@ RSpec.describe Otto, 'rate limiting features' do
       it 'configures custom rules' do
         config = {
           custom_rules: {
-            'heavy_api' => { limit: 10, period: 60 }
-          }
+            'heavy_api' => { limit: 10, period: 60 },
+          },
         }
         Otto::Security::RateLimiting.configure_rack_attack!(config)
 
@@ -150,7 +150,7 @@ RSpec.describe Otto, 'rate limiting features' do
   end
 
   describe 'Otto::Security::RateLimitMiddleware' do
-    let(:app) { ->(env) { [200, {}, ['OK']] } }
+    let(:app) { ->(_env) { [200, {}, ['OK']] } }
     let(:security_config) { otto.security_config }
     let(:middleware) { Otto::Security::RateLimitMiddleware.new(app, security_config) }
 

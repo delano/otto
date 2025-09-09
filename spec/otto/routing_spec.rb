@@ -14,7 +14,7 @@ RSpec.describe Otto, 'request handling and routing' do
       'GET /custom TestApp.custom_headers',
       'GET /json TestApp.json_response',
       'GET /html TestApp.html_response',
-      'GET /instance/:id TestInstanceApp#show'
+      'GET /instance/:id TestInstanceApp#show',
     ]
   end
 
@@ -111,7 +111,7 @@ RSpec.describe Otto, 'request handling and routing' do
     end
 
     it 'includes error ID in development mode' do
-      original_env = ENV['RACK_ENV']
+      original_env = ENV.fetch('RACK_ENV', nil)
       ENV['RACK_ENV'] = 'development'
 
       begin
@@ -145,7 +145,7 @@ RSpec.describe Otto, 'request handling and routing' do
     end
 
     it 'returns JSON error response with error ID in development mode' do
-      original_env = ENV['RACK_ENV']
+      original_env = ENV.fetch('RACK_ENV', nil)
       ENV['RACK_ENV'] = 'development'
 
       begin

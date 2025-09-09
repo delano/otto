@@ -86,7 +86,6 @@ class Otto
 
     private
 
-
     # Safely resolve a class name using Object.const_get with security validations
     # This replaces the previous eval() usage to prevent code injection attacks.
     #
@@ -120,8 +119,8 @@ class Otto
 
       begin
         Object.const_get(class_name)
-      rescue NameError => ex
-        raise ArgumentError, "Class not found: #{class_name} - #{ex.message}"
+      rescue NameError => e
+        raise ArgumentError, "Class not found: #{class_name} - #{e.message}"
       end
     end
 
@@ -148,12 +147,10 @@ class Otto
       res            = Rack::Response.new
       req.extend Otto::RequestHelpers
       res.extend Otto::ResponseHelpers
-      res.request    = req
+      res.request = req
 
       # Make security config available to response helpers
-      if otto.respond_to?(:security_config) && otto.security_config
-        env['otto.security_config'] = otto.security_config
-      end
+      env['otto.security_config'] = otto.security_config if otto.respond_to?(:security_config) && otto.security_config
 
       # NEW: Make route definition and options available to middleware and handlers
       env['otto.route_definition'] = @route_definition
@@ -185,7 +182,7 @@ class Otto
       # This replaces the hardcoded execution pattern with a factory approach
       if otto&.route_handler_factory
         handler = otto.route_handler_factory.create_handler(@route_definition, otto)
-        return handler.call(env, extra_params)
+        handler.call(env, extra_params)
       else
         # Fallback to legacy behavior for backward compatibility
         inst = nil
@@ -205,7 +202,7 @@ class Otto
           context = {
             logic_instance: (kind == :instance ? inst : nil),
             status_code: nil,
-            redirect_path: nil
+            redirect_path: nil,
           }
 
           Otto::ResponseHandlers::HandlerFactory.handle_response(result, res, response_type, context)

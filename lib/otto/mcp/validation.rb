@@ -48,7 +48,7 @@ class Otto
 
       def mcp_request_schema
         @schemas[:mcp_request] ||= JSONSchemer.schema({
-          type: 'object',
+                                                        type: 'object',
           required: %w[jsonrpc method id],
           properties: {
             jsonrpc: { const: '2.0' },
@@ -57,8 +57,7 @@ class Otto
             params: { type: 'object' },
           },
           additionalProperties: false,
-        },
-                                                     )
+                                                      })
       end
     end
 
@@ -82,10 +81,10 @@ class Otto
 
             # Reset body for downstream middleware
             request.body.rewind if request.body.respond_to?(:rewind)
-          rescue JSON::ParserError => ex
-            return validation_error_response(nil, "Invalid JSON: #{ex.message}")
-          rescue ValidationError => ex
-            return validation_error_response(data&.dig('id'), ex.message)
+          rescue JSON::ParserError => e
+            return validation_error_response(nil, "Invalid JSON: #{e.message}")
+          rescue ValidationError => e
+            return validation_error_response(data&.dig('id'), e.message)
           end
         end
 
@@ -102,15 +101,14 @@ class Otto
 
       def validation_error_response(id, message)
         body = JSON.generate({
-          jsonrpc: '2.0',
+                               jsonrpc: '2.0',
           id: id,
           error: {
             code: -32_600,
             message: 'Invalid Request',
             data: message,
           },
-        },
-                            )
+                             })
 
         [400, { 'content-type' => 'application/json' }, [body]]
       end

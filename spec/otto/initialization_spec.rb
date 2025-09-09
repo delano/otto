@@ -14,7 +14,7 @@ RSpec.describe Otto, 'initialization' do
       'GET /custom TestApp.custom_headers',
       'GET /json TestApp.json_response',
       'GET /html TestApp.html_response',
-      'GET /instance/:id TestInstanceApp#show'
+      'GET /instance/:id TestInstanceApp#show',
     ]
   end
 
@@ -79,7 +79,7 @@ RSpec.describe Otto, 'initialization' do
     end
 
     it 'sets up literal routes for fast lookup' do
-      expect(otto.routes_literal[:GET]).to have_key('')  # "/" becomes "" after gsub
+      expect(otto.routes_literal[:GET]).to have_key('') # "/" becomes "" after gsub
       expect(otto.routes_literal[:POST]).to have_key('/create')
 
       literal_paths = otto.routes_literal.values.flat_map(&:keys)
@@ -96,7 +96,7 @@ RSpec.describe Otto, 'initialization' do
         csrf_protection: true,
         request_validation: true,
         trusted_proxies: ['127.0.0.1', '10.0.0.0/8'],
-        security_headers: { 'custom-header' => 'custom-value' }
+        security_headers: { 'custom-header' => 'custom-value' },
       }
     end
     subject(:otto) { described_class.new(routes_file, security_options) }
@@ -124,7 +124,7 @@ RSpec.describe Otto, 'initialization' do
       present_dangerous = dangerous_headers.select { |h| otto.security_config.security_headers.key?(h) }
 
       expect(present_dangerous).to be_empty,
-        "Dangerous headers enabled by default: #{present_dangerous.join(', ')}"
+                                   "Dangerous headers enabled by default: #{present_dangerous.join(', ')}"
     end
   end
 
@@ -177,7 +177,7 @@ RSpec.describe Otto, 'initialization' do
         'INVALID_VERB /path TestApp.method',
         'GET', # incomplete line
         'GET /path', # missing method
-        'GET /path BadClass.method' # will fail at runtime
+        'GET /path BadClass.method', # will fail at runtime
       ]
 
       routes_file = create_test_routes_file('bad_routes.txt', bad_routes)
@@ -203,7 +203,7 @@ RSpec.describe Otto, 'initialization' do
 
     describe '.env?' do
       it 'checks current RACK_ENV' do
-        original_env = ENV['RACK_ENV']
+        original_env = ENV.fetch('RACK_ENV', nil)
 
         begin
           ENV['RACK_ENV'] = 'test'
@@ -212,7 +212,7 @@ RSpec.describe Otto, 'initialization' do
           expect(described_class.env?(:test, :development)).to be true
 
           puts "\n=== DEBUG: Environment Check ==="
-          puts "RACK_ENV: #{ENV['RACK_ENV']}"
+          puts "RACK_ENV: #{ENV.fetch('RACK_ENV', nil)}"
           puts "env?(:test): #{described_class.env?(:test)}"
           puts "env?(:production): #{described_class.env?(:production)}"
           puts "==============================\n"

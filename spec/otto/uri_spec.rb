@@ -9,7 +9,7 @@ RSpec.describe Otto, '#uri' do
       'GET /show/:id TestApp.show',
       'GET /users/:user_id/posts/:post_id TestApp.user_post',
       'GET /search TestApp.search',
-      'PUT /update/:id TestApp.update'
+      'PUT /update/:id TestApp.update',
     ]
   end
 
@@ -82,13 +82,13 @@ RSpec.describe Otto, '#uri' do
   describe 'URL encoding' do
     it 'properly encodes special characters in query parameters' do
       uri = otto.uri('TestApp.search', q: 'hello world', filter: 'type=user&active=true')
-      expect(uri).to include('q=hello+world')  # URI.encode_www_form_component uses + for spaces
+      expect(uri).to include('q=hello+world') # URI.encode_www_form_component uses + for spaces
       expect(uri).to include('filter=type%3Duser%26active%3Dtrue')
     end
 
     it 'encodes Unicode characters correctly' do
       uri = otto.uri('TestApp.search', q: 'café naïve résumé')
-      expect(uri).to include('q=caf%C3%A9+na%C3%AFve+r%C3%A9sum%C3%A9')  # + for spaces
+      expect(uri).to include('q=caf%C3%A9+na%C3%AFve+r%C3%A9sum%C3%A9') # + for spaces
     end
 
     it 'encodes parameter names with special characters' do
@@ -129,7 +129,7 @@ RSpec.describe Otto, '#uri' do
     end
 
     it 'handles array parameters' do
-      uri = otto.uri('TestApp.search', tags: ['ruby', 'web', 'framework'])
+      uri = otto.uri('TestApp.search', tags: %w[ruby web framework])
       # Arrays should be converted to strings
       expect(uri).to match(/tags=/)
     end
@@ -143,7 +143,7 @@ RSpec.describe Otto, '#uri' do
 
     it 'handles empty parameter hash' do
       uri = otto.uri('TestApp.show', {})
-      expect(uri).to eq('/show/:id')  # Placeholder remains
+      expect(uri).to eq('/show/:id') # Placeholder remains
     end
 
     it 'handles parameters with same name as path parameters' do
@@ -172,14 +172,14 @@ RSpec.describe Otto, '#uri' do
       execution_time = Time.now - start_time
 
       expect(uri).to start_with('/?')
-      expect(execution_time).to be < 0.1  # Should complete in under 100ms
+      expect(execution_time).to be < 0.1 # Should complete in under 100ms
     end
 
     it 'handles complex parameter values efficiently' do
       complex_params = {
         json: '{"key":"value","nested":{"array":[1,2,3]}}',
         xml: '<root><item>value</item></root>',
-        query: 'SELECT * FROM users WHERE name LIKE "%test%"'
+        query: 'SELECT * FROM users WHERE name LIKE "%test%"',
       }
 
       uri = otto.uri('TestApp.search', complex_params)
@@ -195,7 +195,7 @@ RSpec.describe Otto, '#uri' do
 
       # Should not contain unencoded spaces or special characters
       expect(uri).not_to include(' ')
-      expect(uri).to match(%r{^/[^?]*(\?[^#]*)?$})  # Basic URI structure
+      expect(uri).to match(%r{^/[^?]*(\?[^#]*)?$}) # Basic URI structure
     end
 
     it 'handles reserved characters correctly' do
@@ -205,7 +205,7 @@ RSpec.describe Otto, '#uri' do
         'question' => 'a?b',
         'hash' => 'a#b',
         'bracket' => 'a[b]',
-        'at' => 'a@b'
+        'at' => 'a@b',
       }
 
       uri = otto.uri('TestApp.search', reserved_chars)

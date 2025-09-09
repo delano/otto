@@ -153,7 +153,7 @@ RSpec.describe Otto::Security::Config do
           ':missing_token_part',
           'missing_signature_part:',
           'short_token:abc',
-          'token_part:short_sig'
+          'token_part:short_sig',
         ]
 
         malformed_tokens.each do |token|
@@ -205,7 +205,7 @@ RSpec.describe Otto::Security::Config do
       it 'identifies CIDR range matches using string prefix matching' do
         # The implementation uses simple string prefix matching, not proper CIDR
         # '10.0.0.1'.start_with?('10.0.0.0/8') is false since it doesn't literally start with that string
-        expect(config.trusted_proxy?('10.0.0.0/8')).to be true  # Exact match with CIDR
+        expect(config.trusted_proxy?('10.0.0.0/8')).to be true # Exact match with CIDR
         expect(config.trusted_proxy?('10.0.0.0/8123')).to be true # Starts with CIDR string
         expect(config.trusted_proxy?('10.0.0.1')).to be false # Different IP that doesn't start with proxy string
         expect(config.trusted_proxy?('11.0.0.1')).to be false
@@ -264,7 +264,7 @@ RSpec.describe Otto::Security::Config do
       end
 
       it 'accepts custom HSTS options' do
-        config.enable_hsts!(max_age: 86400, include_subdomains: false)
+        config.enable_hsts!(max_age: 86_400, include_subdomains: false)
         hsts_header = config.security_headers['strict-transport-security']
 
         expect(hsts_header).to eq('max-age=86400')
@@ -343,7 +343,7 @@ RSpec.describe Otto::Security::Config do
 
         custom_headers = {
           'permissions-policy' => 'geolocation=(), microphone=()',
-          'cross-origin-opener-policy' => 'same-origin'
+          'cross-origin-opener-policy' => 'same-origin',
         }
 
         config.set_custom_headers(custom_headers)
@@ -445,8 +445,10 @@ RSpec.describe Otto::Security::Config do
 
       puts "\n=== DEBUG: Backward Compatibility Check ==="
       puts "CSRF enabled: #{config.csrf_enabled?}"
-      puts "Dangerous headers present: #{(config.security_headers.keys & %w[strict-transport-security content-security-policy x-frame-options]).join(', ')}"
-      puts "Safe headers present: #{(config.security_headers.keys & %w[x-content-type-options x-xss-protection referrer-policy]).join(', ')}"
+      puts "Dangerous headers present: #{(config.security_headers.keys & %w[strict-transport-security
+                                                                            content-security-policy x-frame-options]).join(', ')}"
+      puts "Safe headers present: #{(config.security_headers.keys & %w[x-content-type-options x-xss-protection
+                                                                       referrer-policy]).join(', ')}"
       puts "=========================================\n"
     end
   end

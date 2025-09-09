@@ -78,9 +78,9 @@ RSpec.describe Otto, 'response handler integration' do
   describe 'backward compatibility' do
     let(:app) do
       create_minimal_otto([
-        'GET /old TestApp.index',
-        'GET /new TestApp.json_data response=json'
-      ])
+                            'GET /old TestApp.index',
+                            'GET /new TestApp.json_data response=json',
+                          ])
     end
 
     it 'allows mixing traditional and enhanced routes' do

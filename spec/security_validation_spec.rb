@@ -4,7 +4,7 @@ require 'spec_helper'
 
 RSpec.describe Otto::Security::ValidationMiddleware do
   let(:config) { Otto::Security::Config.new }
-  let(:app) { ->(env) { [200, { 'content-type' => 'text/plain' }, ['Hello World']] } }
+  let(:app) { ->(_env) { [200, { 'content-type' => 'text/plain' }, ['Hello World']] } }
   let(:middleware) { described_class.new(app, config) }
 
   before do
@@ -81,7 +81,7 @@ RSpec.describe Otto::Security::ValidationMiddleware do
         'application/x-shockwave-flash',
         'application/x-silverlight-app',
         'text/vbscript',
-        'application/vbscript'
+        'application/vbscript',
       ]
     end
 
@@ -111,7 +111,7 @@ RSpec.describe Otto::Security::ValidationMiddleware do
         'application/x-www-form-urlencoded',
         'multipart/form-data',
         'text/plain',
-        'text/html'
+        'text/html',
       ]
 
       safe_types.each do |content_type|
@@ -194,8 +194,8 @@ RSpec.describe Otto::Security::ValidationMiddleware do
     it 'validates nested structure recursively' do
       nested_params = {
         'level1' => {
-          'level2' => (0..config.max_param_keys + 2).map { |i| { "item#{i}" => 'value' } }
-        }
+          'level2' => (0..config.max_param_keys + 2).map { |i| { "item#{i}" => 'value' } },
+        },
       }
 
       env = mock_rack_env(method: 'POST', path: '/', params: nested_params)
@@ -248,7 +248,7 @@ RSpec.describe Otto::Security::ValidationMiddleware do
         'normal_key' => 'value',
         'key123' => 'value',
         'key-with-dashes' => 'value',
-        'key.with.dots' => 'value'
+        'key.with.dots' => 'value',
       }
 
       env = mock_rack_env(method: 'POST', path: '/', params: valid_params)
@@ -267,7 +267,7 @@ RSpec.describe Otto::Security::ValidationMiddleware do
         '<img onload="alert(1)" src="x">',
         '<div onclick="evil()">',
         'expression(alert(1))',
-        'url(javascript:alert(1))'
+        'url(javascript:alert(1))',
       ]
     end
 
@@ -294,16 +294,16 @@ RSpec.describe Otto::Security::ValidationMiddleware do
       [
         "1' OR '1'='1",
         "'; DROP TABLE users; --",
-        "UNION SELECT * FROM passwords",
-        "1=1",
+        'UNION SELECT * FROM passwords',
+        '1=1',
         "admin'--",
-        "%27 OR %271%27=%271",
-        "1 AND 1=1",
-        "INSERT INTO users VALUES"
+        '%27 OR %271%27=%271',
+        '1 AND 1=1',
+        'INSERT INTO users VALUES',
       ]
     end
 
-    it "detects SQL injection pattern" do
+    it 'detects SQL injection pattern' do
       sql_injection_patterns.each do |pattern|
         params = { 'query' => pattern }
         env = mock_rack_env(method: 'POST', path: '/', params: params)
@@ -331,7 +331,7 @@ RSpec.describe Otto::Security::ValidationMiddleware do
     end
 
     it 'rejects excessively long values' do
-      long_value = 'a' * 15000
+      long_value = 'a' * 15_000
       params = { 'input' => long_value }
       env = mock_rack_env(method: 'POST', path: '/', params: params)
 
@@ -363,7 +363,7 @@ RSpec.describe Otto::Security::ValidationMiddleware do
       expect(sanitized).to eq('text  more text')
 
       puts "\n=== DEBUG: HTML Comment Sanitization ==="
-      puts "Original: text <!-- comment --> more text"
+      puts 'Original: text <!-- comment --> more text'
       puts "Sanitized: #{sanitized}"
       puts "======================================\n"
     end
@@ -389,16 +389,16 @@ RSpec.describe Otto::Security::ValidationMiddleware do
 
   describe 'header validation' do
     let(:dangerous_headers) do
-      [
-        'HTTP_X_FORWARDED_HOST',
-        'HTTP_X_ORIGINAL_URL',
-        'HTTP_X_REWRITE_URL',
-        'HTTP_DESTINATION',
-        'HTTP_UPGRADE_INSECURE_REQUESTS'
+      %w[
+        HTTP_X_FORWARDED_HOST
+        HTTP_X_ORIGINAL_URL
+        HTTP_X_REWRITE_URL
+        HTTP_DESTINATION
+        HTTP_UPGRADE_INSECURE_REQUESTS
       ]
     end
 
-    it "validates dangerous header" do
+    it 'validates dangerous header' do
       dangerous_headers.each do |header|
         env = mock_rack_env(method: 'GET', path: '/')
         env[header] = "malicious\0content"
@@ -411,7 +411,7 @@ RSpec.describe Otto::Security::ValidationMiddleware do
 
         puts "\n=== DEBUG: Header Validation ==="
         puts "Header: #{header}"
-        puts "Value: malicious\\0content"
+        puts 'Value: malicious\\0content'
         puts "Status: #{response[0]}"
         puts "===========================\n"
       end
@@ -430,7 +430,7 @@ RSpec.describe Otto::Security::ValidationMiddleware do
 
     it 'validates Referer length' do
       env = mock_rack_env(method: 'GET', path: '/')
-      env['HTTP_REFERER'] = 'https://example.com/' + 'a' * 2500
+      env['HTTP_REFERER'] = 'https://example.com/' + ('a' * 2500)
 
       response = middleware.call(env)
       expect(response[0]).to eq(400)
@@ -473,7 +473,11 @@ RSpec.describe Otto::Security::ValidationMiddleware do
       puts "Content-Type: #{response[1]['content-type']}"
       puts "Content-Length: #{content_length}"
       puts "Body: #{response[2].join}"
-      puts "JSON valid: #{JSON.parse(response[2].join) rescue false}"
+      puts "JSON valid: #{begin
+        JSON.parse(response[2].join)
+      rescue StandardError
+        false
+      end}"
       puts "=================================\n"
     end
 
@@ -642,7 +646,7 @@ RSpec.describe Otto::Security::ValidationHelpers do
       dangerous_inputs = [
         '<script>alert(1)</script>',
         'javascript:alert(1)',
-        'SELECT * FROM users'
+        'SELECT * FROM users',
       ]
 
       dangerous_inputs.each do |input|
@@ -680,7 +684,7 @@ RSpec.describe Otto::Security::ValidationHelpers do
       expect(result).to eq('passwd')
 
       puts "\n=== DEBUG: Filename Sanitization ==="
-      puts "Original: ../../etc/passwd"
+      puts 'Original: ../../etc/passwd'
       puts "Sanitized: #{result}"
       puts "================================\n"
     end
@@ -711,7 +715,7 @@ RSpec.describe Otto::Security::ValidationHelpers do
     end
 
     it 'truncates extremely long filenames' do
-      long_filename = 'a' * 150 + '.txt'
+      long_filename = ('a' * 150) + '.txt'
       result = mock_response.sanitize_filename(long_filename)
       expect(result.length).to be <= 100
     end
@@ -732,7 +736,7 @@ RSpec.describe Otto::Security::ValidationHelpers do
       expect(result).to eq('file')
 
       puts "\n=== DEBUG: Empty After Sanitization ==="
-      puts "Original: <<>>"
+      puts 'Original: <<>>'
       puts "Sanitized: #{result}"
       puts "====================================\n"
     end

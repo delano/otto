@@ -106,18 +106,18 @@ class SecureApp
       end
 
       content = if safe_message.empty?
-        otto_alert('error', 'Validation Error', 'Message cannot be empty.')
-      else
-        <<~HTML
-          #{otto_alert('success', 'Feedback Received', 'Thank you for your feedback!')}
+                  otto_alert('error', 'Validation Error', 'Message cannot be empty.')
+                else
+                  <<~HTML
+                    #{otto_alert('success', 'Feedback Received', 'Thank you for your feedback!')}
 
-          #{otto_card('Your Message') do
-            otto_code_block(safe_message, 'text')
-          end}
-        HTML
+                    #{otto_card('Your Message') do
+                      otto_code_block(safe_message, 'text')
+                    end}
+                  HTML
                 end
-    rescue Otto::Security::ValidationError => ex
-      content = otto_alert('error', 'Security Validation Failed', ex.message)
+    rescue Otto::Security::ValidationError => e
+      content = otto_alert('error', 'Security Validation Failed', e.message)
     rescue StandardError
       content = otto_alert('error', 'Processing Error', 'An error occurred processing your request.')
     end
@@ -135,18 +135,18 @@ class SecureApp
       else
         begin
           filename = begin
-                     uploaded_file[:filename]
+            uploaded_file[:filename]
           rescue StandardError
-                     uploaded_file.original_filename
+            uploaded_file.original_filename
           end
         rescue StandardError
           'unknown'
         end
 
         safe_filename = if respond_to?(:sanitize_filename)
-          sanitize_filename(filename)
-        else
-          File.basename(filename.to_s).gsub(/[^\w\-_\.]/, '_')
+                          sanitize_filename(filename)
+                        else
+                          File.basename(filename.to_s).gsub(/[^\w\-_.]/, '_')
                         end
 
         file_info = {
@@ -173,8 +173,8 @@ class SecureApp
           </div>
         HTML
       end
-    rescue Otto::Security::ValidationError => ex
-      content = otto_alert('error', 'File Validation Failed', ex.message)
+    rescue Otto::Security::ValidationError => e
+      content = otto_alert('error', 'File Validation Failed', e.message)
     rescue StandardError
       content = otto_alert('error', 'Upload Error', 'An error occurred during file upload.')
     end
@@ -199,9 +199,7 @@ class SecureApp
         safe_bio   = bio.to_s.strip[0..499]
       end
 
-      unless safe_email.match?(/\A[^@\s]+@[^@\s]+\z/)
-        raise Otto::Security::ValidationError, 'Invalid email format'
-      end
+      raise Otto::Security::ValidationError, 'Invalid email format' unless safe_email.match?(/\A[^@\s]+@[^@\s]+\z/)
 
       profile_data = {
         'Name' => safe_name,
@@ -221,8 +219,8 @@ class SecureApp
           profile_html
         end}
       HTML
-    rescue Otto::Security::ValidationError => ex
-      content = otto_alert('error', 'Profile Validation Failed', ex.message)
+    rescue Otto::Security::ValidationError => e
+      content = otto_alert('error', 'Profile Validation Failed', e.message)
     rescue StandardError
       content = otto_alert('error', 'Update Error', 'An error occurred updating your profile.')
     end

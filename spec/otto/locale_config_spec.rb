@@ -20,13 +20,13 @@ RSpec.describe Otto, 'locale configuration' do
       otto2 = Otto.new
 
       expect(otto1.locale_config).to eq({
-        available_locales: available_locales,
-        default_locale: default_locale
-      })
+                                          available_locales: available_locales,
+        default_locale: default_locale,
+                                        })
       expect(otto2.locale_config).to eq({
-        available_locales: available_locales,
-        default_locale: default_locale
-      })
+                                          available_locales: available_locales,
+        default_locale: default_locale,
+                                        })
     end
 
     it 'allows instance options to override global config' do
@@ -36,58 +36,58 @@ RSpec.describe Otto, 'locale configuration' do
       end
 
       otto = Otto.new(nil, {
-        available_locales: available_locales,
-        default_locale: 'es'
-      })
+                        available_locales: available_locales,
+        default_locale: 'es',
+                      })
 
       expect(otto.locale_config).to eq({
-        available_locales: available_locales,
-        default_locale: 'es'
-      })
+                                         available_locales: available_locales,
+        default_locale: 'es',
+                                       })
     end
   end
 
   describe 'initialization with direct locale options' do
     it 'configures locale from direct options' do
       otto = Otto.new(nil, {
-        available_locales: available_locales,
-        default_locale: default_locale
-      })
+                        available_locales: available_locales,
+        default_locale: default_locale,
+                      })
 
       expect(otto.locale_config).to eq({
-        available_locales: available_locales,
-        default_locale: default_locale
-      })
+                                         available_locales: available_locales,
+        default_locale: default_locale,
+                                       })
     end
   end
 
   describe 'initialization with locale_config option' do
     it 'configures locale from initialization options' do
       otto = Otto.new(nil, {
-        locale_config: {
-          available_locales: available_locales,
-          default_locale: default_locale
-        }
-      })
+                        locale_config: {
+                          available_locales: available_locales,
+                          default_locale: default_locale,
+                        },
+                      })
 
       expect(otto.locale_config).to eq({
-        available_locales: available_locales,
-        default_locale: default_locale
-      })
+                                         available_locales: available_locales,
+        default_locale: default_locale,
+                                       })
     end
 
     it 'supports abbreviated key names in config' do
       otto = Otto.new(nil, {
-        locale_config: {
-          available: available_locales,
-          default: default_locale
-        }
-      })
+                        locale_config: {
+                          available: available_locales,
+                          default: default_locale,
+                        },
+                      })
 
       expect(otto.locale_config).to eq({
-        available_locales: available_locales,
-        default_locale: default_locale
-      })
+                                         available_locales: available_locales,
+        default_locale: default_locale,
+                                       })
     end
 
     it 'starts with no locale config when not provided' do
@@ -107,9 +107,9 @@ RSpec.describe Otto, 'locale configuration' do
       )
 
       expect(otto.locale_config).to eq({
-        available_locales: available_locales,
-        default_locale: default_locale
-      })
+                                         available_locales: available_locales,
+        default_locale: default_locale,
+                                       })
     end
   end
 
@@ -120,8 +120,8 @@ RSpec.describe Otto, 'locale configuration' do
           super(nil, {
             locale_config: {
               available_locales: { 'en' => 'English', 'es' => 'Spanish' },
-              default_locale: 'en'
-            }
+              default_locale: 'en',
+            },
           })
         end
       end.new
@@ -135,7 +135,7 @@ RSpec.describe Otto, 'locale configuration' do
         'HTTP_HOST' => 'example.com',
         'SERVER_NAME' => 'example.com',
         'SERVER_PORT' => '80',
-        'rack.request.query_hash' => { 'locale' => 'es' }
+        'rack.request.query_hash' => { 'locale' => 'es' },
       }
     end
 
@@ -149,9 +149,9 @@ RSpec.describe Otto, 'locale configuration' do
       end
 
       expect(test_env['otto.locale_config']).to eq({
-        available_locales: { 'en' => 'English', 'es' => 'Spanish' },
-        default_locale: 'en'
-      })
+                                                     available_locales: { 'en' => 'English', 'es' => 'Spanish' },
+        default_locale: 'en',
+                                                   })
     end
   end
 end

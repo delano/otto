@@ -5,10 +5,8 @@ class Otto
     # Base response handler class
     class BaseHandler
       def self.handle(result, response, context = {})
-        raise NotImplementedError, "Subclasses must implement handle method"
+        raise NotImplementedError, 'Subclasses must implement handle method'
       end
-
-      protected
 
       def self.ensure_status_set(response, default_status = 200)
         response.status = default_status unless response.status && response.status != 0
@@ -73,7 +71,7 @@ class Otto
 
     # Default handler that preserves existing Otto behavior
     class DefaultHandler < BaseHandler
-      def self.handle(result, response, context = {})
+      def self.handle(_result, response, _context = {})
         # Otto's default behavior - let the route handler manage the response
         # This handler does nothing, preserving existing behavior
         ensure_status_set(response, 200)
@@ -88,15 +86,13 @@ class Otto
         handler_class.handle(result, response, context)
       end
 
-      private
-
       def self.detect_handler_type(result, response, context)
         # Check if response type was already set by the handler
         content_type = response['Content-Type']
 
         if content_type&.include?('application/json')
           JSONHandler
-        elsif (context[:logic_instance]&.respond_to?(:redirect_path) && context[:logic_instance]&.redirect_path) ||
+        elsif (context[:logic_instance]&.respond_to?(:redirect_path) && context[:logic_instance].redirect_path) ||
               (result.is_a?(String) && result.match?(%r{^/}))
           # Logic instance has redirect path or result is a string path
           RedirectHandler
@@ -118,7 +114,7 @@ class Otto
         'redirect' => RedirectHandler,
         'view' => ViewHandler,
         'auto' => AutoHandler,
-        'default' => DefaultHandler
+        'default' => DefaultHandler,
       }.freeze
 
       def self.create_handler(response_type)

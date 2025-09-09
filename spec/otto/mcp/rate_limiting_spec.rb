@@ -4,7 +4,7 @@ require 'spec_helper'
 
 RSpec.describe Otto::MCP, 'rate limiting features' do
   before do
-    skip "rack-attack not available" unless defined?(Rack::Attack)
+    skip 'rack-attack not available' unless defined?(Rack::Attack)
   end
 
   describe 'Otto::MCP::RateLimiter' do
@@ -27,7 +27,7 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
         config = {
           requests_per_minute: 100,
           mcp_requests_per_minute: 50,
-          tool_calls_per_minute: 15
+          tool_calls_per_minute: 15,
         }
 
         Otto::MCP::RateLimiter.configure_rack_attack!(config)
@@ -57,7 +57,7 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
   end
 
   describe 'Otto::MCP::RateLimitMiddleware' do
-    let(:app) { ->(env) { [200, {}, ['OK']] } }
+    let(:app) { ->(_env) { [200, {}, ['OK']] } }
     let(:otto) { create_minimal_otto }
     let(:security_config) { otto.security_config }
 
@@ -66,7 +66,7 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
       security_config.rate_limiting_config = {
         requests_per_minute: 100,
         mcp_requests_per_minute: 60,
-        tool_calls_per_minute: 20
+        tool_calls_per_minute: 20,
       }
     end
 
@@ -130,7 +130,8 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
       # Test the responder with a mock MCP request
       request = instance_double(
         'Rack::Request',
-        env: { 'otto.mcp_http_endpoint' => '/_mcp', 'rack.attack.match_data' => { limit: 60, period: 60, epoch_time: Time.now.to_i } },
+        env: { 'otto.mcp_http_endpoint' => '/_mcp',
+'rack.attack.match_data' => { limit: 60, period: 60, epoch_time: Time.now.to_i } },
         path: '/_mcp'
       )
 
@@ -141,7 +142,7 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
 
       response = JSON.parse(body.join)
       expect(response['jsonrpc']).to eq('2.0')
-      expect(response['error']['code']).to eq(-32000)
+      expect(response['error']['code']).to eq(-32_000)
     end
   end
 end

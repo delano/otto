@@ -4,7 +4,7 @@ require 'spec_helper'
 
 RSpec.describe Otto::Security::CSRFMiddleware do
   let(:config) { Otto::Security::Config.new }
-  let(:app) { ->(env) { [200, { 'content-type' => 'text/html' }, ['<html><head></head><body>Hello</body></html>']] } }
+  let(:app) { ->(_env) { [200, { 'content-type' => 'text/html' }, ['<html><head></head><body>Hello</body></html>']] } }
   let(:middleware) { described_class.new(app, config) }
 
   before do
@@ -51,7 +51,7 @@ RSpec.describe Otto::Security::CSRFMiddleware do
       puts "Original body length: #{app.call(env)[2].join.length}"
       puts "Modified body length: #{body.length}"
       puts "Token meta tag present: #{body.include?('<meta name="csrf-token"')}"
-      if body.match(/content="([^"]+)"/)
+      if /content="([^"]+)"/.match?(body)
         token = body.match(/content="([^"]+)"/)[1]
         puts "Extracted token: #{token}"
         puts "Token format valid: #{token.include?(':') && token.split(':').length == 2}"
@@ -60,7 +60,7 @@ RSpec.describe Otto::Security::CSRFMiddleware do
     end
 
     it 'does not inject token into non-HTML responses' do
-      json_app = ->(env) { [200, { 'content-type' => 'application/json' }, ['{"message": "hello"}']] }
+      json_app = ->(_env) { [200, { 'content-type' => 'application/json' }, ['{"message": "hello"}']] }
       json_middleware = described_class.new(json_app, config)
 
       env = mock_rack_env(method: 'GET', path: '/')
@@ -72,7 +72,7 @@ RSpec.describe Otto::Security::CSRFMiddleware do
     end
 
     it 'handles responses without head tag gracefully' do
-      no_head_app = ->(env) { [200, { 'content-type' => 'text/html' }, ['<body>No head tag</body>']] }
+      no_head_app = ->(_env) { [200, { 'content-type' => 'text/html' }, ['<body>No head tag</body>']] }
       no_head_middleware = described_class.new(no_head_app, config)
 
       env = mock_rack_env(method: 'GET', path: '/')
@@ -339,7 +339,11 @@ RSpec.describe Otto::Security::CSRFMiddleware do
       puts "Content-Type: #{response[1]['content-type']}"
       puts "Content-Length: #{content_length}"
       puts "Body: #{response[2].join}"
-      puts "JSON valid: #{JSON.parse(response[2].join) rescue false}"
+      puts "JSON valid: #{begin
+        JSON.parse(response[2].join)
+      rescue StandardError
+        false
+      end}"
       puts "===============================\n"
     end
   end
@@ -385,7 +389,9 @@ RSpec.describe Otto::Security::CSRFMiddleware do
     end
 
     it 'handles responses with array body' do
-      array_app = ->(env) { [200, { 'content-type' => 'text/html' }, ['<html><head>', '</head><body>Hello</body></html>']] }
+      array_app = lambda { |_env|
+        [200, { 'content-type' => 'text/html' }, ['<html><head>', '</head><body>Hello</body></html>']]
+      }
       array_middleware = described_class.new(array_app, config)
 
       env = mock_rack_env(method: 'GET', path: '/')
@@ -404,7 +410,7 @@ RSpec.describe Otto::Security::CSRFMiddleware do
         end
       end.new
 
-      object_app = ->(env) { [200, { 'content-type' => 'text/html' }, [object_body]] }
+      object_app = ->(_env) { [200, { 'content-type' => 'text/html' }, [object_body]] }
       object_middleware = described_class.new(object_app, config)
 
       env = mock_rack_env(method: 'GET', path: '/')
@@ -417,7 +423,9 @@ RSpec.describe Otto::Security::CSRFMiddleware do
     end
 
     it 'handles malformed HTML gracefully' do
-      malformed_app = ->(env) { [200, { 'content-type' => 'text/html' }, ['<html><HEAD><body>Mixed case</body></html>']] }
+      malformed_app = lambda { |_env|
+        [200, { 'content-type' => 'text/html' }, ['<html><HEAD><body>Mixed case</body></html>']]
+      }
       malformed_middleware = described_class.new(malformed_app, config)
 
       env = mock_rack_env(method: 'GET', path: '/')
@@ -449,10 +457,8 @@ RSpec.describe Otto::Security::CSRFHelpers do
         @req = req
         @csrf_token = nil
       end
-
     end
   end
-
 
   before do
     config.enable_csrf_protection!

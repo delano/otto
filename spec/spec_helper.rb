@@ -13,7 +13,6 @@ Otto.debug = ENV['OTTO_DEBUG'] == 'true'
 Otto.logger.level = Logger::WARN unless Otto.debug
 
 RSpec.configure do |config|
-
   config.mock_with :rspec do |mocks|
     # When enabled, RSpec will:
     #

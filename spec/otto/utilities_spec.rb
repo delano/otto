@@ -7,7 +7,7 @@ RSpec.describe Otto, 'utility methods' do
     [
       'GET / TestApp.index',
       'GET /show/:id TestApp.show',
-      'POST /create TestApp.create'
+      'POST /create TestApp.create',
     ]
   end
 

@@ -22,6 +22,7 @@ require_relative 'otto/security/validator'
 require_relative 'otto/security/authentication'
 require_relative 'otto/security/rate_limiting'
 require_relative 'otto/mcp/server'
+require_relative 'otto/utils'
 
 # Otto is a simple Rack router that allows you to define routes in a file
 # with built-in security features including CSRF protection, input validation,
@@ -47,9 +48,11 @@ require_relative 'otto/mcp/server'
 class Otto
   LIB_HOME = __dir__ unless defined?(Otto::LIB_HOME)
 
-  @debug  = ENV['OTTO_DEBUG'] == 'true'
-  @logger = Logger.new($stdout, Logger::INFO)
-  @global_config = {}
+  @debug = begin
+    defined?(Otto::Utils) ? Otto::Utils.yes?(ENV['OTTO_DEBUG']) : ENV['OTTO_DEBUG'] == 'true'
+  end
+  @logger        = Logger.new($stdout, Logger::INFO)
+  @global_config = nil
 
   # Global configuration for all Otto instances
   def self.configure
@@ -58,24 +61,22 @@ class Otto
     @global_config = config.to_h
   end
 
-  def self.global_config
-    @global_config
-  end
 
-  attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route, :security_config, :locale_config, :auth_config, :route_handler_factory, :mcp_server
+  attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route,
+    :security_config, :locale_config, :auth_config, :route_handler_factory, :mcp_server
   attr_accessor :not_found, :server_error, :middleware_stack
 
   def initialize(path = nil, opts = {})
-    @routes_static     = { GET: {} }
-    @routes            = { GET: [] }
-    @routes_literal    = { GET: {} }
-    @route_definitions = {}
-    @option            = {
+    @routes_static         = { GET: {} }
+    @routes                = { GET: [] }
+    @routes_literal        = { GET: {} }
+    @route_definitions     = {}
+    @option                = {
       public: nil,
       locale: 'en',
     }.merge(opts)
-    @security_config   = Otto::Security::Config.new
-    @middleware_stack  = []
+    @security_config       = Otto::Security::Config.new
+    @middleware_stack      = []
     @route_handler_factory = opts[:route_handler_factory] || Otto::RouteHandlers::HandlerFactory
 
     # Configure locale support (merge global config with instance options)
@@ -104,15 +105,19 @@ class Otto
     raw.each do |entry|
       # Enhanced parsing: split only on first two whitespace boundaries
       # This preserves parameters in the definition part
-      parts = entry.split(/\s+/, 3)
-      verb, path, definition = parts[0], parts[1], parts[2]
+      parts      = entry.split(/\s+/, 3)
+      verb       = parts[0]
+      path       = parts[1]
+      definition = parts[2]
 
       # Check for MCP routes
       if Otto::MCP::RouteParser.is_mcp_route?(definition)
-        handle_mcp_route(verb, path, definition) if @mcp_server
+        raise '[MCP] MCP server not enabled' unless @mcp_server
+        handle_mcp_route(verb, path, definition)
         next
       elsif Otto::MCP::RouteParser.is_tool_route?(definition)
-        handle_tool_route(verb, path, definition) if @mcp_server
+        raise '[MCP] MCP server not enabled' unless @mcp_server
+        handle_tool_route(verb, path, definition)
         next
       end
 
@@ -121,12 +126,13 @@ class Otto
       path_clean                              = path.gsub(%r{/$}, '')
       @route_definitions[route.definition]    = route
       Otto.logger.debug "route: #{route.pattern}" if Otto.debug
-      @routes[route.verb]                   ||= []
+      @routes[route.verb] ||= []
       @routes[route.verb] << route
       @routes_literal[route.verb]           ||= {}
       @routes_literal[route.verb][path_clean] = route
-    rescue StandardError
-      Otto.logger.error "Bad route in #{path}: #{entry}"
+
+    rescue StandardError => e
+      Otto.logger.error "Bad route in #{path}: #{entry} (Error: #{e.message})"
     end
     self
   end
@@ -191,32 +197,32 @@ class Otto
 
     begin
       app.call(env)
-    rescue StandardError => ex
-      handle_error(ex, env)
+    rescue StandardError => e
+      handle_error(e, env)
     end
   end
 
   def handle_request(env)
-    locale             = determine_locale env
-    env['rack.locale'] = locale
+    locale                    = determine_locale env
+    env['rack.locale']        = locale
     env['otto.locale_config'] = @locale_config if @locale_config
-    @static_route    ||= Rack::Files.new(option[:public]) if option[:public] && safe_dir?(option[:public])
-    path_info          = Rack::Utils.unescape(env['PATH_INFO'])
-    path_info          = '/' if path_info.to_s.empty?
+    @static_route           ||= Rack::Files.new(option[:public]) if option[:public] && safe_dir?(option[:public])
+    path_info                 = Rack::Utils.unescape(env['PATH_INFO'])
+    path_info                 = '/' if path_info.to_s.empty?
 
     begin
       path_info_clean = path_info
-        .encode(
-          'UTF-8', # Target encoding
-          invalid: :replace, # Replace invalid byte sequences
-          undef: :replace,   # Replace characters undefined in UTF-8
-          replace: '',        # Use empty string for replacement
-        )
-        .gsub(%r{/$}, '') # Remove trailing slash, if present
-    rescue ArgumentError => ex
+                        .encode(
+                          'UTF-8', # Target encoding
+                          invalid: :replace, # Replace invalid byte sequences
+                          undef: :replace,   # Replace characters undefined in UTF-8
+                          replace: '' # Use empty string for replacement
+                        )
+                        .gsub(%r{/$}, '') # Remove trailing slash, if present
+    rescue ArgumentError => e
       # Log the error but don't expose details
       Otto.logger.error '[Otto.handle_request] Path encoding error'
-      Otto.logger.debug "[Otto.handle_request] Error details: #{ex.message}" if Otto.debug
+      Otto.logger.debug "[Otto.handle_request] Error details: #{e.message}" if Otto.debug
       # Set a default value or use the original path_info
       path_info_clean = path_info
     end
@@ -247,7 +253,7 @@ class Otto
         # Otto.logger.debug " request: #{http_verb} #{path_info} (trying route: #{route.verb} #{route.pattern})"
         next unless (match = route.pattern.match(path_info))
 
-        values       = match.captures.to_a
+        values = match.captures.to_a
         # The first capture returned is the entire matched string b/c
         # we wrapped the entire regex in parens. We don't need it to
         # the full match.
@@ -300,8 +306,10 @@ class Otto
 
     uri = URI::HTTP.new(nil, nil, nil, nil, nil, local_path, nil, nil, nil)
     unless local_params.empty?
-      query_string = local_params.map { |k, v| "#{URI.encode_www_form_component(k)}=#{URI.encode_www_form_component(v)}" }.join('&')
-      uri.query    = query_string
+      query_string = local_params.map do |k, v|
+        "#{URI.encode_www_form_component(k)}=#{URI.encode_www_form_component(v)}"
+      end.join('&')
+      uri.query = query_string
     end
     uri.to_s
   end
@@ -400,7 +408,7 @@ class Otto
   # @example
   #   otto.add_rate_limit_rule('uploads', limit: 5, period: 300, condition: ->(req) { req.post? && req.path.include?('upload') })
   def add_rate_limit_rule(name, options)
-    @security_config.rate_limiting_config[:custom_rules] ||= {}
+    @security_config.rate_limiting_config[:custom_rules]          ||= {}
     @security_config.rate_limiting_config[:custom_rules][name.to_s] = options
   end
 
@@ -479,9 +487,9 @@ class Otto
   #     default_locale: 'en'
   #   )
   def configure(available_locales: nil, default_locale: nil)
-    @locale_config ||= {}
+    @locale_config                   ||= {}
     @locale_config[:available_locales] = available_locales if available_locales
-    @locale_config[:default_locale] = default_locale if default_locale
+    @locale_config[:default_locale]    = default_locale if default_locale
   end
 
   # Enable authentication middleware for route-level access control.
@@ -507,8 +515,8 @@ class Otto
   #     'api_key' => Otto::Security::APIKeyStrategy.new(api_keys: ['secret123'])
   #   })
   def configure_auth_strategies(strategies, default_strategy: 'publically')
-    @auth_config ||= {}
-    @auth_config[:auth_strategies] = strategies
+    @auth_config                       ||= {}
+    @auth_config[:auth_strategies]       = strategies
     @auth_config[:default_auth_strategy] = default_strategy
 
     enable_authentication! unless strategies.empty?
@@ -521,7 +529,7 @@ class Otto
   # @example
   #   otto.add_auth_strategy('custom', MyCustomStrategy.new)
   def add_auth_strategy(name, strategy)
-    @auth_config ||= { auth_strategies: {}, default_auth_strategy: 'publically' }
+    @auth_config                       ||= { auth_strategies: {}, default_auth_strategy: 'publically' }
     @auth_config[:auth_strategies][name] = strategy
 
     enable_authentication!
@@ -536,12 +544,10 @@ class Otto
   # @example
   #   otto.enable_mcp!(http: true, endpoint: '/api/mcp')
   def enable_mcp!(options = {})
-    unless @mcp_server
-      @mcp_server = Otto::MCP::Server.new(self)
-    end
+    @mcp_server ||= Otto::MCP::Server.new(self)
 
     @mcp_server.enable!(options)
-    Otto.logger.info "[MCP] Enabled MCP server" if Otto.debug
+    Otto.logger.info '[MCP] Enabled MCP server' if Otto.debug
   end
 
   # Check if MCP is enabled
@@ -554,33 +560,45 @@ class Otto
 
   def configure_locale(opts)
     # Start with global configuration
-    global_config = self.class.global_config
+    global_config  = self.class.global_config
     @locale_config = nil
 
     # Check if we have any locale configuration from any source
-    has_global_locale = global_config && (global_config[:available_locales] || global_config[:default_locale])
+    has_global_locale  = global_config && (global_config[:available_locales] || global_config[:default_locale])
     has_direct_options = opts[:available_locales] || opts[:default_locale]
-    has_legacy_config = opts[:locale_config]
+    has_legacy_config  = opts[:locale_config]
 
     # Only create locale_config if we have configuration from somewhere
-    if has_global_locale || has_direct_options || has_legacy_config
-      @locale_config = {}
+    return unless has_global_locale || has_direct_options || has_legacy_config
 
-      # Apply global configuration first
-      @locale_config[:available_locales] = global_config[:available_locales] if global_config && global_config[:available_locales]
-      @locale_config[:default_locale] = global_config[:default_locale] if global_config && global_config[:default_locale]
+    @locale_config                     = {}
 
-      # Apply direct instance options (these override global config)
-      @locale_config[:available_locales] = opts[:available_locales] if opts[:available_locales]
-      @locale_config[:default_locale] = opts[:default_locale] if opts[:default_locale]
-
-      # Legacy support: Configure locale if provided in initialization options via locale_config hash
-      if opts[:locale_config]
-        locale_opts = opts[:locale_config]
-        @locale_config[:available_locales] = locale_opts[:available_locales] || locale_opts[:available] if locale_opts[:available_locales] || locale_opts[:available]
-        @locale_config[:default_locale] = locale_opts[:default_locale] || locale_opts[:default] if locale_opts[:default_locale] || locale_opts[:default]
-      end
+    # Apply global configuration first
+    if global_config && global_config[:available_locales]
+      @locale_config[:available_locales] =
+        global_config[:available_locales]
     end
+    if global_config && global_config[:default_locale]
+      @locale_config[:default_locale]    =
+        global_config[:default_locale]
+    end
+
+    # Apply direct instance options (these override global config)
+    @locale_config[:available_locales] = opts[:available_locales] if opts[:available_locales]
+    @locale_config[:default_locale]    = opts[:default_locale] if opts[:default_locale]
+
+    # Legacy support: Configure locale if provided in initialization options via locale_config hash
+    return unless opts[:locale_config]
+
+    locale_opts                        = opts[:locale_config]
+    if locale_opts[:available_locales] || locale_opts[:available]
+      @locale_config[:available_locales] =
+        locale_opts[:available_locales] || locale_opts[:available]
+    end
+    return unless locale_opts[:default_locale] || locale_opts[:default]
+
+    @locale_config[:default_locale] =
+      locale_opts[:default_locale] || locale_opts[:default]
   end
 
   def configure_security(opts)
@@ -597,14 +615,12 @@ class Otto
     end
 
     # Add trusted proxies if provided
-    if opts[:trusted_proxies]
-      Array(opts[:trusted_proxies]).each { |proxy| add_trusted_proxy(proxy) }
-    end
+    Array(opts[:trusted_proxies]).each { |proxy| add_trusted_proxy(proxy) } if opts[:trusted_proxies]
 
     # Set custom security headers
-    if opts[:security_headers]
-      set_security_headers(opts[:security_headers])
-    end
+    return unless opts[:security_headers]
+
+    set_security_headers(opts[:security_headers])
   end
 
   def middleware_enabled?(middleware_class)
@@ -615,49 +631,45 @@ class Otto
     # Configure authentication strategies
     @auth_config = {
       auth_strategies: opts[:auth_strategies] || {},
-      default_auth_strategy: opts[:default_auth_strategy] || 'publically'
+      default_auth_strategy: opts[:default_auth_strategy] || 'publically',
     }
 
     # Enable authentication middleware if strategies are configured
-    if opts[:auth_strategies] && !opts[:auth_strategies].empty?
-      enable_authentication!
-    end
+    return unless opts[:auth_strategies] && !opts[:auth_strategies].empty?
+
+    enable_authentication!
   end
 
   def configure_mcp(opts)
     @mcp_server = nil
 
     # Enable MCP if requested in options
-    if opts[:mcp_enabled] || opts[:mcp_http] || opts[:mcp_stdio]
-      @mcp_server = Otto::MCP::Server.new(self)
+    return unless opts[:mcp_enabled] || opts[:mcp_http] || opts[:mcp_stdio]
 
-      mcp_options = {}
-      mcp_options[:http_endpoint] = opts[:mcp_endpoint] if opts[:mcp_endpoint]
+    @mcp_server = Otto::MCP::Server.new(self)
 
-      if opts[:mcp_http] != false  # Default to true unless explicitly disabled
-        @mcp_server.enable!(mcp_options)
-      end
-    end
+    mcp_options                 = {}
+    mcp_options[:http_endpoint] = opts[:mcp_endpoint] if opts[:mcp_endpoint]
+
+    return unless opts[:mcp_http] != false # Default to true unless explicitly disabled
+
+    @mcp_server.enable!(mcp_options)
   end
 
   def handle_mcp_route(verb, path, definition)
-    begin
-      route_info = Otto::MCP::RouteParser.parse_mcp_route(verb, path, definition)
-      @mcp_server.register_mcp_route(route_info)
-      Otto.logger.debug "[MCP] Registered resource route: #{definition}" if Otto.debug
-    rescue => e
-      Otto.logger.error "[MCP] Failed to parse MCP route: #{definition} - #{e.message}"
-    end
+    route_info = Otto::MCP::RouteParser.parse_mcp_route(verb, path, definition)
+    @mcp_server.register_mcp_route(route_info)
+    Otto.logger.debug "[MCP] Registered resource route: #{definition}" if Otto.debug
+  rescue StandardError => e
+    Otto.logger.error "[MCP] Failed to parse MCP route: #{definition} - #{e.message}"
   end
 
   def handle_tool_route(verb, path, definition)
-    begin
-      route_info = Otto::MCP::RouteParser.parse_tool_route(verb, path, definition)
-      @mcp_server.register_mcp_route(route_info)
-      Otto.logger.debug "[MCP] Registered tool route: #{definition}" if Otto.debug
-    rescue => e
-      Otto.logger.error "[MCP] Failed to parse TOOL route: #{definition} - #{e.message}"
-    end
+    route_info = Otto::MCP::RouteParser.parse_tool_route(verb, path, definition)
+    @mcp_server.register_mcp_route(route_info)
+    Otto.logger.debug "[MCP] Registered tool route: #{definition}" if Otto.debug
+  rescue StandardError => e
+    Otto.logger.error "[MCP] Failed to parse TOOL route: #{definition} - #{e.message}"
   end
 
   def handle_error(error, env)
@@ -679,16 +691,14 @@ class Otto
       begin
         env['otto.error_id'] = error_id
         return found_route.call(env)
-      rescue StandardError => ex
-        Otto.logger.error "[#{error_id}] Error in custom error handler: #{ex.message}"
+      rescue StandardError => e
+        Otto.logger.error "[#{error_id}] Error in custom error handler: #{e.message}"
       end
     end
 
     # Content negotiation for built-in error response
     accept_header = env['HTTP_ACCEPT'].to_s
-    if accept_header.include?('application/json')
-      return json_error_response(error_id)
-    end
+    return json_error_response(error_id) if accept_header.include?('application/json')
 
     # Fallback to built-in error response
     @server_error || secure_error_response(error_id)
@@ -711,17 +721,17 @@ class Otto
 
   def json_error_response(error_id)
     error_data = if Otto.env?(:dev, :development)
-      {
-        error: 'Internal Server Error',
-        message: 'Server error occurred. Check logs for details.',
-        error_id: error_id,
-      }
-    else
-      {
-        error: 'Internal Server Error',
-        message: 'An error occurred. Please try again later.',
-      }
-    end
+                   {
+                     error: 'Internal Server Error',
+                     message: 'Server error occurred. Check logs for details.',
+                     error_id: error_id,
+                   }
+                 else
+                   {
+                     error: 'Internal Server Error',
+                     message: 'An error occurred. Please try again later.',
+                   }
+                 end
 
     body    = JSON.generate(error_data)
     headers = {
@@ -733,7 +743,7 @@ class Otto
   end
 
   class << self
-    attr_accessor :debug, :logger
+    attr_accessor :debug, :logger, :global_config # rubocop:disable ThreadSafety/ClassAndModuleAttributes
   end
 
   module ClassMethods

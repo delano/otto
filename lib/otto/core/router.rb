@@ -1,0 +1,177 @@
+require_relative '../mcp/route_parser'
+
+class Otto
+  module Core
+    module Router
+      def load(path)
+        path = File.expand_path(path)
+        raise ArgumentError, "Bad path: #{path}" unless File.exist?(path)
+
+        raw = File.readlines(path).select { |line| line =~ /^\w/ }.collect { |line| line.strip }
+        raw.each do |entry|
+          # Enhanced parsing: split only on first two whitespace boundaries
+          # This preserves parameters in the definition part
+          parts = entry.split(/\s+/, 3)
+          verb, path, definition = parts[0], parts[1], parts[2]
+
+          # Check for MCP routes
+          if Otto::MCP::RouteParser.is_mcp_route?(definition)
+            raise '[MCP] MCP server not enabled' unless @mcp_server
+            handle_mcp_route(verb, path, definition)
+            next
+          elsif Otto::MCP::RouteParser.is_tool_route?(definition)
+            raise '[MCP] MCP server not enabled' unless @mcp_server
+            handle_tool_route(verb, path, definition)
+            next
+          end
+
+          route                                   = Otto::Route.new verb, path, definition
+          route.otto                              = self
+          path_clean                              = path.gsub(%r{/$}, '')
+          @route_definitions[route.definition]    = route
+          Otto.logger.debug "route: #{route.pattern}" if Otto.debug
+          @routes[route.verb]                   ||= []
+          @routes[route.verb] << route
+          @routes_literal[route.verb]           ||= {}
+          @routes_literal[route.verb][path_clean] = route
+        rescue StandardError => e
+          Otto.logger.error "Bad route in #{path}: #{entry} (Error: #{e.message})"
+        end
+        self
+      end
+
+      def handle_request(env)
+        locale             = determine_locale env
+        env['rack.locale'] = locale
+        env['otto.locale_config'] = @locale_config if @locale_config
+        @static_route    ||= Rack::Files.new(option[:public]) if option[:public] && safe_dir?(option[:public])
+        path_info          = Rack::Utils.unescape(env['PATH_INFO'])
+        path_info          = '/' if path_info.to_s.empty?
+
+        begin
+          path_info_clean = path_info
+            .encode(
+              'UTF-8', # Target encoding
+              invalid: :replace, # Replace invalid byte sequences
+              undef: :replace,   # Replace characters undefined in UTF-8
+              replace: '',        # Use empty string for replacement
+            )
+            .gsub(%r{/$}, '') # Remove trailing slash, if present
+        rescue ArgumentError => ex
+          # Log the error but don't expose details
+          Otto.logger.error '[Otto.handle_request] Path encoding error'
+          Otto.logger.debug "[Otto.handle_request] Error details: #{ex.message}" if Otto.debug
+          # Set a default value or use the original path_info
+          path_info_clean = path_info
+        end
+
+        base_path      = File.split(path_info).first
+        # Files in the root directory can refer to themselves
+        base_path      = path_info if base_path == '/'
+        http_verb      = env['REQUEST_METHOD'].upcase.to_sym
+        literal_routes = routes_literal[http_verb] || {}
+        literal_routes.merge! routes_literal[:GET] if http_verb == :HEAD
+
+        case
+        when static_route && http_verb == :GET && routes_static[:GET].member?(base_path)
+          # Otto.logger.debug " request: #{path_info} (static)"
+          static_route.call(env)
+        when literal_routes.has_key?(path_info_clean)
+          route = literal_routes[path_info_clean]
+          # Otto.logger.debug " request: #{http_verb} #{path_info} (literal route: #{route.verb} #{route.path})"
+          route.call(env)
+        when static_route && http_verb == :GET && safe_file?(path_info)
+          Otto.logger.debug " new static route: #{base_path} (#{path_info})" if Otto.debug
+          routes_static[:GET][base_path] = base_path
+          static_route.call(env)
+        else
+          match_dynamic_route(env, path_info, http_verb, literal_routes)
+        end
+      end
+
+      def determine_locale(env)
+        accept_langs = env['HTTP_ACCEPT_LANGUAGE']
+        accept_langs = option[:locale] if accept_langs.to_s.empty?
+        locales      = []
+        unless accept_langs.empty?
+          locales = accept_langs.split(',').map do |l|
+            l += ';q=1.0' unless /;q=\d+(?:\.\d+)?$/.match?(l)
+            l.split(';q=')
+          end.sort_by do |_locale, qvalue|
+            qvalue.to_f
+          end.collect do |locale, _qvalue|
+            locale
+          end.reverse
+        end
+        Otto.logger.debug "locale: #{locales} (#{accept_langs})" if Otto.debug
+        locales.empty? ? nil : locales
+      end
+
+      private
+
+      def match_dynamic_route(env, path_info, http_verb, literal_routes)
+        extra_params  = {}
+        found_route   = nil
+        valid_routes  = routes[http_verb] || []
+        valid_routes.push(*routes[:GET]) if http_verb == :HEAD
+
+        valid_routes.each do |route|
+          # Otto.logger.debug " request: #{http_verb} #{path_info} (trying route: #{route.verb} #{route.pattern})"
+          next unless (match = route.pattern.match(path_info))
+
+          values       = match.captures.to_a
+          # The first capture returned is the entire matched string b/c
+          # we wrapped the entire regex in parens. We don't need it to
+          # the full match.
+          values.shift
+          extra_params = build_route_params(route, values)
+          found_route  = route
+          break
+        end
+
+        found_route ||= literal_routes['/404']
+        if found_route
+          found_route.call env, extra_params
+        else
+          @not_found || Otto::Static.not_found
+        end
+      end
+
+      def build_route_params(route, values)
+        if route.keys.any?
+          route.keys.zip(values).each_with_object({}) do |(k, v), hash|
+            if k == 'splat'
+              (hash[k] ||= []) << v
+            else
+              hash[k] = v
+            end
+          end
+        elsif values.any?
+          { 'captures' => values }
+        else
+          {}
+        end
+      end
+
+      def handle_mcp_route(verb, path, definition)
+        begin
+          route_info = Otto::MCP::RouteParser.parse_mcp_route(verb, path, definition)
+          @mcp_server.register_mcp_route(route_info)
+          Otto.logger.debug "[MCP] Registered resource route: #{definition}" if Otto.debug
+        rescue => e
+          Otto.logger.error "[MCP] Failed to parse MCP route: #{definition} - #{e.message}"
+        end
+      end
+
+      def handle_tool_route(verb, path, definition)
+        begin
+          route_info = Otto::MCP::RouteParser.parse_tool_route(verb, path, definition)
+          @mcp_server.register_mcp_route(route_info)
+          Otto.logger.debug "[MCP] Registered tool route: #{definition}" if Otto.debug
+        rescue => e
+          Otto.logger.error "[MCP] Failed to parse TOOL route: #{definition} - #{e.message}"
+        end
+      end
+    end
+  end
+end

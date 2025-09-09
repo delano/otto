@@ -22,6 +22,7 @@ require_relative 'otto/security/validator'
 require_relative 'otto/security/authentication'
 require_relative 'otto/security/rate_limiting'
 require_relative 'otto/mcp/server'
+require_relative 'otto/utils'
 
 # Otto is a simple Rack router that allows you to define routes in a file
 # with built-in security features including CSRF protection, input validation,
@@ -47,22 +48,18 @@ require_relative 'otto/mcp/server'
 class Otto
   LIB_HOME = __dir__ unless defined?(Otto::LIB_HOME)
 
-  @debug  = ENV['OTTO_DEBUG'] == 'true'
-  @logger = Logger.new($stdout, Logger::INFO)
-  @global_config = {}
+  @debug         = Otto::Utils.yes?(ENV.fetch('OTTO_DEBUG', nil))
+  @logger        = Logger.new($stdout, Logger::INFO)
+  @global_config = nil
 
   # Global configuration for all Otto instances
   def self.configure
-    config = OpenStruct.new(@global_config)
+    config         = OpenStruct.new(@global_config)
     yield config
     @global_config = config.to_h
   end
 
-  def self.global_config
-    @global_config
-  end
-
-  attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route, :security_config, :locale_config, :auth_config, :route_handler_factory, :mcp_server
+  attr_reader :global_config, :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route, :security_config, :locale_config, :auth_config, :route_handler_factory, :mcp_server
   attr_accessor :not_found, :server_error, :middleware_stack
 
   def initialize(path = nil, opts = {})

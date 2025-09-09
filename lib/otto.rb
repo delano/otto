@@ -103,17 +103,9 @@ class Otto
     # Apply middleware stack using new middleware stack implementation
     base_app = ->(e) { handle_request(e) }
 
-    # Use new middleware stack with fallback to legacy for compatibility
-    if @middleware.empty? && !@middleware_stack.empty?
-      # Legacy compatibility: use old middleware_stack
-      app = base_app
-      @middleware_stack.reverse_each do |middleware|
-        app = middleware.new(app, @security_config)
-      end
-    else
-      # Use new middleware stack
-      app = @middleware.build_app(base_app, @security_config)
-    end
+    # Always use the new middleware stack as the source of truth
+    # The legacy @middleware_stack is kept synchronized via the `use` method
+    app = @middleware.build_app(base_app, @security_config)
 
     begin
       app.call(env)
@@ -270,7 +262,7 @@ class Otto
   # @example
   #   otto.add_auth_strategy('custom', MyCustomStrategy.new)
   def add_auth_strategy(name, strategy)
-    @auth_config ||= { auth_strategies: {}, default_auth_strategy: 'publically' }
+    # @auth_config is already initialized in initialize_core_state
     @auth_config[:auth_strategies][name] = strategy
 
     enable_authentication!
@@ -307,7 +299,9 @@ class Otto
     @security_config   = Otto::Security::Config.new
     @middleware_stack  = []  # Keep for backwards compatibility
     @middleware        = Otto::Core::MiddlewareStack.new
-    @security          = Otto::Security::Configurator.new(@security_config, @middleware)
+    # Initialize @auth_config first so it can be shared with the configurator
+    @auth_config       = { auth_strategies: {}, default_auth_strategy: 'publically' }
+    @security          = Otto::Security::Configurator.new(@security_config, @middleware, @auth_config)
   end
 
   def initialize_options(path, opts)

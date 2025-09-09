@@ -48,8 +48,10 @@ class Otto
 
           if middleware.respond_to?(:new)
             # Standard Rack middleware
-            if security_config && middleware_needs_config?(middleware)
-              middleware.new(app, security_config, *args, **options)
+            # Only inject security_config if the middleware needs it AND
+            # no explicit args were provided (to avoid breaking custom configs)
+            if security_config && middleware_needs_config?(middleware) && args.empty?
+              middleware.new(app, security_config, **options)
             else
               middleware.new(app, *args, **options)
             end
@@ -93,11 +95,12 @@ class Otto
       private
 
       def middleware_needs_config?(middleware_class)
+        # AuthenticationMiddleware receives its own auth_config through args,
+        # not the security_config, so it should not be in this list
         [
           Otto::Security::CSRFMiddleware,
           Otto::Security::ValidationMiddleware,
           Otto::Security::RateLimitMiddleware,
-          Otto::Security::AuthenticationMiddleware,
         ].include?(middleware_class)
       end
     end

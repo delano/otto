@@ -10,12 +10,14 @@ class Otto
     # This provides a unified interface for configuring CSRF protection, input validation,
     # rate limiting, trusted proxies, and authentication strategies.
     class Configurator
-      attr_reader :security_config, :middleware_stack, :auth_config
+      attr_reader :security_config, :middleware_stack
+      attr_accessor :auth_config
 
-      def initialize(security_config, middleware_stack)
+      def initialize(security_config, middleware_stack, auth_config = nil)
         @security_config = security_config
         @middleware_stack = middleware_stack
-        @auth_config = { auth_strategies: {}, default_auth_strategy: 'publically' }
+        # Use provided auth_config or initialize a new one
+        @auth_config = auth_config || { auth_strategies: {}, default_auth_strategy: 'publically' }
       end
 
       # Unified security configuration method with sensible defaults

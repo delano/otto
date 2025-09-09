@@ -6,7 +6,7 @@ gemspec
 
 group :test do
   gem 'rack-test'
-  gem 'rspec', '~> 3.12'
+  gem 'rspec', '~> 3.13'
 end
 
 # bundle config set with 'optional'
@@ -17,7 +17,7 @@ group :development, :test, optional: true do
 end
 
 group :development do
-  gem 'pry-byebug', require: false
+  gem 'debug'
   gem 'rubocop', require: false
   gem 'rubocop-performance', require: false
   gem 'rubocop-rspec', require: false

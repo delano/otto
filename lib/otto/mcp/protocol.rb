@@ -137,7 +137,7 @@ class Otto
         http_status = case code
                       when -32_700..-32_600 # Parse error, Invalid Request, Method not found
                         400
-                      when -32_000         # Server error (generic)
+                      when -32_603, -32_000..-32_099 # Internal error and all server error range (-32000..-32099)
                         500
                       when -32_001         # Resource not found
                         404
@@ -147,10 +147,9 @@ class Otto
                         404
                       when -32_602         # Invalid params
                         400
-                      when -32_603         # Internal error
-                        500
                       else
-                        400 # Default to 400 for other client errors
+                        # Default client error for unknown non-server codes; treat server-range as 500
+                        (-32_099..-32_000).cover?(code) ? 500 : 400
                       end
 
         [http_status, { 'content-type' => 'application/json' }, [body]]

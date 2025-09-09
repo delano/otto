@@ -352,9 +352,9 @@ class Otto
       debug_enabled     = opts[:debug] || false
 
       # Guard clause - required configuration must be present
-      unless available_locales && default_locale
+      unless available_locales.is_a?(Hash) && !available_locales.empty? && default_locale && available_locales.key?(default_locale)
         raise ArgumentError,
-              'available_locales and default_locale are required (provide via opts or Otto configuration)'
+              'available_locales must be a non-empty Hash and include default_locale (provide via opts or Otto configuration)'
       end
 
       # Check sources in order of precedence

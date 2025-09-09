@@ -188,7 +188,7 @@ RSpec.describe Otto::RequestHelpers do
                                          default_locale: default_locale,
                                        })
         end.to raise_error(ArgumentError,
-                           'available_locales and default_locale are required (provide via opts or Otto configuration)')
+                           'available_locales must be a non-empty Hash and include default_locale (provide via opts or Otto configuration)')
       end
 
       it 'raises ArgumentError when default_locale is missing' do
@@ -197,14 +197,14 @@ RSpec.describe Otto::RequestHelpers do
                                          available_locales: available_locales,
                                        })
         end.to raise_error(ArgumentError,
-                           'available_locales and default_locale are required (provide via opts or Otto configuration)')
+                           'available_locales must be a non-empty Hash and include default_locale (provide via opts or Otto configuration)')
       end
 
       it 'raises ArgumentError when both are missing' do
         expect do
           request_object.check_locale!
         end.to raise_error(ArgumentError,
-                           'available_locales and default_locale are required (provide via opts or Otto configuration)')
+                           'available_locales must be a non-empty Hash and include default_locale (provide via opts or Otto configuration)')
       end
     end
   end

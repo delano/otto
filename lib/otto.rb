@@ -48,7 +48,9 @@ require_relative 'otto/utils'
 class Otto
   LIB_HOME = __dir__ unless defined?(Otto::LIB_HOME)
 
-  @debug         = Otto::Utils.yes?(ENV.fetch('OTTO_DEBUG', nil))
+  @debug = begin
+    defined?(Otto::Utils) ? Otto::Utils.yes?(ENV['OTTO_DEBUG']) : ENV['OTTO_DEBUG'] == 'true'
+  end
   @logger        = Logger.new($stdout, Logger::INFO)
   @global_config = nil
 
@@ -110,10 +112,12 @@ class Otto
 
       # Check for MCP routes
       if Otto::MCP::RouteParser.is_mcp_route?(definition)
-        handle_mcp_route(verb, path, definition) if @mcp_server
+        raise '[MCP] MCP server not enabled' unless @mcp_server
+        handle_mcp_route(verb, path, definition)
         next
       elsif Otto::MCP::RouteParser.is_tool_route?(definition)
-        handle_tool_route(verb, path, definition) if @mcp_server
+        raise '[MCP] MCP server not enabled' unless @mcp_server
+        handle_tool_route(verb, path, definition)
         next
       end
 

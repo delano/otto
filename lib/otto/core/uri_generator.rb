@@ -16,12 +16,14 @@ class Otto
         local_params = params.clone
         local_path   = route.path.clone
 
+        keys_to_remove = []
         local_params.each_pair do |k, v|
           next unless local_path.match(":#{k}")
 
           local_path.gsub!(":#{k}", v.to_s)
-          local_params.delete(k)
+          keys_to_remove << k
         end
+        keys_to_remove.each { |k| local_params.delete(k) }
 
         uri = URI::HTTP.new(nil, nil, nil, nil, nil, local_path, nil, nil, nil)
         unless local_params.empty?

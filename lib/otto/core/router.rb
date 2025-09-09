@@ -16,10 +16,12 @@ class Otto
 
           # Check for MCP routes
           if Otto::MCP::RouteParser.is_mcp_route?(definition)
-            handle_mcp_route(verb, path, definition) if @mcp_server
+            raise '[MCP] MCP server not enabled' unless @mcp_server
+            handle_mcp_route(verb, path, definition)
             next
           elsif Otto::MCP::RouteParser.is_tool_route?(definition)
-            handle_tool_route(verb, path, definition) if @mcp_server
+            raise '[MCP] MCP server not enabled' unless @mcp_server
+            handle_tool_route(verb, path, definition)
             next
           end
 
@@ -32,8 +34,8 @@ class Otto
           @routes[route.verb] << route
           @routes_literal[route.verb]           ||= {}
           @routes_literal[route.verb][path_clean] = route
-        rescue StandardError
-          Otto.logger.error "Bad route in #{path}: #{entry}"
+        rescue StandardError => e
+          Otto.logger.error "Bad route in #{path}: #{entry} (Error: #{e.message})"
         end
         self
       end
@@ -70,7 +72,7 @@ class Otto
         literal_routes = routes_literal[http_verb] || {}
         literal_routes.merge! routes_literal[:GET] if http_verb == :HEAD
 
-        route_result = case
+        case
         when static_route && http_verb == :GET && routes_static[:GET].member?(base_path)
           # Otto.logger.debug " request: #{path_info} (static)"
           static_route.call(env)
@@ -83,10 +85,8 @@ class Otto
           routes_static[:GET][base_path] = base_path
           static_route.call(env)
         else
-          match_dynamic_route(env, path_info, http_verb)
+          match_dynamic_route(env, path_info, http_verb, literal_routes)
         end
-
-        route_result
       end
 
       def determine_locale(env)
@@ -109,7 +109,7 @@ class Otto
 
       private
 
-      def match_dynamic_route(env, path_info, http_verb)
+      def match_dynamic_route(env, path_info, http_verb, literal_routes)
         extra_params  = {}
         found_route   = nil
         valid_routes  = routes[http_verb] || []
@@ -129,7 +129,7 @@ class Otto
           break
         end
 
-        found_route ||= routes_literal[http_verb]['/404'] if routes_literal[http_verb]
+        found_route ||= literal_routes['/404']
         if found_route
           found_route.call env, extra_params
         else

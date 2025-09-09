@@ -126,6 +126,7 @@ class Otto
       @routes[route.verb] << route
       @routes_literal[route.verb]           ||= {}
       @routes_literal[route.verb][path_clean] = route
+
     rescue StandardError => e
       Otto.logger.error "Bad route in #{path}: #{entry} (Error: #{e.message})"
     end

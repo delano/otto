@@ -59,15 +59,23 @@ class Otto
 
   LIB_HOME = __dir__ unless defined?(Otto::LIB_HOME)
 
-  @debug = begin
-    defined?(Otto::Utils) ? Otto::Utils.yes?(ENV['OTTO_DEBUG']) : ENV['OTTO_DEBUG'] == 'true'
-  end
+  @debug = case ENV['OTTO_DEBUG']
+           in 'true' | '1' | 'yes' | 'on'
+             true
+           else
+             defined?(Otto::Utils) ? Otto::Utils.yes?(ENV['OTTO_DEBUG']) : false
+           end
   @logger        = Logger.new($stdout, Logger::INFO)
   @global_config = nil
 
-  # Global configuration for all Otto instances
+  # Global configuration for all Otto instances (Ruby 3.2+ pattern matching)
   def self.configure
-    config = OpenStruct.new(@global_config)
+    config = case @global_config
+             in Hash => h
+               OpenStruct.new(h)
+             else
+               OpenStruct.new
+             end
     yield config
     @global_config = config.to_h
   end
@@ -78,29 +86,9 @@ class Otto
   attr_accessor :not_found, :server_error, :middleware_stack
 
   def initialize(path = nil, opts = {})
-    @routes_static         = { GET: {} }
-    @routes                = { GET: [] }
-    @routes_literal        = { GET: {} }
-    @route_definitions     = {}
-    @option                = {
-      public: nil,
-      locale: 'en',
-    }.merge(opts)
-    @security_config       = Otto::Security::Config.new
-    @middleware_stack      = []
-    @route_handler_factory = opts[:route_handler_factory] || Otto::RouteHandlers::HandlerFactory
-
-    # Configure locale support (merge global config with instance options)
-    configure_locale(opts)
-
-    # Configure security based on options
-    configure_security(opts)
-
-    # Configure authentication based on options
-    configure_authentication(opts)
-
-    # Initialize MCP server
-    configure_mcp(opts)
+    initialize_core_state
+    initialize_options(path, opts)
+    initialize_configurations(opts)
 
     Otto.logger.debug "new Otto: #{opts}" if Otto.debug
     load(path) unless path.nil?
@@ -108,8 +96,7 @@ class Otto
   end
   alias options option
 
-
-
+  # Main Rack application interface
   def call(env)
     # Apply middleware stack
     app = ->(e) { handle_request(e) }
@@ -124,17 +111,12 @@ class Otto
     end
   end
 
-
-
-
-  # Add middleware to the stack
-  #
-  # @param middleware [Class] The middleware class to add
-  # @param args [Array] Additional arguments for the middleware
-  # @param block [Proc] Optional block for middleware configuration
-  def use(middleware, *, &)
+  # Middleware Management
+  def use(middleware, ...)
     @middleware_stack << middleware
   end
+
+  # Security Configuration Methods
 
   # Enable CSRF protection for POST, PUT, DELETE, and PATCH requests.
   # This will automatically add CSRF tokens to HTML forms and validate
@@ -304,6 +286,37 @@ class Otto
   end
 
   private
+
+  def initialize_core_state
+    @routes_static     = { GET: {} }
+    @routes            = { GET: [] }
+    @routes_literal    = { GET: {} }
+    @route_definitions = {}
+    @security_config   = Otto::Security::Config.new
+    @middleware_stack  = []
+  end
+
+  def initialize_options(path, opts)
+    @option = {
+      public: nil,
+      locale: 'en',
+    }.merge(opts)
+    @route_handler_factory = opts[:route_handler_factory] || Otto::RouteHandlers::HandlerFactory
+  end
+
+  def initialize_configurations(opts)
+    # Configure locale support (merge global config with instance options)
+    configure_locale(opts)
+
+    # Configure security based on options
+    configure_security(opts)
+
+    # Configure authentication based on options
+    configure_authentication(opts)
+
+    # Initialize MCP server
+    configure_mcp(opts)
+  end
 
   class << self
     attr_accessor :debug, :logger, :global_config # rubocop:disable ThreadSafety/ClassAndModuleAttributes

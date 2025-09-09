@@ -22,7 +22,7 @@ module OttoTestHelpers
     default_options = {
       csrf_protection: true,
       request_validation: true,
-      trusted_proxies: ['127.0.0.1', '10.0.0.0/8']
+      trusted_proxies: ['127.0.0.1', '10.0.0.0/8'],
     }
     routes_file = create_test_routes_file('test_routes_secure.txt', ['GET / TestApp.index'])
     Otto.new(routes_file, default_options.merge(options))
@@ -41,9 +41,7 @@ module OttoTestHelpers
     security_headers = {}
 
     headers.each do |key, value|
-      if key.downcase.match?(/^(x-|strict-transport|content-security|referrer)/i)
-        security_headers[key.downcase] = value
-      end
+      security_headers[key.downcase] = value if key.downcase.match?(/^(x-|strict-transport|content-security|referrer)/i)
     end
 
     security_headers
@@ -54,7 +52,7 @@ module OttoTestHelpers
 
     puts "\n=== DEBUG RESPONSE ==="
     puts "Status: #{response[0]}"
-    puts "Headers:"
+    puts 'Headers:'
     response[1].each { |k, v| puts "  #{k}: #{v}" }
     puts "Body: #{response[2].respond_to?(:join) ? response[2].join : response[2]}"
     puts "=====================\n"

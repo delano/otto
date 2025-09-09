@@ -22,11 +22,11 @@ class Otto
     #   config.max_param_depth = 16
     class Config
       attr_accessor :csrf_protection, :csrf_token_key, :csrf_header_key, :csrf_session_key,
-        :max_request_size, :max_param_depth, :max_param_keys,
-        :trusted_proxies, :require_secure_cookies,
-        :security_headers, :input_validation,
-        :csp_nonce_enabled, :debug_csp, :mcp_auth,
-        :rate_limiting_config
+                    :max_request_size, :max_param_depth, :max_param_keys,
+                    :trusted_proxies, :require_secure_cookies,
+                    :security_headers, :input_validation,
+                    :csp_nonce_enabled, :debug_csp, :mcp_auth,
+                    :rate_limiting_config
 
       # Initialize security configuration with safe defaults
       #
@@ -135,7 +135,7 @@ class Otto
         size = content_length.to_i
         if size > @max_request_size
           raise Otto::Security::RequestTooLargeError,
-            "Request size #{size} exceeds maximum #{@max_request_size}"
+                "Request size #{size} exceeds maximum #{@max_request_size}"
         end
         true
       end
@@ -308,8 +308,8 @@ class Otto
       end
 
       def store_session_id(request, session_id)
-          session                   = request.session
-          session[csrf_session_key] = session_id if session
+        session                   = request.session
+        session[csrf_session_key] = session_id if session
       rescue StandardError
         # Cookie fallback handled in inject_csrf_token
       end
@@ -361,9 +361,9 @@ class Otto
       def development_csp_directives(nonce)
         [
           "default-src 'none';",
-          "script-src 'nonce-#{nonce}' 'unsafe-inline';",  # Allow inline scripts for development tools
+          "script-src 'nonce-#{nonce}' 'unsafe-inline';", # Allow inline scripts for development tools
           "style-src 'self' 'unsafe-inline';",
-          "connect-src 'self' ws: wss: http: https:;",      # Allow HTTP and all WebSocket connections for dev tools
+          "connect-src 'self' ws: wss: http: https:;", # Allow HTTP and all WebSocket connections for dev tools
           "img-src 'self' data:;",
           "font-src 'self';",
           "object-src 'none';",

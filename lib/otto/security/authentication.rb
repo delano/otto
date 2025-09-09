@@ -28,7 +28,7 @@ class Otto
       # Optional: Extract user context for authenticated requests
       # @param env [Hash] Rack environment
       # @return [Hash] User context hash
-      def user_context(env)
+      def user_context(_env)
         {}
       end
 
@@ -66,7 +66,7 @@ class Otto
 
     # Public access strategy - always allows access
     class PublicStrategy < AuthStrategy
-      def authenticate(env, requirement)
+      def authenticate(_env, _requirement)
         success
       end
     end
@@ -78,7 +78,7 @@ class Otto
         @session_store = session_store
       end
 
-      def authenticate(env, requirement)
+      def authenticate(env, _requirement)
         session = env['rack.session']
         return failure('No session available') unless session
 
@@ -147,7 +147,7 @@ class Otto
         @param_name = param_name
       end
 
-      def authenticate(env, requirement)
+      def authenticate(env, _requirement)
         # Try header first, then query parameter
         api_key = env["HTTP_#{@header_name.upcase.tr('-', '_')}"]
 
@@ -221,9 +221,7 @@ class Otto
 
         # Find appropriate strategy
         strategy = find_strategy(auth_requirement)
-        unless strategy
-          return auth_error_response("Unknown authentication strategy: #{auth_requirement}")
-        end
+        return auth_error_response("Unknown authentication strategy: #{auth_requirement}") unless strategy
 
         # Perform authentication
         auth_result = strategy.authenticate(env, auth_requirement)
@@ -265,14 +263,14 @@ class Otto
 
       def auth_error_response(message)
         body = JSON.generate({
-          error: 'Authentication Required',
+                               error: 'Authentication Required',
           message: message,
-          timestamp: Time.now.to_i
-        })
+          timestamp: Time.now.to_i,
+                             })
 
         headers = {
           'Content-Type' => 'application/json',
-          'Content-Length' => body.bytesize.to_s
+          'Content-Length' => body.bytesize.to_s,
         }
 
         # Add security headers if available from config hash or Otto instance

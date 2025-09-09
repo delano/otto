@@ -19,7 +19,7 @@ RSpec.describe Otto, 'security features' do
       end
 
       it 'accepts custom HSTS parameters' do
-        otto.enable_hsts!(max_age: 86400, include_subdomains: false)
+        otto.enable_hsts!(max_age: 86_400, include_subdomains: false)
         hsts_value = otto.security_config.security_headers['strict-transport-security']
 
         expect(hsts_value).to eq('max-age=86400')
@@ -63,7 +63,7 @@ RSpec.describe Otto, 'security features' do
       it 'merges custom headers with existing ones' do
         custom_headers = {
           'permissions-policy' => 'geolocation=()',
-          'x-custom-header' => 'test-value'
+          'x-custom-header' => 'test-value',
         }
 
         otto.set_security_headers(custom_headers)

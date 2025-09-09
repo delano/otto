@@ -19,17 +19,17 @@ basic_otto.enable_request_validation!
 
 # Production configuration with additional security measures
 production_otto = Otto.new('routes.txt', {
-  csrf_protection: true,
+                             csrf_protection: true,
   request_validation: true,
-  trusted_proxies: ['10.0.0.0/8', '172.16.0.0/12']
-})
+  trusted_proxies: ['10.0.0.0/8', '172.16.0.0/12'],
+                           })
 
 # Explicitly enable restrictive security headers for production
 if ENV['RACK_ENV'] == 'production'
   # Enable HSTS - WARNING: Only do this when HTTPS is properly configured!
   # This will force all future requests to use HTTPS
   production_otto.enable_hsts!(
-    max_age: 31536000,    # 1 year
+    max_age: 31_536_000, # 1 year
     include_subdomains: true
   )
 
@@ -49,17 +49,17 @@ if ENV['RACK_ENV'] == 'production'
 
   # Add additional security headers
   production_otto.set_security_headers({
-    'permissions-policy' => 'geolocation=(), microphone=(), camera=()',
+                                         'permissions-policy' => 'geolocation=(), microphone=(), camera=()',
     'cross-origin-opener-policy' => 'same-origin-allow-popups',
-    'cross-origin-embedder-policy' => 'unsafe-none'
-  })
+    'cross-origin-embedder-policy' => 'unsafe-none',
+                                       })
 end
 
 # Development configuration - more permissive for easier debugging
 development_otto = Otto.new('routes.txt', {
-  csrf_protection: true,
-  request_validation: true
-})
+                              csrf_protection: true,
+  request_validation: true,
+                            })
 
 # For development, you might want a more permissive CSP
 if ENV['RACK_ENV'] == 'development'
@@ -78,31 +78,31 @@ end
 
 # Example: API-only service with minimal HTML output
 api_otto = Otto.new('api_routes.txt', {
-  csrf_protection: false,    # APIs typically use tokens instead
+                      csrf_protection: false, # APIs typically use tokens instead
   request_validation: true,
-  trusted_proxies: ['10.0.0.0/8']
-})
+  trusted_proxies: ['10.0.0.0/8'],
+                    })
 
 # API services might want different security headers
 api_otto.set_security_headers({
-  'x-frame-options' => 'DENY',
+                                'x-frame-options' => 'DENY',
   'access-control-allow-origin' => 'https://yourdomain.com',
   'access-control-allow-methods' => 'GET, POST, PUT, DELETE',
-  'access-control-allow-headers' => 'Content-Type, Authorization'
-})
+  'access-control-allow-headers' => 'Content-Type, Authorization',
+                              })
 
 # Example: High-security application
 high_security_otto = Otto.new('secure_routes.txt', {
-  csrf_protection: true,
+                                csrf_protection: true,
   request_validation: true,
-  trusted_proxies: ['10.0.0.0/8']
-})
+  trusted_proxies: ['10.0.0.0/8'],
+                              })
 
 # Maximum security configuration
 if ENV['HIGH_SECURITY'] == 'true'
   # Very strict HSTS
   high_security_otto.enable_hsts!(
-    max_age: 63072000,    # 2 years
+    max_age: 63_072_000, # 2 years
     include_subdomains: true
   )
 
@@ -123,20 +123,20 @@ if ENV['HIGH_SECURITY'] == 'true'
 
   # Additional security headers
   high_security_otto.set_security_headers({
-    'permissions-policy' => 'geolocation=(), microphone=(), camera=(), payment=(), usb=()',
+                                            'permissions-policy' => 'geolocation=(), microphone=(), camera=(), payment=(), usb=()',
     'cross-origin-opener-policy' => 'same-origin',
     'cross-origin-embedder-policy' => 'require-corp',
     'cross-origin-resource-policy' => 'same-origin',
-    'expect-ct' => 'max-age=86400, enforce'
-  })
+    'expect-ct' => 'max-age=86400, enforce',
+                                          })
 
   # Stricter validation limits
-  high_security_otto.security_config.max_request_size = 1024 * 1024  # 1MB
+  high_security_otto.security_config.max_request_size = 1024 * 1024 # 1MB
   high_security_otto.security_config.max_param_depth = 16
   high_security_otto.security_config.max_param_keys = 32
 end
 
-puts "Security examples configured successfully!"
+puts 'Security examples configured successfully!'
 puts "Default headers applied: #{basic_otto.security_config.security_headers.keys.join(', ')}"
-puts "Remember: HSTS, CSP, and X-Frame-Options are NOT enabled by default"
-puts "Enable them explicitly when your application is ready for the restrictions"
+puts 'Remember: HSTS, CSP, and X-Frame-Options are NOT enabled by default'
+puts 'Enable them explicitly when your application is ready for the restrictions'

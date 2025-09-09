@@ -14,9 +14,7 @@ class Otto
       remote_addr = env['REMOTE_ADDR']
 
       # If we don't have a security config or trusted proxies, use direct connection
-      if !otto_security_config || !trusted_proxy?(remote_addr)
-        return validate_ip_address(remote_addr)
-      end
+      return validate_ip_address(remote_addr) if !otto_security_config || !trusted_proxy?(remote_addr)
 
       # Check forwarded headers from trusted proxies
       forwarded_ips = [
@@ -152,12 +150,12 @@ class Otto
 
       # RFC 1918 private ranges and loopback
       private_ranges = [
-        /\A10\./,                    # 10.0.0.0/8
+        /\A10\./, # 10.0.0.0/8
         /\A172\.(1[6-9]|2[0-9]|3[01])\./, # 172.16.0.0/12
         /\A192\.168\./,              # 192.168.0.0/16
         /\A169\.254\./,              # 169.254.0.0/16 (link-local)
         /\A224\./,                   # 224.0.0.0/4 (multicast)
-        /\A0\./,                      # 0.0.0.0/8
+        /\A0\./, # 0.0.0.0/8
       ]
 
       private_ranges.any? { |range| ip.match?(range) }
@@ -355,7 +353,8 @@ class Otto
 
       # Guard clause - required configuration must be present
       unless available_locales && default_locale
-        raise ArgumentError, 'available_locales and default_locale are required (provide via opts or Otto configuration)'
+        raise ArgumentError,
+              'available_locales and default_locale are required (provide via opts or Otto configuration)'
       end
 
       # Check sources in order of precedence

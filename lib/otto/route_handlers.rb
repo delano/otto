@@ -113,12 +113,12 @@ class Otto
 
         # Get the appropriate response handler
         handler_class = case response_type
-                       when 'json' then Otto::ResponseHandlers::JSONHandler
-                       when 'redirect' then Otto::ResponseHandlers::RedirectHandler
-                       when 'view' then Otto::ResponseHandlers::ViewHandler
-                       when 'auto' then Otto::ResponseHandlers::AutoHandler
-                       else Otto::ResponseHandlers::DefaultHandler
-                       end
+                        when 'json' then Otto::ResponseHandlers::JSONHandler
+                        when 'redirect' then Otto::ResponseHandlers::RedirectHandler
+                        when 'view' then Otto::ResponseHandlers::ViewHandler
+                        when 'auto' then Otto::ResponseHandlers::AutoHandler
+                        else Otto::ResponseHandlers::DefaultHandler
+                        end
 
         handler_class.handle(result, response, context)
       end
@@ -132,8 +132,8 @@ class Otto
         name.split('::').inject(Object) do |scope, const_name|
           scope.const_get(const_name)
         end
-      rescue NameError => ex
-        raise NameError, "Unknown class: #{name} (#{ex})"
+      rescue NameError => e
+        raise NameError, "Unknown class: #{name} (#{e})"
       end
     end
 
@@ -159,7 +159,7 @@ class Otto
                       auth_result&.session,
                       auth_result&.user,
                       logic_params,
-                      locale,
+                      locale
                     )
                   else
                     # Fallback for custom constructors
@@ -167,9 +167,7 @@ class Otto
                   end
 
           # Execute standard Logic class lifecycle
-          if logic.respond_to?(:raise_concerns)
-            logic.raise_concerns
-          end
+          logic.raise_concerns if logic.respond_to?(:raise_concerns)
 
           result = if logic.respond_to?(:process)
                      logic.process
@@ -179,25 +177,24 @@ class Otto
 
           # Handle response with Logic instance context
           handle_response(result, res, {
-            logic_instance: logic,
+                            logic_instance: logic,
             request: req,
             status_code: logic.respond_to?(:status_code) ? logic.status_code : nil,
-          }
-          )
-        rescue StandardError => ex
+                          })
+        rescue StandardError => e
           # Check if we're being called through Otto's integrated context (vs direct handler testing)
           # In integrated context, let Otto's centralized error handler manage the response
           # In direct testing context, handle errors locally for unit testing
           if otto_instance
             # Log error for handler-specific context but let Otto's centralized error handler manage the response
-            Otto.logger.error "[LogicClassHandler] #{ex.class}: #{ex.message}"
-            Otto.logger.debug "[LogicClassHandler] Backtrace: #{ex.backtrace.join("\n")}" if Otto.debug
-            raise ex  # Re-raise to let Otto's centralized error handler manage the response
+            Otto.logger.error "[LogicClassHandler] #{e.class}: #{e.message}"
+            Otto.logger.debug "[LogicClassHandler] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
+            raise e # Re-raise to let Otto's centralized error handler manage the response
           else
             # Direct handler testing context - handle errors locally with security improvements
             error_id = SecureRandom.hex(8)
-            Otto.logger.error "[#{error_id}] #{ex.class}: #{ex.message}"
-            Otto.logger.debug "[#{error_id}] Backtrace: #{ex.backtrace.join("\n")}" if Otto.debug
+            Otto.logger.error "[#{error_id}] #{e.class}: #{e.message}"
+            Otto.logger.debug "[#{error_id}] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
 
             res.status                  = 500
             res.headers['content-type'] = 'text/plain'
@@ -239,25 +236,24 @@ class Otto
           # Only handle response if response_type is not default
           if route_definition.response_type != 'default'
             handle_response(result, res, {
-              instance: instance,
+                              instance: instance,
               request: req,
-            }
-            )
+                            })
           end
-        rescue StandardError => ex
+        rescue StandardError => e
           # Check if we're being called through Otto's integrated context (vs direct handler testing)
           # In integrated context, let Otto's centralized error handler manage the response
           # In direct testing context, handle errors locally for unit testing
           if otto_instance
             # Log error for handler-specific context but let Otto's centralized error handler manage the response
-            Otto.logger.error "[InstanceMethodHandler] #{ex.class}: #{ex.message}"
-            Otto.logger.debug "[InstanceMethodHandler] Backtrace: #{ex.backtrace.join("\n")}" if Otto.debug
-            raise ex  # Re-raise to let Otto's centralized error handler manage the response
+            Otto.logger.error "[InstanceMethodHandler] #{e.class}: #{e.message}"
+            Otto.logger.debug "[InstanceMethodHandler] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
+            raise e # Re-raise to let Otto's centralized error handler manage the response
           else
             # Direct handler testing context - handle errors locally with security improvements
             error_id = SecureRandom.hex(8)
-            Otto.logger.error "[#{error_id}] #{ex.class}: #{ex.message}"
-            Otto.logger.debug "[#{error_id}] Backtrace: #{ex.backtrace.join("\n")}" if Otto.debug
+            Otto.logger.error "[#{error_id}] #{e.class}: #{e.message}"
+            Otto.logger.debug "[#{error_id}] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
 
             res.status                  = 500
             res.headers['content-type'] = 'text/plain'
@@ -298,25 +294,24 @@ class Otto
           # Only handle response if response_type is not default
           if route_definition.response_type != 'default'
             handle_response(result, res, {
-              class: target_class,
+                              class: target_class,
               request: req,
-            }
-            )
+                            })
           end
-        rescue StandardError => ex
+        rescue StandardError => e
           # Check if we're being called through Otto's integrated context (vs direct handler testing)
           # In integrated context, let Otto's centralized error handler manage the response
           # In direct testing context, handle errors locally for unit testing
           if otto_instance
             # Log error for handler-specific context but let Otto's centralized error handler manage the response
-            Otto.logger.error "[ClassMethodHandler] #{ex.class}: #{ex.message}"
-            Otto.logger.debug "[ClassMethodHandler] Backtrace: #{ex.backtrace.join("\n")}" if Otto.debug
-            raise ex  # Re-raise to let Otto's centralized error handler manage the response
+            Otto.logger.error "[ClassMethodHandler] #{e.class}: #{e.message}"
+            Otto.logger.debug "[ClassMethodHandler] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
+            raise e # Re-raise to let Otto's centralized error handler manage the response
           else
             # Direct handler testing context - handle errors locally with security improvements
             error_id = SecureRandom.hex(8)
-            Otto.logger.error "[#{error_id}] #{ex.class}: #{ex.message}"
-            Otto.logger.debug "[#{error_id}] Backtrace: #{ex.backtrace.join("\n")}" if Otto.debug
+            Otto.logger.error "[#{error_id}] #{e.class}: #{e.message}"
+            Otto.logger.debug "[#{error_id}] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
 
             res.status = 500
 
@@ -325,17 +320,17 @@ class Otto
             if accept_header.include?('application/json')
               res.headers['content-type'] = 'application/json'
               error_data                  = if Otto.env?(:dev, :development)
-                {
-                  error: 'Internal Server Error',
-                  message: 'Server error occurred. Check logs for details.',
-                  error_id: error_id,
-                }
-              else
-                {
-                  error: 'Internal Server Error',
-                  message: 'An error occurred. Please try again later.',
-                }
-              end
+                                              {
+                                                error: 'Internal Server Error',
+                                                message: 'Server error occurred. Check logs for details.',
+                                                error_id: error_id,
+                                              }
+                                            else
+                                              {
+                                                error: 'Internal Server Error',
+                                                message: 'An error occurred. Please try again later.',
+                                              }
+                                            end
               res.write JSON.generate(error_data)
             else
               res.headers['content-type'] = 'text/plain'
@@ -379,14 +374,13 @@ class Otto
           result = lambda_proc.call(req, res, extra_params)
 
           handle_response(result, res, {
-            lambda: lambda_proc,
+                            lambda: lambda_proc,
             request: req,
-          }
-          )
-        rescue StandardError => ex
+                          })
+        rescue StandardError => e
           error_id = SecureRandom.hex(8)
-          Otto.logger.error "[#{error_id}] #{ex.class}: #{ex.message}"
-          Otto.logger.debug "[#{error_id}] Backtrace: #{ex.backtrace.join("\n")}" if Otto.debug
+          Otto.logger.error "[#{error_id}] #{e.class}: #{e.message}"
+          Otto.logger.debug "[#{error_id}] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
 
           res.status                  = 500
           res.headers['content-type'] = 'text/plain'

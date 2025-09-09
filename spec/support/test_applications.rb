@@ -2,7 +2,7 @@
 
 # Mock application classes for testing routes
 class TestApp
-  def self.index(req, res)
+  def self.index(_req, res)
     res.write('Hello World')
   end
 
@@ -14,11 +14,11 @@ class TestApp
     res.write("User #{req.params['user_id']} Post #{req.params['post_id']}")
   end
 
-  def self.search(req, res)
-    res.write("Search results")
+  def self.search(_req, res)
+    res.write('Search results')
   end
 
-  def self.create(req, res)
+  def self.create(_req, res)
     res.write('Created')
   end
 
@@ -30,48 +30,48 @@ class TestApp
     res.write("Deleted #{req.params['id']}")
   end
 
-  def self.error_test(req, res)
+  def self.error_test(_req, _res)
     raise StandardError, 'Test error'
   end
 
-  def self.custom_headers(req, res)
+  def self.custom_headers(_req, res)
     res.headers['X-Custom-Header'] = 'test-value'
     res.write('Custom headers')
   end
 
-  def self.json_response(req, res)
+  def self.json_response(_req, res)
     res.headers['Content-Type'] = 'application/json'
     res.write('{"message": "Hello JSON"}')
   end
 
-  def self.html_response(req, res)
+  def self.html_response(_req, res)
     res.headers['Content-Type'] = 'text/html'
     res.write('<html><head></head><body><h1>Hello HTML</h1></body></html>')
   end
 
-  def self.test(req, res)
+  def self.test(_req, res)
     res.write('test response')
   end
 
-  def self.signin(req, res)
+  def self.signin(_req, res)
     res.write('signin response')
   end
 
-  def self.api_users(req, res)
+  def self.api_users(_req, res)
     res.write('api users response')
   end
 
-  def self.json_data(req, res)
+  def self.json_data(_req, _res)
     # Return data for JSON handler
     { message: 'Hello JSON', timestamp: Time.now.to_i }
   end
 
-  def self.redirect_test(req, res)
+  def self.redirect_test(_req, _res)
     # Return redirect path
     '/redirected'
   end
 
-  def self.view_test(req, res)
+  def self.view_test(_req, _res)
     # Return HTML content
     '<h1>View Test</h1>'
   end
@@ -93,7 +93,7 @@ module V2
   module Logic
     module Admin
       class Panel
-        def self.Panel(req, res)
+        def self.Panel(_req, res)
           res.write('admin panel response')
         end
       end

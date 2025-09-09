@@ -6,7 +6,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
   include OttoTestHelpers
 
   let(:test_app) do
-    lambda do |env|
+    lambda do |_env|
       [200, { 'Content-Type' => 'text/plain' }, ['success']]
     end
   end
@@ -67,17 +67,17 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
     end
 
     describe Otto::Security::RoleStrategy do
-      let(:strategy) { Otto::Security::RoleStrategy.new(['admin', 'editor']) }
+      let(:strategy) { Otto::Security::RoleStrategy.new(%w[admin editor]) }
 
       it 'authenticates users with required role' do
         env = mock_rack_env
-        env['rack.session'] = { 'user_roles' => ['admin', 'user'] }
+        env['rack.session'] = { 'user_roles' => %w[admin user] }
 
         result = strategy.authenticate(env, 'role:admin')
 
         expect(result).to be_success
         expect(result.user_context).to eq(
-          user_roles: ['admin', 'user'],
+          user_roles: %w[admin user],
           required_role: 'admin'
         )
       end
@@ -103,7 +103,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
     end
 
     describe Otto::Security::APIKeyStrategy do
-      let(:strategy) { Otto::Security::APIKeyStrategy.new(api_keys: ['secret123', 'key456']) }
+      let(:strategy) { Otto::Security::APIKeyStrategy.new(api_keys: %w[secret123 key456]) }
 
       it 'authenticates with valid API key in header' do
         env = mock_rack_env(headers: { 'X-API-Key' => 'secret123' })
@@ -143,17 +143,17 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
     end
 
     describe Otto::Security::PermissionStrategy do
-      let(:strategy) { Otto::Security::PermissionStrategy.new(['read', 'write', 'admin']) }
+      let(:strategy) { Otto::Security::PermissionStrategy.new(%w[read write admin]) }
 
       it 'authenticates users with required permission' do
         env = mock_rack_env
-        env['rack.session'] = { 'user_permissions' => ['read', 'write'] }
+        env['rack.session'] = { 'user_permissions' => %w[read write] }
 
         result = strategy.authenticate(env, 'permission:write')
 
         expect(result).to be_success
         expect(result.user_context).to eq(
-          user_permissions: ['read', 'write'],
+          user_permissions: %w[read write],
           required_permission: 'write'
         )
       end
@@ -179,8 +179,8 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
       config = {
         auth_strategies: {
           'authenticated' => Otto::Security::SessionStrategy.new,
-          'publically' => Otto::Security::PublicStrategy.new
-        }
+          'publically' => Otto::Security::PublicStrategy.new,
+        },
       }
       Otto::Security::AuthenticationMiddleware.new(test_app, config)
     end
@@ -189,7 +189,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
       env = mock_rack_env
       # No route_definition in env - should pass through
 
-      status, headers, body = middleware.call(env)
+      status, _, body = middleware.call(env)
 
       expect(status).to eq(200)
       expect(body).to eq(['success'])
@@ -200,7 +200,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
       public_route = Otto::RouteDefinition.new('GET', '/', 'TestApp.index')
       env['otto.route_definition'] = public_route
 
-      status, headers, body = middleware.call(env)
+      status, _, body = middleware.call(env)
 
       expect(status).to eq(200)
       expect(body).to eq(['success'])
@@ -225,7 +225,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
       env['rack.session'] = { 'user_id' => 123 }
       env['otto.route_definition'] = route_definition
 
-      status, headers, body = middleware.call(env)
+      status, _, body = middleware.call(env)
 
       expect(status).to eq(200)
       expect(body).to eq(['success'])
@@ -237,7 +237,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
       unknown_route = Otto::RouteDefinition.new('GET', '/unknown', 'TestApp.test auth=unknown_strategy')
       env['otto.route_definition'] = unknown_route
 
-      status, headers, body = middleware.call(env)
+      status, _, body = middleware.call(env)
 
       expect(status).to eq(401)
       response_data = JSON.parse(body.first)
@@ -251,8 +251,8 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
         auth_strategies: {
           'role' => Otto::Security::RoleStrategy.new(['admin']),
           'permission' => Otto::Security::PermissionStrategy.new(['write']),
-          'custom_admin' => Otto::Security::RoleStrategy.new(['superuser'])
-        }
+          'custom_admin' => Otto::Security::RoleStrategy.new(['superuser']),
+        },
       }
       Otto::Security::AuthenticationMiddleware.new(test_app, config)
     end
@@ -301,7 +301,7 @@ RSpec.describe Otto, 'authentication configuration' do
     it 'configures authentication strategies' do
       strategies = {
         'authenticated' => Otto::Security::SessionStrategy.new,
-        'publically' => Otto::Security::PublicStrategy.new
+        'publically' => Otto::Security::PublicStrategy.new,
       }
 
       otto.configure_auth_strategies(strategies)
@@ -343,7 +343,7 @@ RSpec.describe Otto, 'authentication configuration' do
     it 'configures authentication from initialization options' do
       strategies = {
         'authenticated' => Otto::Security::SessionStrategy.new,
-        'api_key' => Otto::Security::APIKeyStrategy.new
+        'api_key' => Otto::Security::APIKeyStrategy.new,
       }
 
       routes_file = create_test_routes_file('auth_routes.txt', ['GET / TestApp.index'])

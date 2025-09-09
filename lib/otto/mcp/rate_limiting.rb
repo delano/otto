@@ -138,10 +138,9 @@ class Otto
 
         # Add MCP-specific defaults
         mcp_config = base_config.merge({
-          mcp_requests_per_minute: 60,
+                                         mcp_requests_per_minute: 60,
           tool_calls_per_minute: 20,
-        },
-                                      )
+                                       })
 
         RateLimiter.configure_rack_attack!(mcp_config)
       end

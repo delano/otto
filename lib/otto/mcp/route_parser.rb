@@ -6,16 +6,12 @@ class Otto
         # Note: The path parameter is ignored for MCP routes - resource_uri comes from definition
         parts = definition.split(/\s+/, 3)
 
-        if parts[0] != 'MCP'
-          raise ArgumentError, "Expected MCP keyword, got: #{parts[0]}"
-        end
+        raise ArgumentError, "Expected MCP keyword, got: #{parts[0]}" if parts[0] != 'MCP'
 
         resource_uri       = parts[1]
         handler_definition = parts[2]
 
-        unless resource_uri && handler_definition
-          raise ArgumentError, "Invalid MCP route format: #{definition}"
-        end
+        raise ArgumentError, "Invalid MCP route format: #{definition}" unless resource_uri && handler_definition
 
         # Clean up URI - remove leading slash if present since MCP URIs are relative
         resource_uri = resource_uri.sub(%r{^/}, '')
@@ -33,16 +29,12 @@ class Otto
         # Note: The path parameter is ignored for TOOL routes - tool_name comes from definition
         parts = definition.split(/\s+/, 3)
 
-        if parts[0] != 'TOOL'
-          raise ArgumentError, "Expected TOOL keyword, got: #{parts[0]}"
-        end
+        raise ArgumentError, "Expected TOOL keyword, got: #{parts[0]}" if parts[0] != 'TOOL'
 
         tool_name          = parts[1]
         handler_definition = parts[2]
 
-        unless tool_name && handler_definition
-          raise ArgumentError, "Invalid TOOL route format: #{definition}"
-        end
+        raise ArgumentError, "Invalid TOOL route format: #{definition}" unless tool_name && handler_definition
 
         # Clean up tool name - remove leading slash if present
         tool_name = tool_name.sub(%r{^/}, '')
@@ -70,9 +62,7 @@ class Otto
         # First part is the handler class.method
         parts[1..-1]&.each do |part|
           key, value = part.split('=', 2)
-          if key && value
-            options[key.to_sym] = value
-          end
+          options[key.to_sym] = value if key && value
         end
 
         options

@@ -48,7 +48,7 @@ class Otto
       session_opts = opts.merge(
         secure: true,
         httponly: true,
-        samesite: :strict,
+        samesite: :strict
       )
 
       # Remove expiration-related options for session cookies
@@ -109,9 +109,7 @@ class Otto
       headers['content-type'] ||= content_type
 
       # Warn if CSP header already exists but don't skip
-      if headers['content-security-policy']
-        warn 'CSP header already set, overriding with nonce-based policy'
-      end
+      warn 'CSP header already set, overriding with nonce-based policy' if headers['content-security-policy']
 
       # Get security configuration
       security_config = opts[:security_config] ||

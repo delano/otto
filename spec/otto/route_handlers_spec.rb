@@ -45,9 +45,9 @@ RSpec.describe Otto::RouteHandlers do
 
         unknown_definition = test_route_definition.new
 
-        expect {
+        expect do
           described_class.create_handler(unknown_definition)
-        }.to raise_error(ArgumentError, /Unknown handler kind: unknown/)
+        end.to raise_error(ArgumentError, /Unknown handler kind: unknown/)
       end
     end
   end
@@ -59,9 +59,9 @@ RSpec.describe Otto::RouteHandlers do
       it 'raises NotImplementedError' do
         env = {}
 
-        expect {
+        expect do
           handler.call(env)
-        }.to raise_error(NotImplementedError, /Subclasses must implement #call/)
+        end.to raise_error(NotImplementedError, /Subclasses must implement #call/)
       end
     end
   end
@@ -102,7 +102,7 @@ RSpec.describe Otto::RouteHandlers do
         'PATH_INFO' => '/logic',
         'QUERY_STRING' => '',
         'rack.input' => StringIO.new,
-        'otto.auth_result' => OpenStruct.new(session: { user_id: 123 }, user: { name: 'Test User' })
+        'otto.auth_result' => OpenStruct.new(session: { user_id: 123 }, user: { name: 'Test User' }),
       }
     end
 
@@ -127,7 +127,7 @@ RSpec.describe Otto::RouteHandlers do
         # Make the logic class raise an error
         allow_any_instance_of(TestLogic).to receive(:process).and_raise(StandardError, 'Test error')
 
-        status, headers, body = handler.call(env)
+        status, _, body = handler.call(env)
 
         expect(status).to eq(500)
         expect(body.first).to include('An error occurred. Please try again later.')
@@ -137,7 +137,7 @@ RSpec.describe Otto::RouteHandlers do
         allow(Otto).to receive(:env?).with(:dev, :development).and_return(true)
         allow_any_instance_of(TestLogic).to receive(:process).and_raise(StandardError, 'Test error')
 
-        status, headers, body = handler.call(env)
+        status, _, body = handler.call(env)
 
         expect(status).to eq(500)
         expect(body.first).to include('Server error (ID:')
@@ -156,7 +156,7 @@ RSpec.describe Otto::RouteHandlers do
       end
 
       def index
-        @response.write("Instance method called")
+        @response.write('Instance method called')
         { controller: 'instance', method: 'index' }
       end
     end
@@ -171,7 +171,7 @@ RSpec.describe Otto::RouteHandlers do
         'REQUEST_METHOD' => 'GET',
         'PATH_INFO' => '/instance',
         'QUERY_STRING' => '',
-        'rack.input' => StringIO.new
+        'rack.input' => StringIO.new,
       }
     end
 
@@ -181,7 +181,7 @@ RSpec.describe Otto::RouteHandlers do
 
     describe '#call' do
       it 'calls instance method correctly' do
-        status, headers, body = handler.call(env)
+        status, _, body = handler.call(env)
 
         expect(status).to eq(200)
         expect(body).to include('Instance method called')
@@ -190,7 +190,7 @@ RSpec.describe Otto::RouteHandlers do
       it 'handles errors gracefully' do
         allow_any_instance_of(TestController).to receive(:index).and_raise(StandardError, 'Controller error')
 
-        status, headers, body = handler.call(env)
+        status, _, body = handler.call(env)
 
         expect(status).to eq(500)
         expect(body.first).to include('An error occurred. Please try again later.')
@@ -201,8 +201,8 @@ RSpec.describe Otto::RouteHandlers do
   describe Otto::RouteHandlers::ClassMethodHandler do
     # Create a mock controller class for testing
     class TestClassController
-      def self.index(request, response)
-        response.write("Class method called")
+      def self.index(_request, response)
+        response.write('Class method called')
         { controller: 'class', method: 'index' }
       end
     end
@@ -217,7 +217,7 @@ RSpec.describe Otto::RouteHandlers do
         'REQUEST_METHOD' => 'GET',
         'PATH_INFO' => '/class',
         'QUERY_STRING' => '',
-        'rack.input' => StringIO.new
+        'rack.input' => StringIO.new,
       }
     end
 
@@ -227,7 +227,7 @@ RSpec.describe Otto::RouteHandlers do
 
     describe '#call' do
       it 'calls class method correctly' do
-        status, headers, body = handler.call(env)
+        status, _, body = handler.call(env)
 
         expect(status).to eq(200)
         expect(body).to include('Class method called')
@@ -236,7 +236,7 @@ RSpec.describe Otto::RouteHandlers do
       it 'handles errors gracefully' do
         allow(TestClassController).to receive(:index).and_raise(StandardError, 'Class method error')
 
-        status, headers, body = handler.call(env)
+        status, _, body = handler.call(env)
 
         expect(status).to eq(500)
         expect(body.first).to include('An error occurred. Please try again later.')
@@ -247,8 +247,8 @@ RSpec.describe Otto::RouteHandlers do
   describe 'Integration with Otto::Route' do
     # Create test classes with unique names to avoid conflicts
     class RouteHandlerTestApp
-      def self.index(request, response)
-        response.write("Hello from TestApp")
+      def self.index(_request, response)
+        response.write('Hello from TestApp')
         'success'
       end
     end
@@ -260,7 +260,7 @@ RSpec.describe Otto::RouteHandlers do
       end
 
       def show
-        @response.write("Instance method response")
+        @response.write('Instance method response')
         'instance_success'
       end
     end
@@ -279,10 +279,10 @@ RSpec.describe Otto::RouteHandlers do
         'REQUEST_METHOD' => 'GET',
         'PATH_INFO' => '/test',
         'QUERY_STRING' => '',
-        'rack.input' => StringIO.new
+        'rack.input' => StringIO.new,
       }
 
-      status, headers, body = route.call(env)
+      status, _, body = route.call(env)
 
       expect(status).to eq(200)
       expect(body).to include('Hello from TestApp')
@@ -294,9 +294,9 @@ RSpec.describe Otto::RouteHandlers do
         def self.create_handler(route_definition, otto_instance = nil)
           # Always return a simple test handler
           Class.new(Otto::RouteHandlers::BaseHandler) do
-            def call(env, extra_params = {})
+            def call(_env, _extra_params = {})
               res = Rack::Response.new
-              res.write("Custom handler response")
+              res.write('Custom handler response')
               res.finish
             end
           end.new(route_definition, otto_instance)
@@ -311,10 +311,10 @@ RSpec.describe Otto::RouteHandlers do
         'REQUEST_METHOD' => 'GET',
         'PATH_INFO' => '/custom',
         'QUERY_STRING' => '',
-        'rack.input' => StringIO.new
+        'rack.input' => StringIO.new,
       }
 
-      status, headers, body = route.call(env)
+      status, _, body = route.call(env)
 
       expect(status).to eq(200)
       expect(body).to include('Custom handler response')

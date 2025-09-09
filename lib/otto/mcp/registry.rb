@@ -59,8 +59,8 @@ class Otto
               text: content.to_s,
             }],
           }
-        rescue StandardError => ex
-          Otto.logger.error "[MCP] Resource read error for #{uri}: #{ex.message}"
+        rescue StandardError => e
+          Otto.logger.error "[MCP] Resource read error for #{uri}: #{e.message}"
           nil
         end
       end

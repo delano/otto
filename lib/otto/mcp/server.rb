@@ -68,10 +68,10 @@ class Otto
         end
 
         # Configure validation last (most expensive)
-        if @enable_validation
-          @otto_instance.use Otto::MCP::ValidationMiddleware
-          Otto.logger.debug '[MCP] Request validation enabled' if Otto.debug
-        end
+        return unless @enable_validation
+
+        @otto_instance.use Otto::MCP::ValidationMiddleware
+        Otto.logger.debug '[MCP] Request validation enabled' if Otto.debug
       end
 
       def add_mcp_endpoint_route
@@ -106,11 +106,11 @@ class Otto
 
         # Create resource handler
         handler = lambda do
-            klass = Object.const_get(klass_name)
-            klass.public_send(method_name)
-        rescue StandardError => ex
-            Otto.logger.error "[MCP] Resource handler error for #{uri}: #{ex.message}"
-            raise
+          klass = Object.const_get(klass_name)
+          klass.public_send(method_name)
+        rescue StandardError => e
+          Otto.logger.error "[MCP] Resource handler error for #{uri}: #{e.message}"
+          raise
         end
 
         # Register with protocol registry
@@ -119,7 +119,7 @@ class Otto
           extract_name_from_uri(uri),
           "Resource: #{uri}",
           'text/plain',
-          handler,
+          handler
         )
 
         Otto.logger.debug "[MCP] Registered resource: #{uri} -> #{handler_def}" if Otto.debug
@@ -146,7 +146,7 @@ class Otto
           name,
           "Tool: #{name}",
           input_schema,
-          "#{klass_name}.#{method_name}",
+          "#{klass_name}.#{method_name}"
         )
 
         Otto.logger.debug "[MCP] Registered tool: #{name} -> #{handler_def}" if Otto.debug

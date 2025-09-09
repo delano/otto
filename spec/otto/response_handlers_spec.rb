@@ -7,7 +7,7 @@ RSpec.describe Otto::ResponseHandlers do
     let(:response) { Rack::Response.new }
 
     it 'sets JSON content type' do
-      Otto::ResponseHandlers::JSONHandler.handle({message: 'test'}, response)
+      Otto::ResponseHandlers::JSONHandler.handle({ message: 'test' }, response)
 
       expect(response['Content-Type']).to eq('application/json')
     end
@@ -173,7 +173,7 @@ RSpec.describe Otto::ResponseHandlers do
     it 'chooses JSONHandler for hash results' do
       allow(Otto::ResponseHandlers::JSONHandler).to receive(:handle)
 
-      Otto::ResponseHandlers::AutoHandler.handle({data: 'test'}, response)
+      Otto::ResponseHandlers::AutoHandler.handle({ data: 'test' }, response)
 
       expect(Otto::ResponseHandlers::JSONHandler).to have_received(:handle)
     end

@@ -22,21 +22,21 @@ RSpec.describe Otto do
 
     # Verify we have at least the core test files
     core_patterns = [
-      /_spec\.rb$/,           # All files should end with _spec.rb
-      /initialization_spec/,   # Core initialization tests
-      /routing_spec/,         # Core routing tests
-      /security_spec/         # Core security tests
+      /_spec\.rb$/, # All files should end with _spec.rb
+      /initialization_spec/, # Core initialization tests
+      /routing_spec/, # Core routing tests
+      /security_spec/, # Core security tests
     ]
 
     core_patterns.each do |pattern|
       matching_files = actual_files.select { |f| f.match?(pattern) }
       expect(matching_files).not_to be_empty,
-        "Expected to find test files matching pattern #{pattern.inspect}"
+                                    "Expected to find test files matching pattern #{pattern.inspect}"
     end
 
     # Ensure minimum test file count (prevents accidental deletion of test suites)
     expect(actual_files.size).to be >= 8,
-      "Expected at least 8 test files, found #{actual_files.size}"
+                                 "Expected at least 8 test files, found #{actual_files.size}"
 
     puts "\n=== Otto Test Suite Organization (#{actual_files.size} files) ==="
     actual_files.each { |file| puts "  ✓ #{file}" }

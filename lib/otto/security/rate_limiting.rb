@@ -13,9 +13,7 @@ class Otto
         return unless defined?(Rack::Attack)
 
         # Use provided cache store or default
-        if config[:cache_store]
-          Rack::Attack.cache.store = config[:cache_store]
-        end
+        Rack::Attack.cache.store = config[:cache_store] if config[:cache_store]
 
         # Default rules
         default_requests_per_minute = config.fetch(:requests_per_minute, 100)

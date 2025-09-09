@@ -112,11 +112,11 @@ class Otto
       return '' if text.nil?
 
       text.to_s
-        .gsub('&', '&amp;')
-        .gsub('<', '&lt;')
-        .gsub('>', '&gt;')
-        .gsub('"', '&quot;')
-        .gsub("'", '&#x27;')
+          .gsub('&', '&amp;')
+          .gsub('<', '&lt;')
+          .gsub('>', '&gt;')
+          .gsub('"', '&quot;')
+          .gsub("'", '&#x27;')
     end
 
     def otto_styles

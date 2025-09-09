@@ -43,11 +43,11 @@ class App
     message = req.params['msg']&.strip
 
     content = if message.nil? || message.empty?
-      otto_alert('error', 'Empty Message', 'Please enter a message before submitting.')
-    else
-      otto_alert('success', 'Feedback Received', 'Thanks for your message!') +
-        otto_card('Your Message') { otto_code_block(message, 'text') }
-    end
+                otto_alert('error', 'Empty Message', 'Please enter a message before submitting.')
+              else
+                otto_alert('success', 'Feedback Received', 'Thanks for your message!') +
+                  otto_card('Your Message') { otto_code_block(message, 'text') }
+              end
 
     content += "<p>#{otto_link('← Back', '/')}</p>"
     res.body = otto_page(content, 'Feedback')

@@ -46,10 +46,10 @@ RSpec.describe Otto::Route, 'enhanced route parsing' do
       expect(route.verb).to eq(:GET)
       expect(route.path).to eq('/api/users')
       expect(route.route_options).to eq({
-        auth: 'api_key',
+                                          auth: 'api_key',
         response: 'json',
-        csrf: 'exempt'
-      })
+        csrf: 'exempt',
+                                        })
       expect(route.klass.name).to eq('TestApp')
       expect(route.name).to eq('api_users')
       expect(route.kind).to eq(:class)
@@ -59,9 +59,9 @@ RSpec.describe Otto::Route, 'enhanced route parsing' do
       route = Otto::Route.new('GET', '/admin', 'V2::Logic::Admin::Panel auth=role:admin response=view')
 
       expect(route.route_options).to eq({
-        auth: 'role:admin',
-        response: 'view'
-      })
+                                          auth: 'role:admin',
+        response: 'view',
+                                        })
       expect(route.klass.name).to eq('V2::Logic::Admin::Panel')
       expect(route.name).to eq('Panel')
       expect(route.kind).to eq(:class)
@@ -104,9 +104,9 @@ RSpec.describe Otto::Route, 'enhanced route parsing' do
       app.call(env)
 
       expect(captured_env['otto.route_options']).to eq({
-        auth: 'authenticated',
-        response: 'json'
-      })
+                                                         auth: 'authenticated',
+        response: 'json',
+                                                       })
     end
   end
 end

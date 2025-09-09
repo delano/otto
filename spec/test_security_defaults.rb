@@ -7,7 +7,7 @@
 require_relative '../lib/otto'
 
 def test_safe_defaults
-  puts "Testing Otto security defaults..."
+  puts 'Testing Otto security defaults...'
 
   # Create Otto with default configuration
   otto = Otto.new
@@ -18,10 +18,10 @@ def test_safe_defaults
   default_headers.each { |k, v| puts "  #{k}: #{v}" }
 
   # Verify dangerous headers are NOT present by default
-  dangerous_headers = [
-    'strict-transport-security',
-    'content-security-policy',
-    'x-frame-options'
+  dangerous_headers = %w[
+    strict-transport-security
+    content-security-policy
+    x-frame-options
   ]
 
   dangerous_present = dangerous_headers.select { |h| default_headers.key?(h) }
@@ -34,16 +34,16 @@ def test_safe_defaults
   end
 
   # Verify safe headers ARE present
-  safe_headers = [
-    'x-content-type-options',
-    'x-xss-protection',
-    'referrer-policy'
+  safe_headers = %w[
+    x-content-type-options
+    x-xss-protection
+    referrer-policy
   ]
 
   safe_missing = safe_headers.reject { |h| default_headers.key?(h) }
 
   if safe_missing.empty?
-    puts "✓ PASS: All safe headers present by default"
+    puts '✓ PASS: All safe headers present by default'
   else
     puts "✗ FAIL: Safe headers missing: #{safe_missing.join(', ')}"
     return false
@@ -55,37 +55,37 @@ def test_safe_defaults
   # Test HSTS
   otto.enable_hsts!
   if otto.security_config.security_headers['strict-transport-security']
-    puts "✓ PASS: HSTS can be enabled explicitly"
+    puts '✓ PASS: HSTS can be enabled explicitly'
   else
-    puts "✗ FAIL: HSTS not enabled when requested"
+    puts '✗ FAIL: HSTS not enabled when requested'
     return false
   end
 
   # Test CSP
   otto.enable_csp!
   if otto.security_config.security_headers['content-security-policy']
-    puts "✓ PASS: CSP can be enabled explicitly"
+    puts '✓ PASS: CSP can be enabled explicitly'
   else
-    puts "✗ FAIL: CSP not enabled when requested"
+    puts '✗ FAIL: CSP not enabled when requested'
     return false
   end
 
   # Test Frame Protection
   otto.enable_frame_protection!
   if otto.security_config.security_headers['x-frame-options']
-    puts "✓ PASS: X-Frame-Options can be enabled explicitly"
+    puts '✓ PASS: X-Frame-Options can be enabled explicitly'
   else
-    puts "✗ FAIL: X-Frame-Options not enabled when requested"
+    puts '✗ FAIL: X-Frame-Options not enabled when requested'
     return false
   end
 
   # Test custom HSTS options
   otto2 = Otto.new
-  otto2.enable_hsts!(max_age: 86400, include_subdomains: false)
+  otto2.enable_hsts!(max_age: 86_400, include_subdomains: false)
   hsts_value = otto2.security_config.security_headers['strict-transport-security']
 
   if hsts_value == 'max-age=86400'
-    puts "✓ PASS: Custom HSTS options work correctly"
+    puts '✓ PASS: Custom HSTS options work correctly'
   else
     puts "✗ FAIL: Custom HSTS options not applied correctly (got: #{hsts_value})"
     return false
@@ -98,9 +98,9 @@ def test_safe_defaults
   csp_value = otto3.security_config.security_headers['content-security-policy']
 
   if csp_value == custom_policy
-    puts "✓ PASS: Custom CSP policy applied correctly"
+    puts '✓ PASS: Custom CSP policy applied correctly'
   else
-    puts "✗ FAIL: Custom CSP policy not applied correctly"
+    puts '✗ FAIL: Custom CSP policy not applied correctly'
     return false
   end
 
@@ -112,15 +112,15 @@ def test_backward_compatibility
 
   # Verify that creating Otto instances still works as before
   begin
-    otto1 = Otto.new
-    otto2 = Otto.new(nil, { csrf_protection: true })
-    otto3 = Otto.new(nil, { request_validation: true, trusted_proxies: ['10.0.0.1'] })
+    Otto.new
+    Otto.new(nil, { csrf_protection: true })
+    Otto.new(nil, { request_validation: true, trusted_proxies: ['10.0.0.1'] })
 
-    puts "✓ PASS: All Otto initialization patterns work"
-    return true
-  rescue => e
+    puts '✓ PASS: All Otto initialization patterns work'
+    true
+  rescue StandardError => e
     puts "✗ FAIL: Backward compatibility broken: #{e.message}"
-    return false
+    false
   end
 end
 
@@ -135,33 +135,33 @@ def test_configuration_isolation
 
   if otto1.security_config.security_headers['strict-transport-security'] &&
      !otto2.security_config.security_headers['strict-transport-security']
-    puts "✓ PASS: Security configurations are properly isolated"
-    return true
+    puts '✓ PASS: Security configurations are properly isolated'
+    true
   else
-    puts "✗ FAIL: Security configurations are not isolated between instances"
-    return false
+    puts '✗ FAIL: Security configurations are not isolated between instances'
+    false
   end
 end
 
 # Run all tests
-puts "Otto Security Configuration Test Suite"
-puts "=" * 50
+puts 'Otto Security Configuration Test Suite'
+puts '=' * 50
 
 all_passed = true
 all_passed &= test_safe_defaults
 all_passed &= test_backward_compatibility
 all_passed &= test_configuration_isolation
 
-puts "\n" + "=" * 50
+puts "\n" + ('=' * 50)
 if all_passed
-  puts "🎉 ALL TESTS PASSED - Security defaults are safe!"
+  puts '🎉 ALL TESTS PASSED - Security defaults are safe!'
   puts "\nKey points:"
-  puts "• Dangerous headers (HSTS, CSP, X-Frame-Options) are NOT enabled by default"
-  puts "• Safe headers (X-Content-Type-Options, etc.) ARE enabled by default"
-  puts "• Dangerous headers can be enabled explicitly when needed"
-  puts "• Backward compatibility is maintained"
+  puts '• Dangerous headers (HSTS, CSP, X-Frame-Options) are NOT enabled by default'
+  puts '• Safe headers (X-Content-Type-Options, etc.) ARE enabled by default'
+  puts '• Dangerous headers can be enabled explicitly when needed'
+  puts '• Backward compatibility is maintained'
   exit 0
 else
-  puts "❌ SOME TESTS FAILED - Please review security configuration"
+  puts '❌ SOME TESTS FAILED - Please review security configuration'
   exit 1
 end

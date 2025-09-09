@@ -20,9 +20,7 @@ class Otto
         def extract_token(env)
           # Try Authorization header first (Bearer token)
           auth_header = env['HTTP_AUTHORIZATION']
-          if auth_header&.start_with?('Bearer ')
-            return auth_header[7..]
-          end
+          return auth_header[7..] if auth_header&.start_with?('Bearer ')
 
           # Try X-MCP-Token header
           env['HTTP_X_MCP_TOKEN']
@@ -41,9 +39,7 @@ class Otto
 
           # Get auth instance from security config
           auth = @security_config&.mcp_auth
-          if auth && !auth.authenticate(env)
-            return unauthorized_response
-          end
+          return unauthorized_response if auth && !auth.authenticate(env)
 
           @app.call(env)
         end
@@ -58,15 +54,14 @@ class Otto
 
         def unauthorized_response
           body = JSON.generate({
-            jsonrpc: '2.0',
+                                 jsonrpc: '2.0',
             id: nil,
             error: {
               code: -32_000,
               message: 'Unauthorized',
               data: 'Valid token required',
             },
-          },
-                              )
+                               })
 
           [401, { 'content-type' => 'application/json' }, [body]]
         end

@@ -64,14 +64,13 @@ class Otto
         }
 
         success_response(data['id'], {
-          protocolVersion: '2024-11-05',
+                           protocolVersion: '2024-11-05',
           capabilities: capabilities,
           serverInfo: {
             name: 'Otto MCP Server',
             version: Otto::VERSION,
           },
-        }
-        )
+                         })
       end
 
       def handle_resources_list(data)
@@ -83,9 +82,7 @@ class Otto
         params = data['params'] || {}
         uri    = params['uri']
 
-        unless uri
-          return error_response(data['id'], -32_602, 'Invalid params', 'Missing uri parameter')
-        end
+        return error_response(data['id'], -32_602, 'Invalid params', 'Missing uri parameter') unless uri
 
         resource = @registry.read_resource(uri)
         if resource
@@ -105,26 +102,23 @@ class Otto
         name      = params['name']
         arguments = params['arguments'] || {}
 
-        unless name
-          return error_response(data['id'], -32_602, 'Invalid params', 'Missing name parameter')
-        end
+        return error_response(data['id'], -32_602, 'Invalid params', 'Missing name parameter') unless name
 
         begin
           result = @registry.call_tool(name, arguments, env)
           success_response(data['id'], result)
-        rescue StandardError => ex
-          Otto.logger.error "[MCP] Tool call error: #{ex.message}"
-          error_response(data['id'], -32_603, 'Internal error', ex.message)
+        rescue StandardError => e
+          Otto.logger.error "[MCP] Tool call error: #{e.message}"
+          error_response(data['id'], -32_603, 'Internal error', e.message)
         end
       end
 
       def success_response(id, result)
         body = JSON.generate({
-          jsonrpc: '2.0',
+                               jsonrpc: '2.0',
           id: id,
           result: result,
-        },
-                            )
+                             })
 
         [200, { 'content-type' => 'application/json' }, [body]]
       end
@@ -134,27 +128,26 @@ class Otto
         error[:data] = data if data
 
         body = JSON.generate({
-          jsonrpc: '2.0',
+                               jsonrpc: '2.0',
           id: id,
           error: error,
-        },
-                            )
+                             })
 
         # Map JSON-RPC error codes to appropriate HTTP status codes
         http_status = case code
-                      when -32700..-32600 # Parse error, Invalid Request, Method not found
+                      when -32_700..-32_600 # Parse error, Invalid Request, Method not found
                         400
-                      when -32000         # Server error (generic)
+                      when -32_000         # Server error (generic)
                         500
-                      when -32001         # Resource not found
+                      when -32_001         # Resource not found
                         404
-                      when -32002         # Tool not found
+                      when -32_002         # Tool not found
                         404
-                      when -32601         # Method not found
+                      when -32_601         # Method not found
                         404
-                      when -32602         # Invalid params
+                      when -32_602         # Invalid params
                         400
-                      when -32603         # Internal error
+                      when -32_603         # Internal error
                         500
                       else
                         400 # Default to 400 for other client errors

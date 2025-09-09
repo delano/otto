@@ -17,9 +17,7 @@ class Otto
         # Use Loofah for HTML sanitization and validation
         unless allow_html
           # Check for script injection first (these should always be rejected)
-          if looks_like_script_injection?(input_str)
-            raise Otto::Security::ValidationError, 'Dangerous content detected'
-          end
+          raise Otto::Security::ValidationError, 'Dangerous content detected' if looks_like_script_injection?(input_str)
 
           # Use Loofah to sanitize less dangerous HTML content
           sanitized_input = Loofah.fragment(input_str).scrub!(:whitewash).to_s
@@ -28,9 +26,7 @@ class Otto
 
         # Always check for SQL injection
         ValidationMiddleware::SQL_INJECTION_PATTERNS.each do |pattern|
-          if input_str.match?(pattern)
-            raise Otto::Security::ValidationError, 'Potential SQL injection detected'
-          end
+          raise Otto::Security::ValidationError, 'Potential SQL injection detected' if input_str.match?(pattern)
         end
 
         input_str
@@ -71,7 +67,7 @@ class Otto
         dangerous_patterns = [
           /javascript:/i,
           /<script[^>]*>/i,
-          /on\w+\s*=/i,  # event handlers like onclick=
+          /on\w+\s*=/i, # event handlers like onclick=
           /expression\s*\(/i,
           /data:.*base64/i,
         ]

@@ -60,7 +60,7 @@ RSpec.describe Otto, 'MCP Route Parsing' do
         definition = 'MCP files/test TestHandler.handle'
 
         expect(Otto.logger).to receive(:error)
-          .with("[MCP] Failed to parse MCP route: #{definition} - undefined method 'register_mcp_route' for nil")
+          .with(/\[MCP\] Failed to parse MCP route: #{Regexp.escape(definition)} - undefined method [`']register_mcp_route[`'] for nil/)
 
         app.send(:handle_mcp_route, 'GET', '/resource', definition)
       end
@@ -171,7 +171,7 @@ RSpec.describe Otto, 'MCP Route Parsing' do
         definition = 'TOOL search_files SearchTool.execute'
 
         expect(Otto.logger).to receive(:error)
-          .with("[MCP] Failed to parse TOOL route: #{definition} - undefined method 'register_mcp_route' for nil")
+          .with(/\[MCP\] Failed to parse TOOL route: #{Regexp.escape(definition)} - undefined method [`']register_mcp_route[`'] for nil/)
 
         app.send(:handle_tool_route, 'POST', '/tool', definition)
       end

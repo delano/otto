@@ -1,3 +1,5 @@
+# examples/helpers_demo/app.rb
+
 require 'otto'
 require 'json'
 

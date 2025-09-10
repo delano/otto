@@ -1,4 +1,4 @@
-# examples/basic/app.rb (Streamlined with Design System)
+# examples/basic/app.rb
 
 require_relative '../../lib/otto/design_system'
 
@@ -47,9 +47,7 @@ class App
     res.body = otto_page(content, 'Feedback')
   end
 
-  def redirect
-    res.redirect '/robots.txt'
-  end
+  def redirect = res.redirect('/robots.txt')
 
   def robots_text
     res.headers['content-type'] = 'text/plain'

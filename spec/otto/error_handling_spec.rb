@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# spec/otto/error_handling_spec.rb
 
 require 'spec_helper'
 
@@ -75,7 +76,7 @@ RSpec.describe Otto, 'Error Handling' do
 
         response = custom_error_app.send(:handle_error, error, env)
 
-        expect(response[0]).to eq(200)  # Route handler should return 200, not 500
+        expect(response[0]).to eq(200) # Route handler should return 200, not 500
         expect(response[2].join).to match(/Custom error page \(ID: [a-f0-9]{16}\)/)
         expect(env['otto.error_id']).to match(/^[a-f0-9]{16}$/)
       end

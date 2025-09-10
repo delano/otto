@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # lib/concurrent_cache_store.rb
 
 require 'concurrent-ruby'

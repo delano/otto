@@ -1,3 +1,5 @@
+# spec/otto/middleware_stack_synchronization_spec.rb
+
 require 'spec_helper'
 
 RSpec.describe 'Middleware Stack Synchronization' do
@@ -76,7 +78,7 @@ RSpec.describe 'Middleware Stack Synchronization' do
   end
 
   describe 'middleware execution' do
-    let(:base_app) { ->(env) { [200, {}, ['base']] } }
+    let(:base_app) { ->(_env) { [200, {}, ['base']] } }
 
     it 'uses middleware stack when available' do
       otto.middleware.add(TestExecutionMiddleware)

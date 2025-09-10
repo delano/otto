@@ -1,3 +1,5 @@
+# spec/otto/locale_config_spec.rb
+
 require 'spec_helper'
 
 RSpec.describe Otto, 'locale configuration' do

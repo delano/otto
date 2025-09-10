@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# spec/otto/rate_limiting_spec.rb
 
 require 'spec_helper'
 

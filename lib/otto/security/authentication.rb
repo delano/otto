@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # lib/otto/security/authentication.rb
 #
 # Configurable authentication strategy system for Otto framework

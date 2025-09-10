@@ -1,3 +1,6 @@
+# frozen_string_literal: true
+# lib/otto/mcp/validation.rb
+
 require 'json'
 
 begin

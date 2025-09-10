@@ -1,3 +1,6 @@
+# frozen_string_literal: true
+# lib/otto/mcp/registry.rb
+
 class Otto
   module MCP
     class Registry

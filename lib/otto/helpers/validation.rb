@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # lib/otto/helpers/validation.rb
 
 class Otto

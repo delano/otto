@@ -1,3 +1,5 @@
+# spec/otto/middleware_args_edge_cases_spec.rb
+
 require 'spec_helper'
 
 RSpec.describe 'Middleware Args Edge Cases' do
@@ -44,7 +46,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
   end
 
   let(:proc_middleware) do
-    ->(app) do
+    lambda do |app|
       Class.new do
         attr_reader :app
 
@@ -69,7 +71,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
     it 'injects security_config into known security middleware' do
       otto.middleware.add(Otto::Security::CSRFMiddleware)
 
-      base_app = ->(env) { [200, {}, ['base']] }
+      base_app = ->(_env) { [200, {}, ['base']] }
       app = otto.middleware.build_app(base_app, security_config)
 
       expect(app.security_config).to eq(security_config)
@@ -79,7 +81,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
     it 'does not inject security_config into regular middleware' do
       otto.middleware.add(RegularMiddleware)
 
-      base_app = ->(env) { [200, {}, ['base']] }
+      base_app = ->(_env) { [200, {}, ['base']] }
       app = otto.middleware.build_app(base_app, security_config)
 
       expect(app.args).to be_empty
@@ -89,7 +91,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
     it 'injects security_config before custom args for security middleware' do
       otto.middleware.add(Otto::Security::ValidationMiddleware, 'custom_arg', option: 'value')
 
-      base_app = ->(env) { [200, {}, ['base']] }
+      base_app = ->(_env) { [200, {}, ['base']] }
       app = otto.middleware.build_app(base_app, security_config)
 
       expect(app.security_config).to eq(security_config)
@@ -100,17 +102,17 @@ RSpec.describe 'Middleware Args Edge Cases' do
     it 'preserves custom args for regular middleware' do
       otto.middleware.add(RegularMiddleware, 'arg1', 'arg2', option: 'value')
 
-      base_app = ->(env) { [200, {}, ['base']] }
+      base_app = ->(_env) { [200, {}, ['base']] }
       app = otto.middleware.build_app(base_app, security_config)
 
-      expect(app.args).to eq(['arg1', 'arg2'])
+      expect(app.args).to eq(%w[arg1 arg2])
       expect(app.options).to eq(option: 'value')
     end
 
     it 'handles proc-based middleware correctly' do
       otto.middleware.add(proc_middleware)
 
-      base_app = ->(env) { [200, {}, ['base']] }
+      base_app = ->(_env) { [200, {}, ['base']] }
       app = otto.middleware.build_app(base_app, security_config)
 
       expect(app.app).to eq(base_app)
@@ -157,7 +159,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       otto.middleware.add(RegularMiddleware, 'regular_arg')
       otto.middleware.add(Otto::Security::CSRFMiddleware, 'csrf_arg')
 
-      base_app = ->(env) { [200, {}, ['base']] }
+      base_app = ->(_env) { [200, {}, ['base']] }
 
       # Build the middleware chain
       app = otto.middleware.build_app(base_app, security_config)
@@ -171,7 +173,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       otto.middleware.add(Otto::Security::CSRFMiddleware)
       otto.middleware.add(RegularMiddleware)
 
-      base_app = ->(env) { [200, {}, ['base']] }
+      base_app = ->(_env) { [200, {}, ['base']] }
       app = otto.middleware.build_app(base_app, security_config)
 
       expect(app).to be_a(regular_middleware)
@@ -181,7 +183,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
     it 'handles middleware with only keyword arguments' do
       otto.middleware.add(RegularMiddleware, option1: 'value1', option2: 'value2')
 
-      base_app = ->(env) { [200, {}, ['base']] }
+      base_app = ->(_env) { [200, {}, ['base']] }
       app = otto.middleware.build_app(base_app, security_config)
 
       expect(app.args).to be_empty
@@ -192,7 +194,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
   describe 'error handling in middleware building' do
     let(:faulty_middleware) do
       Class.new do
-        def initialize(app, *args, **options)
+        def initialize(_app, *_args, **_options)
           raise StandardError, 'Middleware initialization failed'
         end
       end
@@ -201,11 +203,11 @@ RSpec.describe 'Middleware Args Edge Cases' do
     it 'propagates middleware initialization errors' do
       otto.middleware.add(faulty_middleware)
 
-      base_app = ->(env) { [200, {}, ['base']] }
+      base_app = ->(_env) { [200, {}, ['base']] }
 
-      expect {
+      expect do
         otto.middleware.build_app(base_app, security_config)
-      }.to raise_error(StandardError, 'Middleware initialization failed')
+      end.to raise_error(StandardError, 'Middleware initialization failed')
     end
   end
 
@@ -217,7 +219,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
     it 'handles nil security_config gracefully' do
       otto.middleware.add(Otto::Security::CSRFMiddleware, 'custom_arg')
 
-      base_app = ->(env) { [200, {}, ['base']] }
+      base_app = ->(_env) { [200, {}, ['base']] }
       app = otto.middleware.build_app(base_app, nil)
 
       # Should still work, just without security config injection
@@ -228,7 +230,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
     it 'handles regular middleware with nil security_config' do
       otto.middleware.add(regular_middleware, 'arg')
 
-      base_app = ->(env) { [200, {}, ['base']] }
+      base_app = ->(_env) { [200, {}, ['base']] }
       app = otto.middleware.build_app(base_app, nil)
 
       expect(app.args).to eq(['arg'])
@@ -251,7 +253,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       expect(otto.middleware.middleware_list).to eq([Middleware1, Middleware2, Middleware3])
 
       # But execution follows standard Rack behavior (last added wraps the others)
-      base_app = ->(env) { [200, {}, ['base']] }
+      base_app = ->(_env) { [200, {}, ['base']] }
       app = otto.middleware.build_app(base_app, security_config)
 
       # The outermost middleware should be the last one added

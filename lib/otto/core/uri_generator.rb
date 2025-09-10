@@ -1,3 +1,6 @@
+# frozen_string_literal: true
+# lib/otto/core/uri_generator.rb
+
 require 'uri'
 
 class Otto
@@ -27,8 +30,10 @@ class Otto
 
         uri = URI::HTTP.new(nil, nil, nil, nil, nil, local_path, nil, nil, nil)
         unless local_params.empty?
-          query_string = local_params.map { |k, v| "#{URI.encode_www_form_component(k)}=#{URI.encode_www_form_component(v)}" }.join('&')
-          uri.query    = query_string
+          query_string = local_params.map do |k, v|
+            "#{URI.encode_www_form_component(k)}=#{URI.encode_www_form_component(v)}"
+          end.join('&')
+          uri.query = query_string
         end
         uri.to_s
       end

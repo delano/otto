@@ -1,4 +1,4 @@
-# examples/security_features/app.rb (Updated with Design System)
+# examples/security_features/app.rb
 
 require_relative '../../lib/otto/design_system'
 

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # lib/otto/helpers/base.rb
 
 class Otto

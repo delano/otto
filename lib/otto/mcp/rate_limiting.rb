@@ -1,3 +1,6 @@
+# frozen_string_literal: true
+# lib/otto/mcp/rate_limiting.rb
+
 require 'json'
 
 require_relative '../security/rate_limiting'

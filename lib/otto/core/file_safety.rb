@@ -1,3 +1,6 @@
+# frozen_string_literal: true
+# lib/otto/core/file_safety.rb
+
 class Otto
   module Core
     module FileSafety

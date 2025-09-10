@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# spec/otto/mcp_route_parsing_spec.rb
 
 require 'spec_helper'
 
@@ -8,7 +9,7 @@ RSpec.describe Otto, 'MCP Route Parsing' do
   before do
     # Mock the required MCP classes
     stub_const('Otto::MCP::RouteParser', Class.new do
-      def self.parse_mcp_route(verb, path, definition)
+      def self.parse_mcp_route(_verb, _path, definition)
         parts = definition.split(/\s+/, 3)
 
         raise ArgumentError, "Expected MCP keyword, got: #{parts[0]}" if parts[0] != 'MCP'
@@ -29,7 +30,7 @@ RSpec.describe Otto, 'MCP Route Parsing' do
         }
       end
 
-      def self.parse_tool_route(verb, path, definition)
+      def self.parse_tool_route(_verb, _path, definition)
         parts = definition.split(/\s+/, 3)
 
         raise ArgumentError, "Expected TOOL keyword, got: #{parts[0]}" if parts[0] != 'TOOL'
@@ -77,19 +78,19 @@ RSpec.describe Otto, 'MCP Route Parsing' do
         expect(Otto::MCP::RouteParser).to receive(:parse_mcp_route)
           .with('GET', '/resource', definition)
           .and_return({
-            type: :mcp_resource,
+                        type: :mcp_resource,
             resource_uri: 'files/test',
             handler: 'TestHandler.handle',
-            options: {}
-          })
+            options: {},
+                      })
 
         expect(app.instance_variable_get(:@mcp_server)).to receive(:register_mcp_route)
           .with({
-            type: :mcp_resource,
+                  type: :mcp_resource,
             resource_uri: 'files/test',
             handler: 'TestHandler.handle',
-            options: {}
-          })
+            options: {},
+                })
 
         allow(Otto.logger).to receive(:debug)
 
@@ -102,11 +103,11 @@ RSpec.describe Otto, 'MCP Route Parsing' do
 
         definition = 'MCP files/test TestHandler.handle'
         allow(Otto::MCP::RouteParser).to receive(:parse_mcp_route).and_return({
-          type: :mcp_resource,
+                                                                                type: :mcp_resource,
           resource_uri: 'files/test',
           handler: 'TestHandler.handle',
-          options: {}
-        })
+          options: {},
+                                                                              })
         allow(app.instance_variable_get(:@mcp_server)).to receive(:register_mcp_route)
 
         expect(Otto.logger).to receive(:debug).with("[MCP] Registered resource route: #{definition}")
@@ -131,11 +132,11 @@ RSpec.describe Otto, 'MCP Route Parsing' do
       it 'handles registration errors gracefully and logs them' do
         definition = 'MCP files/test TestHandler.handle'
         allow(Otto::MCP::RouteParser).to receive(:parse_mcp_route).and_return({
-          type: :mcp_resource,
+                                                                                type: :mcp_resource,
           resource_uri: 'files/test',
           handler: 'TestHandler.handle',
-          options: {}
-        })
+          options: {},
+                                                                              })
         allow(app.instance_variable_get(:@mcp_server)).to receive(:register_mcp_route)
           .and_raise(RuntimeError, 'Registration failed')
 
@@ -151,11 +152,11 @@ RSpec.describe Otto, 'MCP Route Parsing' do
         expect(Otto::MCP::RouteParser).to receive(:parse_mcp_route)
           .with('POST', '/api/config', definition)
           .and_return({
-            type: :mcp_resource,
+                        type: :mcp_resource,
             resource_uri: 'config/settings',
             handler: 'ConfigHandler.get_settings',
-            options: {}
-          })
+            options: {},
+                      })
 
         allow(app.instance_variable_get(:@mcp_server)).to receive(:register_mcp_route)
         allow(Otto.logger).to receive(:debug)
@@ -188,19 +189,19 @@ RSpec.describe Otto, 'MCP Route Parsing' do
         expect(Otto::MCP::RouteParser).to receive(:parse_tool_route)
           .with('POST', '/tool', definition)
           .and_return({
-            type: :mcp_tool,
+                        type: :mcp_tool,
             tool_name: 'search_files',
             handler: 'SearchTool.execute',
-            options: {}
-          })
+            options: {},
+                      })
 
         expect(app.instance_variable_get(:@mcp_server)).to receive(:register_mcp_route)
           .with({
-            type: :mcp_tool,
+                  type: :mcp_tool,
             tool_name: 'search_files',
             handler: 'SearchTool.execute',
-            options: {}
-          })
+            options: {},
+                })
 
         allow(Otto.logger).to receive(:debug)
 
@@ -213,11 +214,11 @@ RSpec.describe Otto, 'MCP Route Parsing' do
 
         definition = 'TOOL calculate MathTool.calculate'
         allow(Otto::MCP::RouteParser).to receive(:parse_tool_route).and_return({
-          type: :mcp_tool,
+                                                                                 type: :mcp_tool,
           tool_name: 'calculate',
           handler: 'MathTool.calculate',
-          options: {}
-        })
+          options: {},
+                                                                               })
         allow(app.instance_variable_get(:@mcp_server)).to receive(:register_mcp_route)
 
         expect(Otto.logger).to receive(:debug).with("[MCP] Registered tool route: #{definition}")
@@ -242,11 +243,11 @@ RSpec.describe Otto, 'MCP Route Parsing' do
       it 'handles registration errors gracefully and logs them' do
         definition = 'TOOL file_operations FileOps.process'
         allow(Otto::MCP::RouteParser).to receive(:parse_tool_route).and_return({
-          type: :mcp_tool,
+                                                                                 type: :mcp_tool,
           tool_name: 'file_operations',
           handler: 'FileOps.process',
-          options: {}
-        })
+          options: {},
+                                                                               })
         allow(app.instance_variable_get(:@mcp_server)).to receive(:register_mcp_route)
           .and_raise(RuntimeError, 'Tool registration failed')
 
@@ -262,11 +263,11 @@ RSpec.describe Otto, 'MCP Route Parsing' do
         expect(Otto::MCP::RouteParser).to receive(:parse_tool_route)
           .with('GET', '/api/tools', definition)
           .and_return({
-            type: :mcp_tool,
+                        type: :mcp_tool,
             tool_name: 'database_query',
             handler: 'DbTool.query',
-            options: {}
-          })
+            options: {},
+                      })
 
         allow(app.instance_variable_get(:@mcp_server)).to receive(:register_mcp_route)
         allow(Otto.logger).to receive(:debug)

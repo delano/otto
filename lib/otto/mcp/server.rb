@@ -1,3 +1,6 @@
+# frozen_string_literal: true
+# lib/otto/mcp/server.rb
+
 require_relative 'protocol'
 require_relative 'registry'
 require_relative 'route_parser'
@@ -111,6 +114,7 @@ class Otto
           if method.arity != 0
             raise ArgumentError, "Handler #{klass_name}.#{method_name} must be a zero-arity method for resource #{uri}"
           end
+
           klass.public_send(method_name)
         rescue StandardError => e
           Otto.logger.error "[MCP] Resource handler error for #{uri}: #{e.message}"

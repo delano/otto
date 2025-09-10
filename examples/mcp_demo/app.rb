@@ -1,4 +1,4 @@
-#!/usr/bin/env ruby
+# examples/mcp_demo/app.rb
 
 # Example Otto application with MCP support
 # This demonstrates Phase 1 & 2 implementation

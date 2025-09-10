@@ -1,3 +1,6 @@
+# frozen_string_literal: true
+# lib/otto/mcp/auth/token.rb
+
 require 'json'
 
 class Otto

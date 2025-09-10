@@ -18,6 +18,7 @@ AllCops:
   MaxFilesInCache: 100
   TargetRubyVersion: 3.4
   Exclude:
+    - "spec/**/*"
     - "vendor/**/*"
 
 #

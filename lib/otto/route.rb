@@ -22,6 +22,7 @@ class Otto
   #
   #
   class Route
+    # Class methods for Route providing Otto instance access
     module ClassMethods
       attr_accessor :otto
     end

@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 # lib/otto/core/configuration.rb
 
 require_relative '../security/csrf'
@@ -9,6 +10,7 @@ require_relative '../mcp/server'
 
 class Otto
   module Core
+    # Configuration module providing locale and application configuration methods
     module Configuration
       def configure_locale(opts)
         # Start with global configuration

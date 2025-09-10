@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 # lib/otto/core/middleware_stack.rb
 
 class Otto

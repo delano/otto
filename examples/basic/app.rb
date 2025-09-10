@@ -2,6 +2,7 @@
 
 require_relative '../../lib/otto/design_system'
 
+# Basic example application demonstrating Otto framework features.
 class App
   include Otto::DesignSystem
 

@@ -2,6 +2,7 @@
 
 require_relative '../../lib/otto/design_system'
 
+# Example application demonstrating dynamic routing and JSON endpoints.
 class App
   include Otto::DesignSystem
 

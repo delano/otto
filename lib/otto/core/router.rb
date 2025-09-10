@@ -1,10 +1,12 @@
 # frozen_string_literal: true
+
 # lib/otto/core/router.rb
 
 require_relative '../mcp/route_parser'
 
 class Otto
   module Core
+    # Router module providing route loading and request dispatching functionality
     module Router
       def load(path)
         path = File.expand_path(path)

@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 # lib/otto/core/error_handler.rb
 
 require 'securerandom'
@@ -7,6 +8,7 @@ require 'rack/request'
 
 class Otto
   module Core
+    # Error handling module providing secure error reporting and logging functionality
     module ErrorHandler
       def handle_error(error, env)
         # Log error details internally but don't expose them

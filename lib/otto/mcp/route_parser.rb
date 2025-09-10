@@ -1,8 +1,10 @@
 # frozen_string_literal: true
+
 # lib/otto/mcp/route_parser.rb
 
 class Otto
   module MCP
+    # Parser for MCP route definitions and resource URIs
     class RouteParser
       def self.parse_mcp_route(_verb, _path, definition)
         # MCP route format: MCP resource_uri HandlerClass.method_name

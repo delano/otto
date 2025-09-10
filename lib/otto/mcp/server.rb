@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 # lib/otto/mcp/server.rb
 
 require_relative 'protocol'
@@ -10,6 +11,7 @@ require_relative 'rate_limiting'
 
 class Otto
   module MCP
+    # MCP server implementation providing Model Context Protocol endpoints
     class Server
       attr_reader :protocol, :otto_instance
 

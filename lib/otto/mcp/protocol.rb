@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 # lib/otto/mcp/protocol.rb
 
 require 'json'
@@ -6,6 +7,7 @@ require_relative 'registry'
 
 class Otto
   module MCP
+    # MCP protocol handler providing Model Context Protocol functionality
     class Protocol
       attr_reader :registry
 

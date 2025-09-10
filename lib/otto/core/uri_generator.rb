@@ -1,10 +1,12 @@
 # frozen_string_literal: true
+
 # lib/otto/core/uri_generator.rb
 
 require 'uri'
 
 class Otto
   module Core
+    # URI generation module providing path and URL generation for route definitions
     module UriGenerator
       # Return the URI path for the given +route_definition+
       # e.g.

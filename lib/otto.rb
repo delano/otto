@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 # lib/otto.rb
 
 require 'json'
@@ -344,6 +345,7 @@ class Otto
     attr_accessor :debug, :logger, :global_config # rubocop:disable ThreadSafety/ClassAndModuleAttributes
   end
 
+  # Class methods for Otto framework providing singleton access and configuration
   module ClassMethods
     def default
       @default ||= Otto.new

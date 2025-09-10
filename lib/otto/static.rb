@@ -3,6 +3,7 @@
 # lib/otto/static.rb
 
 class Otto
+  # Static response utilities for common HTTP responses
   module Static
     extend self
 

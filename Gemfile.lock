@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    otto (1.6.1.pre.pre1)
+    otto (2.0.0.pre.pre1)
       facets (~> 3.1)
       loofah (~> 2.20)
       ostruct

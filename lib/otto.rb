@@ -87,53 +87,6 @@ class Otto
     :security_config, :locale_config, :auth_config, :route_handler_factory, :mcp_server, :security, :middleware
   attr_accessor :not_found, :server_error
 
-  # Legacy middleware_stack proxy methods - delegate to new MiddlewareStack
-  def middleware_stack
-    @middleware_stack
-  end
-
-  def middleware_stack=(stack)
-    # Replace the entire middleware stack
-    @middleware.clear! if @middleware
-    stack.each { |middleware| @middleware.add(middleware) } if @middleware && stack
-  end
-
-  # Internal proxy class for legacy @middleware_stack instance variable compatibility
-  class MiddlewareStackProxy
-    def initialize(middleware_stack)
-      @middleware_stack = middleware_stack
-    end
-
-    def <<(middleware)
-      result = @middleware_stack.add(middleware)
-      self
-    end
-
-    def ==(other)
-      if other.is_a?(Array)
-        @middleware_stack.middleware_list == other
-      else
-        super
-      end
-    end
-
-    def any?(&block)
-      @middleware_stack.middleware_list.any?(&block)
-    end
-
-    def method_missing(method, *args, &block)
-      if @middleware_stack.middleware_list.respond_to?(method)
-        @middleware_stack.middleware_list.send(method, *args, &block)
-      else
-        super
-      end
-    end
-
-    def respond_to_missing?(method, include_private = false)
-      @middleware_stack.middleware_list.respond_to?(method, include_private) || super
-    end
-  end
-
   def initialize(path = nil, opts = {})
     initialize_core_state
     initialize_options(path, opts)
@@ -147,11 +100,10 @@ class Otto
 
   # Main Rack application interface
   def call(env)
-    # Apply middleware stack using new middleware stack implementation
+    # Apply middleware stack
     base_app = ->(e) { handle_request(e) }
 
-    # Always use the new middleware stack as the source of truth
-    # The legacy @middleware_stack is kept synchronized via the `use` method
+    # Use the middleware stack as the source of truth
     app = @middleware.build_app(base_app, @security_config)
 
     begin
@@ -161,9 +113,25 @@ class Otto
     end
   end
 
-  # Middleware Management - maintain backwards compatibility
+  # Middleware Management
   def use(middleware, ...)
-    @middleware.add(middleware, ...)  # New implementation is the single source of truth
+    @middleware.add(middleware, ...)
+  end
+
+  # Compatibility method for existing tests
+  def middleware_stack
+    @middleware.middleware_list
+  end
+
+  # Compatibility method for existing tests
+  def middleware_stack=(stack)
+    @middleware.clear!
+    Array(stack).each { |middleware| @middleware.add(middleware) }
+  end
+
+  # Compatibility method for middleware detection
+  def middleware_enabled?(middleware_class)
+    @middleware.includes?(middleware_class)
   end
 
   # Security Configuration Methods
@@ -175,7 +143,7 @@ class Otto
   # @example
   #   otto.enable_csrf_protection!
   def enable_csrf_protection!
-    return if middleware_enabled?(Otto::Security::CSRFMiddleware)
+    return if @middleware.includes?(Otto::Security::CSRFMiddleware)
 
     @security_config.enable_csrf_protection!
     use Otto::Security::CSRFMiddleware
@@ -187,7 +155,7 @@ class Otto
   # @example
   #   otto.enable_request_validation!
   def enable_request_validation!
-    return if middleware_enabled?(Otto::Security::ValidationMiddleware)
+    return if @middleware.includes?(Otto::Security::ValidationMiddleware)
 
     @security_config.input_validation = true
     use Otto::Security::ValidationMiddleware
@@ -202,7 +170,7 @@ class Otto
   # @example
   #   otto.enable_rate_limiting!(requests_per_minute: 50)
   def enable_rate_limiting!(options = {})
-    return if middleware_enabled?(Otto::Security::RateLimitMiddleware)
+    return if @middleware.includes?(Otto::Security::RateLimitMiddleware)
 
     @security.configure_rate_limiting(options)
     use Otto::Security::RateLimitMiddleware
@@ -295,7 +263,7 @@ class Otto
   # @example
   #   otto.enable_authentication!
   def enable_authentication!
-    return if middleware_enabled?(Otto::Security::AuthenticationMiddleware)
+    return if @middleware.includes?(Otto::Security::AuthenticationMiddleware)
 
     use Otto::Security::AuthenticationMiddleware, @auth_config
   end
@@ -308,7 +276,11 @@ class Otto
   # @example
   #   otto.add_auth_strategy('custom', MyCustomStrategy.new)
   def add_auth_strategy(name, strategy)
-    # @auth_config is already initialized in initialize_core_state
+    # Ensure auth_config is initialized (handles edge case where it might be nil)
+    if @auth_config.nil?
+      @auth_config = { auth_strategies: {}, default_auth_strategy: 'publicly' }
+    end
+
     @auth_config[:auth_strategies][name] = strategy
 
     enable_authentication!
@@ -344,7 +316,6 @@ class Otto
     @route_definitions = {}
     @security_config   = Otto::Security::Config.new
     @middleware        = Otto::Core::MiddlewareStack.new
-    @middleware_stack  = MiddlewareStackProxy.new(@middleware)  # Legacy compatibility
     # Initialize @auth_config first so it can be shared with the configurator
     @auth_config       = { auth_strategies: {}, default_auth_strategy: 'publicly' }
     @security          = Otto::Security::Configurator.new(@security_config, @middleware, @auth_config)

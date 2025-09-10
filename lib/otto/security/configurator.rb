@@ -160,10 +160,9 @@ class Otto
       # @param strategies [Hash] Hash mapping strategy names to strategy instances
       # @param default_strategy [String] Default strategy to use when none specified
       def configure_auth_strategies(strategies, default_strategy: 'publicly')
-        @auth_config = {
-          auth_strategies: strategies,
-          default_auth_strategy: default_strategy,
-        }
+        # Merge new strategies with existing ones, preserving shared state
+        @auth_config[:auth_strategies].merge!(strategies)
+        @auth_config[:default_auth_strategy] = default_strategy
         enable_authentication! unless strategies.empty?
       end
 

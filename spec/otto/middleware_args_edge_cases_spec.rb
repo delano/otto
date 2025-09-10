@@ -159,12 +159,12 @@ RSpec.describe 'Middleware Args Edge Cases' do
 
       base_app = ->(env) { [200, {}, ['base']] }
 
-      # Mock the chain building by checking the last middleware (first in execution order)
+      # Build the middleware chain
       app = otto.middleware.build_app(base_app, security_config)
 
-      # The outermost middleware should be RegularMiddleware (added first, executed last)
-      expect(app).to be_a(regular_middleware)
-      expect(app.args).to eq(['regular_arg'])
+      # The outermost middleware should be CSRFMiddleware (added last, wraps the previous ones)
+      expect(app).to be_a(Otto::Security::CSRFMiddleware)
+      expect(app.custom_args).to eq(['csrf_arg'])
     end
 
     it 'handles empty args correctly' do
@@ -242,7 +242,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       stub_const('Middleware3', Class.new(regular_middleware))
     end
 
-    it 'preserves middleware order in reverse for execution' do
+    it 'preserves middleware order for execution (last added is outermost)' do
       otto.middleware.add(Middleware1)
       otto.middleware.add(Middleware2)
       otto.middleware.add(Middleware3)
@@ -250,7 +250,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       # Middleware list should be in addition order
       expect(otto.middleware.middleware_list).to eq([Middleware1, Middleware2, Middleware3])
 
-      # But execution should be in reverse order (last added wraps first)
+      # But execution follows standard Rack behavior (last added wraps the others)
       base_app = ->(env) { [200, {}, ['base']] }
       app = otto.middleware.build_app(base_app, security_config)
 

@@ -96,12 +96,12 @@ class Otto
       #   config.add_trusted_proxy(['10.0.0.1', '172.16.0.0/12'])
       def add_trusted_proxy(proxy)
         case proxy
-        when String
+        when String, Regexp
           @trusted_proxies << proxy
         when Array
           @trusted_proxies.concat(proxy)
         else
-          raise ArgumentError, 'Proxy must be a String or Array'
+          raise ArgumentError, 'Proxy must be a String, Regexp, or Array'
         end
       end
 

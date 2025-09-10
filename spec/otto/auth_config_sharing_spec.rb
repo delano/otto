@@ -16,10 +16,10 @@ RSpec.describe 'Auth Config Sharing' do
 
     it 'maintains default auth strategy consistency' do
       # Otto should have default auth strategy
-      expect(otto.security.auth_config[:default_auth_strategy]).to eq('publically')
+      expect(otto.security.auth_config[:default_auth_strategy]).to eq('publicly')
 
       # Should match Otto's auth config
-      expect(otto.auth_config[:default_auth_strategy]).to eq('publically')
+      expect(otto.auth_config[:default_auth_strategy]).to eq('publicly')
     end
 
     it 'updates both configs when adding strategy via Otto' do
@@ -105,9 +105,9 @@ RSpec.describe 'Auth Config Sharing' do
       expect(otto_with_auth.auth_config[:auth_strategies]).to eq(strategies)
       expect(otto_with_auth.auth_config[:default_auth_strategy]).to eq('admin')
 
-      # Check configurator's auth config is properly initialized
-      expect(otto_with_auth.security.auth_config[:auth_strategies]).to eq({})  # Configurator starts fresh
-      expect(otto_with_auth.security.auth_config[:default_auth_strategy]).to eq('publically')
+      # Check configurator's auth config shares the same config as Otto instance
+      expect(otto_with_auth.security.auth_config[:auth_strategies]).to eq(strategies)  # Configurator shares Otto's config
+      expect(otto_with_auth.security.auth_config[:default_auth_strategy]).to eq('admin')
 
       # Middleware should be enabled
       expect(otto_with_auth.middleware_stack).to include(Otto::Security::AuthenticationMiddleware)
@@ -192,19 +192,21 @@ RSpec.describe 'Auth Config Sharing' do
 
       expect(otto.auth_config).to be_a(Hash)
       expect(otto.auth_config[:auth_strategies]['test']).to eq(test_strategy)
-      expect(otto.auth_config[:default_auth_strategy]).to eq('publically')
+      expect(otto.auth_config[:default_auth_strategy]).to eq('publicly')
     end
 
     it 'handles adding multiple strategies' do
       otto.add_auth_strategy('strategy1', test_strategy)
       otto.add_auth_strategy('strategy2', admin_strategy)
 
-      expect(otto.auth_config[:auth_strategies]).to have(2).items
+      expect(otto.auth_config[:auth_strategies]).to have_key('strategy1')
+      expect(otto.auth_config[:auth_strategies]).to have_key('strategy2')
       expect(otto.auth_config[:auth_strategies]['strategy1']).to eq(test_strategy)
       expect(otto.auth_config[:auth_strategies]['strategy2']).to eq(admin_strategy)
 
       # Configurator should track its own additions
-      expect(otto.security.auth_config[:auth_strategies]).to have(2).items
+      expect(otto.security.auth_config[:auth_strategies]).to have_key('strategy1')
+      expect(otto.security.auth_config[:auth_strategies]).to have_key('strategy2')
     end
 
     it 'overwrites existing strategies with same name' do

@@ -397,7 +397,7 @@ RSpec.describe Otto, 'Configuration Methods' do
 
     it 'returns true when middleware is in stack' do
       middleware_class = Class.new
-      app.instance_variable_get(:@middleware_stack) << middleware_class
+      app.middleware.add(middleware_class)
 
       result = app.send(:middleware_enabled?, middleware_class)
 

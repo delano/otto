@@ -14,7 +14,7 @@ RSpec.describe Otto, 'rate limiting features' do
     it 'enables rate limiting with default settings' do
       otto.enable_rate_limiting!
 
-      expect(otto.middleware_stack).to include(Otto::Security::RateLimitMiddleware)
+      expect(otto.middleware.includes?(Otto::Security::RateLimitMiddleware)).to be true
       expect(otto.security_config.rate_limiting_config).to be_a(Hash)
     end
 
@@ -28,7 +28,7 @@ RSpec.describe Otto, 'rate limiting features' do
       otto.enable_rate_limiting!
       otto.enable_rate_limiting!
 
-      middleware_count = otto.middleware_stack.count(Otto::Security::RateLimitMiddleware)
+      middleware_count = otto.middleware.middleware_list.count(Otto::Security::RateLimitMiddleware)
       expect(middleware_count).to eq(1)
     end
   end
@@ -87,21 +87,21 @@ RSpec.describe Otto, 'rate limiting features' do
     it 'enables rate limiting when rate_limiting: true' do
       otto = Otto.new(nil, rate_limiting: true)
 
-      expect(otto.middleware_stack).to include(Otto::Security::RateLimitMiddleware)
+      expect(otto.middleware.includes?(Otto::Security::RateLimitMiddleware)).to be true
     end
 
     it 'configures rate limiting when rate_limiting is a hash' do
       options = { requests_per_minute: 80 }
       otto = Otto.new(nil, rate_limiting: options)
 
-      expect(otto.middleware_stack).to include(Otto::Security::RateLimitMiddleware)
+      expect(otto.middleware.includes?(Otto::Security::RateLimitMiddleware)).to be true
       expect(otto.security_config.rate_limiting_config[:requests_per_minute]).to eq(80)
     end
 
     it 'does not enable rate limiting when rate_limiting is false' do
       otto = Otto.new(nil, rate_limiting: false)
 
-      expect(otto.middleware_stack).not_to include(Otto::Security::RateLimitMiddleware)
+      expect(otto.middleware.includes?(Otto::Security::RateLimitMiddleware)).to be false
     end
   end
 

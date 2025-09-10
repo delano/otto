@@ -183,7 +183,7 @@ RSpec.describe Otto::Security::Config do
 
       it 'raises error for invalid proxy types' do
         expect { config.add_trusted_proxy(123) }
-          .to raise_error(ArgumentError, /Proxy must be a String or Array/)
+          .to raise_error(ArgumentError, /Proxy must be a String, Regexp, or Array/)
       end
     end
 

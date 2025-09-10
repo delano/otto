@@ -8,30 +8,54 @@ class Otto
 
       def initialize
         @stack = []
+        @middleware_set = Set.new
       end
 
-      # Enhanced middleware registration
+      # Enhanced middleware registration with argument uniqueness
       def add(middleware_class, *args, **options)
-        return if includes?(middleware_class)
+        # Check if an identical middleware configuration already exists
+        existing_entry = @stack.find do |entry|
+          entry[:middleware] == middleware_class &&
+            entry[:args] == args &&
+            entry[:options] == options
+        end
 
-        @stack << { middleware: middleware_class, args: args, options: options }
+        # Only add if no identical middleware configuration exists
+        unless existing_entry
+          entry = { middleware: middleware_class, args: args, options: options }
+          @stack << entry
+          @middleware_set.add(middleware_class)
+          # Invalidate memoized middleware list
+          @memoized_middleware_list = nil
+        end
       end
       alias use add
       alias << add
 
       # Remove middleware
       def remove(middleware_class)
-        @stack.reject! { |entry| entry[:middleware] == middleware_class }
+        matches = @stack.reject! { |entry| entry[:middleware] == middleware_class }
+
+        # Update middleware set if any matching entries were found
+        if matches
+          # Rebuild the set of unique middleware classes
+          @middleware_set = Set.new(@stack.map { |entry| entry[:middleware] })
+          # Invalidate memoized middleware list
+          @memoized_middleware_list = nil
+        end
       end
 
-      # Check if middleware is registered
+      # Check if middleware is registered - now O(1) using Set
       def includes?(middleware_class)
-        @stack.any? { |entry| entry[:middleware] == middleware_class }
+        @middleware_set.include?(middleware_class)
       end
 
       # Clear all middleware
       def clear!
         @stack.clear
+        @middleware_set.clear
+        # Invalidate memoized middleware list
+        @memoized_middleware_list = nil
       end
 
       # Enumerable support
@@ -41,17 +65,15 @@ class Otto
 
       # Build Rack application with middleware chain
       def build_app(base_app, security_config = nil)
-        @stack.reverse_each.reduce(base_app) do |app, entry|
+        @stack.reduce(base_app) do |app, entry|
           middleware = entry[:middleware]
           args = entry[:args]
           options = entry[:options]
 
           if middleware.respond_to?(:new)
-            # Standard Rack middleware
-            # Only inject security_config if the middleware needs it AND
-            # no explicit args were provided (to avoid breaking custom configs)
-            if security_config && middleware_needs_config?(middleware) && args.empty?
-              middleware.new(app, security_config, **options)
+            # Inject security_config for security middleware, placing it before custom args
+            if security_config && middleware_needs_config?(middleware)
+              middleware.new(app, security_config, *args, **options)
             else
               middleware.new(app, *args, **options)
             end
@@ -62,9 +84,10 @@ class Otto
         end
       end
 
-      # Legacy compatibility - return middleware classes for existing tests
+      # Cached middleware list to reduce array creation
       def middleware_list
-        @stack.map { |entry| entry[:middleware] }
+        # Memoize the result to avoid repeated array creation
+        @memoized_middleware_list ||= @stack.map { |entry| entry[:middleware] }
       end
 
       # Detailed introspection
@@ -87,6 +110,13 @@ class Otto
         @stack.empty?
       end
 
+      # Count occurrences of a specific middleware class
+      def count(middleware_class)
+        @stack.count { |entry| entry[:middleware] == middleware_class }
+      end
+
+      # Method for checking if a middleware is included is already defined on line 28
+
       # Legacy compatibility methods for existing Otto interface
       def reverse_each(&)
         @stack.reverse_each(&)
@@ -95,12 +125,12 @@ class Otto
       private
 
       def middleware_needs_config?(middleware_class)
-        # AuthenticationMiddleware receives its own auth_config through args,
-        # not the security_config, so it should not be in this list
+        # Include all Otto security middleware that can accept security_config
         [
           Otto::Security::CSRFMiddleware,
           Otto::Security::ValidationMiddleware,
           Otto::Security::RateLimitMiddleware,
+          Otto::Security::AuthenticationMiddleware,
         ].include?(middleware_class)
       end
     end

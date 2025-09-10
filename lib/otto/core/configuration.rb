@@ -63,11 +63,10 @@ class Otto
       end
 
       def configure_authentication(opts)
-        # Configure authentication strategies
-        @auth_config = {
-          auth_strategies: opts[:auth_strategies] || {},
-          default_auth_strategy: opts[:default_auth_strategy] || 'publically'
-        }
+        # Update existing @auth_config rather than creating a new one
+        # to maintain synchronization with the configurator
+        @auth_config[:auth_strategies] = opts[:auth_strategies] if opts[:auth_strategies]
+        @auth_config[:default_auth_strategy] = opts[:default_auth_strategy] if opts[:default_auth_strategy]
 
         # Enable authentication middleware if strategies are configured
         if opts[:auth_strategies] && !opts[:auth_strategies].empty?
@@ -129,13 +128,13 @@ class Otto
       # @param default_strategy [String] Default strategy to use when none specified
       # @example
       #   otto.configure_auth_strategies({
-      #     'publically' => Otto::Security::PublicStrategy.new,
+      #     'publicly' => Otto::Security::PublicStrategy.new,
       #     'authenticated' => Otto::Security::SessionStrategy.new(session_key: 'user_id'),
       #     'role:admin' => Otto::Security::RoleStrategy.new(['admin']),
       #     'api_key' => Otto::Security::APIKeyStrategy.new(api_keys: ['secret123'])
       #   })
-      def configure_auth_strategies(strategies, default_strategy: 'publically')
-        @auth_config ||= {}
+      def configure_auth_strategies(strategies, default_strategy: 'publicly')
+        # Update existing @auth_config rather than creating a new one
         @auth_config[:auth_strategies] = strategies
         @auth_config[:default_auth_strategy] = default_strategy
 
@@ -145,7 +144,8 @@ class Otto
       private
 
       def middleware_enabled?(middleware_class)
-        @middleware_stack.any? { |m| m == middleware_class }
+        # Only check the new middleware stack as the single source of truth
+        @middleware && @middleware.includes?(middleware_class)
       end
     end
   end

@@ -6,7 +6,7 @@
 # Usage:
 #   otto = Otto.new('routes.txt', {
 #     auth_strategies: {
-#       'publically' => PublicStrategy.new,
+#       'publicly' => PublicStrategy.new,
 #       'authenticated' => SessionStrategy.new,
 #       'role:admin' => RoleStrategy.new(['admin']),
 #       'api_key' => APIKeyStrategy.new
@@ -205,10 +205,10 @@ class Otto
         @app = app
         @config = config
         @strategies = config[:auth_strategies] || {}
-        @default_strategy = config[:default_auth_strategy] || 'publically'
+        @default_strategy = config[:default_auth_strategy] || 'publicly'
 
         # Add default public strategy if not provided
-        @strategies['publically'] ||= PublicStrategy.new
+        @strategies['publicly'] ||= PublicStrategy.new
       end
 
       def call(env)

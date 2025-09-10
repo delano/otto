@@ -27,6 +27,8 @@ require_relative 'otto/core/file_safety'
 require_relative 'otto/core/configuration'
 require_relative 'otto/core/error_handler'
 require_relative 'otto/core/uri_generator'
+require_relative 'otto/core/middleware_stack'
+require_relative 'otto/security/configurator'
 require_relative 'otto/utils'
 
 # Otto is a simple Rack router that allows you to define routes in a file
@@ -82,8 +84,8 @@ class Otto
 
 
   attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route,
-    :security_config, :locale_config, :auth_config, :route_handler_factory, :mcp_server
-  attr_accessor :not_found, :server_error, :middleware_stack
+    :security_config, :locale_config, :auth_config, :route_handler_factory, :mcp_server, :security, :middleware
+  attr_accessor :not_found, :server_error
 
   def initialize(path = nil, opts = {})
     initialize_core_state
@@ -99,10 +101,10 @@ class Otto
   # Main Rack application interface
   def call(env)
     # Apply middleware stack
-    app = ->(e) { handle_request(e) }
-    @middleware_stack.reverse_each do |middleware|
-      app = middleware.new(app, @security_config)
-    end
+    base_app = ->(e) { handle_request(e) }
+
+    # Use the middleware stack as the source of truth
+    app = @middleware.build_app(base_app, @security_config)
 
     begin
       app.call(env)
@@ -113,7 +115,23 @@ class Otto
 
   # Middleware Management
   def use(middleware, ...)
-    @middleware_stack << middleware
+    @middleware.add(middleware, ...)
+  end
+
+  # Compatibility method for existing tests
+  def middleware_stack
+    @middleware.middleware_list
+  end
+
+  # Compatibility method for existing tests
+  def middleware_stack=(stack)
+    @middleware.clear!
+    Array(stack).each { |middleware| @middleware.add(middleware) }
+  end
+
+  # Compatibility method for middleware detection
+  def middleware_enabled?(middleware_class)
+    @middleware.includes?(middleware_class)
   end
 
   # Security Configuration Methods
@@ -125,7 +143,7 @@ class Otto
   # @example
   #   otto.enable_csrf_protection!
   def enable_csrf_protection!
-    return if middleware_enabled?(Otto::Security::CSRFMiddleware)
+    return if @middleware.includes?(Otto::Security::CSRFMiddleware)
 
     @security_config.enable_csrf_protection!
     use Otto::Security::CSRFMiddleware
@@ -137,7 +155,7 @@ class Otto
   # @example
   #   otto.enable_request_validation!
   def enable_request_validation!
-    return if middleware_enabled?(Otto::Security::ValidationMiddleware)
+    return if @middleware.includes?(Otto::Security::ValidationMiddleware)
 
     @security_config.input_validation = true
     use Otto::Security::ValidationMiddleware
@@ -152,9 +170,9 @@ class Otto
   # @example
   #   otto.enable_rate_limiting!(requests_per_minute: 50)
   def enable_rate_limiting!(options = {})
-    return if middleware_enabled?(Otto::Security::RateLimitMiddleware)
+    return if @middleware.includes?(Otto::Security::RateLimitMiddleware)
 
-    configure_rate_limiting(options)
+    @security.configure_rate_limiting(options)
     use Otto::Security::RateLimitMiddleware
   end
 
@@ -169,7 +187,7 @@ class Otto
   # @example
   #   otto.add_rate_limit_rule('uploads', limit: 5, period: 300, condition: ->(req) { req.post? && req.path.include?('upload') })
   def add_rate_limit_rule(name, options)
-    @security_config.rate_limiting_config[:custom_rules]          ||= {}
+    @security_config.rate_limiting_config[:custom_rules] ||= {}
     @security_config.rate_limiting_config[:custom_rules][name.to_s] = options
   end
 
@@ -245,7 +263,7 @@ class Otto
   # @example
   #   otto.enable_authentication!
   def enable_authentication!
-    return if middleware_enabled?(Otto::Security::AuthenticationMiddleware)
+    return if @middleware.includes?(Otto::Security::AuthenticationMiddleware)
 
     use Otto::Security::AuthenticationMiddleware, @auth_config
   end
@@ -258,7 +276,11 @@ class Otto
   # @example
   #   otto.add_auth_strategy('custom', MyCustomStrategy.new)
   def add_auth_strategy(name, strategy)
-    @auth_config                       ||= { auth_strategies: {}, default_auth_strategy: 'publically' }
+    # Ensure auth_config is initialized (handles edge case where it might be nil)
+    if @auth_config.nil?
+      @auth_config = { auth_strategies: {}, default_auth_strategy: 'publicly' }
+    end
+
     @auth_config[:auth_strategies][name] = strategy
 
     enable_authentication!
@@ -293,7 +315,10 @@ class Otto
     @routes_literal    = { GET: {} }
     @route_definitions = {}
     @security_config   = Otto::Security::Config.new
-    @middleware_stack  = []
+    @middleware        = Otto::Core::MiddlewareStack.new
+    # Initialize @auth_config first so it can be shared with the configurator
+    @auth_config       = { auth_strategies: {}, default_auth_strategy: 'publicly' }
+    @security          = Otto::Security::Configurator.new(@security_config, @middleware, @auth_config)
   end
 
   def initialize_options(path, opts)

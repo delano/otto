@@ -17,7 +17,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
 
       it 'allows all requests' do
         env = mock_rack_env
-        result = strategy.authenticate(env, 'publically')
+        result = strategy.authenticate(env, 'publicly')
 
         expect(result).to be_success
         expect(result.user_context).to eq({})
@@ -179,7 +179,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
       config = {
         auth_strategies: {
           'authenticated' => Otto::Security::SessionStrategy.new,
-          'publically' => Otto::Security::PublicStrategy.new,
+          'publicly' => Otto::Security::PublicStrategy.new,
         },
       }
       Otto::Security::AuthenticationMiddleware.new(test_app, config)
@@ -301,13 +301,13 @@ RSpec.describe Otto, 'authentication configuration' do
     it 'configures authentication strategies' do
       strategies = {
         'authenticated' => Otto::Security::SessionStrategy.new,
-        'publically' => Otto::Security::PublicStrategy.new,
+        'publicly' => Otto::Security::PublicStrategy.new,
       }
 
       otto.configure_auth_strategies(strategies)
 
       expect(otto.auth_config[:auth_strategies]).to eq(strategies)
-      expect(otto.auth_config[:default_auth_strategy]).to eq('publically')
+      expect(otto.auth_config[:default_auth_strategy]).to eq('publicly')
     end
 
     it 'enables authentication middleware when strategies configured' do

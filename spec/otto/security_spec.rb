@@ -81,7 +81,7 @@ RSpec.describe Otto, 'security features' do
 
       it 'adds middleware to the stack' do
         otto.use(test_middleware)
-        expect(otto.middleware_stack).to include(test_middleware)
+        expect(otto.middleware.middleware_list).to include(test_middleware)
       end
 
       it 'maintains middleware order' do
@@ -91,7 +91,7 @@ RSpec.describe Otto, 'security features' do
         otto.use(middleware1)
         otto.use(middleware2)
 
-        expect(otto.middleware_stack).to eq([middleware1, middleware2])
+        expect(otto.middleware.middleware_list).to eq([middleware1, middleware2])
       end
     end
 
@@ -100,14 +100,14 @@ RSpec.describe Otto, 'security features' do
         expect { otto.enable_csrf_protection! }
           .to change { otto.security_config.csrf_enabled? }.from(false).to(true)
 
-        expect(otto.middleware_stack).to include(Otto::Security::CSRFMiddleware)
+        expect(otto.middleware.includes?(Otto::Security::CSRFMiddleware)).to be true
       end
 
       it 'does not add duplicate middleware' do
         otto.enable_csrf_protection!
         otto.enable_csrf_protection!
 
-        csrf_count = otto.middleware_stack.count(Otto::Security::CSRFMiddleware)
+        csrf_count = otto.middleware.middleware_list.count(Otto::Security::CSRFMiddleware)
         expect(csrf_count).to eq(1)
       end
     end
@@ -117,7 +117,7 @@ RSpec.describe Otto, 'security features' do
         otto.enable_request_validation!
 
         expect(otto.security_config.input_validation).to be true
-        expect(otto.middleware_stack).to include(Otto::Security::ValidationMiddleware)
+        expect(otto.middleware.includes?(Otto::Security::ValidationMiddleware)).to be true
       end
     end
   end

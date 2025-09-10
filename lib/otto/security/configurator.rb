@@ -21,6 +21,35 @@ class Otto
       end
 
       # Unified security configuration method with sensible defaults
+      #
+      # Provides a comprehensive, one-stop configuration method for Otto's security features.
+      # This method allows configuring multiple security aspects in a single call, with flexible options.
+      #
+      # @param csrf_protection [Boolean, Hash] Enable CSRF protection
+      #   - `true`: Enable with default settings
+      #   - `Hash`: Provide custom CSRF configuration
+      # @param request_validation [Boolean] Enable input validation and sanitization
+      # @param rate_limiting [Boolean, Hash] Enable rate limiting
+      #   - `true`: Enable with default settings
+      #   - `Hash`: Provide custom rate limiting rules
+      # @param trusted_proxies [String, Array<String>] IP addresses or CIDR ranges to trust
+      # @param security_headers [Hash] Custom security headers to merge with defaults
+      # @param hsts [Boolean] Enable HTTP Strict Transport Security
+      # @param csp [Boolean, String] Enable Content Security Policy
+      # @param frame_protection [Boolean, String] Enable frame protection
+      # @param authentication [Boolean] Enable authentication
+      #
+      # @example Configure multiple security features in one call
+      #   otto.security.configure(
+      #     csrf_protection: true,
+      #     request_validation: true,
+      #     rate_limiting: { requests_per_minute: 100 },
+      #     trusted_proxies: ['10.0.0.0/8'],
+      #     security_headers: { 'x-custom-header' => 'value' },
+      #     hsts: true,
+      #     csp: "default-src 'self'",
+      #     frame_protection: 'SAMEORIGIN'
+      #   )
       def configure(
         csrf_protection: false,
         request_validation: false,

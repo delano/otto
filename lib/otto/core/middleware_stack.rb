@@ -11,8 +11,11 @@ class Otto
         @middleware_set = Set.new
       end
 
-      # Enhanced middleware registration with argument uniqueness
+      # Enhanced middleware registration with argument uniqueness and immutability check
       def add(middleware_class, *args, **options)
+        # Prevent modifications to frozen configurations
+        raise FrozenError, "Cannot modify frozen middleware stack" if frozen?
+
         # Check if an identical middleware configuration already exists
         existing_entry = @stack.find do |entry|
           entry[:middleware] == middleware_class &&
@@ -34,6 +37,9 @@ class Otto
 
       # Remove middleware
       def remove(middleware_class)
+        # Prevent modifications to frozen configurations
+        raise FrozenError, "Cannot modify frozen middleware stack" if frozen?
+
         matches = @stack.reject! { |entry| entry[:middleware] == middleware_class }
 
         # Update middleware set if any matching entries were found
@@ -52,6 +58,9 @@ class Otto
 
       # Clear all middleware
       def clear!
+        # Prevent modifications to frozen configurations
+        raise FrozenError, "Cannot modify frozen middleware stack" if frozen?
+
         @stack.clear
         @middleware_set.clear
         # Invalidate memoized middleware list
@@ -115,7 +124,7 @@ class Otto
         @stack.count { |entry| entry[:middleware] == middleware_class }
       end
 
-      # Method for checking if a middleware is included is already defined on line 28
+      # Note: The includes? method is defined earlier for O(1) lookup using a Set
 
       # Legacy compatibility methods for existing Otto interface
       def reverse_each(&)

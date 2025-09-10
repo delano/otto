@@ -17,7 +17,7 @@ AllCops:
   NewCops: enable
   UseCache: true
   MaxFilesInCache: 100
-  TargetRubyVersion: 3.4
+  TargetRubyVersion: 3.2
   Exclude:
     - "spec/**/*"
     - "vendor/**/*"

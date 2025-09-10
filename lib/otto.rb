@@ -85,7 +85,54 @@ class Otto
 
   attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route,
     :security_config, :locale_config, :auth_config, :route_handler_factory, :mcp_server, :security, :middleware
-  attr_accessor :not_found, :server_error, :middleware_stack
+  attr_accessor :not_found, :server_error
+
+  # Legacy middleware_stack proxy methods - delegate to new MiddlewareStack
+  def middleware_stack
+    @middleware_stack
+  end
+
+  def middleware_stack=(stack)
+    # Replace the entire middleware stack
+    @middleware.clear! if @middleware
+    stack.each { |middleware| @middleware.add(middleware) } if @middleware && stack
+  end
+
+  # Internal proxy class for legacy @middleware_stack instance variable compatibility
+  class MiddlewareStackProxy
+    def initialize(middleware_stack)
+      @middleware_stack = middleware_stack
+    end
+
+    def <<(middleware)
+      result = @middleware_stack.add(middleware)
+      self
+    end
+
+    def ==(other)
+      if other.is_a?(Array)
+        @middleware_stack.middleware_list == other
+      else
+        super
+      end
+    end
+
+    def any?(&block)
+      @middleware_stack.middleware_list.any?(&block)
+    end
+
+    def method_missing(method, *args, &block)
+      if @middleware_stack.middleware_list.respond_to?(method)
+        @middleware_stack.middleware_list.send(method, *args, &block)
+      else
+        super
+      end
+    end
+
+    def respond_to_missing?(method, include_private = false)
+      @middleware_stack.middleware_list.respond_to?(method, include_private) || super
+    end
+  end
 
   def initialize(path = nil, opts = {})
     initialize_core_state
@@ -116,8 +163,7 @@ class Otto
 
   # Middleware Management - maintain backwards compatibility
   def use(middleware, ...)
-    @middleware_stack << middleware  # Legacy support
-    @middleware.add(middleware, ...)  # New implementation
+    @middleware.add(middleware, ...)  # New implementation is the single source of truth
   end
 
   # Security Configuration Methods
@@ -297,8 +343,8 @@ class Otto
     @routes_literal    = { GET: {} }
     @route_definitions = {}
     @security_config   = Otto::Security::Config.new
-    @middleware_stack  = []  # Keep for backwards compatibility
     @middleware        = Otto::Core::MiddlewareStack.new
+    @middleware_stack  = MiddlewareStackProxy.new(@middleware)  # Legacy compatibility
     # Initialize @auth_config first so it can be shared with the configurator
     @auth_config       = { auth_strategies: {}, default_auth_strategy: 'publicly' }
     @security          = Otto::Security::Configurator.new(@security_config, @middleware, @auth_config)

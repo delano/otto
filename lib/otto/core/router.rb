@@ -15,6 +15,8 @@ class Otto
           # Enhanced parsing: split only on first two whitespace boundaries
           # This preserves parameters in the definition part
           parts = entry.split(/\s+/, 3)
+          next if parts.size < 3 # Skip malformed entries
+
           verb = parts[0]
           path = parts[1]
           definition = parts[2]

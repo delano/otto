@@ -207,7 +207,7 @@ class Otto
 
       # Add any header that begins with the specified prefix
       if header_prefix
-        prefix_keys = env.keys.select { it.upcase.start_with?("HTTP_#{header_prefix.upcase}") }
+        prefix_keys = env.keys.select { _1.upcase.start_with?("HTTP_#{header_prefix.upcase}") }
         keys.concat(prefix_keys)
       end
 

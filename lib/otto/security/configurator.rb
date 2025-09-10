@@ -17,7 +17,7 @@ class Otto
         @security_config = security_config
         @middleware_stack = middleware_stack
         # Use provided auth_config or initialize a new one
-        @auth_config = auth_config || { auth_strategies: {}, default_auth_strategy: 'publically' }
+        @auth_config = auth_config || { auth_strategies: {}, default_auth_strategy: 'publicly' }
       end
 
       # Unified security configuration method with sensible defaults
@@ -159,7 +159,7 @@ class Otto
       #
       # @param strategies [Hash] Hash mapping strategy names to strategy instances
       # @param default_strategy [String] Default strategy to use when none specified
-      def configure_auth_strategies(strategies, default_strategy: 'publically')
+      def configure_auth_strategies(strategies, default_strategy: 'publicly')
         @auth_config = {
           auth_strategies: strategies,
           default_auth_strategy: default_strategy,

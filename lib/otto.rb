@@ -300,7 +300,7 @@ class Otto
     @middleware_stack  = []  # Keep for backwards compatibility
     @middleware        = Otto::Core::MiddlewareStack.new
     # Initialize @auth_config first so it can be shared with the configurator
-    @auth_config       = { auth_strategies: {}, default_auth_strategy: 'publically' }
+    @auth_config       = { auth_strategies: {}, default_auth_strategy: 'publicly' }
     @security          = Otto::Security::Configurator.new(@security_config, @middleware, @auth_config)
   end
 

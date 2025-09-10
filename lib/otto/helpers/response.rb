@@ -1,8 +1,11 @@
+# frozen_string_literal: true
+
 # lib/otto/helpers/response.rb
 
 require_relative 'base'
 
 class Otto
+  # Response helper methods providing HTTP response handling utilities
   module ResponseHelpers
     include Otto::BaseHelpers
 

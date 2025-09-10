@@ -1,3 +1,7 @@
+# frozen_string_literal: true
+
+# lib/otto/mcp/validation.rb
+
 require 'json'
 
 begin
@@ -10,6 +14,7 @@ class Otto
   module MCP
     class ValidationError < StandardError; end
 
+    # JSON Schema validator for MCP protocol requests
     class Validator
       def initialize
         @schemas                = {}
@@ -61,6 +66,7 @@ class Otto
       end
     end
 
+    # Middleware for validating MCP protocol requests using JSON schema
     class ValidationMiddleware
       def initialize(app, _security_config = nil)
         @app       = app

@@ -1,6 +1,9 @@
+# frozen_string_literal: true
+
 # lib/otto/helpers/base.rb
 
 class Otto
+  # Base helper methods providing core functionality for Otto applications
   module BaseHelpers
     # Build application path by joining path segments
     #

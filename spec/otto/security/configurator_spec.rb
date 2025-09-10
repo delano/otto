@@ -1,3 +1,5 @@
+# spec/otto/security/configurator_spec.rb
+
 require 'spec_helper'
 
 RSpec.describe Otto::Security::Configurator do
@@ -114,7 +116,7 @@ RSpec.describe Otto::Security::Configurator do
       expect(middleware_stack.includes?(Otto::Security::CSRFMiddleware)).to be true
 
       # Others should remain disabled
-      expect(security_config.input_validation).to be true  # This is enabled by default
+      expect(security_config.input_validation).to be true # This is enabled by default
       expect(middleware_stack.includes?(Otto::Security::ValidationMiddleware)).to be false
       expect(middleware_stack.includes?(Otto::Security::RateLimitMiddleware)).to be false
     end
@@ -177,7 +179,7 @@ RSpec.describe Otto::Security::Configurator do
     let(:strategies) do
       {
         'public' => double('PublicStrategy'),
-        'admin' => double('AdminStrategy')
+        'admin' => double('AdminStrategy'),
       }
     end
 
@@ -222,7 +224,7 @@ RSpec.describe Otto::Security::Configurator do
       end
 
       it 'accepts custom options' do
-        configurator.enable_hsts!(max_age: 86400, include_subdomains: false)
+        configurator.enable_hsts!(max_age: 86_400, include_subdomains: false)
 
         hsts_header = security_config.security_headers['strict-transport-security']
         expect(hsts_header).to eq('max-age=86400')

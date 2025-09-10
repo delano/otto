@@ -1,8 +1,13 @@
+# frozen_string_literal: true
+
+# lib/otto/mcp/auth/token.rb
+
 require 'json'
 
 class Otto
   module MCP
     module Auth
+      # Token-based authentication for MCP protocol endpoints
       class TokenAuth
         def initialize(tokens)
           @tokens = Array(tokens).to_set
@@ -27,6 +32,7 @@ class Otto
         end
       end
 
+      # Middleware for token authentication in MCP protocol
       class TokenMiddleware
         def initialize(app, security_config = nil)
           @app             = app

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # lib/otto/route_handlers.rb
 
 class Otto
@@ -113,10 +115,10 @@ class Otto
 
         # Get the appropriate response handler
         handler_class = case response_type
-                        when 'json' then Otto::ResponseHandlers::JSONHandler
-                        when 'redirect' then Otto::ResponseHandlers::RedirectHandler
-                        when 'view' then Otto::ResponseHandlers::ViewHandler
-                        when 'auto' then Otto::ResponseHandlers::AutoHandler
+                        in 'json' then Otto::ResponseHandlers::JSONHandler
+                        in 'redirect' then Otto::ResponseHandlers::RedirectHandler
+                        in 'view' then Otto::ResponseHandlers::ViewHandler
+                        in 'auto' then Otto::ResponseHandlers::AutoHandler
                         else Otto::ResponseHandlers::DefaultHandler
                         end
 

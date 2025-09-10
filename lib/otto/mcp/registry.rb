@@ -1,5 +1,10 @@
+# frozen_string_literal: true
+
+# lib/otto/mcp/registry.rb
+
 class Otto
   module MCP
+    # Registry for managing MCP resources and tools
     class Registry
       def initialize
         @resources = {}

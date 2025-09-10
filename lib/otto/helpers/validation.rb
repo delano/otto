@@ -1,7 +1,10 @@
+# frozen_string_literal: true
+
 # lib/otto/helpers/validation.rb
 
 class Otto
   module Security
+    # Validation helper methods providing input validation and sanitization
     module ValidationHelpers
       def validate_input(input, max_length: 1000, allow_html: false)
         return input if input.nil?

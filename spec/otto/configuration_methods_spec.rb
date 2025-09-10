@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# spec/otto/configuration_methods_spec.rb
 
 require 'spec_helper'
 
@@ -16,12 +17,12 @@ RSpec.describe Otto, 'Configuration Methods' do
     context 'with direct instance options' do
       it 'sets available_locales from direct options' do
         app = Otto.new
-        opts = { available_locales: ['en', 'es', 'fr'] }
+        opts = { available_locales: %w[en es fr] }
 
         app.send(:configure_locale, opts)
 
         config = app.instance_variable_get(:@locale_config)
-        expect(config[:available_locales]).to eq(['en', 'es', 'fr'])
+        expect(config[:available_locales]).to eq(%w[en es fr])
       end
 
       it 'sets default_locale from direct options' do
@@ -37,14 +38,14 @@ RSpec.describe Otto, 'Configuration Methods' do
       it 'sets both available_locales and default_locale' do
         app = Otto.new
         opts = {
-          available_locales: ['en', 'jp'],
-          default_locale: 'jp'
+          available_locales: %w[en jp],
+          default_locale: 'jp',
         }
 
         app.send(:configure_locale, opts)
 
         config = app.instance_variable_get(:@locale_config)
-        expect(config[:available_locales]).to eq(['en', 'jp'])
+        expect(config[:available_locales]).to eq(%w[en jp])
         expect(config[:default_locale]).to eq('jp')
       end
     end
@@ -52,9 +53,9 @@ RSpec.describe Otto, 'Configuration Methods' do
     context 'with global configuration' do
       before do
         allow(Otto).to receive(:global_config).and_return({
-          available_locales: ['en', 'de'],
-          default_locale: 'de'
-        })
+                                                            available_locales: %w[en de],
+          default_locale: 'de',
+                                                          })
       end
 
       after do
@@ -66,21 +67,21 @@ RSpec.describe Otto, 'Configuration Methods' do
         app.send(:configure_locale, {})
 
         config = app.instance_variable_get(:@locale_config)
-        expect(config[:available_locales]).to eq(['en', 'de'])
+        expect(config[:available_locales]).to eq(%w[en de])
         expect(config[:default_locale]).to eq('de')
       end
 
       it 'allows instance options to override global config' do
         app = Otto.new
         opts = {
-          available_locales: ['en', 'it'],
-          default_locale: 'it'
+          available_locales: %w[en it],
+          default_locale: 'it',
         }
 
         app.send(:configure_locale, opts)
 
         config = app.instance_variable_get(:@locale_config)
-        expect(config[:available_locales]).to eq(['en', 'it'])
+        expect(config[:available_locales]).to eq(%w[en it])
         expect(config[:default_locale]).to eq('it')
       end
     end
@@ -90,36 +91,36 @@ RSpec.describe Otto, 'Configuration Methods' do
         app = Otto.new
         opts = {
           locale_config: {
-            available_locales: ['en', 'pt']
-          }
+            available_locales: %w[en pt],
+          },
         }
 
         app.send(:configure_locale, opts)
 
         config = app.instance_variable_get(:@locale_config)
-        expect(config[:available_locales]).to eq(['en', 'pt'])
+        expect(config[:available_locales]).to eq(%w[en pt])
       end
 
       it 'supports legacy available key (alias)' do
         app = Otto.new
         opts = {
           locale_config: {
-            available: ['en', 'ru']
-          }
+            available: %w[en ru],
+          },
         }
 
         app.send(:configure_locale, opts)
 
         config = app.instance_variable_get(:@locale_config)
-        expect(config[:available_locales]).to eq(['en', 'ru'])
+        expect(config[:available_locales]).to eq(%w[en ru])
       end
 
       it 'supports legacy default_locale key' do
         app = Otto.new
         opts = {
           locale_config: {
-            default_locale: 'ru'
-          }
+            default_locale: 'ru',
+          },
         }
 
         app.send(:configure_locale, opts)
@@ -132,8 +133,8 @@ RSpec.describe Otto, 'Configuration Methods' do
         app = Otto.new
         opts = {
           locale_config: {
-            default: 'pt'
-          }
+            default: 'pt',
+          },
         }
 
         app.send(:configure_locale, opts)
@@ -146,15 +147,15 @@ RSpec.describe Otto, 'Configuration Methods' do
         app = Otto.new
         opts = {
           locale_config: {
-            available_locales: ['en', 'zh'],
-            available: ['en', 'ko']
-          }
+            available_locales: %w[en zh],
+            available: %w[en ko],
+          },
         }
 
         app.send(:configure_locale, opts)
 
         config = app.instance_variable_get(:@locale_config)
-        expect(config[:available_locales]).to eq(['en', 'zh'])
+        expect(config[:available_locales]).to eq(%w[en zh])
       end
 
       it 'prioritizes default_locale over default' do
@@ -162,8 +163,8 @@ RSpec.describe Otto, 'Configuration Methods' do
         opts = {
           locale_config: {
             default_locale: 'zh',
-            default: 'ko'
-          }
+            default: 'ko',
+          },
         }
 
         app.send(:configure_locale, opts)
@@ -263,12 +264,12 @@ RSpec.describe Otto, 'Configuration Methods' do
       expect(app).to receive(:set_security_headers).with({ 'X-Test' => 'value' })
 
       app.send(:configure_security, {
-        csrf_protection: true,
+                 csrf_protection: true,
         request_validation: true,
         rate_limiting: true,
         trusted_proxies: '127.0.0.1',
-        security_headers: { 'X-Test' => 'value' }
-      })
+        security_headers: { 'X-Test' => 'value' },
+               })
     end
   end
 
@@ -378,9 +379,9 @@ RSpec.describe Otto, 'Configuration Methods' do
       expect(server_double).to receive(:enable!).with({ http_endpoint: '/custom-mcp' })
 
       app.send(:configure_mcp, {
-        mcp_enabled: true,
-        mcp_endpoint: '/custom-mcp'
-      })
+                 mcp_enabled: true,
+        mcp_endpoint: '/custom-mcp',
+               })
     end
   end
 

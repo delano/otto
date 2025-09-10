@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # lib/otto/security/config.rb
 
 require 'securerandom'

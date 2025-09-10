@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # lib/otto/route_definition.rb
 
 class Otto

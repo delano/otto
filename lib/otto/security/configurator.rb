@@ -1,3 +1,7 @@
+# frozen_string_literal: true
+
+# lib/otto/security/configurator.rb
+
 require_relative 'csrf'
 require_relative 'validator'
 require_relative 'authentication'

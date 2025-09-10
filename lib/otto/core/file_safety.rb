@@ -1,5 +1,10 @@
+# frozen_string_literal: true
+
+# lib/otto/core/file_safety.rb
+
 class Otto
   module Core
+    # File safety module providing secure file access validation and path traversal protection
     module FileSafety
       def safe_file?(path)
         return false if option[:public].nil? || option[:public].empty?

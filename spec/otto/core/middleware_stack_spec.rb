@@ -1,3 +1,5 @@
+# spec/otto/core/middleware_stack_spec.rb
+
 require 'spec_helper'
 
 RSpec.describe Otto::Core::MiddlewareStack do
@@ -23,7 +25,7 @@ RSpec.describe Otto::Core::MiddlewareStack do
       details = stack.middleware_details
       expect(details.first).to include(
         middleware: test_middleware1,
-        args: ['arg1', 'arg2'],
+        args: %w[arg1 arg2],
         options: { option: 'value' }
       )
     end
@@ -72,7 +74,7 @@ RSpec.describe Otto::Core::MiddlewareStack do
 
       expect(details[1]).to include(
         middleware: test_middleware2,
-        args: ['arg2', 'arg3'],
+        args: %w[arg2 arg3],
         options: { option2: 'value2' }
       )
     end
@@ -185,7 +187,7 @@ RSpec.describe Otto::Core::MiddlewareStack do
   end
 
   describe '#build_app' do
-    let(:base_app) { ->(env) { [200, {}, ['base']] } }
+    let(:base_app) { ->(_env) { [200, {}, ['base']] } }
     let(:security_config) { instance_double('Otto::Security::Config', csrf_enabled?: true) }
 
     # Mock middleware that tracks initialization
@@ -198,9 +200,9 @@ RSpec.describe Otto::Core::MiddlewareStack do
           @args = args
           @options = options
           # Detect if security_config was passed (should be first argument for security middleware)
-          if args.first && args.first.respond_to?(:csrf_enabled?)
-            @config = args.first
-          end
+          return unless args.first && args.first.respond_to?(:csrf_enabled?)
+
+          @config = args.first
         end
 
         def call(env)

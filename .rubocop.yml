@@ -9,6 +9,7 @@
 # https://docs.rubocop.org/rubocop/cops.html
 #
 plugins:
+  - rubocop-rspec
   - rubocop-performance
   - rubocop-thread_safety
 
@@ -16,8 +17,9 @@ AllCops:
   NewCops: enable
   UseCache: true
   MaxFilesInCache: 100
-  TargetRubyVersion: 3.4
+  TargetRubyVersion: 3.2
   Exclude:
+    - "spec/**/*"
     - "vendor/**/*"
 
 #
@@ -87,4 +89,8 @@ Style/FrozenStringLiteralComment:
   Enabled: false
 
 Naming/MemoizedInstanceVariableName:
+  Enabled: false
+
+# We use class instance vars sparingly at load time
+ThreadSafety/ClassInstanceVariable:
   Enabled: false

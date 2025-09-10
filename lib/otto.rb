@@ -1,3 +1,7 @@
+# frozen_string_literal: true
+
+# lib/otto.rb
+
 require 'json'
 require 'logger'
 require 'ostruct'
@@ -61,11 +65,11 @@ class Otto
 
   LIB_HOME = __dir__ unless defined?(Otto::LIB_HOME)
 
-  @debug = case ENV['OTTO_DEBUG']
+  @debug = case ENV.fetch('OTTO_DEBUG', nil)
            in 'true' | '1' | 'yes' | 'on'
              true
            else
-             defined?(Otto::Utils) ? Otto::Utils.yes?(ENV['OTTO_DEBUG']) : false
+             defined?(Otto::Utils) ? Otto::Utils.yes?(ENV.fetch('OTTO_DEBUG', nil)) : false
            end
   @logger        = Logger.new($stdout, Logger::INFO)
   @global_config = nil
@@ -82,9 +86,8 @@ class Otto
     @global_config = config.to_h
   end
 
-
   attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route,
-    :security_config, :locale_config, :auth_config, :route_handler_factory, :mcp_server, :security, :middleware
+              :security_config, :locale_config, :auth_config, :route_handler_factory, :mcp_server, :security, :middleware
   attr_accessor :not_found, :server_error
 
   def initialize(path = nil, opts = {})
@@ -176,7 +179,6 @@ class Otto
     use Otto::Security::RateLimitMiddleware
   end
 
-
   # Add a custom rate limiting rule.
   #
   # @param name [String, Symbol] Rule name
@@ -256,7 +258,6 @@ class Otto
     @security_config.enable_csp_with_nonce!(debug: debug)
   end
 
-
   # Enable authentication middleware for route-level access control.
   # This will automatically check route auth parameters and enforce authentication.
   #
@@ -268,7 +269,6 @@ class Otto
     use Otto::Security::AuthenticationMiddleware, @auth_config
   end
 
-
   # Add a single authentication strategy
   #
   # @param name [String] Strategy name
@@ -277,9 +277,7 @@ class Otto
   #   otto.add_auth_strategy('custom', MyCustomStrategy.new)
   def add_auth_strategy(name, strategy)
     # Ensure auth_config is initialized (handles edge case where it might be nil)
-    if @auth_config.nil?
-      @auth_config = { auth_strategies: {}, default_auth_strategy: 'publicly' }
-    end
+    @auth_config = { auth_strategies: {}, default_auth_strategy: 'publicly' } if @auth_config.nil?
 
     @auth_config[:auth_strategies][name] = strategy
 
@@ -321,7 +319,7 @@ class Otto
     @security          = Otto::Security::Configurator.new(@security_config, @middleware, @auth_config)
   end
 
-  def initialize_options(path, opts)
+  def initialize_options(_path, opts)
     @option = {
       public: nil,
       locale: 'en',
@@ -347,6 +345,7 @@ class Otto
     attr_accessor :debug, :logger, :global_config # rubocop:disable ThreadSafety/ClassAndModuleAttributes
   end
 
+  # Class methods for Otto framework providing singleton access and configuration
   module ClassMethods
     def default
       @default ||= Otto.new

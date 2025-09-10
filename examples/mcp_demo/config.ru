@@ -2,6 +2,7 @@
 
 require_relative '../../lib/otto'
 
+# Demonstration application showing Otto MCP capabilities
 class DemoApp
   def self.index(_req, res)
     res.body = <<-HTML
@@ -31,6 +32,7 @@ class DemoApp
   end
 end
 
+# Simple API class for demonstration of MCP user management tools
 class UserAPI
   def self.mcp_list_users
     {

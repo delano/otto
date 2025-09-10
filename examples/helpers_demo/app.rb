@@ -1,6 +1,9 @@
+# examples/helpers_demo/app.rb
+
 require 'otto'
 require 'json'
 
+# Demonstration of Otto's request and response helper methods.
 class HelpersDemo
   def initialize(req, res)
     @req = req

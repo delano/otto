@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # lib/otto/security/csrf.rb
 
 require 'securerandom'

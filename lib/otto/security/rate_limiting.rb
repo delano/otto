@@ -1,3 +1,7 @@
+# frozen_string_literal: true
+
+# lib/otto/security/rate_limiting.rb
+
 require 'json'
 
 begin
@@ -8,6 +12,7 @@ end
 
 class Otto
   module Security
+    # Rate limiting implementation using Rack::Attack
     class RateLimiting
       def self.configure_rack_attack!(config = {})
         return unless defined?(Rack::Attack)
@@ -78,6 +83,7 @@ class Otto
       end
     end
 
+    # Middleware for applying rate limiting to HTTP requests
     class RateLimitMiddleware
       def initialize(app, security_config = nil)
         @app = app

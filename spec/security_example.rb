@@ -1,4 +1,4 @@
-#!/usr/bin/env ruby
+# spec/security_example.rb
 # Security Configuration Example for Otto
 #
 # This example demonstrates how to configure Otto's security features safely.
@@ -49,9 +49,9 @@ if ENV['RACK_ENV'] == 'production'
 
   # Add additional security headers
   production_otto.set_security_headers({
-                                         'permissions-policy' => 'geolocation=(), microphone=(), camera=()',
-    'cross-origin-opener-policy' => 'same-origin-allow-popups',
-    'cross-origin-embedder-policy' => 'unsafe-none',
+                                         'permissions-policy': 'geolocation=(), microphone=(), camera=()',
+    'cross-origin-opener-policy': 'same-origin-allow-popups',
+    'cross-origin-embedder-policy': 'unsafe-none',
                                        })
 end
 
@@ -85,10 +85,10 @@ api_otto = Otto.new('api_routes.txt', {
 
 # API services might want different security headers
 api_otto.set_security_headers({
-                                'x-frame-options' => 'DENY',
-  'access-control-allow-origin' => 'https://yourdomain.com',
-  'access-control-allow-methods' => 'GET, POST, PUT, DELETE',
-  'access-control-allow-headers' => 'Content-Type, Authorization',
+                                'x-frame-options': 'DENY',
+  'access-control-allow-origin': 'https://yourdomain.com',
+  'access-control-allow-methods': 'GET, POST, PUT, DELETE',
+  'access-control-allow-headers': 'Content-Type, Authorization',
                               })
 
 # Example: High-security application

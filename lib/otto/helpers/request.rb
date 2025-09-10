@@ -1,8 +1,11 @@
+# frozen_string_literal: true
+
 # lib/otto/helpers/request.rb
 
 require_relative 'base'
 
 class Otto
+  # Request helper methods providing HTTP request handling utilities
   module RequestHelpers
     include Otto::BaseHelpers
 
@@ -205,7 +208,7 @@ class Otto
 
       # Add any header that begins with the specified prefix
       if header_prefix
-        prefix_keys = env.keys.select { |key| key.upcase.start_with?("HTTP_#{header_prefix.upcase}") }
+        prefix_keys = env.keys.select { _1.upcase.start_with?("HTTP_#{header_prefix.upcase}") }
         keys.concat(prefix_keys)
       end
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env ruby
+# spec/test_security_defaults.rb
 # Test script to verify Otto's safe security defaults
 #
 # This script verifies that dangerous security headers are not enabled

@@ -1,6 +1,9 @@
+# frozen_string_literal: true
+
 # lib/otto/utils.rb
 
 class Otto
+  # Utility methods for common operations and helpers
   module Utils
     extend self
 

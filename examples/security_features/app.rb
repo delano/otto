@@ -1,7 +1,8 @@
-# examples/security_features/app.rb (Updated with Design System)
+# examples/security_features/app.rb
 
 require_relative '../../lib/otto/design_system'
 
+# Example application demonstrating Otto's security features including CSRF protection
 class SecureApp
   include Otto::DesignSystem
   include Otto::Security::CSRFHelpers

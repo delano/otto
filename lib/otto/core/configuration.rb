@@ -1,3 +1,7 @@
+# frozen_string_literal: true
+
+# lib/otto/core/configuration.rb
+
 require_relative '../security/csrf'
 require_relative '../security/validator'
 require_relative '../security/authentication'
@@ -6,6 +10,7 @@ require_relative '../mcp/server'
 
 class Otto
   module Core
+    # Configuration module providing locale and application configuration methods
     module Configuration
       def configure_locale(opts)
         # Start with global configuration
@@ -18,24 +23,36 @@ class Otto
         has_legacy_config = opts[:locale_config]
 
         # Only create locale_config if we have configuration from somewhere
-        if has_global_locale || has_direct_options || has_legacy_config
-          @locale_config = {}
+        return unless has_global_locale || has_direct_options || has_legacy_config
 
-          # Apply global configuration first
-          @locale_config[:available_locales] = global_config[:available_locales] if global_config && global_config[:available_locales]
-          @locale_config[:default_locale] = global_config[:default_locale] if global_config && global_config[:default_locale]
+        @locale_config = {}
 
-          # Apply direct instance options (these override global config)
-          @locale_config[:available_locales] = opts[:available_locales] if opts[:available_locales]
-          @locale_config[:default_locale] = opts[:default_locale] if opts[:default_locale]
-
-          # Legacy support: Configure locale if provided in initialization options via locale_config hash
-          if opts[:locale_config]
-            locale_opts = opts[:locale_config]
-            @locale_config[:available_locales] = locale_opts[:available_locales] || locale_opts[:available] if locale_opts[:available_locales] || locale_opts[:available]
-            @locale_config[:default_locale] = locale_opts[:default_locale] || locale_opts[:default] if locale_opts[:default_locale] || locale_opts[:default]
-          end
+        # Apply global configuration first
+        if global_config && global_config[:available_locales]
+          @locale_config[:available_locales] =
+            global_config[:available_locales]
         end
+        if global_config && global_config[:default_locale]
+          @locale_config[:default_locale] =
+            global_config[:default_locale]
+        end
+
+        # Apply direct instance options (these override global config)
+        @locale_config[:available_locales] = opts[:available_locales] if opts[:available_locales]
+        @locale_config[:default_locale] = opts[:default_locale] if opts[:default_locale]
+
+        # Legacy support: Configure locale if provided in initialization options via locale_config hash
+        return unless opts[:locale_config]
+
+        locale_opts = opts[:locale_config]
+        if locale_opts[:available_locales] || locale_opts[:available]
+          @locale_config[:available_locales] =
+            locale_opts[:available_locales] || locale_opts[:available]
+        end
+        return unless locale_opts[:default_locale] || locale_opts[:default]
+
+        @locale_config[:default_locale] =
+          locale_opts[:default_locale] || locale_opts[:default]
       end
 
       def configure_security(opts)
@@ -52,14 +69,12 @@ class Otto
         end
 
         # Add trusted proxies if provided
-        if opts[:trusted_proxies]
-          Array(opts[:trusted_proxies]).each { |proxy| add_trusted_proxy(proxy) }
-        end
+        Array(opts[:trusted_proxies]).each { |proxy| add_trusted_proxy(proxy) } if opts[:trusted_proxies]
 
         # Set custom security headers
-        if opts[:security_headers]
-          set_security_headers(opts[:security_headers])
-        end
+        return unless opts[:security_headers]
+
+        set_security_headers(opts[:security_headers])
       end
 
       def configure_authentication(opts)
@@ -69,25 +84,25 @@ class Otto
         @auth_config[:default_auth_strategy] = opts[:default_auth_strategy] if opts[:default_auth_strategy]
 
         # Enable authentication middleware if strategies are configured
-        if opts[:auth_strategies] && !opts[:auth_strategies].empty?
-          enable_authentication!
-        end
+        return unless opts[:auth_strategies] && !opts[:auth_strategies].empty?
+
+        enable_authentication!
       end
 
       def configure_mcp(opts)
         @mcp_server = nil
 
         # Enable MCP if requested in options
-        if opts[:mcp_enabled] || opts[:mcp_http] || opts[:mcp_stdio]
-          @mcp_server = Otto::MCP::Server.new(self)
+        return unless opts[:mcp_enabled] || opts[:mcp_http] || opts[:mcp_stdio]
 
-          mcp_options = {}
-          mcp_options[:http_endpoint] = opts[:mcp_endpoint] if opts[:mcp_endpoint]
+        @mcp_server = Otto::MCP::Server.new(self)
 
-          if opts[:mcp_http] != false  # Default to true unless explicitly disabled
-            @mcp_server.enable!(mcp_options)
-          end
-        end
+        mcp_options = {}
+        mcp_options[:http_endpoint] = opts[:mcp_endpoint] if opts[:mcp_endpoint]
+
+        return unless opts[:mcp_http] != false # Default to true unless explicitly disabled
+
+        @mcp_server.enable!(mcp_options)
       end
 
       # Configure locale settings for the application

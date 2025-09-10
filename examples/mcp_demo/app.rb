@@ -1,10 +1,11 @@
-#!/usr/bin/env ruby
+# examples/mcp_demo/app.rb
 
 # Example Otto application with MCP support
 # This demonstrates Phase 1 & 2 implementation
 
 require_relative '../../lib/otto'
 
+# Simple API class for demonstration of MCP user management tools
 class UserAPI
   def self.mcp_list_users
     {

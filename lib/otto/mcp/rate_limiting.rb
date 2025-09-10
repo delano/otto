@@ -1,3 +1,7 @@
+# frozen_string_literal: true
+
+# lib/otto/mcp/rate_limiting.rb
+
 require 'json'
 
 require_relative '../security/rate_limiting'
@@ -10,6 +14,7 @@ end
 
 class Otto
   module MCP
+    # Rate limiter for MCP protocol endpoints
     class RateLimiter < Otto::Security::RateLimiting
       def self.configure_rack_attack!(config = {})
         return unless defined?(Rack::Attack)
@@ -117,6 +122,7 @@ class Otto
       end
     end
 
+    # Middleware for applying rate limits to MCP protocol endpoints
     class RateLimitMiddleware < Otto::Security::RateLimitMiddleware
       def initialize(app, security_config = nil)
         @app                    = app

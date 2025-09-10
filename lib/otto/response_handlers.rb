@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # lib/otto/response_handlers.rb
 
 class Otto

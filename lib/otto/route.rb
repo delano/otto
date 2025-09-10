@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # lib/otto/route.rb
 
 class Otto
@@ -20,6 +22,7 @@ class Otto
   #
   #
   class Route
+    # Class methods for Route providing Otto instance access
     module ClassMethods
       attr_accessor :otto
     end

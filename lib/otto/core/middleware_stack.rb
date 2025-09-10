@@ -1,3 +1,7 @@
+# frozen_string_literal: true
+
+# lib/otto/core/middleware_stack.rb
+
 class Otto
   module Core
     # Enhanced middleware stack management for Otto framework.
@@ -14,7 +18,7 @@ class Otto
       # Enhanced middleware registration with argument uniqueness and immutability check
       def add(middleware_class, *args, **options)
         # Prevent modifications to frozen configurations
-        raise FrozenError, "Cannot modify frozen middleware stack" if frozen?
+        raise FrozenError, 'Cannot modify frozen middleware stack' if frozen?
 
         # Check if an identical middleware configuration already exists
         existing_entry = @stack.find do |entry|
@@ -24,13 +28,13 @@ class Otto
         end
 
         # Only add if no identical middleware configuration exists
-        unless existing_entry
-          entry = { middleware: middleware_class, args: args, options: options }
-          @stack << entry
-          @middleware_set.add(middleware_class)
-          # Invalidate memoized middleware list
-          @memoized_middleware_list = nil
-        end
+        return if existing_entry
+
+        entry = { middleware: middleware_class, args: args, options: options }
+        @stack << entry
+        @middleware_set.add(middleware_class)
+        # Invalidate memoized middleware list
+        @memoized_middleware_list = nil
       end
       alias use add
       alias << add
@@ -38,17 +42,17 @@ class Otto
       # Remove middleware
       def remove(middleware_class)
         # Prevent modifications to frozen configurations
-        raise FrozenError, "Cannot modify frozen middleware stack" if frozen?
+        raise FrozenError, 'Cannot modify frozen middleware stack' if frozen?
 
         matches = @stack.reject! { |entry| entry[:middleware] == middleware_class }
 
         # Update middleware set if any matching entries were found
-        if matches
-          # Rebuild the set of unique middleware classes
-          @middleware_set = Set.new(@stack.map { |entry| entry[:middleware] })
-          # Invalidate memoized middleware list
-          @memoized_middleware_list = nil
-        end
+        return unless matches
+
+        # Rebuild the set of unique middleware classes
+        @middleware_set = Set.new(@stack.map { |entry| entry[:middleware] })
+        # Invalidate memoized middleware list
+        @memoized_middleware_list = nil
       end
 
       # Check if middleware is registered - now O(1) using Set
@@ -59,7 +63,7 @@ class Otto
       # Clear all middleware
       def clear!
         # Prevent modifications to frozen configurations
-        raise FrozenError, "Cannot modify frozen middleware stack" if frozen?
+        raise FrozenError, 'Cannot modify frozen middleware stack' if frozen?
 
         @stack.clear
         @middleware_set.clear
@@ -124,7 +128,7 @@ class Otto
         @stack.count { |entry| entry[:middleware] == middleware_class }
       end
 
-      # Note: The includes? method is defined earlier for O(1) lookup using a Set
+      # NOTE: The includes? method is defined earlier for O(1) lookup using a Set
 
       # Legacy compatibility methods for existing Otto interface
       def reverse_each(&)

@@ -17,7 +17,7 @@ This example demonstrates the advanced routing syntax features added to Otto in 
 ### 3. Logic Class Routes (New in v1.5.0+)
 - `SimpleLogic` - Simple logic class routing
 - `Admin::Panel` - Namespaced logic classes
-- `V2::Logic::Dashboard` - Deeply namespaced logic classes
+- `Logic::Dashboard` - Deeply namespaced logic classes
 - `Complex::Business::Handler` - Complex nested namespaces
 
 ### 4. Multiple Parameter Combinations
@@ -29,7 +29,7 @@ PUT /logic/transform TransformLogic response=json csrf=exempt
 ```
 
 ### 5. Namespaced Class Routes
-- `V2::Admin.show` - Class method with namespace
+- `Admin.show` - Class method with namespace
 - `Modules::Auth#process` - Instance method with namespace
 - `Handlers::Static.serve` - Mixed static and dynamic handlers
 
@@ -56,10 +56,30 @@ VERB /path Namespace::LogicClass param1=value1 param2=value2
 
 ## Running the Example
 
-1. Start the server:
+Choose one of these methods to run the example:
+
+### Method 1: Using Rackup (Traditional)
 ```bash
 cd examples/advanced_routes
 bundle exec rackup config.ru
+```
+
+### Method 2: Direct Ruby with WEBrick
+```bash
+cd examples/advanced_routes
+ruby run.rb
+```
+
+### Method 3: Using Puma Server
+```bash
+cd examples/advanced_routes
+ruby puma.rb
+```
+
+### Method 4: Simple Test Runner (No Server)
+```bash
+cd examples/advanced_routes
+ruby test.rb
 ```
 
 2. Test different route types:

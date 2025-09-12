@@ -40,10 +40,25 @@ POST /api/secure TestApp.secure_post auth=authenticated response=json csrf=exemp
 
 ## Running the Example
 
-1. Start the server:
+Choose one of these methods to run the example:
+
+### Method 1: Using Rackup (Traditional)
 ```bash
-cd examples/advanced_routes
+cd examples/authentication_strategies
 bundle exec rackup config.ru
+```
+
+### Method 2: Direct Ruby with WEBrick
+```bash
+cd examples/authentication_strategies
+ruby run.rb
+```
+
+### Method 3: Using Puma Server (if available)
+```bash
+cd examples/authentication_strategies
+gem install puma  # if not already installed
+ruby -r puma -e "Puma::Server.new(load('./config.ru')).tap{|s| s.add_tcp_listener('127.0.0.1', 9292); puts 'Server running on http://localhost:9292'; trap('INT'){s.stop}; s.run}"
 ```
 
 2. Test different routes with authentication tokens:

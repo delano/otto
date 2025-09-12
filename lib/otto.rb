@@ -4,7 +4,6 @@
 
 require 'json'
 require 'logger'
-require 'ostruct'
 require 'securerandom'
 require 'uri'
 
@@ -57,6 +56,38 @@ require_relative 'otto/utils'
 #   otto.enable_csp!
 #   otto.enable_frame_protection!
 #
+# Configuration Data class to replace OpenStruct
+# Configuration Data class to replace OpenStruct
+# Configuration class to replace OpenStruct
+class ConfigData
+  def initialize(**kwargs)
+    @data = kwargs
+  end
+
+  # Dynamic attribute accessors
+  def method_missing(method_name, *args)
+    if method_name.to_s.end_with?('=')
+      # Setter
+      attr_name = method_name.to_s.chomp('=').to_sym
+      @data[attr_name] = args.first
+    elsif @data.key?(method_name)
+      # Getter
+      @data[method_name]
+    else
+      super
+    end
+  end
+
+  def respond_to_missing?(method_name, include_private = false)
+    method_name.to_s.end_with?('=') || @data.key?(method_name) || super
+  end
+
+  # Convert to hash for compatibility
+  def to_h
+    @data.dup
+  end
+end
+
 class Otto
   include Otto::Core::Router
   include Otto::Core::FileSafety
@@ -79,9 +110,9 @@ class Otto
   def self.configure
     config = case @global_config
              in Hash => h
-               OpenStruct.new(h)
+               ConfigData.new(**h)
              else
-               OpenStruct.new
+               ConfigData.new
              end
     yield config
     @global_config = config.to_h

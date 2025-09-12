@@ -9,6 +9,8 @@ source 'https://rubygems.org'
 
 gemspec
 
+gem 'rackup'
+
 group :test do
   gem 'rack-test'
   gem 'rspec', '~> 3.13'

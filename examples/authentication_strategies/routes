@@ -1,137 +1,37 @@
-# Advanced Routes Example - Otto v1.5.0+ Features
-# This file demonstrates the advanced routing syntax added in Otto v1.5.0+
+# Authentication Strategies Example
 
 # ========================================
-# BASIC ROUTES (Original Otto Syntax)
+# PUBLIC ROUTES
 # ========================================
 
 GET   /                         MainController#index
-POST  /feedback                 MainController#receive_feedback
+GET   /login                    AuthController#login_form
+POST  /login                    AuthController#login
 
 # ========================================
-# AUTHENTICATION ROUTES
+# AUTHENTICATED ROUTES
 # ========================================
 
-# Simple authentication requirement
+# Requires a user to be logged in.
+# Try: /profile?token=demo_token
 GET   /profile                  AuthController#show_profile auth=authenticated
-POST  /profile                  AuthController#update_profile auth=authenticated
 
-# Role-based authentication
+# Requires the 'admin' role.
+# Try: /admin?token=admin_token
 GET   /admin                    AuthController#admin_panel auth=role:admin
-GET   /moderator                AuthController#moderator_panel auth=role:moderator
 
-# Permission-based authentication
+# Requires the 'write' permission.
+# A user with the 'user' role has this.
+# Try: /edit?token=demo_token
 GET   /edit                     AuthController#edit_content auth=permission:write
-POST  /publish                  AuthController#publish_content auth=permission:publish
 
-# Custom authentication strategy
-GET   /api/private              ApiController#api_private auth=api_key
-
-# ========================================
-# RESPONSE TYPE ROUTES
-# ========================================
-
-# JSON response routes
-GET   /api/users                ApiController#list_users response=json
-POST  /api/users                ApiController#create_user response=json auth=authenticated
-GET   /api/health               ApiController#health_check response=json
-
-# View/HTML response routes
-GET   /dashboard                MainController#dashboard response=view auth=authenticated
-GET   /reports                  MainController#reports response=view auth=role:admin
-
-# Redirect response routes
-GET   /login                    AuthController#login_redirect response=redirect
-GET   /logout                   AuthController#logout_redirect response=redirect auth=authenticated
-
-# Auto response type (content negotiation)
-GET   /data                     AdvancedController#flexible_data response=auto
+# A route protected by an API key
+# Try: /api/data?api_key=demo_api_key_123
+GET   /api/data                 AuthController#api_data auth=api_key response=json
 
 # ========================================
-# CSRF PROTECTION ROUTES
-# ========================================
-
-# CSRF exempt routes (useful for APIs)
-POST  /api/webhook              ApiController#webhook_handler csrf=exempt
-PUT   /api/external             ApiController#external_update csrf=exempt auth=api_key
-DELETE /api/cleanup             ApiController#cleanup_data csrf=exempt auth=api_key
-
-# Standard CSRF protected routes (default behavior)
-POST  /settings                 AdvancedController#update_settings auth=authenticated
-PUT   /password                 AdvancedController#change_password auth=authenticated
-
-# ========================================
-# MULTIPLE PARAMETER COMBINATIONS
-# ========================================
-
-# API routes with multiple parameters
-GET   /api/admin/users          ApiController#admin_users auth=role:admin response=json
-POST  /api/admin/users          ApiController#create_admin_user auth=role:admin response=json csrf=exempt
-PUT   /api/users/:id            ApiController#update_user auth=authenticated response=json
-DELETE /api/users/:id           ApiController#delete_user auth=role:admin response=json csrf=exempt
-
-# Mixed parameter routes
-GET   /secure/data              ApiController#secure_data auth=authenticated response=json
-POST  /secure/upload            ApiController#secure_upload auth=permission:upload response=json
-
-# ========================================
-# LOGIC CLASS ROUTES (New in v1.5.0+)
-# ========================================
-
-# Simple Logic class (no . or # in target)
-GET   /logic/simple             SimpleLogic
-
-# Namespaced Logic classes
-GET   /logic/admin              Admin::Logic::Panel auth=role:admin
-GET   /logic/reports            Reports::Generator auth=permission:read response=json
-
-# Logic classes with parameters
-POST  /logic/processor          DataProcessor auth=authenticated response=json
-PUT   /logic/validator          InputValidator auth=authenticated csrf=exempt response=json
-
-# Complex Logic routes
-GET   /logic/dashboard          V2::Logic::Admin::Dashboard auth=role:admin response=view
-POST  /logic/analytics          Analytics::Processor auth=permission:analytics response=json csrf=exempt
-
-# ========================================
-# NAMESPACED CLASS ROUTES
-# ========================================
-
-# Deeply namespaced classes with class methods
-GET   /v2/admin/panel           V2::Admin::Panel.show auth=role:admin response=view
-POST  /v2/admin/settings        V2::Admin::Settings.update auth=role:admin response=json
-
-# Namespaced instance methods
-GET   /modules/auth             Modules::AuthHandler#process auth=authenticated
-POST  /modules/validator        Modules::DataValidator#validate response=json
-
-# ========================================
-# ERROR HANDLERS (Enhanced)
+# ERROR HANDLERS
 # ========================================
 
 GET   /404                      MainController#not_found response=view
 GET   /500                      MainController#server_error response=view
-
-# ========================================
-# EDGE CASES AND COMPLEX SCENARIOS
-# ========================================
-
-# Parameters with complex values
-GET   /config                   AdvancedController#show_config auth=role:admin config=env=production
-
-# All parameters combined
-POST  /complex                  AdvancedController#complex_handler auth=role:admin response=json csrf=exempt
-
-# Logic class with all features
-GET   /advanced/processor       Advanced::DataProcessor auth=permission:process response=json
-
-# ========================================
-# TESTING AND DEVELOPMENT ROUTES
-# ========================================
-
-GET   /test/auth                AdvancedController#test_auth auth=authenticated response=json
-GET   /test/roles               AdvancedController#test_roles auth=role:test response=json
-GET   /test/permissions         AdvancedController#test_permissions auth=permission:test response=json
-GET   /test/csrf                AdvancedController#test_csrf
-POST  /test/csrf                AdvancedController#test_csrf_post
-POST  /test/no-csrf             AdvancedController#test_no_csrf csrf=exempt

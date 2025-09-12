@@ -3,7 +3,7 @@ require 'time'
 
 class MainController
   def self.index
-    [200, { 'content-type' => 'text/html' }, ['<h1>Advanced Routes Example</h1>']]
+    [200, { 'content-type' => 'text/html' }, ['<h1>Authentication Strategies Example</h1>']]
   end
 
   def self.receive_feedback

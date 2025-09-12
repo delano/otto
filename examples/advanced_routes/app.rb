@@ -3,6 +3,8 @@
 require 'json'
 
 # Main application class demonstrating advanced routes syntax
+require 'time'
+
 class RoutesApp
   # ========================================
   # BASIC ROUTES

@@ -3,6 +3,8 @@
 require 'json'
 
 # Main application class demonstrating advanced Otto routes
+require 'time'
+
 class AdvancedApp
   # ========================================
   # BASIC ROUTES
@@ -319,7 +321,7 @@ class InputValidator
     {
       validation_result: 'Input validated successfully',
       validated_params: @params.keys,
-      user: @user&.dig('name') || 'anonymous',
+      user: @context.user_name || 'anonymous',
     }
   end
 
@@ -346,7 +348,7 @@ module V2
             dashboard: 'V2 Admin Dashboard',
             version: '2.0',
             admin_features: ['user_management', 'system_config', 'reports'],
-            current_user: @user&.dig('name') || 'admin',
+            current_user: @context.user_name || 'admin',
           }
         end
 

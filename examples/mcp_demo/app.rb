@@ -6,6 +6,8 @@
 require_relative '../../lib/otto'
 
 # Simple API class for demonstration of MCP user management tools
+require 'time'
+
 class UserAPI
   def self.mcp_list_users
     {

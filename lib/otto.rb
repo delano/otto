@@ -110,7 +110,9 @@ class Otto
   def self.configure
     config = case @global_config
              in Hash => h
-               ConfigData.new(**h)
+               # Transform string keys to symbol keys for ConfigData compatibility
+               symbol_hash = h.transform_keys(&:to_sym)
+               ConfigData.new(**symbol_hash)
              else
                ConfigData.new
              end

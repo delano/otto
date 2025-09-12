@@ -65,7 +65,7 @@ RSpec.describe Otto::Route, 'enhanced route parsing' do
                                         })
       expect(route.klass.name).to eq('V2::Logic::Admin::Panel')
       expect(route.name).to eq('Panel')
-      expect(route.kind).to eq(:class)
+      expect(route.kind).to eq(:logic)
     end
 
     it 'handles malformed parameters gracefully' do

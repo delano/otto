@@ -189,11 +189,11 @@ end)
 
 # Set error handlers
 otto.not_found = lambda do |_env|
-  AdvancedApp.not_found
+  MainController.not_found
 end
 
 otto.server_error = lambda do |_env, _error|
-  AdvancedApp.server_error
+  MainController.server_error
 end
 
 run otto

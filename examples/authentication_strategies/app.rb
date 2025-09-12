@@ -201,11 +201,10 @@ end
 
 # Simple Logic class
 class SimpleLogic
-  attr_reader :session, :user, :params, :locale
+  attr_reader :context, :params, :locale
 
-  def initialize(session, user, params, locale)
-    @session = session
-    @user = user
+  def initialize(context, params, locale)
+    @context = context
     @params = params
     @locale = locale
   end
@@ -218,8 +217,9 @@ class SimpleLogic
     {
       message: 'Simple logic processed',
       params: @params,
-      user: @user&.dig('name') || 'anonymous',
+      user: @context.user_name || 'anonymous',
       locale: @locale,
+      authenticated: @context.authenticated?,
     }
   end
 
@@ -232,11 +232,10 @@ end
 module Admin
   module Logic
     class Panel
-      attr_reader :session, :user, :params, :locale
+      attr_reader :context, :params, :locale
 
-      def initialize(session, user, params, locale)
-        @session = session
-        @user = user
+      def initialize(context, params, locale)
+        @context = context
         @params = params
         @locale = locale
       end
@@ -244,8 +243,10 @@ module Admin
       def process
         {
           admin_panel: 'Admin logic processed',
-          user_role: @user&.dig('role') || 'unknown',
-          session_id: @session&.dig('session_id'),
+          user_role: @context.roles.first || 'unknown',
+          session_id: @context.session_id,
+          authenticated: @context.authenticated?,
+          has_admin_role: @context.has_role?('admin'),
         }
       end
 
@@ -258,11 +259,10 @@ end
 
 module Reports
   class Generator
-    attr_reader :session, :user, :params, :locale
+    attr_reader :context, :params, :locale
 
-    def initialize(session, user, params, locale)
-      @session = session
-      @user = user
+    def initialize(context, params, locale)
+      @context = context
       @params = params
       @locale = locale
     end
@@ -270,8 +270,10 @@ module Reports
     def process
       {
         report: 'Generated report data',
-        user_permissions: @user&.dig('permissions') || [],
+        user_permissions: @context.permissions,
         locale: @locale,
+        authenticated: @context.authenticated?,
+        has_read_permission: @context.has_permission?('read'),
       }
     end
 
@@ -283,11 +285,10 @@ end
 
 # Data processing Logic classes
 class DataProcessor
-  attr_reader :session, :user, :params, :locale
+  attr_reader :context, :params, :locale
 
-  def initialize(session, user, params, locale)
-    @session = session
-    @user = user
+  def initialize(context, params, locale)
+    @context = context
     @params = params
     @locale = locale
   end
@@ -306,11 +307,10 @@ class DataProcessor
 end
 
 class InputValidator
-  attr_reader :session, :user, :params, :locale
+  attr_reader :context, :params, :locale
 
-  def initialize(session, user, params, locale)
-    @session = session
-    @user = user
+  def initialize(context, params, locale)
+    @context = context
     @params = params
     @locale = locale
   end
@@ -333,11 +333,10 @@ module V2
   module Logic
     module Admin
       class Dashboard
-        attr_reader :session, :user, :params, :locale
+        attr_reader :context, :params, :locale
 
-        def initialize(session, user, params, locale)
-          @session = session
-          @user = user
+        def initialize(context, params, locale)
+          @context = context
           @params = params
           @locale = locale
         end
@@ -361,11 +360,10 @@ end
 
 module Analytics
   class Processor
-    attr_reader :session, :user, :params, :locale
+    attr_reader :context, :params, :locale
 
-    def initialize(session, user, params, locale)
-      @session = session
-      @user = user
+    def initialize(context, params, locale)
+      @context = context
       @params = params
       @locale = locale
     end
@@ -421,11 +419,10 @@ end
 
 module Advanced
   class DataProcessor
-    attr_reader :session, :user, :params, :locale
+    attr_reader :context, :params, :locale
 
-    def initialize(session, user, params, locale)
-      @session = session
-      @user = user
+    def initialize(context, params, locale)
+      @context = context
       @params = params
       @locale = locale
     end
@@ -435,10 +432,12 @@ module Advanced
         advanced_processing: 'Complete',
         features: ['authentication', 'permissions', 'json_response'],
         user_context: {
-          authenticated: !@user.nil?,
-          permissions: @user&.dig('permissions') || [],
+          authenticated: @context.authenticated?,
+          permissions: @context.permissions,
+          roles: @context.roles,
         },
         request_data: @params,
+        auth_method: @context.auth_method,
       }
     end
 

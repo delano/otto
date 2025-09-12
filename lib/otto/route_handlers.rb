@@ -140,33 +140,22 @@ class Otto
     end
 
     # Handler for Logic classes (new in Otto Framework Enhancement)
-    # Supports the OneTime Secret Logic class pattern
+    # Handles Logic class routes with the modern RequestContext pattern
+    # Logic classes use signature: initialize(context, params, locale)
     class LogicClassHandler < BaseHandler
       def call(env, extra_params = {})
         req = Rack::Request.new(env)
         res = Rack::Response.new
 
         begin
-          # Get authentication context if available
-          auth_result = env['otto.auth_result']
+          # Get request context (guaranteed to exist from auth middleware)
+          request_context = env['otto.request_context'] || Otto::RequestContext.anonymous
 
-          # Initialize Logic class with standard parameters
-          # Logic classes expect: session, user, params, locale
+          # Initialize Logic class with new signature: context, params, locale
           logic_params = req.params.merge(extra_params)
           locale       = env['otto.locale'] || 'en'
 
-          logic = if target_class.instance_method(:initialize).arity == 4
-                    # Standard Logic class constructor
-                    target_class.new(
-                      auth_result&.session,
-                      auth_result&.user,
-                      logic_params,
-                      locale
-                    )
-                  else
-                    # Fallback for custom constructors
-                    target_class.new(req, res)
-                  end
+          logic = target_class.new(request_context, logic_params, locale)
 
           # Execute standard Logic class lifecycle
           logic.raise_concerns if logic.respond_to?(:raise_concerns)

@@ -217,10 +217,24 @@ class Otto
       def call(env)
         # Check if this route has auth requirements
         route_definition = env['otto.route_definition']
-        return @app.call(env) unless route_definition
+
+        # If no route definition, create anonymous context and continue
+        unless route_definition
+          env['otto.request_context'] = Otto::RequestContext.anonymous(
+            metadata: { ip: env['REMOTE_ADDR'] }
+          )
+          return @app.call(env)
+        end
 
         auth_requirement = route_definition.auth_requirement
-        return @app.call(env) unless auth_requirement
+
+        # If no auth requirement, create anonymous context and continue
+        unless auth_requirement
+          env['otto.request_context'] = Otto::RequestContext.anonymous(
+            metadata: { ip: env['REMOTE_ADDR'] }
+          )
+          return @app.call(env)
+        end
 
         # Find appropriate strategy
         strategy = find_strategy(auth_requirement)
@@ -230,11 +244,28 @@ class Otto
         auth_result = strategy.authenticate(env, auth_requirement)
 
         if auth_result.success?
-          # Add user context to environment for handlers to use
+          # Create RequestContext from auth result
+          request_context = Otto::RequestContext.from_auth_result(
+            auth_result,
+            auth_method: auth_requirement,
+            metadata: { ip: env['REMOTE_ADDR'] }
+          )
+
+          # Store both legacy auth_result and new request_context for compatibility during transition
           env['otto.user_context'] = auth_result.user_context
           env['otto.auth_result'] = auth_result
+          env['otto.request_context'] = request_context
           @app.call(env)
         else
+          # Create anonymous context for failed authentication
+          request_context = Otto::RequestContext.anonymous(
+            metadata: {
+              ip: env['REMOTE_ADDR'],
+              auth_failure: auth_result.failure_reason,
+              attempted_strategy: auth_requirement
+            }
+          )
+          env['otto.request_context'] = request_context
           auth_error_response(auth_result.failure_reason)
         end
       end

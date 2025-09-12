@@ -236,11 +236,10 @@ end
 
 # Simple Logic classes
 class SimpleLogic
-  attr_reader :session, :user, :params, :locale
+  attr_reader :context, :params, :locale
 
-  def initialize(session, user, params, locale)
-    @session = session
-    @user = user
+  def initialize(context, params, locale)
+    @context = context
     @params = params
     @locale = locale
   end
@@ -250,6 +249,8 @@ class SimpleLogic
       message: 'Simple logic processed',
       params: @params,
       locale: @locale,
+      authenticated: @context.authenticated?,
+      user: @context.user_name,
     }
   end
 
@@ -259,11 +260,10 @@ class SimpleLogic
 end
 
 class DataProcessor
-  attr_reader :session, :user, :params, :locale
+  attr_reader :context, :params, :locale
 
-  def initialize(session, user, params, locale)
-    @session = session
-    @user = user
+  def initialize(context, params, locale)
+    @context = context
     @params = params
     @locale = locale
   end
@@ -273,6 +273,8 @@ class DataProcessor
       processed: 'Data processing complete',
       input_params: @params.keys,
       timestamp: Time.now.iso8601,
+      authenticated: @context.authenticated?,
+      user_id: @context.user_id,
     }
   end
 
@@ -282,11 +284,10 @@ class DataProcessor
 end
 
 class InputValidator
-  attr_reader :session, :user, :params, :locale
+  attr_reader :context, :params, :locale
 
-  def initialize(session, user, params, locale)
-    @session = session
-    @user = user
+  def initialize(context, params, locale)
+    @context = context
     @params = params
     @locale = locale
   end
@@ -296,6 +297,7 @@ class InputValidator
       validation: 'Input validated successfully',
       validated_fields: @params.keys,
       locale: @locale,
+      authenticated: @context.authenticated?,
     }
   end
 
@@ -305,11 +307,10 @@ class InputValidator
 end
 
 class DataLogic
-  attr_reader :session, :user, :params, :locale
+  attr_reader :context, :params, :locale
 
-  def initialize(session, user, params, locale)
-    @session = session
-    @user = user
+  def initialize(context, params, locale)
+    @context = context
     @params = params
     @locale = locale
   end
@@ -328,11 +329,10 @@ class DataLogic
 end
 
 class UploadLogic
-  attr_reader :session, :user, :params, :locale
+  attr_reader :context, :params, :locale
 
-  def initialize(session, user, params, locale)
-    @session = session
-    @user = user
+  def initialize(context, params, locale)
+    @context = context
     @params = params
     @locale = locale
   end
@@ -351,11 +351,10 @@ class UploadLogic
 end
 
 class TransformLogic
-  attr_reader :session, :user, :params, :locale
+  attr_reader :context, :params, :locale
 
-  def initialize(session, user, params, locale)
-    @session = session
-    @user = user
+  def initialize(context, params, locale)
+    @context = context
     @params = params
     @locale = locale
   end
@@ -374,11 +373,10 @@ class TransformLogic
 end
 
 class TestLogic
-  attr_reader :session, :user, :params, :locale
+  attr_reader :context, :params, :locale
 
-  def initialize(session, user, params, locale)
-    @session = session
-    @user = user
+  def initialize(context, params, locale)
+    @context = context
     @params = params
     @locale = locale
   end
@@ -402,11 +400,10 @@ end
 
 module Admin
   class Panel
-    attr_reader :session, :user, :params, :locale
+    attr_reader :context, :params, :locale
 
-    def initialize(session, user, params, locale)
-      @session = session
-      @user = user
+    def initialize(context, params, locale)
+      @context = context
       @params = params
       @locale = locale
     end
@@ -416,6 +413,8 @@ module Admin
         admin_panel: 'Logic processed',
         namespace: 'Admin',
         access_level: 'admin',
+        authenticated: @context.authenticated?,
+        has_admin_role: @context.has_role?('admin'),
       }
     end
 
@@ -427,11 +426,10 @@ end
 
 module Reports
   class Generator
-    attr_reader :session, :user, :params, :locale
+    attr_reader :context, :params, :locale
 
-    def initialize(session, user, params, locale)
-      @session = session
-      @user = user
+    def initialize(context, params, locale)
+      @context = context
       @params = params
       @locale = locale
     end
@@ -441,6 +439,8 @@ module Reports
         report_generation: 'Complete',
         namespace: 'Reports',
         data_points: 100,
+        authenticated: @context.authenticated?,
+        user_permissions: @context.permissions,
       }
     end
 
@@ -452,11 +452,10 @@ end
 
 module Analytics
   class Processor
-    attr_reader :session, :user, :params, :locale
+    attr_reader :context, :params, :locale
 
-    def initialize(session, user, params, locale)
-      @session = session
-      @user = user
+    def initialize(context, params, locale)
+      @context = context
       @params = params
       @locale = locale
     end
@@ -479,11 +478,10 @@ end
 module V2
   module Logic
     class Dashboard
-      attr_reader :session, :user, :params, :locale
+      attr_reader :context, :params, :locale
 
-      def initialize(session, user, params, locale)
-        @session = session
-        @user = user
+      def initialize(context, params, locale)
+        @context = context
         @params = params
         @locale = locale
       end
@@ -502,11 +500,10 @@ module V2
     end
 
     class Processor
-      attr_reader :session, :user, :params, :locale
+      attr_reader :context, :params, :locale
 
-      def initialize(session, user, params, locale)
-        @session = session
-        @user = user
+      def initialize(context, params, locale)
+        @context = context
         @params = params
         @locale = locale
       end
@@ -529,11 +526,10 @@ end
 module Admin
   module Logic
     class Manager
-      attr_reader :session, :user, :params, :locale
+      attr_reader :context, :params, :locale
 
-      def initialize(session, user, params, locale)
-        @session = session
-        @user = user
+      def initialize(context, params, locale)
+        @context = context
         @params = params
         @locale = locale
       end
@@ -557,11 +553,10 @@ end
 module Nested
   module Feature
     class Logic
-      attr_reader :session, :user, :params, :locale
+      attr_reader :context, :params, :locale
 
-      def initialize(session, user, params, locale)
-        @session = session
-        @user = user
+      def initialize(context, params, locale)
+        @context = context
         @params = params
         @locale = locale
       end
@@ -584,11 +579,10 @@ end
 module Complex
   module Business
     class Handler
-      attr_reader :session, :user, :params, :locale
+      attr_reader :context, :params, :locale
 
-      def initialize(session, user, params, locale)
-        @session = session
-        @user = user
+      def initialize(context, params, locale)
+        @context = context
         @params = params
         @locale = locale
       end
@@ -611,11 +605,10 @@ end
 module System
   module Config
     class Manager
-      attr_reader :session, :user, :params, :locale
+      attr_reader :context, :params, :locale
 
-      def initialize(session, user, params, locale)
-        @session = session
-        @user = user
+      def initialize(context, params, locale)
+        @context = context
         @params = params
         @locale = locale
       end

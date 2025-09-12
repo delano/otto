@@ -12,6 +12,7 @@ require 'rack/request'
 require 'rack/response'
 require 'rack/utils'
 
+require_relative 'otto/request_context'
 require_relative 'otto/route_definition'
 require_relative 'otto/route'
 require_relative 'otto/static'

@@ -217,7 +217,7 @@ curl -X POST http://localhost:9292/test/everything
 
 Logic classes are a special routing target introduced in v1.5.0+. They:
 
-1. Take a standard constructor: `initialize(session, user, params, locale)`
+1. Take a standard constructor: `initialize(context, params, locale)` where context is a RequestContext
 2. Can implement `raise_concerns` for validation
 3. Should implement `process` method for main logic
 4. Can implement `response_data` for structured responses
@@ -226,17 +226,22 @@ Logic classes are a special routing target introduced in v1.5.0+. They:
 Example Logic class:
 ```ruby
 class MyLogic
-  attr_reader :session, :user, :params, :locale
+  attr_reader :context, :params, :locale
 
-  def initialize(session, user, params, locale)
-    @session = session
-    @user = user
+  def initialize(context, params, locale)
+    @context = context
     @params = params
     @locale = locale
   end
 
   def process
-    { result: 'processed', params: @params }
+    {
+      result: 'processed',
+      params: @params,
+      authenticated: @context.authenticated?,
+      user: @context.user_name,
+      permissions: @context.permissions
+    }
   end
 
   def response_data

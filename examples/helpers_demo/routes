@@ -1,7 +1,0 @@
-GET   /                         HelpersDemo#index
-GET   /request-info             HelpersDemo#request_info
-GET   /locale-demo              HelpersDemo#locale_demo
-GET   /secure-cookie            HelpersDemo#secure_cookie
-POST  /csp-demo                 HelpersDemo#csp_demo
-GET   /headers                  HelpersDemo#show_headers
-GET   /404                      HelpersDemo#not_found

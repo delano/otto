@@ -22,54 +22,35 @@ class Otto
       # Check if the request meets the authentication requirements
       # @param env [Hash] Rack environment
       # @param requirement [String] Authentication requirement string
-      # @return [AuthResult] Result containing success status and context
+      # @return [StrategyResult, nil] StrategyResult for success, nil for failure
       def authenticate(env, requirement)
         raise NotImplementedError, 'Subclasses must implement #authenticate'
       end
 
-      # Optional: Extract user context for authenticated requests
-      # @param env [Hash] Rack environment
-      # @return [Hash] User context hash
-      def user_context(_env)
-        {}
-      end
-
       protected
 
-      # Helper to create successful auth result
-      def success(user_context = {})
-        AuthResult.new(true, user_context)
+      # Helper to create successful strategy result
+      def success(session: {}, user:, auth_method: nil, **metadata)
+        Otto::StrategyResult.new(
+          session: session,
+          user: user,
+          auth_method: auth_method || self.class.name.split('::').last,
+          metadata: metadata
+        )
       end
 
-      # Helper to create failed auth result
-      def failure(reason = 'Authentication failed')
-        AuthResult.new(false, {}, reason)
-      end
-    end
-
-    # Result object for authentication attempts
-    class AuthResult
-      attr_reader :user_context, :failure_reason
-
-      def initialize(success, user_context = {}, failure_reason = nil)
-        @success = success
-        @user_context = user_context
-        @failure_reason = failure_reason
-      end
-
-      def success?
-        @success
-      end
-
-      def failure?
-        !@success
+      # Helper for authentication failure - return nil
+      def failure(reason = nil)
+        Otto.logger.debug "[#{self.class}] Authentication failed: #{reason}" if reason
+        nil
       end
     end
+
 
     # Public access strategy - always allows access
     class PublicStrategy < AuthStrategy
-      def authenticate(_env, _requirement)
-        success
+      def authenticate(env, _requirement)
+        Otto::StrategyResult.anonymous(metadata: { ip: env['REMOTE_ADDR'] })
       end
     end
 
@@ -82,20 +63,14 @@ class Otto
 
       def authenticate(env, _requirement)
         session = env['rack.session']
-        return failure('No session available') unless session
+        return nil unless session
 
         user_id = session[@session_key]
-        return failure('Not authenticated') unless user_id
+        return nil unless user_id
 
-        success(user_id: user_id, session: session)
-      end
-
-      def user_context(env)
-        session = env['rack.session']
-        return {} unless session
-
-        user_id = session[@session_key]
-        user_id ? { user_id: user_id } : {}
+        # Create a simple user hash for the generic strategy
+        user_data = { id: user_id, user_id: user_id }
+        success(session: session, user: user_data, auth_method: 'session')
       end
     end
 
@@ -218,9 +193,9 @@ class Otto
         # Check if this route has auth requirements
         route_definition = env['otto.route_definition']
 
-        # If no route definition, create anonymous context and continue
+        # If no route definition, create anonymous result and continue
         unless route_definition
-          env['otto.request_context'] = Otto::RequestContext.anonymous(
+          env['otto.strategy_result'] = Otto::StrategyResult.anonymous(
             metadata: { ip: env['REMOTE_ADDR'] }
           )
           return @app.call(env)
@@ -228,9 +203,9 @@ class Otto
 
         auth_requirement = route_definition.auth_requirement
 
-        # If no auth requirement, create anonymous context and continue
+        # If no auth requirement, create anonymous result and continue
         unless auth_requirement
-          env['otto.request_context'] = Otto::RequestContext.anonymous(
+          env['otto.strategy_result'] = Otto::StrategyResult.anonymous(
             metadata: { ip: env['REMOTE_ADDR'] }
           )
           return @app.call(env)
@@ -241,32 +216,23 @@ class Otto
         return auth_error_response("Unknown authentication strategy: #{auth_requirement}") unless strategy
 
         # Perform authentication
-        auth_result = strategy.authenticate(env, auth_requirement)
+        strategy_result = strategy.authenticate(env, auth_requirement)
 
-        if auth_result.success?
-          # Create RequestContext from auth result
-          request_context = Otto::RequestContext.from_auth_result(
-            auth_result,
-            auth_method: auth_requirement,
-            metadata: { ip: env['REMOTE_ADDR'] }
-          )
-
-          # Store both legacy auth_result and new request_context for compatibility during transition
-          env['otto.user_context'] = auth_result.user_context
-          env['otto.auth_result'] = auth_result
-          env['otto.request_context'] = request_context
+        if strategy_result
+          # Success - store the strategy result directly
+          env['otto.strategy_result'] = strategy_result
+          env['otto.user'] = strategy_result.user  # For convenience
           @app.call(env)
         else
-          # Create anonymous context for failed authentication
-          request_context = Otto::RequestContext.anonymous(
+          # Failure - create anonymous result
+          env['otto.strategy_result'] = Otto::StrategyResult.anonymous(
             metadata: {
               ip: env['REMOTE_ADDR'],
-              auth_failure: auth_result.failure_reason,
+              auth_failure: 'Authentication failed',
               attempted_strategy: auth_requirement
             }
           )
-          env['otto.request_context'] = request_context
-          auth_error_response(auth_result.failure_reason)
+          auth_error_response('Authentication failed')
         end
       end
 

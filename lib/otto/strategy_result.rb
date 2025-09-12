@@ -1,66 +1,57 @@
 # frozen_string_literal: true
 
-# lib/otto/request_context.rb
+# lib/otto/strategy_result.rb
 
-# RequestContext is an immutable data structure that provides authentication
-# and session context to Otto Logic classes. It replaces the previous pattern
-# of passing separate session and user parameters.
+# StrategyResult is an immutable data structure that holds the result of an
+# authentication strategy. It contains session, user, and metadata needed by
+# Otto Logic classes.
 #
 # @example Basic usage
-#   context = RequestContext.new(
+#   result = StrategyResult.new(
 #     session: { id: 'abc123', user_id: 1 },
-#     user: { name: 'John', role: 'admin', permissions: ['read', 'write'] },
+#     user: user_model_instance,  # Actual user model, not a hash
 #     auth_method: 'token',
 #     metadata: { ip: '127.0.0.1' }
 #   )
 #
-#   context.authenticated?  #=> true
-#   context.has_role?('admin')  #=> true
-#   context.user[:name]  #=> 'John'
+#   result.authenticated?  #=> true
+#   result.has_role?('admin')  #=> true
+#   result.user.name  #=> 'John' (assuming user model has name method)
 #
 class Otto
-  RequestContext = Data.define(:session, :user, :auth_method, :metadata) do
-    # Create an anonymous (unauthenticated) context
-    # @return [RequestContext] Anonymous context with empty session and user
+  StrategyResult = Data.define(:session, :user, :auth_method, :metadata) do
+    # Create an anonymous (unauthenticated) result
+    # @return [StrategyResult] Anonymous result with empty session and nil user
     def self.anonymous(metadata: {})
       new(
         session: {},
-        user: {},
-        auth_method: 'public',
+        user: nil,  # Changed from {} to nil - clearer semantics
+        auth_method: 'anonymous',
         metadata: metadata
       )
     end
 
-    # Create a context from an AuthResult
-    # @param auth_result [Otto::Security::AuthResult] Authentication result
-    # @param auth_method [String] Authentication method used
-    # @param metadata [Hash] Additional context metadata
-    # @return [RequestContext] Context instance
-    def self.from_auth_result(auth_result, auth_method: 'unknown', metadata: {})
-      if auth_result&.success?
-        context = auth_result.user_context || {}
-        new(
-          session: context[:session] || context['session'] || {},
-          user: context[:user] || context['user'] || {},
-          auth_method: auth_method,
-          metadata: metadata
-        )
-      else
-        anonymous(metadata: metadata.merge(auth_failure: auth_result&.failure_reason))
-      end
-    end
-
-    # Check if the request is authenticated (has a non-empty user)
-    # @return [Boolean] True if user has data, false otherwise
+    # Check if the request is authenticated (has a user)
+    # @return [Boolean] True if user is present, false otherwise
     def authenticated?
-      user.is_a?(Hash) ? !user.empty? : !user.nil?
+      !user.nil?
     end
 
-    # Check if the request is anonymous (not authenticated)
+    # Check if the request is anonymous (no user)
     # @return [Boolean] True if not authenticated
     def anonymous?
-      !authenticated?
+      user.nil?
     end
+
+    # Success/failure methods for compatibility
+    def success?
+      true  # If we have a StrategyResult, authentication succeeded
+    end
+
+    def failure?
+      false  # Failures return nil, not a StrategyResult
+    end
+
 
     # Check if the user has a specific role
     # @param role [String, Symbol] Role to check
@@ -68,8 +59,17 @@ class Otto
     def has_role?(role)
       return false unless authenticated?
 
-      user_role = user[:role] || user['role']
-      user_role.to_s == role.to_s
+      # Try user model methods first, fall back to hash access for backward compatibility
+      if user.respond_to?(:role)
+        user.role.to_s == role.to_s
+      elsif user.respond_to?(:has_role?)
+        user.has_role?(role)
+      elsif user.is_a?(Hash)
+        user_role = user[:role] || user['role']
+        user_role.to_s == role.to_s
+      else
+        false
+      end
     end
 
     # Check if the user has a specific permission
@@ -78,9 +78,20 @@ class Otto
     def has_permission?(permission)
       return false unless authenticated?
 
-      permissions = user[:permissions] || user['permissions'] || []
-      permissions = [permissions] unless permissions.is_a?(Array)
-      permissions.map(&:to_s).include?(permission.to_s)
+      # Try user model methods first, fall back to hash access for backward compatibility
+      if user.respond_to?(:has_permission?)
+        user.has_permission?(permission)
+      elsif user.respond_to?(:permissions)
+        permissions = user.permissions || []
+        permissions = [permissions] unless permissions.is_a?(Array)
+        permissions.map(&:to_s).include?(permission.to_s)
+      elsif user.is_a?(Hash)
+        permissions = user[:permissions] || user['permissions'] || []
+        permissions = [permissions] unless permissions.is_a?(Array)
+        permissions.map(&:to_s).include?(permission.to_s)
+      else
+        false
+      end
     end
 
     # Check if the user has any of the specified roles
@@ -102,8 +113,14 @@ class Otto
     def user_id
       return nil unless authenticated?
 
-      user[:id] || user['id'] || user[:user_id] || user['user_id'] ||
-        session[:user_id] || session['user_id']
+      # Try user model methods first, fall back to hash access and session
+      if user.respond_to?(:id)
+        user.id
+      elsif user.respond_to?(:user_id)
+        user.user_id
+      elsif user.is_a?(Hash)
+        user[:id] || user['id'] || user[:user_id] || user['user_id']
+      end || session[:user_id] || session['user_id']
     end
 
     # Get user name from various possible locations
@@ -111,7 +128,14 @@ class Otto
     def user_name
       return nil unless authenticated?
 
-      user[:name] || user['name'] || user[:username] || user['username']
+      # Try user model methods first, fall back to hash access
+      if user.respond_to?(:name)
+        user.name
+      elsif user.respond_to?(:username)
+        user.username
+      elsif user.is_a?(Hash)
+        user[:name] || user['name'] || user[:username] || user['username']
+      end
     end
 
     # Get session ID from various possible locations
@@ -150,9 +174,9 @@ class Otto
     # @return [String] Debug representation
     def inspect
       if authenticated?
-        "#<RequestContext authenticated user=#{user_name || user_id} roles=#{roles} method=#{auth_method}>"
+        "#<StrategyResult authenticated user=#{user_name || user_id} roles=#{roles} method=#{auth_method}>"
       else
-        "#<RequestContext anonymous method=#{auth_method}>"
+        "#<StrategyResult anonymous method=#{auth_method}>"
       end
     end
 

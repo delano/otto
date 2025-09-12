@@ -1,4 +1,4 @@
-# Otto Authentication Strategies Example
+# Otto - Authentication Strategies Example
 
 This example demonstrates how to use Otto's powerful authentication features.
 

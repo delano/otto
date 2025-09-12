@@ -1,4 +1,4 @@
-# Otto Advanced Routes Example
+# Otto - Advanced Routes Example
 
 This example demonstrates the advanced routing syntax features available in Otto, such as response type negotiation, CSRF exemptions, and routing to logic classes.
 

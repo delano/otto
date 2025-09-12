@@ -11,7 +11,6 @@ Added
 
 - Added `StrategyResult` class with improved user model compatibility and cleaner API
 - Added JSON request body parsing support in Logic class handlers
-- Added `Onetime::FormError` handling with proper 422 status responses
 
 Removed
 -------

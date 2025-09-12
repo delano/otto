@@ -185,23 +185,7 @@ class Otto
             request: req,
             status_code: logic.respond_to?(:status_code) ? logic.status_code : nil,
                           })
-        rescue Onetime::FormError => e
-          # Handle form validation errors with proper 422 response
-          Otto.logger.debug "[LogicClassHandler] FormError: #{e.message}"
 
-          res.status = 422
-          res.headers['content-type'] = 'application/json'
-
-          error_data = {
-            success: false,
-            message: e.message
-          }
-
-          # Include form fields if available
-          error_data[:form_fields] = e.form_fields if e.respond_to?(:form_fields) && e.form_fields
-
-          res.write JSON.generate(error_data)
-          res.finish
         rescue StandardError => e
           # Check if we're being called through Otto's integrated context (vs direct handler testing)
           # In integrated context, let Otto's centralized error handler manage the response

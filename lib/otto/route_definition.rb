@@ -170,12 +170,13 @@ class Otto
         klass_name, method_name = target.split('#', 2)
         { klass_name: klass_name, method_name: method_name, kind: :instance }
       elsif target.match?(/\A[A-Z][a-zA-Z0-9_]*(?:::[A-Z][a-zA-Z0-9_]*)*\z/)
-        # Namespaced class with implicit method name (class method with same name as class)
-        # E.g., "V2::Logic::Admin::Panel" -> Panel.Panel (class method)
-        # For single word classes like "Logic", it's truly a logic class
+        # Determine if this is a Logic class or a regular class method
         method_name = target.split('::').last
-        if target.include?('::')
-          # Namespaced class - treat as class method with implicit method name
+        if target.include?('::Logic')
+          # Namespaced Logic class - treat as logic class
+          { klass_name: target, method_name: method_name, kind: :logic }
+        elsif target.include?('::')
+          # Other namespaced class - treat as class method with implicit method name
           { klass_name: target, method_name: method_name, kind: :class }
         else
           # Single word class - treat as logic class

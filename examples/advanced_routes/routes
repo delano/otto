@@ -1,0 +1,167 @@
+# Advanced Routes Syntax - Otto v1.5.0+ Features
+# This file demonstrates the advanced routing syntax without complex authentication
+
+# ========================================
+# BASIC ROUTES (Original Otto Syntax)
+# ========================================
+
+GET   /                         RoutesApp#index
+POST  /feedback                 RoutesApp#receive_feedback
+
+# ========================================
+# RESPONSE TYPE ROUTES
+# ========================================
+
+# JSON response routes
+GET   /api/users                RoutesApp#list_users response=json
+POST  /api/users                RoutesApp#create_user response=json
+GET   /api/health               RoutesApp#health_check response=json
+PUT   /api/users/:id            RoutesApp#update_user response=json
+DELETE /api/users/:id           RoutesApp#delete_user response=json
+
+# View/HTML response routes
+GET   /dashboard                RoutesApp#dashboard response=view
+GET   /reports                  RoutesApp#reports response=view
+GET   /admin                    RoutesApp#admin_panel response=view
+
+# Redirect response routes
+GET   /login                    RoutesApp#login_redirect response=redirect
+GET   /logout                   RoutesApp#logout_redirect response=redirect
+GET   /home                     RoutesApp#home_redirect response=redirect
+
+# Auto response type (content negotiation)
+GET   /data                     RoutesApp#flexible_data response=auto
+GET   /content                  RoutesApp#flexible_content response=auto
+
+# ========================================
+# CSRF PROTECTION ROUTES
+# ========================================
+
+# CSRF exempt routes (useful for APIs and webhooks)
+POST  /api/webhook              RoutesApp#webhook_handler csrf=exempt
+PUT   /api/external             RoutesApp#external_update csrf=exempt
+DELETE /api/cleanup             RoutesApp#cleanup_data csrf=exempt
+PATCH /api/sync                 RoutesApp#sync_data csrf=exempt
+
+# Standard CSRF protected routes (default behavior)
+POST  /settings                 RoutesApp#update_settings
+PUT   /password                 RoutesApp#change_password
+DELETE /profile                 RoutesApp#delete_profile
+
+# ========================================
+# MULTIPLE PARAMETER COMBINATIONS
+# ========================================
+
+# API routes with response type and CSRF exemption
+GET   /api/v1/data              RoutesApp#api_data response=json
+POST  /api/v1/submit            RoutesApp#api_submit response=json csrf=exempt
+PUT   /api/v1/update            RoutesApp#api_update response=json csrf=exempt
+
+# View routes with multiple parameters
+GET   /admin/dashboard          RoutesApp#admin_dashboard response=view
+POST  /admin/settings           RoutesApp#admin_settings response=view
+
+# Mixed content routes
+GET   /mixed/endpoint           RoutesApp#mixed_content response=auto csrf=exempt
+
+# ========================================
+# LOGIC CLASS ROUTES (New in v1.5.0+)
+# ========================================
+
+# Simple Logic class (no . or # in target)
+GET   /logic/simple             SimpleLogic
+POST  /logic/process            DataProcessor
+PUT   /logic/validate           InputValidator
+
+# Namespaced Logic classes
+GET   /logic/admin              Admin::Panel
+GET   /logic/reports            Reports::Generator
+POST  /logic/analytics          Analytics::Processor
+
+# Logic classes with parameters
+GET   /logic/data               DataLogic response=json
+POST  /logic/upload             UploadLogic response=json csrf=exempt
+PUT   /logic/transform          TransformLogic response=json
+
+# Complex namespaced Logic routes
+GET   /logic/v2/dashboard       V2::Logic::Dashboard response=view
+POST  /logic/v2/process         V2::Logic::Processor response=json csrf=exempt
+GET   /logic/admin/manager      Admin::Logic::Manager response=json
+
+# Deeply nested Logic classes
+GET   /logic/nested/feature     Nested::Feature::Logic
+POST  /logic/complex/handler    Complex::Business::Handler response=json
+PUT   /logic/system/config      System::Config::Manager response=json csrf=exempt
+
+# ========================================
+# NAMESPACED CLASS ROUTES
+# ========================================
+
+# Class method routes with namespaces
+GET   /v2/admin                 V2::Admin.show response=view
+POST  /v2/config                V2::Config.update response=json
+PUT   /v2/settings              V2::Settings.modify response=json csrf=exempt
+
+# Instance method routes with namespaces
+GET   /modules/auth             Modules::Auth#process
+POST  /modules/validator        Modules::Validator#validate response=json
+PUT   /modules/transformer      Modules::Transformer#transform response=json csrf=exempt
+
+# Mixed class and instance methods
+GET   /handlers/static          Handlers::Static.serve
+POST  /handlers/dynamic         Handlers::Dynamic#process response=json
+PUT   /handlers/async           Handlers::Async#execute response=json csrf=exempt
+
+# ========================================
+# CUSTOM PARAMETERS
+# ========================================
+
+# Routes with custom configuration parameters
+GET   /config/env               RoutesApp#show_config env=production
+GET   /config/debug             RoutesApp#debug_info env=development debug=true
+POST  /config/update            RoutesApp#update_config env=production response=json
+
+# Routes with multiple custom parameters
+GET   /feature/flags            RoutesApp#feature_flags feature=advanced mode=enabled
+POST  /feature/toggle           RoutesApp#toggle_feature feature=beta mode=test response=json csrf=exempt
+
+# ========================================
+# PARAMETER VALUE VARIATIONS
+# ========================================
+
+# Parameters with special values
+GET   /api/v1                   RoutesApp#api_v1 version=1.0 response=json
+GET   /api/v2                   RoutesApp#api_v2 version=2.0 response=json
+POST  /api/legacy               RoutesApp#api_legacy version=legacy response=json csrf=exempt
+
+# Parameters with equals in values (edge case)
+GET   /query/complex            RoutesApp#complex_query filter=key=value response=json
+POST  /config/connection        RoutesApp#config_db connection=host=localhost csrf=exempt
+
+# ========================================
+# ERROR HANDLERS
+# ========================================
+
+GET   /404                      RoutesApp#not_found response=view
+GET   /500                      RoutesApp#server_error response=view
+
+# ========================================
+# TESTING ROUTES
+# ========================================
+
+# Routes for testing different parameter combinations
+GET   /test/json                RoutesApp#test_json response=json
+GET   /test/view                RoutesApp#test_view response=view
+GET   /test/redirect            RoutesApp#test_redirect response=redirect
+GET   /test/auto                RoutesApp#test_auto response=auto
+
+POST  /test/csrf                RoutesApp#test_csrf
+POST  /test/no-csrf             RoutesApp#test_no_csrf csrf=exempt
+
+GET   /test/logic               TestLogic
+POST  /test/logic-json          TestLogic response=json
+PUT   /test/logic-exempt        TestLogic response=json csrf=exempt
+
+# Complex test routes
+GET   /test/complex             TestLogic response=auto
+POST  /test/everything          RoutesApp#test_everything response=json csrf=exempt custom=value

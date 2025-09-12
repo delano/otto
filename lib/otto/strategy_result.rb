@@ -180,6 +180,26 @@ class Otto
       end
     end
 
+    # Get user context - a hash containing user-specific information and metadata
+    # @return [Hash] User context hash
+    def user_context
+      if authenticated?
+        case auth_method
+        when 'session'
+          { user_id: user_id, session: session }
+        else
+          metadata
+        end
+      else
+        case auth_method
+        when 'anonymous'
+          {}
+        else
+          metadata
+        end
+      end
+    end
+
     # Create a hash representation
     # @return [Hash] Hash representation of the context
     def to_h
@@ -194,6 +214,33 @@ class Otto
         roles: roles,
         permissions: permissions
       }
+    end
+  end
+
+  # Failure result for authentication failures
+  FailureResult = Data.define(:failure_reason, :auth_method) do
+    def success?
+      false
+    end
+
+    def failure?
+      true
+    end
+
+    def authenticated?
+      false
+    end
+
+    def anonymous?
+      true
+    end
+
+    def user_context
+      {}
+    end
+
+    def inspect
+      "#<FailureResult reason=#{failure_reason.inspect} method=#{auth_method}>"
     end
   end
 end

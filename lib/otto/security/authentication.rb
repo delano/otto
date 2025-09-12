@@ -39,10 +39,13 @@ class Otto
         )
       end
 
-      # Helper for authentication failure - return nil
+      # Helper for authentication failure - return FailureResult
       def failure(reason = nil)
         Otto.logger.debug "[#{self.class}] Authentication failed: #{reason}" if reason
-        nil
+        Otto::FailureResult.new(
+          failure_reason: reason || 'Authentication failed',
+          auth_method: self.class.name.split('::').last
+        )
       end
     end
 
@@ -63,14 +66,24 @@ class Otto
 
       def authenticate(env, _requirement)
         session = env['rack.session']
-        return nil unless session
+        return failure('No session available') unless session
 
         user_id = session[@session_key]
-        return nil unless user_id
+        return failure('Not authenticated') unless user_id
 
         # Create a simple user hash for the generic strategy
         user_data = { id: user_id, user_id: user_id }
         success(session: session, user: user_data, auth_method: 'session')
+      end
+
+      def user_context(env)
+        session = env['rack.session']
+        return {} unless session
+
+        user_id = session[@session_key]
+        return {} unless user_id
+
+        { user_id: user_id }
       end
     end
 
@@ -88,11 +101,14 @@ class Otto
         user_roles = session[@session_key] || []
         user_roles = Array(user_roles)
 
+        # Create user data from session
+        user_data = { user_roles: user_roles, session: session }
+
         # For requirements like "role:admin", extract the role part
         if requirement.include?(':')
           required_role = requirement.split(':', 2).last
           if user_roles.include?(required_role)
-            success(user_roles: user_roles, required_role: required_role)
+            success(user: user_data, user_roles: user_roles, required_role: required_role)
           else
             failure("Insufficient privileges - requires role: #{required_role}")
           end
@@ -100,7 +116,7 @@ class Otto
           # For direct strategy matches, check if user has any of the allowed roles
           matching_roles = user_roles & @allowed_roles
           if matching_roles.any?
-            success(user_roles: user_roles, allowed_roles: @allowed_roles, matching_roles: matching_roles)
+            success(user: user_data, user_roles: user_roles, allowed_roles: @allowed_roles, matching_roles: matching_roles)
           else
             failure("Insufficient privileges - requires one of roles: #{@allowed_roles.join(', ')}")
           end
@@ -136,7 +152,9 @@ class Otto
         return failure('No API key provided') unless api_key
 
         if @api_keys.empty? || @api_keys.include?(api_key)
-          success(api_key: api_key)
+          # Create a simple user hash for API key authentication
+          user_data = { api_key: api_key }
+          success(user: user_data, api_key: api_key)
         else
           failure('Invalid API key')
         end
@@ -157,11 +175,14 @@ class Otto
         user_permissions = session[@session_key] || []
         user_permissions = Array(user_permissions)
 
+        # Create user data from session
+        user_data = { user_permissions: user_permissions, session: session }
+
         # Extract permission from requirement (e.g., "permission:write" -> "write")
         required_permission = requirement.split(':', 2).last
 
         if user_permissions.include?(required_permission)
-          success(user_permissions: user_permissions, required_permission: required_permission)
+          success(user: user_data, user_permissions: user_permissions, required_permission: required_permission)
         else
           failure("Insufficient privileges - requires permission: #{required_permission}")
         end
@@ -218,21 +239,23 @@ class Otto
         # Perform authentication
         strategy_result = strategy.authenticate(env, auth_requirement)
 
-        if strategy_result
+        if strategy_result&.success?
           # Success - store the strategy result directly
           env['otto.strategy_result'] = strategy_result
           env['otto.user'] = strategy_result.user  # For convenience
+          env['otto.user_context'] = strategy_result.user_context  # For convenience
           @app.call(env)
         else
-          # Failure - create anonymous result
+          # Failure - create anonymous result with failure info
+          failure_reason = strategy_result&.failure_reason || 'Authentication failed'
           env['otto.strategy_result'] = Otto::StrategyResult.anonymous(
             metadata: {
               ip: env['REMOTE_ADDR'],
-              auth_failure: 'Authentication failed',
+              auth_failure: failure_reason,
               attempted_strategy: auth_requirement
             }
           )
-          auth_error_response('Authentication failed')
+          auth_error_response(failure_reason)
         end
       end
 

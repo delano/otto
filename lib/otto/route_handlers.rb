@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 # lib/otto/route_handlers.rb
+require 'json'
 
 class Otto
   # Pluggable Route Handler Factory (Phase 4)
@@ -148,14 +149,26 @@ class Otto
         res = Rack::Response.new
 
         begin
-          # Get request context (guaranteed to exist from auth middleware)
-          request_context = env['otto.request_context'] || Otto::RequestContext.anonymous
+          # Get strategy result (guaranteed to exist from auth middleware)
+          strategy_result = env['otto.strategy_result'] || Otto::StrategyResult.anonymous
 
           # Initialize Logic class with new signature: context, params, locale
           logic_params = req.params.merge(extra_params)
-          locale       = env['otto.locale'] || 'en'
 
-          logic = target_class.new(request_context, logic_params, locale)
+          # Handle JSON request bodies
+          if req.content_type&.include?('application/json') && req.body.size > 0
+            begin
+              req.body.rewind
+              json_data = JSON.parse(req.body.read)
+              logic_params = logic_params.merge(json_data) if json_data.is_a?(Hash)
+            rescue JSON::ParserError => e
+              Otto.logger.error "[LogicClassHandler] JSON parsing error: #{e.message}"
+            end
+          end
+
+          locale = env['otto.locale'] || 'en'
+
+          logic = target_class.new(strategy_result, logic_params, locale)
 
           # Execute standard Logic class lifecycle
           logic.raise_concerns if logic.respond_to?(:raise_concerns)
@@ -172,6 +185,23 @@ class Otto
             request: req,
             status_code: logic.respond_to?(:status_code) ? logic.status_code : nil,
                           })
+        rescue Onetime::FormError => e
+          # Handle form validation errors with proper 422 response
+          Otto.logger.debug "[LogicClassHandler] FormError: #{e.message}"
+
+          res.status = 422
+          res.headers['content-type'] = 'application/json'
+
+          error_data = {
+            success: false,
+            message: e.message
+          }
+
+          # Include form fields if available
+          error_data[:form_fields] = e.form_fields if e.respond_to?(:form_fields) && e.form_fields
+
+          res.write JSON.generate(error_data)
+          res.finish
         rescue StandardError => e
           # Check if we're being called through Otto's integrated context (vs direct handler testing)
           # In integrated context, let Otto's centralized error handler manage the response

@@ -47,31 +47,4 @@ class App
     content += "<p>#{otto_link('← Back', '/')}</p>"
     res.body = otto_page(content, 'Feedback')
   end
-
-  def redirect = res.redirect('/robots.txt')
-
-  def robots_text
-    res.headers['content-type'] = 'text/plain'
-    res.body                    = ['User-agent: *', 'Disallow: /private'].join($/)
-  end
-
-  def display_product
-    res.headers['content-type'] = 'application/json; charset=utf-8'
-    prodid                      = req.params[:prodid]
-    res.body                    = format('{"product":%s,"msg":"Hint: try another value"}', prodid)
-  end
-
-  def not_found
-    res.status = 404
-    content    = otto_alert('error', 'Not Found', 'The requested page could not be found.')
-    content   += "<p>#{otto_link('← Home', '/')}</p>"
-    res.body   = otto_page(content, '404')
-  end
-
-  def server_error
-    res.status = 500
-    content    = otto_alert('error', 'Server Error', 'An internal server error occurred.')
-    content   += "<p>#{otto_link('← Home', '/')}</p>"
-    res.body   = otto_page(content, '500')
-  end
 end

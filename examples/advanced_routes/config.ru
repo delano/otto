@@ -1,23 +1,7 @@
 # frozen_string_literal: true
 
-require 'rack'
-require_relative '../../lib/otto'
-require_relative 'app'
+# Load the app from our shared config file.
+# This returns a configured Otto instance.
+app = require_relative 'config'
 
-# Simple Otto configuration demonstrating advanced routes syntax
-# This example focuses on the routing syntax features without complex authentication
-otto = Otto.new('routes')
-
-# Enable basic security features to demonstrate CSRF functionality
-otto.enable_csrf_protection!
-
-# Set error handlers
-otto.not_found = lambda do |env|
-  RoutesApp.not_found
-end
-
-otto.server_error = lambda do |env, error|
-  RoutesApp.server_error
-end
-
-run otto
+run app

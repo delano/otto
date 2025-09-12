@@ -1,7 +1,8 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require_relative 'config'
+# The shared config file returns the configured Otto app
+otto_app = require_relative 'config'
 
 # Simple test runner to demonstrate routes without a server
 def test_route(method, path, params = {})
@@ -15,7 +16,7 @@ def test_route(method, path, params = {})
     'HTTP_ACCEPT' => 'application/json',
   }
 
-  status, headers, body = otto.call(env)
+  status, headers, body = otto_app.call(env)
 
   puts "#{method.to_s.upcase} #{path}#{query_string.empty? ? '' : '?' + query_string}"
   puts "Status: #{status}"

@@ -2,7 +2,9 @@
 # frozen_string_literal: true
 
 require 'webrick'
-require_relative 'config'
+
+# The shared config file returns the configured Otto app
+otto_app = require_relative 'config'
 
 # Create a simple WEBrick server
 server = WEBrick::HTTPServer.new(
@@ -21,7 +23,7 @@ server.mount '/', WEBrick::HTTPServlet::ProcHandler.new(proc { |req, res|
     'CONTENT_LENGTH' => req.content_length&.to_s
   })
 
-  status, headers, body = otto.call(env)
+  status, headers, body = otto_app.call(env)
 
   res.status = status
   headers.each { |k, v| res[k] = v }

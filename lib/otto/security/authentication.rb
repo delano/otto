@@ -203,8 +203,9 @@ class Otto
 
     # Authentication middleware that enforces route-level auth requirements
     class AuthenticationMiddleware
-      def initialize(app, config = {})
+      def initialize(app, security_config = {}, config = {})
         @app = app
+        @security_config = security_config
         @config = config
         @strategies = config[:auth_strategies] || {}
         @default_strategy = config[:default_auth_strategy] || 'publicly'

@@ -18,3 +18,4 @@ Removed
 - Removed `RequestContext` class (replaced by `StrategyResult`)
 - Removed `AuthResult` class from authentication system
 - Removed OpenStruct dependency across the framework
+- Removed `ConcurrentCacheStore` example class for an ActiveSupport::Cache::MemoryStore-compatible interface with Rack::Attack

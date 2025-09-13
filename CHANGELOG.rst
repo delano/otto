@@ -20,8 +20,10 @@ Versioning <https://semver.org/spec/v2.0.0.html>`__.
 Added
 -----
 
-- Comprehensive test coverage for error handling methods (handle_error, secure_error_response, json_error_response)
-- Test coverage for private configuration methods (configure_locale, configure_security, configure_authentication, configure_mcp)
+- Comprehensive test coverage for error handling methods (handle_error, secure_error_response,
+json_error_response)
+- Test coverage for private configuration methods (configure_locale, configure_security,
+configure_authentication, configure_mcp)
 - Expanded MCP functionality test coverage including route parsing and server initialization
 - Security header validation in all error responses
 - Content negotiation testing for JSON vs plain text error responses
@@ -35,7 +37,9 @@ Added
 Changed
 -------
 
-- **BREAKING**: Direct middleware_stack manipulation no longer supported. Use ``otto.use()`` instead of ``otto.middleware_stack <<``. See `migration guide <docs/migrating/v2.0.0-pre1.md>`__ for upgrade path.
+- **BREAKING**: Direct middleware_stack manipulation no longer supported. Use ``otto.use()`` instead
+of ``otto.middleware_stack <<``. See `migration guide <docs/migrating/v2.0.0-pre1.md>`__ for upgrade
+path.
 
 - Refactored main Otto class from 767 lines to 348 lines using composition pattern (#29)
 - Modernized initialization method with helper functions while maintaining backward compatibility
@@ -66,7 +70,9 @@ AI Assistance
 - MCP functionality testing with proper mocking and stubbing techniques
 - Test quality assurance ensuring all 460 examples pass with 0 failures
 
-- Extracted core Otto class functionality into 5 focused modules (Router, FileSafety, Configuration, ErrorHandler, UriGenerator) using composition pattern for improved maintainability while preserving complete API backward compatibility (#28)
+- Extracted core Otto class functionality into 5 focused modules (Router, FileSafety, Configuration,
+ErrorHandler, UriGenerator) using composition pattern for improved maintainability while preserving
+complete API backward compatibility (#28)
 
 - Comprehensive refactoring implementation developed with AI assistance
 - Systematic approach to maintaining backward compatibility during modernization

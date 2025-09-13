@@ -1,12 +1,29 @@
 # examples/mcp_demo/app.rb
+require 'json'
+require 'time'
 
-# Example Otto application with MCP support
-# This demonstrates Phase 1 & 2 implementation
+# DemoApp provides basic HTML pages for the demo.
+class DemoApp
+  def self.index(_req, res)
+    res.headers['content-type'] = 'text/html; charset=utf-8'
+    res.body = <<~HTML
+      <h1>Otto MCP Demo</h1>
+      <p>This example demonstrates Otto's Model-Controller-Protocol (MCP) feature, which provides a JSON-RPC 2.0 endpoint for interacting with your application.</p>
+      <p>The MCP endpoint is available at: <code>POST /_mcp</code></p>
+      <p>See the <code>README.md</code> file for detailed `curl` commands to test the API.</p>
+    HTML
+  end
 
-require_relative '../../lib/otto'
+  def self.health(_req, res)
+    res.headers['content-type'] = 'text/plain'
+    res.body = 'OK'
+  end
+end
 
-# Simple API class for demonstration of MCP user management tools
+# UserAPI provides handlers for the MCP tool and resource routes.
 class UserAPI
+  # MCP Resource: mcp_list_users
+  # Accessible via JSON-RPC method "users/list"
   def self.mcp_list_users
     {
       users: [
@@ -16,8 +33,9 @@ class UserAPI
     }.to_json
   end
 
+  # MCP Tool: mcp_create_user
+  # Accessible via JSON-RPC method "create_user"
   def self.mcp_create_user(arguments, _env)
-    # Tool handler that creates a user
     name = arguments['name'] || 'Anonymous'
     email = arguments['email'] || "#{name.downcase}@example.com"
 
@@ -31,27 +49,3 @@ class UserAPI
     "Created user: #{new_user.to_json}"
   end
 end
-
-# Initialize Otto with MCP support
-otto = Otto.new('routes', {
-                  mcp_enabled: true,
-  auth_tokens: ['demo-token-123'],  # Simple token auth
-  requests_per_minute: 10,          # Lower for demo
-  tools_per_minute: 5,
-                })
-
-# Enable MCP with authentication tokens
-otto.enable_mcp!({
-                   auth_tokens: %w[demo-token-123 another-token-456],
-  enable_validation: true,
-  enable_rate_limiting: true,
-                 })
-
-puts 'Otto MCP Demo Server starting...'
-puts 'MCP endpoint: POST /_mcp'
-puts 'Auth tokens: demo-token-123, another-token-456'
-puts "Usage: curl -H 'Authorization: Bearer demo-token-123' -H 'Content-Type: application/json' \\"
-puts "       -d '{\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"id\":1,\"params\":{}}' \\"
-puts '       http://localhost:9292/_mcp'
-
-otto

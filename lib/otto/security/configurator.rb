@@ -2,10 +2,10 @@
 
 # lib/otto/security/configurator.rb
 
-require_relative 'csrf'
-require_relative 'validator'
-require_relative 'authentication'
-require_relative 'rate_limiting'
+require_relative 'middleware/csrf_middleware'
+require_relative 'middleware/validation_middleware'
+require_relative 'authentication/authentication_middleware'
+require_relative 'middleware/rate_limit_middleware'
 
 # Security configuration facade for Otto framework
 class Otto
@@ -82,19 +82,19 @@ class Otto
       # This will automatically add CSRF tokens to HTML forms and validate
       # them on unsafe HTTP methods.
       def enable_csrf_protection!
-        return if middleware_enabled?(Otto::Security::CSRFMiddleware)
+        return if middleware_enabled?(Otto::Security::Middleware::CSRFMiddleware)
 
         @security_config.enable_csrf_protection!
-        @middleware_stack.add(Otto::Security::CSRFMiddleware)
+        @middleware_stack.add(Otto::Security::Middleware::CSRFMiddleware)
       end
 
       # Enable request validation including input sanitization, size limits,
       # and protection against XSS and SQL injection attacks.
       def enable_request_validation!
-        return if middleware_enabled?(Otto::Security::ValidationMiddleware)
+        return if middleware_enabled?(Otto::Security::Middleware::ValidationMiddleware)
 
         @security_config.input_validation = true
-        @middleware_stack.add(Otto::Security::ValidationMiddleware)
+        @middleware_stack.add(Otto::Security::Middleware::ValidationMiddleware)
       end
 
       # Enable rate limiting to protect against abuse and DDoS attacks.
@@ -104,10 +104,10 @@ class Otto
       # @option options [Integer] :requests_per_minute Maximum requests per minute per IP (default: 100)
       # @option options [Hash] :custom_rules Custom rate limiting rules
       def enable_rate_limiting!(options = {})
-        return if middleware_enabled?(Otto::Security::RateLimitMiddleware)
+        return if middleware_enabled?(Otto::Security::Middleware::RateLimitMiddleware)
 
         configure_rate_limiting(options)
-        @middleware_stack.add(Otto::Security::RateLimitMiddleware)
+        @middleware_stack.add(Otto::Security::Middleware::RateLimitMiddleware)
       end
 
       # Add a custom rate limiting rule.
@@ -174,15 +174,15 @@ class Otto
       # Enable authentication middleware for route-level access control.
       # This will automatically check route auth parameters and enforce authentication.
       def enable_authentication!
-        return if middleware_enabled?(Otto::Security::AuthenticationMiddleware)
+        return if middleware_enabled?(Otto::Security::Authentication::AuthenticationMiddleware)
 
-        @middleware_stack.add(Otto::Security::AuthenticationMiddleware, @auth_config)
+        @middleware_stack.add(Otto::Security::Authentication::AuthenticationMiddleware, @auth_config)
       end
 
       # Add a single authentication strategy
       #
       # @param name [String] Strategy name
-      # @param strategy [Otto::Security::AuthStrategy] Strategy instance
+      # @param strategy [Otto::Security::Authentication::AuthStrategy] Strategy instance
       def add_auth_strategy(name, strategy)
         @auth_config[:auth_strategies][name] = strategy
         enable_authentication!

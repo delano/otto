@@ -3,5 +3,5 @@
 # lib/otto/version.rb
 
 class Otto
-  VERSION = '1.6.1-pre1'
+  VERSION = '2.0.0-pre1'
 end

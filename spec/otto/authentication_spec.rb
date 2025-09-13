@@ -183,7 +183,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
           'publicly' => Otto::Security::PublicStrategy.new,
         },
       }
-      Otto::Security::AuthenticationMiddleware.new(test_app, config)
+      Otto::Security::AuthenticationMiddleware.new(test_app, {}, config)
     end
 
     it 'allows access to public routes without auth requirement' do
@@ -255,7 +255,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
           'custom_admin' => Otto::Security::RoleStrategy.new(['superuser']),
         },
       }
-      Otto::Security::AuthenticationMiddleware.new(test_app, config)
+      Otto::Security::AuthenticationMiddleware.new(test_app, {}, config)
     end
 
     it 'matches role: prefix requirements' do

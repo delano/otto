@@ -143,10 +143,10 @@ class Otto
       # @param default_strategy [String] Default strategy to use when none specified
       # @example
       #   otto.configure_auth_strategies({
-      #     'publicly' => Otto::Security::PublicStrategy.new,
-      #     'authenticated' => Otto::Security::SessionStrategy.new(session_key: 'user_id'),
-      #     'role:admin' => Otto::Security::RoleStrategy.new(['admin']),
-      #     'api_key' => Otto::Security::APIKeyStrategy.new(api_keys: ['secret123'])
+      #     'publicly' => Otto::Security::Authentication::Strategies::PublicStrategy.new,
+      #     'authenticated' => Otto::Security::Authentication::Strategies::SessionStrategy.new(session_key: 'user_id'),
+      #     'role:admin' => Otto::Security::Authentication::Strategies::RoleStrategy.new(['admin']),
+      #     'api_key' => Otto::Security::Authentication::Strategies::APIKeyStrategy.new(api_keys: ['secret123'])
       #   })
       def configure_auth_strategies(strategies, default_strategy: 'publicly')
         # Update existing @auth_config rather than creating a new one

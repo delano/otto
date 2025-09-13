@@ -1,0 +1,37 @@
+# Authentication Strategies Example
+
+# ========================================
+# PUBLIC ROUTES
+# ========================================
+
+GET   /                         MainController#index
+GET   /login                    AuthController#login_form
+POST  /login                    AuthController#login
+
+# ========================================
+# AUTHENTICATED ROUTES
+# ========================================
+
+# Requires a user to be logged in.
+# Try: /profile?token=demo_token
+GET   /profile                  AuthController#show_profile auth=authenticated
+
+# Requires the 'admin' role.
+# Try: /admin?token=admin_token
+GET   /admin                    AuthController#admin_panel auth=role:admin
+
+# Requires the 'write' permission.
+# A user with the 'user' role has this.
+# Try: /edit?token=demo_token
+GET   /edit                     AuthController#edit_content auth=permission:write
+
+# A route protected by an API key
+# Try: /api/data?api_key=demo_api_key_123
+GET   /api/data                 AuthController#api_data auth=api_key response=json
+
+# ========================================
+# ERROR HANDLERS
+# ========================================
+
+GET   /404                      MainController#not_found response=view
+GET   /500                      MainController#server_error response=view

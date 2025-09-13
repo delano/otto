@@ -163,24 +163,19 @@ class Otto
     # @param target [String] The target definition (e.g., "TestApp.index")
     # @return [Hash] Hash with :klass_name, :method_name, and :kind
     def parse_target(target)
-      if target.include?('.')
-        klass_name, method_name = target.split('.', 2)
-        { klass_name: klass_name, method_name: method_name, kind: :class }
-      elsif target.include?('#')
-        klass_name, method_name = target.split('#', 2)
-        { klass_name: klass_name, method_name: method_name, kind: :instance }
-      elsif target.match?(/\A[A-Z][a-zA-Z0-9_]*(?:::[A-Z][a-zA-Z0-9_]*)*\z/)
-        # Namespaced class with implicit method name (class method with same name as class)
-        # E.g., "V2::Logic::Admin::Panel" -> Panel.Panel (class method)
-        # For single word classes like "Logic", it's truly a logic class
-        method_name = target.split('::').last
-        if target.include?('::')
-          # Namespaced class - treat as class method with implicit method name
-          { klass_name: target, method_name: method_name, kind: :class }
-        else
-          # Single word class - treat as logic class
-          { klass_name: target, method_name: method_name, kind: :logic }
-        end
+      case target
+      when /^(.+)\.(.+)$/
+        # Class.method - call class method directly
+        { klass_name: $1, method_name: $2, kind: :class }
+
+      when /^(.+)#(.+)$/
+        # Class#method - instantiate then call instance method
+        { klass_name: $1, method_name: $2, kind: :instance }
+
+      when /^[A-Z][A-Za-z0-9_]*(?:::[A-Z][A-Za-z0-9_]*)*$/
+        # Bare class name - instantiate the class
+        { klass_name: target, method_name: target.split('::').last, kind: :logic }
+
       else
         raise ArgumentError, "Invalid target format: #{target}"
       end

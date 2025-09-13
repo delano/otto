@@ -4,7 +4,6 @@
 
 require 'json'
 require 'logger'
-require 'ostruct'
 require 'securerandom'
 require 'uri'
 
@@ -12,6 +11,7 @@ require 'rack/request'
 require 'rack/response'
 require 'rack/utils'
 
+require_relative 'otto/security/authentication/strategy_result'
 require_relative 'otto/route_definition'
 require_relative 'otto/route'
 require_relative 'otto/static'
@@ -21,10 +21,10 @@ require_relative 'otto/response_handlers'
 require_relative 'otto/route_handlers'
 require_relative 'otto/version'
 require_relative 'otto/security/config'
-require_relative 'otto/security/csrf'
-require_relative 'otto/security/validator'
-require_relative 'otto/security/authentication'
-require_relative 'otto/security/rate_limiting'
+require_relative 'otto/security/middleware/csrf_middleware'
+require_relative 'otto/security/middleware/validation_middleware'
+require_relative 'otto/security/authentication/authentication_middleware'
+require_relative 'otto/security/middleware/rate_limit_middleware'
 require_relative 'otto/mcp/server'
 require_relative 'otto/core/router'
 require_relative 'otto/core/file_safety'
@@ -56,6 +56,38 @@ require_relative 'otto/utils'
 #   otto.enable_csp!
 #   otto.enable_frame_protection!
 #
+# Configuration Data class to replace OpenStruct
+# Configuration Data class to replace OpenStruct
+# Configuration class to replace OpenStruct
+class ConfigData
+  def initialize(**kwargs)
+    @data = kwargs
+  end
+
+  # Dynamic attribute accessors
+  def method_missing(method_name, *args)
+    if method_name.to_s.end_with?('=')
+      # Setter
+      attr_name = method_name.to_s.chomp('=').to_sym
+      @data[attr_name] = args.first
+    elsif @data.key?(method_name)
+      # Getter
+      @data[method_name]
+    else
+      super
+    end
+  end
+
+  def respond_to_missing?(method_name, include_private = false)
+    method_name.to_s.end_with?('=') || @data.key?(method_name) || super
+  end
+
+  # Convert to hash for compatibility
+  def to_h
+    @data.dup
+  end
+end
+
 class Otto
   include Otto::Core::Router
   include Otto::Core::FileSafety
@@ -78,9 +110,11 @@ class Otto
   def self.configure
     config = case @global_config
              in Hash => h
-               OpenStruct.new(h)
+               # Transform string keys to symbol keys for ConfigData compatibility
+               symbol_hash = h.transform_keys(&:to_sym)
+               ConfigData.new(**symbol_hash)
              else
-               OpenStruct.new
+               ConfigData.new
              end
     yield config
     @global_config = config.to_h
@@ -146,10 +180,10 @@ class Otto
   # @example
   #   otto.enable_csrf_protection!
   def enable_csrf_protection!
-    return if @middleware.includes?(Otto::Security::CSRFMiddleware)
+    return if @middleware.includes?(Otto::Security::Middleware::CSRFMiddleware)
 
     @security_config.enable_csrf_protection!
-    use Otto::Security::CSRFMiddleware
+    use Otto::Security::Middleware::CSRFMiddleware
   end
 
   # Enable request validation including input sanitization, size limits,
@@ -158,10 +192,10 @@ class Otto
   # @example
   #   otto.enable_request_validation!
   def enable_request_validation!
-    return if @middleware.includes?(Otto::Security::ValidationMiddleware)
+    return if @middleware.includes?(Otto::Security::Middleware::ValidationMiddleware)
 
     @security_config.input_validation = true
-    use Otto::Security::ValidationMiddleware
+    use Otto::Security::Middleware::ValidationMiddleware
   end
 
   # Enable rate limiting to protect against abuse and DDoS attacks.
@@ -173,10 +207,10 @@ class Otto
   # @example
   #   otto.enable_rate_limiting!(requests_per_minute: 50)
   def enable_rate_limiting!(options = {})
-    return if @middleware.includes?(Otto::Security::RateLimitMiddleware)
+    return if @middleware.includes?(Otto::Security::Middleware::RateLimitMiddleware)
 
     @security.configure_rate_limiting(options)
-    use Otto::Security::RateLimitMiddleware
+    use Otto::Security::Middleware::RateLimitMiddleware
   end
 
   # Add a custom rate limiting rule.
@@ -264,15 +298,15 @@ class Otto
   # @example
   #   otto.enable_authentication!
   def enable_authentication!
-    return if @middleware.includes?(Otto::Security::AuthenticationMiddleware)
+    return if @middleware.includes?(Otto::Security::Authentication::AuthenticationMiddleware)
 
-    use Otto::Security::AuthenticationMiddleware, @auth_config
+    use Otto::Security::Authentication::AuthenticationMiddleware, @auth_config
   end
 
   # Add a single authentication strategy
   #
   # @param name [String] Strategy name
-  # @param strategy [Otto::Security::AuthStrategy] Strategy instance
+  # @param strategy [Otto::Security::Authentication::AuthStrategy] Strategy instance
   # @example
   #   otto.add_auth_strategy('custom', MyCustomStrategy.new)
   def add_auth_strategy(name, strategy)

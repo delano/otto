@@ -2,6 +2,9 @@
 
 # lib/otto/helpers/validation.rb
 
+require 'loofah'
+require 'facets/file'
+
 class Otto
   module Security
     # Validation helper methods providing input validation and sanitization

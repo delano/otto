@@ -2,6 +2,18 @@
 
 require_relative '../spec_helper'
 
+# Authentication result data class to replace OpenStruct
+AuthResultData = Data.define(:session, :user) do
+  def initialize(session: {}, user: {})
+    super(session: session, user: user)
+  end
+
+  # Provide user_context method for compatibility with existing AuthResult
+  def user_context
+    { session: session, user: user }
+  end
+end
+
 RSpec.describe Otto::RouteHandlers do
   let(:route_definition) do
     Otto::RouteDefinition.new('GET', '/test', 'TestApp.index')
@@ -69,11 +81,10 @@ RSpec.describe Otto::RouteHandlers do
   describe Otto::RouteHandlers::LogicClassHandler do
     # Create a mock Logic class for testing
     class TestLogic
-      attr_reader :session, :user, :params, :locale
+      attr_reader :context, :params, :locale
 
-      def initialize(session, user, params, locale)
-        @session = session
-        @user = user
+      def initialize(context, params, locale)
+        @context = context
         @params = params
         @locale = locale
       end
@@ -102,7 +113,7 @@ RSpec.describe Otto::RouteHandlers do
         'PATH_INFO' => '/logic',
         'QUERY_STRING' => '',
         'rack.input' => StringIO.new,
-        'otto.auth_result' => OpenStruct.new(session: { user_id: 123 }, user: { name: 'Test User' }),
+        'otto.auth_result' => AuthResultData.new(session: { user_id: 123 }, user: { name: 'Test User' }),
       }
     end
 

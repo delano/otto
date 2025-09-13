@@ -2,6 +2,8 @@
 
 **Define your rack-apps in plain-text with built-in security.**
 
+> **v2.0.0-pre1 Available**: This pre-release includes major improvements to middleware management and test coverage. See [changelog](CHANGELOG.rst) and [migration guide](docs/migrating/v2.0.0-pre1.md) for upgraders.
+
 ![Otto mascot](public/img/otto.jpg "Otto - All Rack, no Pinion")
 
 Otto apps have three files: a rackup file, a Ruby class, and a routes file. The routes file is just plain text that maps URLs to Ruby methods.

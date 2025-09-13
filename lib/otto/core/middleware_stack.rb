@@ -139,7 +139,13 @@ class Otto
 
       def middleware_needs_config?(middleware_class)
         # Include all Otto security middleware that can accept security_config
+        # Support both new namespaced classes and backward compatibility aliases
         [
+          Otto::Security::Middleware::CSRFMiddleware,
+          Otto::Security::Middleware::ValidationMiddleware,
+          Otto::Security::Middleware::RateLimitMiddleware,
+          Otto::Security::Authentication::AuthenticationMiddleware,
+          # Backward compatibility aliases
           Otto::Security::CSRFMiddleware,
           Otto::Security::ValidationMiddleware,
           Otto::Security::RateLimitMiddleware,

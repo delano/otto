@@ -18,7 +18,7 @@ class Otto
 
         begin
           # Get strategy result (guaranteed to exist from auth middleware)
-          strategy_result = env['otto.strategy_result'] || Otto::StrategyResult.anonymous
+          strategy_result = env['otto.strategy_result'] || Otto::Security::Authentication::StrategyResult.anonymous
 
           # Initialize Logic class with new signature: context, params, locale
           logic_params = req.params.merge(extra_params)

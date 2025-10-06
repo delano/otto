@@ -45,10 +45,10 @@ class Otto
     #     "V2::Logic::AuthSession auth=authenticated response=redirect" (enhanced)
     # @raise [ArgumentError] if definition format is invalid or class name is unsafe
     def initialize(verb, path, definition)
-      @pattern, @keys = *compile(path)
+      pattern, keys = *compile(path)
 
       # Create immutable route definition
-      @route_definition = Otto::RouteDefinition.new(verb, path, definition, pattern: @pattern, keys: @keys)
+      @route_definition = Otto::RouteDefinition.new(verb, path, definition, pattern: pattern, keys: keys)
 
       # Resolve the class
       @klass = safe_const_get(@route_definition.klass_name)
@@ -85,52 +85,6 @@ class Otto
 
     def route_options
       @route_definition.options
-    end
-
-    private
-
-    # Safely resolve a class name using Object.const_get with security validations
-    # This replaces the previous eval() usage to prevent code injection attacks.
-    #
-    # Security features:
-    # - Validates class name format (must start with capital letter)
-    # - Prevents access to dangerous system classes
-    # - Blocks relative class references (starting with ::)
-    # - Provides clear error messages for debugging
-    #
-    # @param class_name [String] The class name to resolve
-    # @return [Class] The resolved class
-    # @raise [ArgumentError] if class name is invalid, forbidden, or not found
-    def safe_const_get(class_name)
-      # Validate class name format
-      unless class_name.match?(/\A[A-Z][a-zA-Z0-9_]*(?:::[A-Z][a-zA-Z0-9_]*)*\z/)
-        raise ArgumentError, "Invalid class name format: #{class_name}"
-      end
-
-      # Prevent dangerous class names
-      forbidden_classes = %w[
-        Kernel Module Class Object BasicObject
-        File Dir IO Process System
-        Binding Proc Method UnboundMethod
-        Thread ThreadGroup Fiber
-        ObjectSpace GC
-      ]
-
-      if forbidden_classes.include?(class_name) || class_name.start_with?('::')
-        raise ArgumentError, "Forbidden class name: #{class_name}"
-      end
-
-      begin
-        Object.const_get(class_name)
-      rescue NameError => e
-        raise ArgumentError, "Class not found: #{class_name} - #{e.message}"
-      end
-    end
-
-    public
-
-    def pattern_regexp
-      Regexp.new(@path.gsub('/*', '/.+'))
     end
 
     # Execute the route by calling the associated class method
@@ -217,6 +171,48 @@ class Otto
     end
 
     private
+
+    # Safely resolve a class name using Object.const_get with security validations
+    # This replaces the previous eval() usage to prevent code injection attacks.
+    #
+    # Security features:
+    # - Validates class name format (must start with capital letter)
+    # - Prevents access to dangerous system classes
+    # - Blocks relative class references (starting with ::)
+    # - Provides clear error messages for debugging
+    #
+    # @param class_name [String] The class name to resolve
+    # @return [Class] The resolved class
+    # @raise [ArgumentError] if class name is invalid, forbidden, or not found
+    def safe_const_get(class_name)
+      # Validate class name format
+      unless class_name.match?(/\A[A-Z][a-zA-Z0-9_]*(?:::[A-Z][a-zA-Z0-9_]*)*\z/)
+        raise ArgumentError, "Invalid class name format: #{class_name}"
+      end
+
+      # Remove any leading :: then add exactly one
+      fq_class_name = "::#{class_name.sub(/^::+/, '')}"
+
+      # Prevent dangerous class names
+      forbidden_classes = %w[
+        Kernel Module Class Object BasicObject
+        File Dir IO Process System
+        Binding Proc Method UnboundMethod
+        Thread ThreadGroup Fiber
+        ObjectSpace GC
+      ]
+
+      if forbidden_classes.include?(class_name) || class_name.start_with?('::')
+        raise ArgumentError, "Forbidden class name: #{class_name}"
+      end
+
+      begin
+        # Always guarantee exactly two leading colons
+        Object.const_get(fq_class_name)
+      rescue NameError => e
+        raise ArgumentError, "Class not found: #{fq_class_name} - #{e.message}"
+      end
+    end
 
     def compile(path)
       keys = []

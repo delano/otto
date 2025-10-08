@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    otto (2.0.0.pre1)
+    otto (2.0.0.pre2)
       facets (~> 3.1)
       loofah (~> 2.20)
       rack (~> 3.1, < 4.0)

@@ -6,7 +6,7 @@ require_relative 'protocol'
 require_relative 'registry'
 require_relative 'route_parser'
 require_relative 'auth/token'
-require_relative 'validation'
+require_relative 'schema_validation'
 require_relative 'rate_limiting'
 
 class Otto
@@ -75,8 +75,12 @@ class Otto
         # Configure validation last (most expensive)
         return unless @enable_validation
 
-        @otto_instance.use Otto::MCP::ValidationMiddleware
+        @otto_instance.use Otto::MCP::SchemaValidationMiddleware
         Otto.logger.debug '[MCP] Request validation enabled' if Otto.debug
+
+        # Validate middleware order
+        warnings = @otto_instance.instance_variable_get(:@middleware).validate_mcp_middleware_order
+        warnings.each { |warning| Otto.logger.warn warning }
       end
 
       def add_mcp_endpoint_route

@@ -36,6 +36,48 @@ class Otto
         # Invalidate memoized middleware list
         @memoized_middleware_list = nil
       end
+
+      # Validate MCP middleware ordering
+      #
+      # MCP middleware must be in security-optimal order:
+      # 1. RateLimitMiddleware (reject excessive requests early)
+      # 2. Auth middleware (validate credentials before parsing)
+      # 3. SchemaValidationMiddleware (expensive JSON schema validation last)
+      #
+      # @return [Array<String>] Warning messages if order is suboptimal
+      def validate_mcp_middleware_order
+        warnings = []
+
+        mcp_middlewares = @stack.select do |entry|
+          [
+            Otto::MCP::RateLimitMiddleware,
+            Otto::MCP::Auth::TokenMiddleware,
+            Otto::MCP::SchemaValidationMiddleware,
+          ].include?(entry[:middleware])
+        end
+
+        return warnings if mcp_middlewares.size < 2
+
+        # Find positions
+        rate_limit_pos = mcp_middlewares.find_index { |e| e[:middleware] == Otto::MCP::RateLimitMiddleware }
+        auth_pos = mcp_middlewares.find_index { |e| e[:middleware] == Otto::MCP::Auth::TokenMiddleware }
+        validation_pos = mcp_middlewares.find_index { |e| e[:middleware] == Otto::MCP::SchemaValidationMiddleware }
+
+        # Check optimal order: rate_limit < auth < validation
+        if rate_limit_pos && auth_pos && rate_limit_pos > auth_pos
+          warnings << '[MCP Middleware] RateLimitMiddleware should come before TokenMiddleware for optimal performance'
+        end
+
+        if auth_pos && validation_pos && auth_pos > validation_pos
+          warnings << '[MCP Middleware] TokenMiddleware should come before SchemaValidationMiddleware for optimal performance'
+        end
+
+        if rate_limit_pos && validation_pos && rate_limit_pos > validation_pos
+          warnings << '[MCP Middleware] RateLimitMiddleware should come before SchemaValidationMiddleware for optimal performance'
+        end
+
+        warnings
+      end
       alias use add
       alias << add
 

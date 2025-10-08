@@ -37,6 +37,39 @@ class Otto
         @memoized_middleware_list = nil
       end
 
+      # Add middleware with position hint for optimal ordering
+      #
+      # @param middleware_class [Class] Middleware class
+      # @param args [Array] Middleware arguments
+      # @param position [Symbol, nil] Position hint (:first, :last, or nil for append)
+      # @option options [Symbol] :position Position hint (:first or :last)
+      def add_with_position(middleware_class, *args, position: nil, **options)
+        raise FrozenError, 'Cannot modify frozen middleware stack' if frozen?
+
+        # Check for identical configuration
+        existing_entry = @stack.find do |entry|
+          entry[:middleware] == middleware_class &&
+            entry[:args] == args &&
+            entry[:options] == options
+        end
+
+        return if existing_entry
+
+        entry = { middleware: middleware_class, args: args, options: options }
+
+        case position
+        when :first
+          @stack.unshift(entry)
+        when :last
+          @stack << entry
+        else
+          @stack << entry  # Default append
+        end
+
+        @middleware_set.add(middleware_class)
+        @memoized_middleware_list = nil
+      end
+
       # Validate MCP middleware ordering
       #
       # MCP middleware must be in security-optimal order:

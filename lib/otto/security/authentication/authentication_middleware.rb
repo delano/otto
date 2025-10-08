@@ -51,15 +51,10 @@ class Otto
           # Perform authentication
           strategy_result = strategy.authenticate(env, auth_requirement)
 
-          if strategy_result&.success?
-            # Success - store the strategy result directly
-            env['otto.strategy_result'] = strategy_result
-            env['otto.user'] = strategy_result.user # For convenience
-            env['otto.user_context'] = strategy_result.user_context # For convenience
-            @app.call(env)
-          else
+          # Check result type: FailureResult indicates auth failure, StrategyResult indicates success
+          if strategy_result.is_a?(Otto::Security::Authentication::FailureResult)
             # Failure - create anonymous result with failure info
-            failure_reason = strategy_result&.failure_reason || 'Authentication failed'
+            failure_reason = strategy_result.failure_reason || 'Authentication failed'
             env['otto.strategy_result'] = Otto::Security::Authentication::StrategyResult.anonymous(
               metadata: {
                 ip: env['REMOTE_ADDR'],
@@ -68,6 +63,12 @@ class Otto
               }
             )
             auth_error_response(failure_reason)
+          else
+            # Success - store the strategy result directly
+            env['otto.strategy_result'] = strategy_result
+            env['otto.user'] = strategy_result.user # For convenience
+            env['otto.user_context'] = strategy_result.user_context # For convenience
+            @app.call(env)
           end
         end
 

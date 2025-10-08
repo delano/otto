@@ -57,7 +57,6 @@ require_relative 'otto/utils'
 #   otto.enable_frame_protection!
 #
 # Configuration Data class to replace OpenStruct
-# Configuration Data class to replace OpenStruct
 # Configuration class to replace OpenStruct
 class ConfigData
   def initialize(**kwargs)

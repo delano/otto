@@ -66,6 +66,11 @@ class Otto
           else
             # Success - store the strategy result directly
             env['otto.strategy_result'] = strategy_result
+
+            # Ensure env['rack.session'] points to the session from StrategyResult
+            # This allows Logic classes to write to strategy_result.session and have
+            # those changes persist via Rack's session middleware
+            env['rack.session'] = strategy_result.session if strategy_result.session
             env['otto.user'] = strategy_result.user # For convenience
             env['otto.user_context'] = strategy_result.user_context # For convenience
             @app.call(env)

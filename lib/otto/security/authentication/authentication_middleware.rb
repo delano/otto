@@ -70,11 +70,11 @@ class Otto
             # Ensure env['rack.session'] points to the session from StrategyResult
             # This allows Logic classes to write to strategy_result.session and have
             # those changes persist via Rack's session middleware
-            Otto.logger.debug "[AuthMiddleware] Before sync - env['rack.session'].object_id: #{env['rack.session'].object_id}"
-            Otto.logger.debug "[AuthMiddleware] strategy_result.session.object_id: #{strategy_result.session&.object_id || 'nil'}"
-            Otto.logger.debug "[AuthMiddleware] Same object? #{env['rack.session'].object_id == strategy_result.session&.object_id}"
+            Otto.logger.info "[AuthMiddleware] Before sync - env['rack.session'].object_id: #{env['rack.session'].object_id}"
+            Otto.logger.info "[AuthMiddleware] strategy_result.session.object_id: #{strategy_result.session&.object_id || 'nil'}"
+            Otto.logger.info "[AuthMiddleware] Same object? #{env['rack.session'].object_id == strategy_result.session&.object_id}"
             env['rack.session'] = strategy_result.session if strategy_result.session
-            Otto.logger.debug "[AuthMiddleware] After sync - env['rack.session'].object_id: #{env['rack.session'].object_id}"
+            Otto.logger.info "[AuthMiddleware] After sync - env['rack.session'].object_id: #{env['rack.session'].object_id}"
             env['otto.user'] = strategy_result.user # For convenience
             env['otto.user_context'] = strategy_result.user_context # For convenience
             @app.call(env)

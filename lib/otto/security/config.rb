@@ -149,11 +149,6 @@ class Otto
         signature  = Digest::SHA256.hexdigest(hash_input)
         csrf_token = "#{token}:#{signature}"
 
-        puts '=== CSRF Generation ==='
-        puts "hash_input: #{hash_input.inspect}"
-        puts "signature: #{signature}"
-        puts "csrf_token: #{csrf_token}"
-
         csrf_token
       end
 
@@ -167,12 +162,6 @@ class Otto
         hash_input         = "#{base}:#{token_part}"
         expected_signature = Digest::SHA256.hexdigest(hash_input)
         comparison_result  = secure_compare(signature, expected_signature)
-
-        puts '=== CSRF Verification ==='
-        puts "hash_input: #{hash_input.inspect}"
-        puts "received_signature: #{signature}"
-        puts "expected_signature: #{expected_signature}"
-        puts "match: #{comparison_result}"
 
         comparison_result
       end

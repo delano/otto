@@ -70,6 +70,7 @@ class Otto
             # Ensure env['rack.session'] points to the session from StrategyResult
             # This allows Logic classes to write to strategy_result.session and have
             # those changes persist via Rack's session middleware
+            $stderr.puts "========== OTTO MIDDLEWARE EXECUTING =========="
             puts "[AuthMiddleware] Before sync - env['rack.session'].object_id: #{env['rack.session'].object_id}"
             puts "[AuthMiddleware] strategy_result.session.object_id: #{strategy_result.session&.object_id || 'nil'}"
             puts "[AuthMiddleware] Same object? #{env['rack.session'].object_id == strategy_result.session&.object_id}"

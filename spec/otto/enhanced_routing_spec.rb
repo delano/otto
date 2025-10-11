@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 # spec/otto/enhanced_routing_spec.rb
 
 require 'spec_helper'
@@ -46,11 +47,12 @@ RSpec.describe Otto::Route, 'enhanced route parsing' do
 
       expect(route.verb).to eq(:GET)
       expect(route.path).to eq('/api/users')
-      expect(route.route_options).to eq({
-                                          auth: 'api_key',
+      options = {
+            auth: 'api_key',
         response: 'json',
-        csrf: 'exempt',
-                                        })
+            csrf: 'exempt',
+      }
+      expect(route.route_options).to eq(options)
       expect(route.klass.name).to eq('TestApp')
       expect(route.name).to eq('api_users')
       expect(route.kind).to eq(:class)
@@ -59,10 +61,11 @@ RSpec.describe Otto::Route, 'enhanced route parsing' do
     it 'parses enhanced routes with namespaced classes' do
       route = Otto::Route.new('GET', '/admin', 'V2::Logic::Admin::Panel auth=role:admin response=view')
 
-      expect(route.route_options).to eq({
-                                          auth: 'role:admin',
+      options = {
+            auth: 'role:admin',
         response: 'view',
-                                        })
+      }
+      expect(route.route_options).to eq(options)
       expect(route.klass.name).to eq('V2::Logic::Admin::Panel')
       expect(route.name).to eq('Panel')
       expect(route.kind).to eq(:logic)
@@ -90,7 +93,13 @@ RSpec.describe Otto::Route, 'enhanced route parsing' do
   end
 
   describe '#call with route options' do
-    let(:app) { create_minimal_otto(['GET /test TestApp.test auth=authenticated response=json']) }
+    let(:app) do
+      otto = create_minimal_otto(['GET /test TestApp.test auth=noauth response=json'])
+      # Configure authentication strategy for "authenticated"
+      require_relative '../../lib/otto/security/authentication/strategies/public_strategy'
+      otto.add_auth_strategy('noauth', Otto::Security::Authentication::Strategies::PublicStrategy.new)
+      otto
+    end
 
     it 'makes route options available in env' do
       env = mock_rack_env(method: 'GET', path: '/test')
@@ -104,10 +113,12 @@ RSpec.describe Otto::Route, 'enhanced route parsing' do
 
       app.call(env)
 
-      expect(captured_env['otto.route_options']).to eq({
-                                                         auth: 'authenticated',
+      options = {
+            auth: 'noauth',
         response: 'json',
-                                                       })
+      }
+      expect(captured_env).not_to(be_nil)
+      expect(captured_env['otto.route_options']).to eq(options)
     end
   end
 end

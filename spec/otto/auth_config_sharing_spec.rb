@@ -18,10 +18,10 @@ RSpec.describe 'Auth Config Sharing' do
 
     it 'maintains default auth strategy consistency' do
       # Otto should have default auth strategy
-      expect(otto.security.auth_config[:default_auth_strategy]).to eq('publicly')
+      expect(otto.security.auth_config[:default_auth_strategy]).to eq('noauth')
 
       # Should match Otto's auth config
-      expect(otto.auth_config[:default_auth_strategy]).to eq('publicly')
+      expect(otto.auth_config[:default_auth_strategy]).to eq('noauth')
     end
 
     it 'updates both configs when adding strategy via Otto' do
@@ -194,7 +194,7 @@ RSpec.describe 'Auth Config Sharing' do
 
       expect(otto.auth_config).to be_a(Hash)
       expect(otto.auth_config[:auth_strategies]['test']).to eq(test_strategy)
-      expect(otto.auth_config[:default_auth_strategy]).to eq('publicly')
+      expect(otto.auth_config[:default_auth_strategy]).to eq('noauth')
     end
 
     it 'handles adding multiple strategies' do

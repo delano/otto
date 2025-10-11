@@ -281,7 +281,7 @@ RSpec.describe Otto, 'Configuration Methods' do
 
       config = app.instance_variable_get(:@auth_config)
       expect(config[:auth_strategies]).to eq({})
-      expect(config[:default_auth_strategy]).to eq('publicly')
+      expect(config[:default_auth_strategy]).to eq('noauth')
     end
 
     it 'sets custom auth strategies' do

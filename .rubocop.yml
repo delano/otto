@@ -48,7 +48,10 @@ Gemspec/DevelopmentDependencies:
   Enabled: true
 
 Layout/HashAlignment:
-  Enabled: false
+  Enabled: true
+  EnforcedHashRocketStyle: key
+  EnforcedColonStyle: separator
+  EnforcedLastArgumentHashStyle: always_ignore # Changed from ignore_implicit
 
 Lint/Void:
   Enabled: false

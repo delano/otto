@@ -41,9 +41,10 @@ jobs:
       - uses: actions/checkout@v5
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
+        continue-on-error: ${{ matrix.experimental }}
         with:
           ruby-version: ${{ matrix.ruby }}
-          bundler-cache: true
+          bundler-cache: ${{ !matrix.experimental }}
 
       - name: Setup tmate session
         uses: mxschmitt/action-tmate@7b6a61a73bbb9793cb80ad69b8dd8ac19261834c # v3

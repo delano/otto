@@ -7,6 +7,12 @@ class Otto
     # Handler for JSON responses
     class JSONHandler < BaseHandler
       def self.handle(result, response, context = {})
+        # If a redirect has already been set, don't override with JSON
+        # This allows controllers to conditionally redirect based on Accept header
+        if response.status&.between?(300, 399) && response['Location']
+          return
+        end
+
         response['Content-Type'] = 'application/json'
 
         # Determine the data to serialize

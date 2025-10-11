@@ -36,6 +36,86 @@ class Otto
         # Invalidate memoized middleware list
         @memoized_middleware_list = nil
       end
+
+      # Add middleware with position hint for optimal ordering
+      #
+      # @param middleware_class [Class] Middleware class
+      # @param args [Array] Middleware arguments
+      # @param position [Symbol, nil] Position hint (:first, :last, or nil for append)
+      # @option options [Symbol] :position Position hint (:first or :last)
+      def add_with_position(middleware_class, *args, position: nil, **options)
+        raise FrozenError, 'Cannot modify frozen middleware stack' if frozen?
+
+        # Check for identical configuration
+        existing_entry = @stack.find do |entry|
+          entry[:middleware] == middleware_class &&
+            entry[:args] == args &&
+            entry[:options] == options
+        end
+
+        return if existing_entry
+
+        entry = { middleware: middleware_class, args: args, options: options }
+
+        case position
+        when :first
+          @stack.unshift(entry)
+        when :last
+          @stack << entry
+        else
+          @stack << entry  # Default append
+        end
+
+        @middleware_set.add(middleware_class)
+        @memoized_middleware_list = nil
+      end
+
+      # Validate MCP middleware ordering
+      #
+      # MCP middleware must be in security-optimal order:
+      # 1. RateLimitMiddleware (reject excessive requests early)
+      # 2. Auth middleware (validate credentials before parsing)
+      # 3. SchemaValidationMiddleware (expensive JSON schema validation last)
+      #
+      # @return [Array<String>] Warning messages if order is suboptimal
+      def validate_mcp_middleware_order
+        warnings = []
+
+        # PERFORMANCE NOTE: This implementation intentionally uses select + find_index
+        # rather than a single-pass approach. The filtered mcp_middlewares array is
+        # typically 0-3 items, making the performance difference unmeasurable.
+        # The current approach prioritizes readability over micro-optimization.
+        # Single-pass alternatives were considered but rejected as premature optimization.
+        mcp_middlewares = @stack.select do |entry|
+          [
+            Otto::MCP::RateLimitMiddleware,
+            Otto::MCP::Auth::TokenMiddleware,
+            Otto::MCP::SchemaValidationMiddleware,
+          ].include?(entry[:middleware])
+        end
+
+        return warnings if mcp_middlewares.size < 2
+
+        # Find positions
+        rate_limit_pos = mcp_middlewares.find_index { |e| e[:middleware] == Otto::MCP::RateLimitMiddleware }
+        auth_pos = mcp_middlewares.find_index { |e| e[:middleware] == Otto::MCP::Auth::TokenMiddleware }
+        validation_pos = mcp_middlewares.find_index { |e| e[:middleware] == Otto::MCP::SchemaValidationMiddleware }
+
+        # Check optimal order: rate_limit < auth < validation
+        if rate_limit_pos && auth_pos && rate_limit_pos > auth_pos
+          warnings << '[MCP Middleware] RateLimitMiddleware should come before TokenMiddleware for optimal performance'
+        end
+
+        if auth_pos && validation_pos && auth_pos > validation_pos
+          warnings << '[MCP Middleware] TokenMiddleware should come before SchemaValidationMiddleware for optimal performance'
+        end
+
+        if rate_limit_pos && validation_pos && rate_limit_pos > validation_pos
+          warnings << '[MCP Middleware] RateLimitMiddleware should come before SchemaValidationMiddleware for optimal performance'
+        end
+
+        warnings
+      end
       alias use add
       alias << add
 

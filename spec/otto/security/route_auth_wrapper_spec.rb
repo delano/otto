@@ -1,0 +1,245 @@
+# frozen_string_literal: true
+
+# spec/otto/security/route_auth_wrapper_spec.rb
+
+require 'spec_helper'
+
+RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
+  include OttoTestHelpers
+
+  let(:mock_handler) do
+    lambda do |env, _extra_params|
+      [200, { 'Content-Type' => 'text/plain' }, ['handler called']]
+    end
+  end
+
+  let(:route_definition) do
+    Otto::RouteDefinition.new('GET', '/protected', 'TestApp.protected auth=authenticated')
+  end
+
+  let(:session_strategy) { Otto::Security::SessionStrategy.new }
+  let(:noauth_strategy) { Otto::Security::NoAuthStrategy.new }
+
+  let(:auth_config) do
+    {
+      auth_strategies: {
+        'authenticated' => session_strategy,
+        'noauth' => noauth_strategy,
+      },
+      default_auth_strategy: 'noauth',
+      login_path: '/signin',
+    }
+  end
+
+  let(:wrapper) do
+    described_class.new(mock_handler, route_definition, auth_config)
+  end
+
+  describe '#initialize' do
+    it 'stores wrapped handler, route definition, and auth config' do
+      expect(wrapper.wrapped_handler).to eq(mock_handler)
+      expect(wrapper.route_definition).to eq(route_definition)
+      expect(wrapper.auth_config).to eq(auth_config)
+    end
+  end
+
+  describe '#call' do
+    context 'with successful authentication' do
+      it 'sets env variables and calls wrapped handler' do
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123 }
+
+        status, headers, body = wrapper.call(env)
+
+        expect(status).to eq(200)
+        expect(body).to eq(['handler called'])
+        expect(env['otto.strategy_result']).to be_a(Otto::Security::Authentication::StrategyResult)
+        expect(env['otto.user_context']).to eq(user_id: 123, session: { 'user_id' => 123 })
+      end
+
+      it 'sets otto.user convenience key' do
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 456 }
+
+        wrapper.call(env)
+
+        expect(env['otto.user']).to eq({ id: 456, user_id: 456 })
+        expect(env['otto.strategy_result'].user).to eq({ id: 456, user_id: 456 })
+      end
+    end
+
+    context 'with authentication failure' do
+      context 'JSON requests' do
+        it 'returns 401 with JSON error for missing session' do
+          env = mock_rack_env(headers: { 'Accept' => 'application/json' })
+          env['rack.session'] = {}
+
+          status, headers, body = wrapper.call(env)
+
+          expect(status).to eq(401)
+          expect(headers['content-type']).to eq('application/json')
+
+          response_data = JSON.parse(body.first)
+          expect(response_data['error']).to eq('Authentication Required')
+          expect(response_data['message']).to eq('Not authenticated')
+          expect(response_data['timestamp']).to be_a(Integer)
+        end
+
+        it 'returns 401 with JSON error for invalid credentials' do
+          env = mock_rack_env(headers: { 'Accept' => 'application/json' })
+          # No session at all
+
+          status, headers, body = wrapper.call(env)
+
+          expect(status).to eq(401)
+          expect(headers['content-type']).to eq('application/json')
+
+          response_data = JSON.parse(body.first)
+          expect(response_data['error']).to eq('Authentication Required')
+        end
+      end
+
+      context 'HTML requests' do
+        it 'redirects to login path on authentication failure' do
+          env = mock_rack_env
+          env['rack.session'] = {}
+
+          status, headers, body = wrapper.call(env)
+
+          expect(status).to eq(302)
+          expect(headers['location']).to eq('/signin')
+          expect(body).to eq(['Redirecting to /signin'])
+        end
+
+        it 'uses default login path when not configured' do
+          wrapper_no_login = described_class.new(
+            mock_handler,
+            route_definition,
+            { auth_strategies: { 'authenticated' => session_strategy } }
+          )
+
+          env = mock_rack_env
+          env['rack.session'] = {}
+
+          status, headers, _body = wrapper_no_login.call(env)
+
+          expect(status).to eq(302)
+          expect(headers['location']).to eq('/signin')
+        end
+      end
+    end
+
+    context 'with missing strategy' do
+      it 'returns 401 with error message for JSON requests' do
+        unknown_route = Otto::RouteDefinition.new('GET', '/test', 'TestApp.test auth=unknown')
+        wrapper_unknown = described_class.new(mock_handler, unknown_route, auth_config)
+
+        env = mock_rack_env(headers: { 'Accept' => 'application/json' })
+
+        status, headers, body = wrapper_unknown.call(env)
+
+        expect(status).to eq(401)
+        expect(headers['content-type']).to eq('application/json')
+        response_data = JSON.parse(body.first)
+        expect(response_data['error']).to eq('Authentication strategy not configured')
+      end
+
+      it 'returns 401 with error message for HTML requests' do
+        unknown_route = Otto::RouteDefinition.new('GET', '/test', 'TestApp.test auth=unknown')
+        wrapper_unknown = described_class.new(mock_handler, unknown_route, auth_config)
+
+        env = mock_rack_env
+
+        status, headers, body = wrapper_unknown.call(env)
+
+        expect(status).to eq(401)
+        expect(headers['content-type']).to eq('text/plain')
+        expect(body).to eq(['Authentication strategy not configured'])
+      end
+    end
+
+    context 'with extra_params' do
+      it 'passes extra_params to wrapped handler' do
+        captured_params = nil
+        handler_with_params = lambda do |env, extra_params|
+          captured_params = extra_params
+          [200, {}, ['ok']]
+        end
+
+        wrapper_params = described_class.new(handler_with_params, route_definition, auth_config)
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123 }
+
+        wrapper_params.call(env, { foo: 'bar' })
+
+        expect(captured_params).to eq({ foo: 'bar' })
+      end
+    end
+  end
+
+  describe '#get_strategy' do
+    it 'returns strategy for valid requirement' do
+      strategy = wrapper.send(:get_strategy, 'authenticated')
+      expect(strategy).to eq(session_strategy)
+    end
+
+    it 'returns nil for unknown requirement' do
+      strategy = wrapper.send(:get_strategy, 'unknown')
+      expect(strategy).to be_nil
+    end
+
+    it 'returns nil when auth_config is nil' do
+      wrapper_no_config = described_class.new(mock_handler, route_definition, nil)
+      strategy = wrapper_no_config.send(:get_strategy, 'authenticated')
+      expect(strategy).to be_nil
+    end
+
+    it 'returns nil when auth_strategies is missing' do
+      wrapper_no_strategies = described_class.new(mock_handler, route_definition, {})
+      strategy = wrapper_no_strategies.send(:get_strategy, 'authenticated')
+      expect(strategy).to be_nil
+    end
+  end
+
+  describe 'response format detection' do
+    it 'detects JSON from Accept header' do
+      env = mock_rack_env(headers: { 'Accept' => 'application/json' })
+      env['rack.session'] = {}
+
+      status, headers, _body = wrapper.call(env)
+
+      expect(status).to eq(401)
+      expect(headers['content-type']).to eq('application/json')
+    end
+
+    it 'detects JSON from Accept header with multiple types' do
+      env = mock_rack_env(headers: { 'Accept' => 'text/html, application/json, */*' })
+      env['rack.session'] = {}
+
+      status, headers, _body = wrapper.call(env)
+
+      expect(status).to eq(401)
+      expect(headers['content-type']).to eq('application/json')
+    end
+
+    it 'defaults to HTML redirect when Accept header is missing' do
+      env = mock_rack_env
+      env['rack.session'] = {}
+
+      status, headers, _body = wrapper.call(env)
+
+      expect(status).to eq(302)
+      expect(headers['location']).to eq('/signin')
+    end
+
+    it 'defaults to HTML redirect for non-JSON Accept headers' do
+      env = mock_rack_env(headers: { 'Accept' => 'text/html' })
+      env['rack.session'] = {}
+
+      status, headers, _body = wrapper.call(env)
+
+      expect(status).to eq(302)
+      expect(headers['location']).to eq('/signin')
+    end
+  end
+end

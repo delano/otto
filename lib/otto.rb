@@ -57,7 +57,6 @@ require_relative 'otto/utils'
 #   otto.enable_frame_protection!
 #
 # Configuration Data class to replace OpenStruct
-# Configuration Data class to replace OpenStruct
 # Configuration class to replace OpenStruct
 class ConfigData
   def initialize(**kwargs)
@@ -311,7 +310,7 @@ class Otto
   #   otto.add_auth_strategy('custom', MyCustomStrategy.new)
   def add_auth_strategy(name, strategy)
     # Ensure auth_config is initialized (handles edge case where it might be nil)
-    @auth_config = { auth_strategies: {}, default_auth_strategy: 'publicly' } if @auth_config.nil?
+    @auth_config = { auth_strategies: {}, default_auth_strategy: 'noauth' } if @auth_config.nil?
 
     @auth_config[:auth_strategies][name] = strategy
 
@@ -349,7 +348,7 @@ class Otto
     @security_config   = Otto::Security::Config.new
     @middleware        = Otto::Core::MiddlewareStack.new
     # Initialize @auth_config first so it can be shared with the configurator
-    @auth_config       = { auth_strategies: {}, default_auth_strategy: 'publicly' }
+    @auth_config       = { auth_strategies: {}, default_auth_strategy: 'noauth' }
     @security          = Otto::Security::Configurator.new(@security_config, @middleware, @auth_config)
   end
 

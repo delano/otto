@@ -13,14 +13,14 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
   end
 
   describe 'authentication strategies' do
-    describe Otto::Security::PublicStrategy do
-      let(:strategy) { Otto::Security::PublicStrategy.new }
+    describe Otto::Security::NoAuthStrategy do
+      let(:strategy) { Otto::Security::NoAuthStrategy.new }
 
       it 'allows all requests' do
         env = mock_rack_env
-        result = strategy.authenticate(env, 'publicly')
+        result = strategy.authenticate(env, 'noauth')
 
-        expect(result).to be_success
+        expect(result).to be_a(Otto::Security::Authentication::StrategyResult)
         expect(result.user_context).to eq({})
       end
     end
@@ -34,7 +34,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
 
         result = strategy.authenticate(env, 'authenticated')
 
-        expect(result).to be_success
+        expect(result).to be_a(Otto::Security::Authentication::StrategyResult)
         expect(result.user_context).to eq(user_id: 123, session: { 'user_id' => 123 })
       end
 
@@ -43,7 +43,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
 
         result = strategy.authenticate(env, 'authenticated')
 
-        expect(result).to be_failure
+        expect(result).to be_a(Otto::Security::Authentication::FailureResult)
         expect(result.failure_reason).to eq('No session available')
       end
 
@@ -53,7 +53,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
 
         result = strategy.authenticate(env, 'authenticated')
 
-        expect(result).to be_failure
+        expect(result).to be_a(Otto::Security::Authentication::FailureResult)
         expect(result.failure_reason).to eq('Not authenticated')
       end
 
@@ -76,7 +76,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
 
         result = strategy.authenticate(env, 'role:admin')
 
-        expect(result).to be_success
+        expect(result).to be_a(Otto::Security::Authentication::StrategyResult)
         expect(result.user_context).to eq(
           user_roles: %w[admin user],
           required_role: 'admin'
@@ -89,7 +89,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
 
         result = strategy.authenticate(env, 'role:admin')
 
-        expect(result).to be_failure
+        expect(result).to be_a(Otto::Security::Authentication::FailureResult)
         expect(result.failure_reason).to eq('Insufficient privileges - requires role: admin')
       end
 
@@ -99,7 +99,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
 
         result = strategy.authenticate(env, 'role:admin')
 
-        expect(result).to be_failure
+        expect(result).to be_a(Otto::Security::Authentication::FailureResult)
       end
     end
 
@@ -111,7 +111,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
 
         result = strategy.authenticate(env, 'api_key')
 
-        expect(result).to be_success
+        expect(result).to be_a(Otto::Security::Authentication::StrategyResult)
         expect(result.user_context).to eq(api_key: 'secret123')
       end
 
@@ -120,7 +120,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
 
         result = strategy.authenticate(env, 'api_key')
 
-        expect(result).to be_success
+        expect(result).to be_a(Otto::Security::Authentication::StrategyResult)
         expect(result.user_context).to eq(api_key: 'key456')
       end
 
@@ -129,7 +129,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
 
         result = strategy.authenticate(env, 'api_key')
 
-        expect(result).to be_failure
+        expect(result).to be_a(Otto::Security::Authentication::FailureResult)
         expect(result.failure_reason).to eq('Invalid API key')
       end
 
@@ -138,7 +138,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
 
         result = strategy.authenticate(env, 'api_key')
 
-        expect(result).to be_failure
+        expect(result).to be_a(Otto::Security::Authentication::FailureResult)
         expect(result.failure_reason).to eq('No API key provided')
       end
     end
@@ -152,7 +152,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
 
         result = strategy.authenticate(env, 'permission:write')
 
-        expect(result).to be_success
+        expect(result).to be_a(Otto::Security::Authentication::StrategyResult)
         expect(result.user_context).to eq(
           user_permissions: %w[read write],
           required_permission: 'write'
@@ -165,8 +165,76 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
 
         result = strategy.authenticate(env, 'permission:write')
 
-        expect(result).to be_failure
+        expect(result).to be_a(Otto::Security::Authentication::FailureResult)
         expect(result.failure_reason).to eq('Insufficient privileges - requires permission: write')
+      end
+    end
+  end
+
+  describe 'StrategyResult semantics' do
+    describe '#authenticated? vs #auth_attempt_succeeded?' do
+      it 'anonymous result: both return false' do
+        result = Otto::Security::Authentication::StrategyResult.anonymous
+
+        expect(result.authenticated?).to be false
+        expect(result.auth_attempt_succeeded?).to be false
+      end
+
+      it 'user in session (no auth route): authenticated? true, auth_attempt_succeeded? false' do
+        # Simulates user already logged in from previous request
+        # Route has no auth requirement, so auth_method is anonymous
+        result = Otto::Security::Authentication::StrategyResult.new(
+          session: { user_id: 123 },
+          user: { id: 123, name: 'Alice' },
+          auth_method: 'anonymous',
+          metadata: {}
+        )
+
+        expect(result.authenticated?).to be true
+        expect(result.auth_attempt_succeeded?).to be false
+      end
+
+      it 'auth route just succeeded: both return true' do
+        # Simulates successful auth on route with auth=session
+        result = Otto::Security::Authentication::StrategyResult.new(
+          session: { user_id: 123 },
+          user: { id: 123, name: 'Alice' },
+          auth_method: 'session',
+          metadata: {}
+        )
+
+        expect(result.authenticated?).to be true
+        expect(result.auth_attempt_succeeded?).to be true
+      end
+
+      it 'role auth succeeded: both return true' do
+        result = Otto::Security::Authentication::StrategyResult.new(
+          session: {},
+          user: { id: 123, role: 'admin' },
+          auth_method: 'role',
+          metadata: {}
+        )
+
+        expect(result.authenticated?).to be true
+        expect(result.auth_attempt_succeeded?).to be true
+      end
+    end
+
+    describe 'registration flow scenario' do
+      it 'blocks registration when user already in session' do
+        # Simulates CreateAccount logic checking if user already logged in
+        result = Otto::Security::Authentication::StrategyResult.new(
+          session: { user_id: 123 },
+          user: { id: 123 },
+          auth_method: 'anonymous',
+          metadata: {}
+        )
+
+        # Registration should check authenticated?, NOT auth_attempt_succeeded?
+        expect(result.authenticated?).to be true # Already has session
+        expect(result.auth_attempt_succeeded?).to be false # No auth route hit
+
+        # Logic: raise FormError if authenticated?
       end
     end
   end
@@ -180,7 +248,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
       config = {
         auth_strategies: {
           'authenticated' => Otto::Security::SessionStrategy.new,
-          'publicly' => Otto::Security::PublicStrategy.new,
+          'noauth' => Otto::Security::NoAuthStrategy.new,
         },
       }
       Otto::Security::AuthenticationMiddleware.new(test_app, {}, config)
@@ -302,17 +370,17 @@ RSpec.describe Otto, 'authentication configuration' do
     it 'configures authentication strategies' do
       strategies = {
         'authenticated' => Otto::Security::SessionStrategy.new,
-        'publicly' => Otto::Security::PublicStrategy.new,
+        'noauth' => Otto::Security::NoAuthStrategy.new,
       }
 
       otto.configure_auth_strategies(strategies)
 
       expect(otto.auth_config[:auth_strategies]).to eq(strategies)
-      expect(otto.auth_config[:default_auth_strategy]).to eq('publicly')
+      expect(otto.auth_config[:default_auth_strategy]).to eq('noauth')
     end
 
     it 'enables authentication middleware when strategies configured' do
-      strategies = { 'test' => Otto::Security::PublicStrategy.new }
+      strategies = { 'test' => Otto::Security::NoAuthStrategy.new }
 
       expect(otto.middleware_stack).to be_empty
       otto.configure_auth_strategies(strategies)
@@ -334,7 +402,7 @@ RSpec.describe Otto, 'authentication configuration' do
     it 'enables authentication middleware when strategy added' do
       expect(otto.middleware_stack).to be_empty
 
-      otto.add_auth_strategy('test', Otto::Security::PublicStrategy.new)
+      otto.add_auth_strategy('test', Otto::Security::NoAuthStrategy.new)
 
       expect(otto.middleware_stack).to include(Otto::Security::AuthenticationMiddleware)
     end

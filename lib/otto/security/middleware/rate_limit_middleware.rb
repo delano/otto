@@ -7,6 +7,21 @@ class Otto
     module Middleware
       # Middleware for applying rate limiting to HTTP requests
       class RateLimitMiddleware
+        # NOTE: This middleware is a CONFIGURATOR, not an enforcer.
+        #
+        # Actual rate limiting is performed by Rack::Attack globally via
+        # configure_rack_attack!. This middleware registers during initialization
+        # and then passes through all requests.
+        #
+        # To enforce rate limits, Rack::Attack must be added to the middleware
+        # stack BEFORE Otto's router (typically done by the hosting application).
+        #
+        # Example (config.ru):
+        #   use Rack::Attack  # Must come before Otto
+        #   run otto
+        #
+        # The call method is a pass-through; rate limiting happens in Rack::Attack.
+
         def initialize(app, security_config = nil)
           @app = app
           @security_config = security_config
@@ -19,10 +34,11 @@ class Otto
           end
         end
 
+        # Pass-through call - actual rate limiting handled by Rack::Attack
+        #
+        # This middleware does not enforce limits itself. It configures
+        # Rack::Attack during initialization, then delegates all requests.
         def call(env)
-          return @app.call(env) unless @rate_limiter_available
-
-          # Let rack-attack handle the rate limiting
           @app.call(env)
         end
 

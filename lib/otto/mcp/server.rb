@@ -6,7 +6,7 @@ require_relative 'protocol'
 require_relative 'registry'
 require_relative 'route_parser'
 require_relative 'auth/token'
-require_relative 'validation'
+require_relative 'schema_validation'
 require_relative 'rate_limiting'
 
 class Otto
@@ -53,30 +53,43 @@ class Otto
       private
 
       def configure_middleware(_options)
-        # Configure middleware in security-optimal order:
-        # 1. Rate limiting (reject excessive requests early)
-        # 2. Authentication (validate credentials before parsing)
-        # 3. Validation (expensive JSON schema validation last)
+        # Configure middleware in security-optimal order using explicit positioning:
+        # 1. Rate limiting (reject excessive requests early) - position: :first
+        # 2. Authentication (validate credentials before parsing) - default append
+        # 3. Validation (expensive JSON schema validation last) - position: :last
 
-        # Configure rate limiting first
+        middleware = @otto_instance.instance_variable_get(:@middleware)
+
+        # Configure rate limiting first (explicit position for clarity)
         if @enable_rate_limiting
-          @otto_instance.use Otto::MCP::RateLimitMiddleware, @otto_instance.security_config
-          Otto.logger.debug '[MCP] Rate limiting enabled' if Otto.debug
+          middleware.add_with_position(
+            Otto::MCP::RateLimitMiddleware,
+            @otto_instance.security_config,
+            position: :first
+          )
+          Otto.logger.debug '[MCP] Rate limiting enabled (position: first)' if Otto.debug
         end
 
-        # Configure authentication second
+        # Configure authentication second (default append order)
         if @auth_tokens.any?
-          @auth                                   = Otto::MCP::Auth::TokenAuth.new(@auth_tokens)
+          @auth = Otto::MCP::Auth::TokenAuth.new(@auth_tokens)
           @otto_instance.security_config.mcp_auth = @auth
           @otto_instance.use Otto::MCP::Auth::TokenMiddleware
           Otto.logger.debug '[MCP] Token authentication enabled' if Otto.debug
         end
 
-        # Configure validation last (most expensive)
+        # Configure validation last (explicit position for clarity)
         return unless @enable_validation
 
-        @otto_instance.use Otto::MCP::ValidationMiddleware
-        Otto.logger.debug '[MCP] Request validation enabled' if Otto.debug
+        middleware.add_with_position(
+          Otto::MCP::SchemaValidationMiddleware,
+          position: :last
+        )
+        Otto.logger.debug '[MCP] Schema validation enabled (position: last)' if Otto.debug
+
+        # Validate middleware order (should pass with explicit positioning)
+        warnings = middleware.validate_mcp_middleware_order
+        warnings.each { |warning| Otto.logger.warn warning }
       end
 
       def add_mcp_endpoint_route

@@ -12,7 +12,7 @@ class Otto
         path = File.expand_path(path)
         raise ArgumentError, "Bad path: #{path}" unless File.exist?(path)
 
-        raw = File.readlines(path).select { |line| line =~ /^\w/ }.collect { |line| line.strip }
+        raw = File.readlines(path).grep(/^\w/).collect(&:strip)
         raw.each do |entry|
           # Enhanced parsing: split only on first two whitespace boundaries
           # This preserves parameters in the definition part
@@ -25,13 +25,9 @@ class Otto
 
           # Check for MCP routes
           if Otto::MCP::RouteParser.is_mcp_route?(definition)
-            raise '[MCP] MCP server not enabled' unless @mcp_server
-
             handle_mcp_route(verb, path, definition)
             next
           elsif Otto::MCP::RouteParser.is_tool_route?(definition)
-            raise '[MCP] MCP server not enabled' unless @mcp_server
-
             handle_tool_route(verb, path, definition)
             next
           end
@@ -46,7 +42,8 @@ class Otto
           @routes_literal[route.verb]           ||= {}
           @routes_literal[route.verb][path_clean] = route
         rescue StandardError => e
-          Otto.logger.error "Bad route in #{path}: #{entry} (Error: #{e.message})"
+          Otto.logger.error "Error for route #{path}: #{e.message}"
+          Otto.logger.debug e.backtrace.join("\n") if Otto.debug
         end
         self
       end
@@ -164,6 +161,8 @@ class Otto
       end
 
       def handle_mcp_route(verb, path, definition)
+        raise '[MCP] MCP server not enabled' unless @mcp_server
+
         route_info = Otto::MCP::RouteParser.parse_mcp_route(verb, path, definition)
         @mcp_server.register_mcp_route(route_info)
         Otto.logger.debug "[MCP] Registered resource route: #{definition}" if Otto.debug
@@ -172,6 +171,8 @@ class Otto
       end
 
       def handle_tool_route(verb, path, definition)
+        raise '[MCP] MCP server not enabled' unless @mcp_server
+
         route_info = Otto::MCP::RouteParser.parse_tool_route(verb, path, definition)
         @mcp_server.register_mcp_route(route_info)
         Otto.logger.debug "[MCP] Registered tool route: #{definition}" if Otto.debug

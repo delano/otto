@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# lib/otto/mcp/validation.rb
+# lib/otto/mcp/schema_validation.rb
 
 require 'json'
 
@@ -67,7 +67,8 @@ class Otto
     end
 
     # Middleware for validating MCP protocol requests using JSON schema
-    class ValidationMiddleware
+    # Validates JSON-RPC 2.0 structure and tool argument schemas
+    class SchemaValidationMiddleware
       def initialize(app, _security_config = nil)
         @app       = app
         @validator = Validator.new

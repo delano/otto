@@ -2,7 +2,8 @@
 
 require_relative 'strategy_result'
 require_relative 'failure_result'
-require_relative 'strategies/public_strategy'
+require_relative 'route_auth_wrapper'
+require_relative 'strategies/noauth_strategy'
 require_relative 'strategies/role_strategy'
 require_relative 'strategies/permission_strategy'
 
@@ -16,10 +17,10 @@ class Otto
           @security_config = security_config
           @config = config
           @strategies = config[:auth_strategies] || {}
-          @default_strategy = config[:default_auth_strategy] || 'publicly'
+          @default_strategy = config[:default_auth_strategy] || 'noauth'
 
-          # Add default public strategy if not provided
-          @strategies['publicly'] ||= Strategies::PublicStrategy.new
+          # Add default noauth strategy if not provided
+          @strategies['noauth'] ||= Strategies::NoAuthStrategy.new
         end
 
         def call(env)
@@ -51,15 +52,10 @@ class Otto
           # Perform authentication
           strategy_result = strategy.authenticate(env, auth_requirement)
 
-          if strategy_result&.success?
-            # Success - store the strategy result directly
-            env['otto.strategy_result'] = strategy_result
-            env['otto.user'] = strategy_result.user # For convenience
-            env['otto.user_context'] = strategy_result.user_context # For convenience
-            @app.call(env)
-          else
+          # Check result type: FailureResult indicates auth failure, StrategyResult indicates success
+          if strategy_result.is_a?(Otto::Security::Authentication::FailureResult)
             # Failure - create anonymous result with failure info
-            failure_reason = strategy_result&.failure_reason || 'Authentication failed'
+            failure_reason = strategy_result.failure_reason || 'Authentication failed'
             env['otto.strategy_result'] = Otto::Security::Authentication::StrategyResult.anonymous(
               metadata: {
                 ip: env['REMOTE_ADDR'],
@@ -68,6 +64,23 @@ class Otto
               }
             )
             auth_error_response(failure_reason)
+          else
+            # Success - store the strategy result directly
+            env['otto.strategy_result'] = strategy_result
+
+            # SESSION PERSISTENCE: This assignment is INTENTIONAL, not a merge operation.
+            # We must ensure env['rack.session'] and strategy_result.session reference
+            # the SAME object so that:
+            #   1. Logic classes write to strategy_result.session
+            #   2. Rack's session middleware persists env['rack.session']
+            #   3. Changes from (1) are included in (2)
+            #
+            # Using merge! instead would break this - the objects must be identical.
+            # See commit ed7fa0d for the bug this fixes.
+            env['rack.session'] = strategy_result.session if strategy_result.session
+            env['otto.user'] = strategy_result.user # For convenience
+            env['otto.user_context'] = strategy_result.user_context # For convenience
+            @app.call(env)
           end
         end
 
@@ -109,6 +122,10 @@ class Otto
           }
 
           # Add security headers if available from config hash or Otto instance
+          # NOTE: Extracting this to a method was considered but rejected.
+          # This logic appears only once and is clear in context. Extraction would
+          # add ~10 lines (method def + docs) for a 5-line single-use block without
+          # improving readability. Consider extracting if this pattern is duplicated.
           if @config.is_a?(Hash) && @config[:security_headers]
             headers.merge!(@config[:security_headers])
           elsif @config.respond_to?(:security_config) && @config.security_config

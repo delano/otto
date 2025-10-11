@@ -16,7 +16,7 @@ RSpec.describe Otto::Security::Configurator do
     it 'initializes auth config with defaults' do
       expect(configurator.auth_config).to eq(
         auth_strategies: {},
-        default_auth_strategy: 'publicly'
+        default_auth_strategy: 'noauth'
       )
     end
   end

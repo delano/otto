@@ -96,8 +96,8 @@ RSpec.describe Otto::Route, 'enhanced route parsing' do
     let(:app) do
       otto = create_minimal_otto(['GET /test TestApp.test auth=noauth response=json'])
       # Configure authentication strategy for "authenticated"
-      require_relative '../../lib/otto/security/authentication/strategies/public_strategy'
-      otto.add_auth_strategy('noauth', Otto::Security::Authentication::Strategies::PublicStrategy.new)
+      require_relative '../../lib/otto/security/authentication/strategies/noauth_strategy'
+      otto.add_auth_strategy('noauth', Otto::Security::Authentication::Strategies::NoAuthStrategy.new)
       otto
     end
 

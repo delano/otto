@@ -11,7 +11,7 @@ require_relative 'authentication/failure_result'
 require_relative 'authentication/authentication_middleware'
 
 # Load all strategies
-require_relative 'authentication/strategies/public_strategy'
+require_relative 'authentication/strategies/noauth_strategy'
 require_relative 'authentication/strategies/session_strategy'
 require_relative 'authentication/strategies/role_strategy'
 require_relative 'authentication/strategies/api_key_strategy'
@@ -21,7 +21,7 @@ class Otto
   module Security
     # Backward compatibility aliases for the old namespace
     AuthStrategy = Authentication::AuthStrategy
-    PublicStrategy = Authentication::Strategies::PublicStrategy
+    NoAuthStrategy = Authentication::Strategies::NoAuthStrategy
     SessionStrategy = Authentication::Strategies::SessionStrategy
     RoleStrategy = Authentication::Strategies::RoleStrategy
     APIKeyStrategy = Authentication::Strategies::APIKeyStrategy

@@ -13,12 +13,12 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
   end
 
   describe 'authentication strategies' do
-    describe Otto::Security::PublicStrategy do
-      let(:strategy) { Otto::Security::PublicStrategy.new }
+    describe Otto::Security::NoAuthStrategy do
+      let(:strategy) { Otto::Security::NoAuthStrategy.new }
 
       it 'allows all requests' do
         env = mock_rack_env
-        result = strategy.authenticate(env, 'publicly')
+        result = strategy.authenticate(env, 'noauth')
 
         expect(result).to be_a(Otto::Security::Authentication::StrategyResult)
         expect(result.user_context).to eq({})
@@ -248,7 +248,7 @@ RSpec.describe Otto::Security::AuthenticationMiddleware do
       config = {
         auth_strategies: {
           'authenticated' => Otto::Security::SessionStrategy.new,
-          'publicly' => Otto::Security::PublicStrategy.new,
+          'noauth' => Otto::Security::NoAuthStrategy.new,
         },
       }
       Otto::Security::AuthenticationMiddleware.new(test_app, {}, config)
@@ -370,17 +370,17 @@ RSpec.describe Otto, 'authentication configuration' do
     it 'configures authentication strategies' do
       strategies = {
         'authenticated' => Otto::Security::SessionStrategy.new,
-        'publicly' => Otto::Security::PublicStrategy.new,
+        'noauth' => Otto::Security::NoAuthStrategy.new,
       }
 
       otto.configure_auth_strategies(strategies)
 
       expect(otto.auth_config[:auth_strategies]).to eq(strategies)
-      expect(otto.auth_config[:default_auth_strategy]).to eq('publicly')
+      expect(otto.auth_config[:default_auth_strategy]).to eq('noauth')
     end
 
     it 'enables authentication middleware when strategies configured' do
-      strategies = { 'test' => Otto::Security::PublicStrategy.new }
+      strategies = { 'test' => Otto::Security::NoAuthStrategy.new }
 
       expect(otto.middleware_stack).to be_empty
       otto.configure_auth_strategies(strategies)
@@ -402,7 +402,7 @@ RSpec.describe Otto, 'authentication configuration' do
     it 'enables authentication middleware when strategy added' do
       expect(otto.middleware_stack).to be_empty
 
-      otto.add_auth_strategy('test', Otto::Security::PublicStrategy.new)
+      otto.add_auth_strategy('test', Otto::Security::NoAuthStrategy.new)
 
       expect(otto.middleware_stack).to include(Otto::Security::AuthenticationMiddleware)
     end

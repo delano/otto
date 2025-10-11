@@ -101,7 +101,7 @@ class Otto
         def json_auth_error(result)
           body = {
             error: 'Authentication Required',
-            message: result.message || 'Not authenticated',
+            message: result.failure_reason || 'Not authenticated',
             timestamp: Time.now.to_i
           }.to_json
 

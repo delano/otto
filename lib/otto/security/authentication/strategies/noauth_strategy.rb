@@ -8,7 +8,7 @@ class Otto
     module Authentication
       module Strategies
         # Public access strategy - always allows access
-        class PublicStrategy < AuthStrategy
+        class NoAuthStrategy < AuthStrategy
           def authenticate(env, _requirement)
             Otto::Security::Authentication::StrategyResult.anonymous(metadata: { ip: env['REMOTE_ADDR'] })
           end

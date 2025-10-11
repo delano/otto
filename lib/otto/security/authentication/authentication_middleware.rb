@@ -2,7 +2,7 @@
 
 require_relative 'strategy_result'
 require_relative 'failure_result'
-require_relative 'strategies/public_strategy'
+require_relative 'strategies/noauth_strategy'
 require_relative 'strategies/role_strategy'
 require_relative 'strategies/permission_strategy'
 
@@ -16,10 +16,10 @@ class Otto
           @security_config = security_config
           @config = config
           @strategies = config[:auth_strategies] || {}
-          @default_strategy = config[:default_auth_strategy] || 'publicly'
+          @default_strategy = config[:default_auth_strategy] || 'noauth'
 
-          # Add default public strategy if not provided
-          @strategies['publicly'] ||= Strategies::PublicStrategy.new
+          # Add default noauth strategy if not provided
+          @strategies['noauth'] ||= Strategies::NoAuthStrategy.new
         end
 
         def call(env)

@@ -1,16 +1,66 @@
 CHANGELOG.rst
 =============
 
-All notable changes to Otto are documented here.
-
-The format is based on `Keep a
-Changelog <https://keepachangelog.com/en/1.1.0/>`__, and this project
-adheres to `Semantic
-Versioning <https://semver.org/spec/v2.0.0.html>`__.
+The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`__, and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`__.
 
 .. raw:: html
 
    <!--scriv-insert-here-->
+
+.. _changelog-2.0.0.pre2:
+
+2.0.0.pre2 — 2025-10-11
+=======================
+
+Added
+-----
+
+- ``Otto::RequestContext`` Data class providing immutable, structured authentication context for Logic classes
+- Helper methods ``authenticated?``, ``has_role?``, ``has_permission?``, ``user_name``, ``session_id`` for cleaner Logic class implementation
+- Factory methods for creating RequestContext from AuthResult or anonymous contexts
+- Added `StrategyResult` class with improved user model compatibility and cleaner API
+- Added JSON request body parsing support in Logic class handlers
+- Added new modular directory structure under ``lib/otto/security/``
+- Added backward compatibility aliases to maintain existing API compatibility
+- Added proper namespacing for authentication components and middleware classes
+
+Changed
+-------
+
+- **BREAKING**: Logic class constructor signature changed from ``initialize(session, user, params, locale)`` to ``initialize(context, params, locale)``
+- Logic classes now receive immutable RequestContext instead of separate session/user parameters
+- LogicClassHandler simplified to single arity pattern, removing backward compatibility code
+- Authentication middleware now creates RequestContext instances for all requests
+- Replaced `RequestContext` with `StrategyResult` class for better authentication handling
+- Simplified authentication strategy API to return `StrategyResult` or `nil` for success/failure
+- Enhanced route handlers to support JSON request body parsing
+- Updated authentication middleware to use `StrategyResult` throughout
+- Reorganized Otto security module structure for better maintainability and separation of concerns
+- Moved authentication strategies to ``Otto::Security::Authentication::Strategies`` namespace
+- Moved security middleware to ``Otto::Security::Middleware`` namespace
+- Moved ``StrategyResult`` and ``FailureResult`` to ``Otto::Security::Authentication`` namespace
+
+Removed
+-------
+
+- Removed `RequestContext` class (replaced by `StrategyResult`)
+- Removed `AuthResult` class from authentication system
+- Removed OpenStruct dependency across the framework
+- Removed `ConcurrentCacheStore` example class for an ActiveSupport::Cache::MemoryStore-compatible interface with Rack::Attack
+
+Documentation
+-------------
+
+- Updated migration guide with comprehensive RequestContext examples and step-by-step conversion instructions
+- Updated Logic class examples in advanced_routes and authentication_strategies to demonstrate new pattern
+- Enhanced documentation with RequestContext API reference and helper method examples
+
+AI Assistance
+-------------
+
+- AI-assisted architectural design for RequestContext Data class and security module reorganization
+- Comprehensive migration of Logic classes and documentation with AI guidance for consistency
+- Automated test validation and intelligent file organization following Ruby conventions
 
 .. _changelog-2.0.0-pre1:
 

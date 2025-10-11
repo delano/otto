@@ -63,15 +63,15 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
 
         wrapper.call(env)
 
-        expect(env['otto.user']).to be_nil # SessionStrategy doesn't set user
-        expect(env['otto.strategy_result'].user).to be_nil
+        expect(env['otto.user']).to eq({ id: 456, user_id: 456 })
+        expect(env['otto.strategy_result'].user).to eq({ id: 456, user_id: 456 })
       end
     end
 
     context 'with authentication failure' do
       context 'JSON requests' do
         it 'returns 401 with JSON error for missing session' do
-          env = mock_rack_env(headers: { 'HTTP_ACCEPT' => 'application/json' })
+          env = mock_rack_env(headers: { 'Accept' => 'application/json' })
           env['rack.session'] = {}
 
           status, headers, body = wrapper.call(env)
@@ -81,12 +81,12 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
 
           response_data = JSON.parse(body.first)
           expect(response_data['error']).to eq('Authentication Required')
-          expect(response_data['message']).to eq('No session available')
+          expect(response_data['message']).to eq('Not authenticated')
           expect(response_data['timestamp']).to be_a(Integer)
         end
 
         it 'returns 401 with JSON error for invalid credentials' do
-          env = mock_rack_env(headers: { 'HTTP_ACCEPT' => 'application/json' })
+          env = mock_rack_env(headers: { 'Accept' => 'application/json' })
           # No session at all
 
           status, headers, body = wrapper.call(env)
@@ -134,7 +134,7 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
         unknown_route = Otto::RouteDefinition.new('GET', '/test', 'TestApp.test auth=unknown')
         wrapper_unknown = described_class.new(mock_handler, unknown_route, auth_config)
 
-        env = mock_rack_env(headers: { 'HTTP_ACCEPT' => 'application/json' })
+        env = mock_rack_env(headers: { 'Accept' => 'application/json' })
 
         status, headers, body = wrapper_unknown.call(env)
 
@@ -203,7 +203,7 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
 
   describe 'response format detection' do
     it 'detects JSON from Accept header' do
-      env = mock_rack_env(headers: { 'HTTP_ACCEPT' => 'application/json' })
+      env = mock_rack_env(headers: { 'Accept' => 'application/json' })
       env['rack.session'] = {}
 
       status, headers, _body = wrapper.call(env)
@@ -213,7 +213,7 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
     end
 
     it 'detects JSON from Accept header with multiple types' do
-      env = mock_rack_env(headers: { 'HTTP_ACCEPT' => 'text/html, application/json, */*' })
+      env = mock_rack_env(headers: { 'Accept' => 'text/html, application/json, */*' })
       env['rack.session'] = {}
 
       status, headers, _body = wrapper.call(env)
@@ -233,7 +233,7 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
     end
 
     it 'defaults to HTML redirect for non-JSON Accept headers' do
-      env = mock_rack_env(headers: { 'HTTP_ACCEPT' => 'text/html' })
+      env = mock_rack_env(headers: { 'Accept' => 'text/html' })
       env['rack.session'] = {}
 
       status, headers, _body = wrapper.call(env)

@@ -2,6 +2,7 @@
 
 require_relative 'strategy_result'
 require_relative 'failure_result'
+require_relative 'route_auth_wrapper'
 require_relative 'strategies/noauth_strategy'
 require_relative 'strategies/role_strategy'
 require_relative 'strategies/permission_strategy'
@@ -67,9 +68,15 @@ class Otto
             # Success - store the strategy result directly
             env['otto.strategy_result'] = strategy_result
 
-            # Ensure env['rack.session'] points to the session from StrategyResult
-            # This allows Logic classes to write to strategy_result.session and have
-            # those changes persist via Rack's session middleware
+            # SESSION PERSISTENCE: This assignment is INTENTIONAL, not a merge operation.
+            # We must ensure env['rack.session'] and strategy_result.session reference
+            # the SAME object so that:
+            #   1. Logic classes write to strategy_result.session
+            #   2. Rack's session middleware persists env['rack.session']
+            #   3. Changes from (1) are included in (2)
+            #
+            # Using merge! instead would break this - the objects must be identical.
+            # See commit ed7fa0d for the bug this fixes.
             env['rack.session'] = strategy_result.session if strategy_result.session
             env['otto.user'] = strategy_result.user # For convenience
             env['otto.user_context'] = strategy_result.user_context # For convenience
@@ -115,6 +122,10 @@ class Otto
           }
 
           # Add security headers if available from config hash or Otto instance
+          # NOTE: Extracting this to a method was considered but rejected.
+          # This logic appears only once and is clear in context. Extraction would
+          # add ~10 lines (method def + docs) for a 5-line single-use block without
+          # improving readability. Consider extracting if this pattern is duplicated.
           if @config.is_a?(Hash) && @config[:security_headers]
             headers.merge!(@config[:security_headers])
           elsif @config.respond_to?(:security_config) && @config.security_config

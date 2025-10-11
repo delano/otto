@@ -43,7 +43,7 @@ class Otto
           @routes_literal[route.verb][path_clean] = route
         rescue StandardError => e
           Otto.logger.error "Error for route #{path}: #{e.message}"
-          Otto.logger.debug e.backtrace.join("\n")
+          Otto.logger.debug e.backtrace.join("\n") if Otto.debug
         end
         self
       end

@@ -81,6 +81,11 @@ class Otto
       def validate_mcp_middleware_order
         warnings = []
 
+        # PERFORMANCE NOTE: This implementation intentionally uses select + find_index
+        # rather than a single-pass approach. The filtered mcp_middlewares array is
+        # typically 0-3 items, making the performance difference unmeasurable.
+        # The current approach prioritizes readability over micro-optimization.
+        # Single-pass alternatives were considered but rejected as premature optimization.
         mcp_middlewares = @stack.select do |entry|
           [
             Otto::MCP::RateLimitMiddleware,

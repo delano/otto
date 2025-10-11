@@ -1,10 +1,13 @@
-# frozen_string_literal: true
-
 # lib/otto/env_keys.rb
 #
 # Central registry of all env['otto.*'] keys used throughout Otto framework.
 # This documentation helps prevent key conflicts and aids multi-app integration.
-
+#
+# DOCUMENTATION-ONLY MODULE: The constants defined here are intentionally NOT used
+# in the codebase. Otto uses string literals (e.g., env['otto.strategy_result'])
+# for readibility/simplicity. This module exists as reference documentation but
+# may be considered for future use if needed.
+#
 class Otto
   # Rack environment keys used by Otto framework
   #
@@ -107,90 +110,5 @@ class Otto
     # Set by: Otto::MCP::Server#enable!
     # Used by: MCP middleware, SchemaValidationMiddleware
     MCP_HTTP_ENDPOINT = 'otto.mcp_http_endpoint'
-
-    # =========================================================================
-    # USAGE EXAMPLES
-    # =========================================================================
-    #
-    # Reading env keys in controllers:
-    #
-    #   def index(req, res)
-    #     strategy_result = req.env[Otto::EnvKeys::STRATEGY_RESULT]
-    #     locale = req.env[Otto::EnvKeys::LOCALE] || 'en'
-    #
-    #     if strategy_result.authenticated?
-    #       user = req.env[Otto::EnvKeys::USER]
-    #       render_authenticated(user, locale)
-    #     end
-    #   end
-    #
-    # Reading env keys in middleware:
-    #
-    #   class CustomMiddleware
-    #     def call(env)
-    #       route_def = env[Otto::EnvKeys::ROUTE_DEFINITION]
-    #       return @app.call(env) unless route_def
-    #
-    #       # Custom logic based on route
-    #       @app.call(env)
-    #     end
-    #   end
-    #
-    # Reading env keys in Logic classes:
-    #
-    #   class MyLogic < Logic::Base
-    #     def initialize(strategy_result, params, locale)
-    #       @strategy_result = strategy_result
-    #       # Access via: @strategy_result (already extracted from env)
-    #     end
-    #   end
-    #
-    # =========================================================================
-    # MULTI-APP INTEGRATION
-    # =========================================================================
-    #
-    # For multi-app architectures (e.g., Auth app + Core app + API app):
-    #
-    # 1. Shared session middleware ensures session state propagates
-    # 2. IdentityResolution middleware (app-specific) reads session
-    # 3. Otto's AuthenticationMiddleware creates STRATEGY_RESULT from resolved identity
-    #
-    # Auth App (Roda) manually creates STRATEGY_RESULT for Logic class compatibility:
-    #
-    #   strategy_result = Otto::Security::Authentication::StrategyResult.new(
-    #     session: session,
-    #     user: current_customer,
-    #     auth_method: 'session',
-    #     metadata: { ip: request.ip }
-    #   )
-    #
-    #   # Pass to Logic classes same as Otto controllers
-    #   logic = V2::Logic::Authentication::Authenticate.new(
-    #     strategy_result, params, locale
-    #   )
-    #
-    # Core/API Apps access user via:
-    #   - env[STRATEGY_RESULT] from AuthenticationMiddleware
-    #   - env[USER] convenience accessor
-    #
-    # =========================================================================
-    # KEY NAMING CONVENTIONS
-    # =========================================================================
-    #
-    # All keys follow 'otto.<category>.<name>' pattern:
-    #
-    # - otto.route_definition (routing)
-    # - otto.strategy_result (auth)
-    # - otto.security_config (security)
-    # - otto.locale (i18n)
-    # - otto.mcp_http_endpoint (MCP)
-    #
-    # When adding new keys:
-    # 1. Define constant in this file
-    # 2. Document type, setter, and users
-    # 3. Follow 'otto.*' namespace convention
-    # 4. Update this documentation
-    #
-    # =========================================================================
   end
 end

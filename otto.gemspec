@@ -16,6 +16,8 @@ Gem::Specification.new do |spec|
 
   spec.required_ruby_version = ['>= 3.2', '< 4.0']
 
+  # Logger is not part of the default gems as of Ruby 3.5.0
+  spec.add_dependency 'logger', '~> 1', '< 2.0'
 
   spec.add_dependency 'rack', '~> 3.1', '< 4.0'
   spec.add_dependency 'rack-parser', '~> 0.7'

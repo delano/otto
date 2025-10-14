@@ -78,7 +78,16 @@ RSpec.describe Otto, 'security features' do
 
   describe 'middleware management' do
     describe '#use' do
-      let(:test_middleware) { Class.new }
+      let(:test_middleware) do
+        Class.new do
+          def initialize(app, *args)
+            @app = app
+          end
+          def call(env)
+            @app.call(env)
+          end
+        end
+      end
 
       it 'adds middleware to the stack' do
         otto.use(test_middleware)
@@ -86,8 +95,22 @@ RSpec.describe Otto, 'security features' do
       end
 
       it 'maintains middleware order' do
-        middleware1 = Class.new
-        middleware2 = Class.new
+        middleware1 = Class.new do
+          def initialize(app, *args)
+            @app = app
+          end
+          def call(env)
+            @app.call(env)
+          end
+        end
+        middleware2 = Class.new do
+          def initialize(app, *args)
+            @app = app
+          end
+          def call(env)
+            @app.call(env)
+          end
+        end
 
         otto.use(middleware1)
         otto.use(middleware2)

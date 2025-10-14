@@ -130,27 +130,34 @@ class Otto
     Otto.logger.debug "new Otto: #{opts}" if Otto.debug
     load(path) unless path.nil?
     super()
+
+    # Build the middleware app once after all initialization is complete
+    build_app!
   end
   alias options option
 
   # Main Rack application interface
   def call(env)
-    # Apply middleware stack
-    base_app = ->(e) { handle_request(e) }
-
-    # Use the middleware stack as the source of truth
-    app = @middleware.wrap(base_app, @security_config)
-
     begin
-      app.call(env)
+      # Use pre-built middleware app (built once at initialization)
+      @app.call(env)
     rescue StandardError => e
       handle_error(e, env)
     end
   end
 
+
+  # Builds the middleware application chain
+  # Called once at initialization and whenever middleware stack changes
+  def build_app!
+    base_app = method(:handle_request)
+    @app = @middleware.wrap(base_app, @security_config)
+  end
+
   # Middleware Management
   def use(middleware, ...)
     @middleware.add(middleware, ...)
+    build_app! if @app  # Rebuild app if already initialized
   end
 
   # Compatibility method for existing tests
@@ -162,6 +169,7 @@ class Otto
   def middleware_stack=(stack)
     @middleware.clear!
     Array(stack).each { |middleware| @middleware.add(middleware) }
+    build_app! if @app  # Rebuild app if already initialized
   end
 
   # Compatibility method for middleware detection
@@ -336,6 +344,7 @@ class Otto
     # Initialize @auth_config first so it can be shared with the configurator
     @auth_config       = { auth_strategies: {}, default_auth_strategy: 'noauth' }
     @security          = Otto::Security::Configurator.new(@security_config, @middleware, @auth_config)
+    @app               = nil  # Pre-built middleware app (built after initialization)
   end
 
   def initialize_options(_path, opts)

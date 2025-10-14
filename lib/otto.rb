@@ -290,19 +290,6 @@ class Otto
     @security_config.enable_csp_with_nonce!(debug: debug)
   end
 
-  # Enable authentication for route-level access control.
-  #
-  # NOTE: Authentication is now handled by RouteAuthWrapper at the handler level,
-  # not as middleware. This method is kept for API compatibility but is a no-op.
-  # Authentication will automatically be enforced for routes with auth requirements.
-  #
-  # @example
-  #   otto.enable_authentication!
-  def enable_authentication!
-    # Authentication is now handled by RouteAuthWrapper automatically
-    # when routes have auth requirements. No middleware needed.
-  end
-
   # Add a single authentication strategy
   #
   # @param name [String] Strategy name
@@ -314,7 +301,6 @@ class Otto
     @auth_config = { auth_strategies: {}, default_auth_strategy: 'noauth' } if @auth_config.nil?
 
     @auth_config[:auth_strategies][name] = strategy
-    # No need to call enable_authentication! - RouteAuthWrapper handles it
   end
 
   # Enable MCP (Model Context Protocol) server support

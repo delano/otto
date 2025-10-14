@@ -86,7 +86,6 @@ class Otto
         # Enable authentication middleware if strategies are configured
         return unless opts[:auth_strategies] && !opts[:auth_strategies].empty?
 
-        enable_authentication!
       end
 
       def configure_mcp(opts)
@@ -153,7 +152,6 @@ class Otto
         @auth_config[:auth_strategies] = strategies
         @auth_config[:default_auth_strategy] = default_strategy
 
-        enable_authentication! unless strategies.empty?
       end
 
       private

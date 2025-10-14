@@ -12,7 +12,6 @@ otto = Otto.new('routes')
 # Enable security features to demonstrate advanced route parameters
 otto.enable_csrf_protection!
 otto.enable_request_validation!
-otto.enable_authentication!
 
 # Load and configure authentication strategies
 AuthenticationSetup.configure(otto)

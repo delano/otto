@@ -74,7 +74,6 @@ class Otto
         enable_hsts! if hsts
         enable_csp! if csp
         enable_frame_protection! if frame_protection
-        enable_authentication! if authentication
       end
 
       # Enable CSRF protection for POST, PUT, DELETE, and PATCH requests.
@@ -170,23 +169,12 @@ class Otto
         @security_config.enable_csp_with_nonce!(debug: debug)
       end
 
-      # Enable authentication for route-level access control.
-      #
-      # NOTE: Authentication is now handled by RouteAuthWrapper at the handler level,
-      # not as middleware. This method is kept for API compatibility but is a no-op.
-      # Authentication will automatically be enforced for routes with auth requirements.
-      def enable_authentication!
-        # Authentication is now handled by RouteAuthWrapper automatically
-        # when routes have auth requirements. No middleware needed.
-      end
-
       # Add a single authentication strategy
       #
       # @param name [String] Strategy name
       # @param strategy [Otto::Security::Authentication::AuthStrategy] Strategy instance
       def add_auth_strategy(name, strategy)
         @auth_config[:auth_strategies][name] = strategy
-        # No need to call enable_authentication! - RouteAuthWrapper handles it
       end
 
       # Configure authentication strategies for route-level access control.
@@ -197,7 +185,6 @@ class Otto
         # Merge new strategies with existing ones, preserving shared state
         @auth_config[:auth_strategies].merge!(strategies)
         @auth_config[:default_auth_strategy] = default_strategy
-        # No need to call enable_authentication! - RouteAuthWrapper handles it
       end
 
       # Configure rate limiting settings.

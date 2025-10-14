@@ -47,14 +47,14 @@ RSpec.describe 'Auth Config Sharing' do
       expect(otto.security.auth_config[:default_auth_strategy]).to eq('admin')
     end
 
-    it 'enables authentication middleware in both stacks when strategies added' do
+    it 'configures authentication strategies when added' do
       otto.add_auth_strategy('test', test_strategy)
 
-      # Should enable middleware in legacy stack
-      expect(otto.middleware_stack).to include(Otto::Security::AuthenticationMiddleware)
+      # Should configure strategy in auth_config
+      expect(otto.auth_config[:auth_strategies]['test']).to eq(test_strategy)
 
-      # Should enable middleware in new stack
-      expect(otto.middleware.includes?(Otto::Security::AuthenticationMiddleware)).to be true
+      # Should be available in configurator
+      expect(otto.security.auth_config[:auth_strategies]['test']).to eq(test_strategy)
     end
   end
 
@@ -65,10 +65,10 @@ RSpec.describe 'Auth Config Sharing' do
       expect(otto.security.auth_config[:auth_strategies]['test']).to eq(test_strategy)
     end
 
-    it 'enables middleware when adding strategy via configurator' do
+    it 'configures strategy when adding via configurator' do
       otto.security.add_auth_strategy('test', test_strategy)
 
-      expect(otto.middleware.includes?(Otto::Security::AuthenticationMiddleware)).to be true
+      expect(otto.security.auth_config[:auth_strategies]['test']).to eq(test_strategy)
     end
 
     it 'configures multiple strategies via configurator' do
@@ -81,13 +81,12 @@ RSpec.describe 'Auth Config Sharing' do
 
       expect(otto.security.auth_config[:auth_strategies]).to eq(strategies)
       expect(otto.security.auth_config[:default_auth_strategy]).to eq('admin')
-      expect(otto.middleware.includes?(Otto::Security::AuthenticationMiddleware)).to be true
     end
 
-    it 'does not enable middleware for empty strategies via configurator' do
+    it 'handles empty strategies configuration' do
       otto.security.configure_auth_strategies({})
 
-      expect(otto.middleware.includes?(Otto::Security::AuthenticationMiddleware)).to be false
+      expect(otto.security.auth_config[:auth_strategies]).to eq({})
     end
   end
 
@@ -110,9 +109,6 @@ RSpec.describe 'Auth Config Sharing' do
       # Check configurator's auth config shares the same config as Otto instance
       expect(otto_with_auth.security.auth_config[:auth_strategies]).to eq(strategies) # Configurator shares Otto's config
       expect(otto_with_auth.security.auth_config[:default_auth_strategy]).to eq('admin')
-
-      # Middleware should be enabled
-      expect(otto_with_auth.middleware_stack).to include(Otto::Security::AuthenticationMiddleware)
     end
   end
 
@@ -150,37 +146,13 @@ RSpec.describe 'Auth Config Sharing' do
     end
   end
 
-  describe 'auth config in middleware chain' do
-    let(:mock_auth_middleware) do
-      Class.new do
-        attr_reader :app, :auth_config
-
-        def initialize(app, auth_config)
-          @app = app
-          @auth_config = auth_config
-        end
-
-        def call(env)
-          @app.call(env)
-        end
-      end
-    end
-
-    before do
-      stub_const('Otto::Security::AuthenticationMiddleware', mock_auth_middleware)
-    end
-
-    it 'passes correct auth config to authentication middleware' do
+  describe 'auth config availability' do
+    it 'makes auth config available to route handlers' do
       otto.add_auth_strategy('test', test_strategy)
 
-      # Mock the middleware chain building
-      base_app = ->(_env) { [200, {}, ['base']] }
-      allow(otto).to receive(:handle_request).and_return(base_app)
-
-      # The auth config should be passed to middleware
-      # We can't easily test the middleware creation directly, but we can verify
-      # that the auth config is properly maintained
+      # The auth config should be accessible for route handlers
       expect(otto.auth_config[:auth_strategies]['test']).to eq(test_strategy)
+      expect(otto.security.auth_config).to eq(otto.auth_config)
     end
   end
 

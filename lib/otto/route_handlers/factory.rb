@@ -31,7 +31,8 @@ class Otto
           handler = Otto::Security::Authentication::RouteAuthWrapper.new(
             handler,
             route_definition,
-            otto_instance.auth_config
+            otto_instance.auth_config,
+            otto_instance.security_config
           )
         end
 

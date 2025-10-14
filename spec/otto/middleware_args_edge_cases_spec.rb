@@ -137,10 +137,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       expect(result).to be true
     end
 
-    it 'identifies Otto::Security::AuthenticationMiddleware as needing config' do
-      result = middleware_stack.send(:middleware_needs_config?, Otto::Security::AuthenticationMiddleware)
-      expect(result).to be true
-    end
+    # Removed: AuthenticationMiddleware no longer exists - authentication is handled by RouteAuthWrapper
 
     it 'identifies regular middleware as not needing config' do
       custom_middleware = Class.new

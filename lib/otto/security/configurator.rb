@@ -4,7 +4,6 @@
 
 require_relative 'middleware/csrf_middleware'
 require_relative 'middleware/validation_middleware'
-require_relative 'authentication/authentication_middleware'
 require_relative 'middleware/rate_limit_middleware'
 
 # Security configuration facade for Otto framework
@@ -171,12 +170,14 @@ class Otto
         @security_config.enable_csp_with_nonce!(debug: debug)
       end
 
-      # Enable authentication middleware for route-level access control.
-      # This will automatically check route auth parameters and enforce authentication.
+      # Enable authentication for route-level access control.
+      #
+      # NOTE: Authentication is now handled by RouteAuthWrapper at the handler level,
+      # not as middleware. This method is kept for API compatibility but is a no-op.
+      # Authentication will automatically be enforced for routes with auth requirements.
       def enable_authentication!
-        return if middleware_enabled?(Otto::Security::Authentication::AuthenticationMiddleware)
-
-        @middleware_stack.add(Otto::Security::Authentication::AuthenticationMiddleware, @auth_config)
+        # Authentication is now handled by RouteAuthWrapper automatically
+        # when routes have auth requirements. No middleware needed.
       end
 
       # Add a single authentication strategy
@@ -185,7 +186,7 @@ class Otto
       # @param strategy [Otto::Security::Authentication::AuthStrategy] Strategy instance
       def add_auth_strategy(name, strategy)
         @auth_config[:auth_strategies][name] = strategy
-        enable_authentication!
+        # No need to call enable_authentication! - RouteAuthWrapper handles it
       end
 
       # Configure authentication strategies for route-level access control.
@@ -196,7 +197,7 @@ class Otto
         # Merge new strategies with existing ones, preserving shared state
         @auth_config[:auth_strategies].merge!(strategies)
         @auth_config[:default_auth_strategy] = default_strategy
-        enable_authentication! unless strategies.empty?
+        # No need to call enable_authentication! - RouteAuthWrapper handles it
       end
 
       # Configure rate limiting settings.

@@ -23,7 +23,6 @@ require_relative 'otto/version'
 require_relative 'otto/security/config'
 require_relative 'otto/security/middleware/csrf_middleware'
 require_relative 'otto/security/middleware/validation_middleware'
-require_relative 'otto/security/authentication/authentication_middleware'
 require_relative 'otto/security/middleware/rate_limit_middleware'
 require_relative 'otto/mcp/server'
 require_relative 'otto/core/router'
@@ -291,15 +290,17 @@ class Otto
     @security_config.enable_csp_with_nonce!(debug: debug)
   end
 
-  # Enable authentication middleware for route-level access control.
-  # This will automatically check route auth parameters and enforce authentication.
+  # Enable authentication for route-level access control.
+  #
+  # NOTE: Authentication is now handled by RouteAuthWrapper at the handler level,
+  # not as middleware. This method is kept for API compatibility but is a no-op.
+  # Authentication will automatically be enforced for routes with auth requirements.
   #
   # @example
   #   otto.enable_authentication!
   def enable_authentication!
-    return if @middleware.includes?(Otto::Security::Authentication::AuthenticationMiddleware)
-
-    use Otto::Security::Authentication::AuthenticationMiddleware, @auth_config
+    # Authentication is now handled by RouteAuthWrapper automatically
+    # when routes have auth requirements. No middleware needed.
   end
 
   # Add a single authentication strategy
@@ -313,8 +314,7 @@ class Otto
     @auth_config = { auth_strategies: {}, default_auth_strategy: 'noauth' } if @auth_config.nil?
 
     @auth_config[:auth_strategies][name] = strategy
-
-    enable_authentication!
+    # No need to call enable_authentication! - RouteAuthWrapper handles it
   end
 
   # Enable MCP (Model Context Protocol) server support

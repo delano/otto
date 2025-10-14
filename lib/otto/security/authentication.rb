@@ -8,7 +8,7 @@
 require_relative 'authentication/auth_strategy'
 require_relative 'authentication/strategy_result'
 require_relative 'authentication/failure_result'
-require_relative 'authentication/authentication_middleware'
+require_relative 'authentication/route_auth_wrapper'
 
 # Load all strategies
 require_relative 'authentication/strategies/noauth_strategy'
@@ -26,7 +26,6 @@ class Otto
     RoleStrategy = Authentication::Strategies::RoleStrategy
     APIKeyStrategy = Authentication::Strategies::APIKeyStrategy
     PermissionStrategy = Authentication::Strategies::PermissionStrategy
-    AuthenticationMiddleware = Authentication::AuthenticationMiddleware
   end
 
   # Top-level backward compatibility aliases

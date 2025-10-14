@@ -224,12 +224,10 @@ class Otto
           Otto::Security::Middleware::CSRFMiddleware,
           Otto::Security::Middleware::ValidationMiddleware,
           Otto::Security::Middleware::RateLimitMiddleware,
-          Otto::Security::Authentication::AuthenticationMiddleware,
           # Backward compatibility aliases
           Otto::Security::CSRFMiddleware,
           Otto::Security::ValidationMiddleware,
           Otto::Security::RateLimitMiddleware,
-          Otto::Security::AuthenticationMiddleware,
         ].include?(middleware_class)
       end
     end

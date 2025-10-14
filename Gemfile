@@ -24,6 +24,7 @@ group :development, :test, optional: true do
 end
 
 group :development do
+  gem 'benchmark'
   gem 'debug'
   gem 'rubocop', '~> 1.81.1', require: false
   gem 'rubocop-performance', require: false

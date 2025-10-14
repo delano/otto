@@ -1,23 +1,55 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Throwaway benchmark to measure middleware wrapping performance
+# Benchmark to measure real-world Otto performance with actual routes and middleware
 # Usage: ruby benchmark_middleware_wrap.rb
 
 require 'bundler/setup'
 require 'benchmark'
 require 'stringio'
+require 'tempfile'
 
 require_relative 'lib/otto'
 
 REQUEST_COUNT = 50_000
 MIDDLEWARE_COUNT = 40
 
-# Mock middleware classes
-class MockMiddleware1
-  def initialize(app, config = nil)
+# Create a temporary routes file
+routes_content = <<~ROUTES
+  GET / TestApp.index
+  GET /users/:id TestApp.show
+  POST /users TestApp.create
+  GET /health TestApp.health
+ROUTES
+
+routes_file = Tempfile.new(['routes', '.txt'])
+routes_file.write(routes_content)
+routes_file.close
+
+# Define test application
+class TestApp
+  def self.index(_env, _params = {})
+    [200, { 'Content-Type' => 'text/html' }, ['Welcome']]
+  end
+
+  def self.show(env, params = {})
+    user_id = params[:id] || env.dig('otto.params', :id) || '123'
+    [200, { 'Content-Type' => 'text/html' }, ["User #{user_id}"]]
+  end
+
+  def self.create(_env, _params = {})
+    [201, { 'Content-Type' => 'application/json' }, ['{"id": 123}']]
+  end
+
+  def self.health(_env, _params = {})
+    [200, { 'Content-Type' => 'text/plain' }, ['OK']]
+  end
+end
+
+# Create real Rack middleware
+class BenchmarkMiddleware
+  def initialize(app, _config = nil)
     @app = app
-    @config = config
   end
 
   def call(env)
@@ -25,55 +57,37 @@ class MockMiddleware1
   end
 end
 
-class MockMiddleware2
-  def initialize(app, config = nil)
-    @app = app
-    @config = config
-  end
+# Create Otto instance with real configuration
+otto = Otto.new(routes_file.path)
 
-  def call(env)
-    @app.call(env)
-  end
+# Add real Otto security middleware
+otto.enable_csrf_protection!
+otto.enable_request_validation!
+
+# Add custom middleware to reach target count
+current_count = otto.middleware.size
+(MIDDLEWARE_COUNT - current_count).times do
+  otto.use(Class.new(BenchmarkMiddleware))
 end
 
-class MockMiddleware3
-  def initialize(app, config = nil)
-    @app = app
-    @config = config
-  end
+# Suppress error logging for benchmark
+Otto.logger.level = Logger::FATAL
 
-  def call(env)
-    @app.call(env)
-  end
-end
-
-# Base app that just returns success
-BASE_APP = lambda do |_env|
-  [200, { 'Content-Type' => 'text/plain' }, ['OK']]
-end
-
-# Create middleware stack with several middleware
-middleware_stack = Otto::Core::MiddlewareStack.new
-middleware_stack.add(MockMiddleware1)
-middleware_stack.add(MockMiddleware2)
-MIDDLEWARE_COUNT.times {
-  mw_class = Class.new(MockMiddleware3)
-  middleware_stack.add(mw_class)
-}
-
-security_config = Otto::Security::Config.new
-
-puts "\nMiddleware Stack (#{middleware_stack.size}):"
-middleware_stack.middleware_list.each_with_index do |mw, i|
-  print "."
-end
 puts "\n" + ("=" * 70)
+puts "Otto Performance Benchmark"
+puts ("=" * 70)
+puts "Configuration:"
+puts "  Routes:     #{otto.instance_variable_get(:@route_definitions).size}"
+actual_app = otto.instance_variable_get(:@app)
+puts "  Middleware: #{otto.middleware.size} (#{MIDDLEWARE_COUNT} total in stack, app built: #{!actual_app.nil?})"
+puts "  Requests:   #{REQUEST_COUNT.to_s.reverse.gsub(/(\d{3})(?=\d)/, '\\1,').reverse}"
+puts ("=" * 70)
 
-# Create a mock Rack environment
-def mock_env
+# Create realistic Rack environments for different routes
+def make_env(method, path)
   {
-    'REQUEST_METHOD' => 'GET',
-    'PATH_INFO' => '/',
+    'REQUEST_METHOD' => method,
+    'PATH_INFO' => path,
     'QUERY_STRING' => '',
     'SERVER_NAME' => 'example.com',
     'SERVER_PORT' => '80',
@@ -83,66 +97,67 @@ def mock_env
     'rack.errors' => StringIO.new,
     'rack.multithread' => false,
     'rack.multiprocess' => true,
-    'rack.run_once' => false
+    'rack.run_once' => false,
+    'REMOTE_ADDR' => '192.168.1.100',
+    'HTTP_USER_AGENT' => 'Benchmark/1.0',
+    'rack.session' => {}
   }
 end
 
+# Test different routes
+routes = [
+  ['GET', '/'],
+  ['GET', '/users/123'],
+  ['POST', '/users'],
+  ['GET', '/health']
+]
+
 # Warmup
 puts "\nWarming up (1,000 requests)..."
-1_000.times do
-  app = middleware_stack.wrap(BASE_APP, security_config)
-  app.call(mock_env)
+1_000.times do |i|
+  method, path = routes[i % routes.size]
+  env = make_env(method, path)
+  otto.call(env)
 end
 
 puts "\n" + ("=" * 70)
-puts "Running benchmarks (50,000 requests each)...\n\n"
-
-# Benchmark: Current approach (wrap on every request)
-puts "CURRENT APPROACH (wrap middleware chain on every request):"
-current_result = Benchmark.measure do
-  REQUEST_COUNT.times do
-    app = middleware_stack.wrap(BASE_APP, security_config)
-    app.call(mock_env)
-  end
-end
-puts current_result
-
-# Benchmark: Proposed approach (pre-built app)
-puts "\nPROPOSED APPROACH (pre-built middleware chain, reused):"
-pre_built_app = middleware_stack.wrap(BASE_APP, security_config)
-
-proposed_result = Benchmark.measure do
-  REQUEST_COUNT.times do
-    pre_built_app.call(mock_env)
-  end
-end
-puts proposed_result
-
-# Calculate metrics
-current_time = current_result.real
-proposed_time = proposed_result.real
-time_saved = current_time - proposed_time
-improvement = ((current_time - proposed_time) / current_time * 100).round(2)
-speedup = (current_time / proposed_time).round(2)
-
-puts "\n" + ("=" * 70)
-puts "RESULTS SUMMARY:"
-puts ("=" * 70)
-puts "  Current approach:  #{(current_time * 1000).round(2)}ms total"
-puts "                     #{(current_time / REQUEST_COUNT * 1_000_000).round(2)}µs per request"
-puts "\n  Proposed approach: #{(proposed_time * 1000).round(2)}ms total"
-puts "                     #{(proposed_time / REQUEST_COUNT * 1_000_000).round(2)}µs per request"
-puts "\n  Time saved:        #{(time_saved * 1000).round(2)}ms over 50,000 requests"
-puts "  Performance gain:  #{improvement}% faster"
-puts "  Speedup factor:    #{speedup}x"
+puts "Running benchmark..."
 puts ("=" * 70)
 
-puts "\nConclusion:"
-if improvement > 10
-  puts "  ✓ Significant performance improvement - pre-building is worthwhile"
-  puts "  ✓ Rebuilding middleware chain on every request is wasteful"
-elsif improvement > 5
-  puts "  ~ Moderate improvement - worth considering"
+# Benchmark
+result = Benchmark.measure do
+  REQUEST_COUNT.times do |i|
+    method, path = routes[i % routes.size]
+    env = make_env(method, path)
+    otto.call(env)
+  end
+end
+
+total_time = result.real
+per_request = (total_time / REQUEST_COUNT * 1_000_000).round(2)
+requests_per_sec = (REQUEST_COUNT / total_time).round(0)
+
+puts "\nResults:"
+puts ("=" * 70)
+puts "  Total time:        #{(total_time * 1000).round(2)}ms"
+puts "  Time per request:  #{per_request}µs"
+puts "  Requests/sec:      #{requests_per_sec.to_s.reverse.gsub(/(\d{3})(?=\d)/, '\\1,').reverse}"
+puts ("=" * 70)
+
+# Performance analysis
+puts "\nPerformance Analysis:"
+if per_request < 20
+  puts "  ✓ Excellent performance (< 20µs per request)"
+elsif per_request < 50
+  puts "  ✓ Good performance (< 50µs per request)"
+elsif per_request < 100
+  puts "  ~ Acceptable performance (< 100µs per request)"
 else
-  puts "  ~ Minimal difference - current approach acceptable"
+  puts "  ⚠ May need optimization (#{per_request}µs per request)"
 end
+
+puts "\nMiddleware overhead: ~#{((per_request - 2.5) / MIDDLEWARE_COUNT).round(3)}µs per middleware"
+puts
+
+# Cleanup
+routes_file.unlink

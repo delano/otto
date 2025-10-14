@@ -157,7 +157,7 @@ class Otto
       end
 
       # Build Rack application with middleware chain
-      def build_app(base_app, security_config = nil)
+      def wrap(base_app, security_config = nil)
         @stack.reduce(base_app) do |app, entry|
           middleware = entry[:middleware]
           args = entry[:args]

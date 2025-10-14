@@ -186,7 +186,7 @@ RSpec.describe Otto::Core::MiddlewareStack do
     end
   end
 
-  describe '#build_app' do
+  describe '#wrap' do
     let(:base_app) { ->(_env) { [200, {}, ['base']] } }
     let(:security_config) { instance_double('Otto::Security::Config', csrf_enabled?: true) }
 
@@ -213,7 +213,7 @@ RSpec.describe Otto::Core::MiddlewareStack do
 
     it 'builds middleware chain in reverse order' do
       stack.add(mock_middleware1)
-      app = stack.build_app(base_app, security_config)
+      app = stack.wrap(base_app, security_config)
 
       expect(app).to be_a(mock_middleware1)
       expect(app.app).to eq(base_app)
@@ -224,21 +224,21 @@ RSpec.describe Otto::Core::MiddlewareStack do
       stub_const('Otto::Security::CSRFMiddleware', mock_middleware1)
 
       stack.add(Otto::Security::CSRFMiddleware)
-      app = stack.build_app(base_app, security_config)
+      app = stack.wrap(base_app, security_config)
 
       expect(app.config).to eq(security_config)
     end
 
     it 'does not pass security_config to non-security middleware' do
       stack.add(mock_middleware1)
-      app = stack.build_app(base_app, security_config)
+      app = stack.wrap(base_app, security_config)
 
       expect(app.config).to be_nil
     end
 
     it 'handles middleware with custom arguments' do
       stack.add(mock_middleware1, 'custom_arg', option: 'value')
-      app = stack.build_app(base_app, security_config)
+      app = stack.wrap(base_app, security_config)
 
       expect(app.args).to eq(['custom_arg'])
       expect(app.options).to eq(option: 'value')

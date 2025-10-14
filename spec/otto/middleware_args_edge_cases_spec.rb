@@ -72,7 +72,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       otto.middleware.add(Otto::Security::CSRFMiddleware)
 
       base_app = ->(_env) { [200, {}, ['base']] }
-      app = otto.middleware.build_app(base_app, security_config)
+      app = otto.middleware.wrap(base_app, security_config)
 
       expect(app.security_config).to eq(security_config)
       expect(app.custom_args).to be_empty
@@ -82,7 +82,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       otto.middleware.add(RegularMiddleware)
 
       base_app = ->(_env) { [200, {}, ['base']] }
-      app = otto.middleware.build_app(base_app, security_config)
+      app = otto.middleware.wrap(base_app, security_config)
 
       expect(app.args).to be_empty
       expect(app).not_to respond_to(:security_config)
@@ -92,7 +92,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       otto.middleware.add(Otto::Security::ValidationMiddleware, 'custom_arg', option: 'value')
 
       base_app = ->(_env) { [200, {}, ['base']] }
-      app = otto.middleware.build_app(base_app, security_config)
+      app = otto.middleware.wrap(base_app, security_config)
 
       expect(app.security_config).to eq(security_config)
       expect(app.custom_args).to eq(['custom_arg'])
@@ -103,7 +103,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       otto.middleware.add(RegularMiddleware, 'arg1', 'arg2', option: 'value')
 
       base_app = ->(_env) { [200, {}, ['base']] }
-      app = otto.middleware.build_app(base_app, security_config)
+      app = otto.middleware.wrap(base_app, security_config)
 
       expect(app.args).to eq(%w[arg1 arg2])
       expect(app.options).to eq(option: 'value')
@@ -113,7 +113,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       otto.middleware.add(proc_middleware)
 
       base_app = ->(_env) { [200, {}, ['base']] }
-      app = otto.middleware.build_app(base_app, security_config)
+      app = otto.middleware.wrap(base_app, security_config)
 
       expect(app.app).to eq(base_app)
     end
@@ -159,7 +159,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       base_app = ->(_env) { [200, {}, ['base']] }
 
       # Build the middleware chain
-      app = otto.middleware.build_app(base_app, security_config)
+      app = otto.middleware.wrap(base_app, security_config)
 
       # The outermost middleware should be CSRFMiddleware (added last, wraps the previous ones)
       expect(app).to be_a(Otto::Security::CSRFMiddleware)
@@ -171,7 +171,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       otto.middleware.add(RegularMiddleware)
 
       base_app = ->(_env) { [200, {}, ['base']] }
-      app = otto.middleware.build_app(base_app, security_config)
+      app = otto.middleware.wrap(base_app, security_config)
 
       expect(app).to be_a(regular_middleware)
       expect(app.args).to be_empty
@@ -181,7 +181,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       otto.middleware.add(RegularMiddleware, option1: 'value1', option2: 'value2')
 
       base_app = ->(_env) { [200, {}, ['base']] }
-      app = otto.middleware.build_app(base_app, security_config)
+      app = otto.middleware.wrap(base_app, security_config)
 
       expect(app.args).to be_empty
       expect(app.options).to eq(option1: 'value1', option2: 'value2')
@@ -203,7 +203,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       base_app = ->(_env) { [200, {}, ['base']] }
 
       expect do
-        otto.middleware.build_app(base_app, security_config)
+        otto.middleware.wrap(base_app, security_config)
       end.to raise_error(StandardError, 'Middleware initialization failed')
     end
   end
@@ -217,7 +217,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       otto.middleware.add(Otto::Security::CSRFMiddleware, 'custom_arg')
 
       base_app = ->(_env) { [200, {}, ['base']] }
-      app = otto.middleware.build_app(base_app, nil)
+      app = otto.middleware.wrap(base_app, nil)
 
       # Should still work, just without security config injection
       expect(app.custom_args).to eq(['custom_arg'])
@@ -228,7 +228,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       otto.middleware.add(regular_middleware, 'arg')
 
       base_app = ->(_env) { [200, {}, ['base']] }
-      app = otto.middleware.build_app(base_app, nil)
+      app = otto.middleware.wrap(base_app, nil)
 
       expect(app.args).to eq(['arg'])
     end
@@ -251,7 +251,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
 
       # But execution follows standard Rack behavior (last added wraps the others)
       base_app = ->(_env) { [200, {}, ['base']] }
-      app = otto.middleware.build_app(base_app, security_config)
+      app = otto.middleware.wrap(base_app, security_config)
 
       # The outermost middleware should be the last one added
       expect(app).to be_a(Middleware3)

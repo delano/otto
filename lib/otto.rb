@@ -139,7 +139,7 @@ class Otto
     base_app = ->(e) { handle_request(e) }
 
     # Use the middleware stack as the source of truth
-    app = @middleware.build_app(base_app, @security_config)
+    app = @middleware.wrap(base_app, @security_config)
 
     begin
       app.call(env)

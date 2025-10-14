@@ -37,12 +37,25 @@ class Otto
 
         # Execute authentication then call wrapped handler
         #
+        # For routes WITHOUT auth requirement: Sets anonymous StrategyResult
+        # For routes WITH auth requirement: Enforces authentication
+        #
         # @param env [Hash] Rack environment
         # @param extra_params [Hash] Additional parameters
         # @return [Array] Rack response array
         def call(env, extra_params = {})
-          # Execute authentication strategy for this route
           auth_requirement = route_definition.auth_requirement
+
+          # Routes without auth requirement get anonymous StrategyResult
+          unless auth_requirement
+            result = StrategyResult.anonymous(metadata: { ip: env['REMOTE_ADDR'] })
+            env['otto.strategy_result'] = result
+            env['otto.user'] = nil
+            env['otto.user_context'] = result.user_context
+            return wrapped_handler.call(env, extra_params)
+          end
+
+          # Routes WITH auth requirement: Execute authentication strategy
           strategy = get_strategy(auth_requirement)
 
           unless strategy

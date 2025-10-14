@@ -44,6 +44,53 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
   end
 
   describe '#call' do
+    context 'with routes without auth requirement' do
+      let(:public_route) do
+        Otto::RouteDefinition.new('GET', '/public', 'TestApp.public')
+      end
+
+      let(:public_wrapper) do
+        described_class.new(mock_handler, public_route, auth_config)
+      end
+
+      it 'sets anonymous StrategyResult and calls handler' do
+        env = mock_rack_env
+
+        status, _headers, body = public_wrapper.call(env)
+
+        expect(status).to eq(200)
+        expect(body).to eq(['handler called'])
+        expect(env['otto.strategy_result']).to be_a(Otto::Security::Authentication::StrategyResult)
+        expect(env['otto.strategy_result'].anonymous?).to be true
+        expect(env['otto.strategy_result'].authenticated?).to be false
+      end
+
+      it 'includes IP metadata in anonymous result' do
+        env = mock_rack_env
+        env['REMOTE_ADDR'] = '192.168.1.100'
+
+        public_wrapper.call(env)
+
+        expect(env['otto.strategy_result'].metadata[:ip]).to eq('192.168.1.100')
+      end
+
+      it 'does not set otto.user for anonymous routes' do
+        env = mock_rack_env
+
+        public_wrapper.call(env)
+
+        expect(env['otto.user']).to be_nil
+      end
+
+      it 'sets empty user_context for anonymous routes' do
+        env = mock_rack_env
+
+        public_wrapper.call(env)
+
+        expect(env['otto.user_context']).to eq({})
+      end
+    end
+
     context 'with successful authentication' do
       it 'sets env variables and calls wrapped handler' do
         env = mock_rack_env

@@ -36,21 +36,25 @@ class Otto
 
     # Authentication strategy result containing session/user state
     # Type: Otto::Security::Authentication::StrategyResult
-    # Set by: AuthenticationMiddleware
+    # Set by: RouteAuthWrapper (wraps all route handlers)
     # Used by: RouteHandlers, LogicClasses, Controllers
-    # Note: Always present (anonymous or authenticated)
+    # Guarantee: ALWAYS present - either authenticated or anonymous
+    # - Routes WITH auth requirement: Authenticated StrategyResult or 401/302
+    # - Routes WITHOUT auth requirement: Anonymous StrategyResult
     STRATEGY_RESULT = 'otto.strategy_result'
 
     # Authenticated user object (convenience accessor)
     # Type: Hash, Custom User Object, or nil
-    # Set by: AuthenticationMiddleware (from strategy_result.user)
+    # Set by: RouteAuthWrapper (from strategy_result.user)
     # Used by: Controllers, RouteHandlers
+    # Note: nil for anonymous/unauthenticated requests
     USER = 'otto.user'
 
     # User-specific context (session, roles, permissions, etc.)
     # Type: Hash
-    # Set by: AuthenticationMiddleware (from strategy_result.user_context)
+    # Set by: RouteAuthWrapper (from strategy_result.user_context)
     # Used by: Controllers, Analytics
+    # Note: Empty hash {} for anonymous requests
     USER_CONTEXT = 'otto.user_context'
 
     # =========================================================================

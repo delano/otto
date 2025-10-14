@@ -17,8 +17,8 @@ class Otto
         res = Rack::Response.new
 
         begin
-          # Get strategy result (guaranteed to exist from auth middleware)
-          strategy_result = env['otto.strategy_result'] || Otto::Security::Authentication::StrategyResult.anonymous
+          # Get strategy result (guaranteed to exist from RouteAuthWrapper)
+          strategy_result = env['otto.strategy_result']
 
           # Initialize Logic class with new signature: context, params, locale
           logic_params = req.params.merge(extra_params)

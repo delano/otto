@@ -183,11 +183,56 @@ otto.configure_ip_privacy(
   geo: false              # Disable geo-location
 )
 
+# Multi-server environment with Redis (atomic key generation)
+redis = Redis.new(url: ENV['REDIS_URL'])
+otto.configure_ip_privacy(redis: redis)
+# All servers share same rotation key via Redis SET NX GET EX
+# Single source of truth for IP hashing across cluster
+
 # Explicitly disable privacy (NOT recommended)
 otto.disable_ip_privacy!
 # ALL IPs unmasked (including public IPs)
 # env['REMOTE_ADDR'] contains real IP
 # env['otto.original_ip'] also available
+```
+
+### Multi-Server Support with Redis
+
+For applications running across multiple servers, Otto supports Redis-based atomic key generation to ensure all servers use the same rotation key:
+
+```ruby
+# Single-server (default): In-memory Concurrent::Hash
+otto = Otto.new(routes_file)
+# Each server generates its own keys
+# Works fine for single-server deployments
+
+# Multi-server: Redis-based atomic key generation
+redis = Redis.new(url: ENV['REDIS_URL'])
+otto = Otto.new(routes_file)
+otto.configure_ip_privacy(redis: redis)
+# All servers share keys via Redis SET NX GET EX
+# Guaranteed consistency across entire cluster
+```
+
+**How Redis key generation works:**
+1. Uses `SET key value NX GET EX ttl` for atomic operations
+2. Returns existing key if present, otherwise sets and returns new key
+3. Keys auto-expire after 1.2× rotation period (20% buffer)
+4. No manual cleanup required
+5. Single source of truth across all application servers
+
+**Redis key format:**
+```
+rotation_key:{timestamp}  # e.g., rotation_key:1704067200
+```
+
+**Benefits:**
+- **Consistency**: Same IP always hashes to same value across all servers
+- **Atomic**: No race conditions when rotation occurs
+- **Auto-cleanup**: TTL handles key expiration automatically
+- **Scalable**: Works with any number of application servers
+- **Fallback**: Automatically falls back to in-memory if Redis unavailable
+
 ```
 
 ### Use Cases

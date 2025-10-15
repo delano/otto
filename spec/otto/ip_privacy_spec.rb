@@ -612,6 +612,277 @@ RSpec.describe 'IP Privacy Features' do
     end
   end
 
+  describe 'IP Hashing Rotation Key Management' do
+    describe 'in-memory rotation keys' do
+      let(:config) { Otto::Privacy::Config.new(hash_rotation_period: 3600) }
+
+      it 'generates consistent key within rotation period' do
+        key1 = config.rotation_key
+        key2 = config.rotation_key
+
+        expect(key1).to eq(key2)
+        expect(key1).to match(/^[0-9a-f]{64}$/)
+      end
+
+      it 'stores keys at class level (survives config freezing)' do
+        config1 = Otto::Privacy::Config.new(hash_rotation_period: 3600)
+        key1 = config1.rotation_key
+        config1.freeze
+
+        config2 = Otto::Privacy::Config.new(hash_rotation_period: 3600)
+        key2 = config2.rotation_key
+
+        # Keys should be shared across instances via class-level storage
+        expect(key1).to eq(key2)
+      end
+
+      it 'clears old keys when rotation occurs' do
+        # Clear existing keys first to ensure clean state
+        Otto::Privacy::Config.rotation_keys_store.clear
+
+        config = Otto::Privacy::Config.new(hash_rotation_period: 1)
+
+        key1 = config.rotation_key
+        sleep(1.1)  # Wait for rotation period to pass
+        key2 = config.rotation_key
+
+        # Different rotation periods should have different keys
+        expect(key1).not_to eq(key2)
+
+        # Store should have at most 2 keys (current + previous for boundary wiggle room)
+        store = Otto::Privacy::Config.rotation_keys_store
+        expect(store.size).to be <= 2
+      end
+    end
+
+    describe 'Redis-based rotation keys' do
+      let(:redis) { double('Redis') }
+      let(:config) { Otto::Privacy::Config.new(hash_rotation_period: 3600, redis: redis) }
+
+      before do
+        allow(Time).to receive(:now).and_return(Time.utc(2025, 1, 15, 12, 0, 0))
+      end
+
+      it 'uses SET NX GET EX for atomic key generation' do
+        rotation_timestamp = 1736942400  # 2025-01-15 12:00:00 UTC quantized to hour
+        redis_key = "rotation_key:#{rotation_timestamp}"
+        ttl = (3600 * 1.2).to_i  # 4320 seconds (20% buffer)
+
+        # Simulate key doesn't exist (first server to request it)
+        expect(redis).to receive(:set).with(
+          redis_key,
+          instance_of(String),
+          nx: true,
+          get: true,
+          ex: ttl
+        ).and_return(nil)
+
+        key = config.rotation_key
+
+        expect(key).to match(/^[0-9a-f]{64}$/)
+      end
+
+      it 'returns existing key when already set' do
+        rotation_timestamp = 1736942400
+        redis_key = "rotation_key:#{rotation_timestamp}"
+        existing_key = 'a' * 64
+
+        # Simulate key already exists (another server set it)
+        expect(redis).to receive(:set).and_return(existing_key)
+
+        key = config.rotation_key
+
+        expect(key).to eq(existing_key)
+      end
+
+      it 'generates different keys for different rotation periods' do
+        keys = []
+
+        # First period: 12:00:00
+        allow(Time).to receive(:now).and_return(Time.utc(2025, 1, 15, 12, 0, 0))
+        expect(redis).to receive(:set).and_return(nil)
+        keys << config.rotation_key
+
+        # Second period: 13:00:00
+        allow(Time).to receive(:now).and_return(Time.utc(2025, 1, 15, 13, 0, 0))
+        expect(redis).to receive(:set).and_return(nil)
+        keys << config.rotation_key
+
+        expect(keys[0]).not_to eq(keys[1])
+      end
+
+      it 'uses correct TTL with 20% buffer' do
+        rotation_timestamp = 1736942400
+        redis_key = "rotation_key:#{rotation_timestamp}"
+
+        config_2h = Otto::Privacy::Config.new(hash_rotation_period: 7200, redis: redis)
+
+        allow(Time).to receive(:now).and_return(Time.utc(2025, 1, 15, 12, 0, 0))
+
+        expect(redis).to receive(:set).with(
+          anything,
+          anything,
+          hash_including(ex: (7200 * 1.2).to_i)
+        ).and_return(nil)
+
+        config_2h.rotation_key
+      end
+
+      it 'quantizes timestamp to rotation period boundary' do
+        config = Otto::Privacy::Config.new(hash_rotation_period: 3600, redis: redis)
+
+        # All times within same hour should use same Redis key
+        times = [
+          Time.utc(2025, 1, 15, 12, 0, 0),
+          Time.utc(2025, 1, 15, 12, 30, 0),
+          Time.utc(2025, 1, 15, 12, 59, 59)
+        ]
+
+        expected_key = 'rotation_key:1736942400'  # 12:00:00 boundary
+
+        times.each do |time|
+          allow(Time).to receive(:now).and_return(time)
+          expect(redis).to receive(:set).with(
+            expected_key,
+            anything,
+            anything
+          ).and_return(nil)
+
+          config.rotation_key
+        end
+      end
+    end
+
+    describe 'configuration freezing' do
+      it 'rotation keys remain accessible after config is frozen' do
+        config = Otto::Privacy::Config.new(hash_rotation_period: 3600)
+
+        key_before = config.rotation_key
+        config.freeze
+        key_after = config.rotation_key
+
+        expect(key_before).to eq(key_after)
+        expect(config).to be_frozen
+      end
+
+      it 'class-level store remains mutable when instances are frozen' do
+        config1 = Otto::Privacy::Config.new(hash_rotation_period: 3600)
+        config1.freeze
+
+        config2 = Otto::Privacy::Config.new(hash_rotation_period: 3600)
+
+        # Both should be able to generate/access keys
+        expect { config1.rotation_key }.not_to raise_error
+        expect { config2.rotation_key }.not_to raise_error
+      end
+    end
+
+    describe 'thread safety' do
+      it 'handles concurrent rotation key access without race conditions' do
+        config = Otto::Privacy::Config.new(hash_rotation_period: 3600)
+        keys = Concurrent::Array.new
+
+        threads = 10.times.map do
+          Thread.new do
+            100.times do
+              keys << config.rotation_key
+            end
+          end
+        end
+
+        threads.each(&:join)
+
+        # All keys within same rotation period should be identical
+        expect(keys.uniq.size).to eq(1)
+      end
+
+      it 'handles concurrent rotation key access during rotation boundary' do
+        keys = Concurrent::Array.new
+        start_time = Time.utc(2025, 1, 15, 12, 59, 59)
+
+        threads = 10.times.map do |i|
+          Thread.new do
+            config = Otto::Privacy::Config.new(hash_rotation_period: 3600)
+
+            # Simulate requests near rotation boundary
+            time_offset = i * 0.2  # Spread across boundary
+            allow(Time).to receive(:now).and_return(start_time + time_offset)
+
+            keys << config.rotation_key
+          end
+        end
+
+        threads.each(&:join)
+
+        # Should have at most 2 different keys (before/after rotation)
+        expect(keys.uniq.size).to be <= 2
+      end
+    end
+
+    describe 'rotation boundary edge cases' do
+      let(:config) { Otto::Privacy::Config.new(hash_rotation_period: 3600) }
+
+      it 'handles exact rotation boundary timestamp' do
+        # Exactly at rotation boundary: 2025-01-15 12:00:00 UTC
+        boundary_time = Time.utc(2025, 1, 15, 12, 0, 0)
+        allow(Time).to receive(:now).and_return(boundary_time)
+
+        key = config.rotation_key
+        expect(key).to match(/^[0-9a-f]{64}$/)
+      end
+
+      it 'generates different keys across rotation boundary' do
+        keys = []
+
+        # Just before rotation: 11:59:59
+        allow(Time).to receive(:now).and_return(Time.utc(2025, 1, 15, 11, 59, 59))
+        keys << config.rotation_key
+
+        # Just after rotation: 12:00:01
+        allow(Time).to receive(:now).and_return(Time.utc(2025, 1, 15, 12, 0, 1))
+        keys << config.rotation_key
+
+        expect(keys[0]).not_to eq(keys[1])
+      end
+
+      it 'maintains consistency within one second of boundary' do
+        base_time = Time.utc(2025, 1, 15, 12, 0, 0)
+        keys = []
+
+        # Multiple requests within same second at boundary
+        5.times do |i|
+          allow(Time).to receive(:now).and_return(base_time + (i * 0.1))
+          keys << config.rotation_key
+        end
+
+        # All should use same key (same rotation period)
+        expect(keys.uniq.size).to eq(1)
+      end
+
+      it 'handles very short rotation periods correctly' do
+        config_60s = Otto::Privacy::Config.new(hash_rotation_period: 60)
+
+        keys = []
+        base_time = Time.utc(2025, 1, 15, 12, 0, 0)
+
+        # First minute
+        allow(Time).to receive(:now).and_return(base_time)
+        keys << config_60s.rotation_key
+
+        # Second minute
+        allow(Time).to receive(:now).and_return(base_time + 60)
+        keys << config_60s.rotation_key
+
+        # Third minute
+        allow(Time).to receive(:now).and_return(base_time + 120)
+        keys << config_60s.rotation_key
+
+        # Each minute should have different key
+        expect(keys.uniq.size).to eq(3)
+      end
+    end
+  end
+
   describe 'Rack::CommonLogger compatibility' do
     let(:logged_output) { StringIO.new }
     let(:logger) { Logger.new(logged_output) }

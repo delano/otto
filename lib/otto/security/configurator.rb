@@ -4,7 +4,6 @@
 
 require_relative 'middleware/csrf_middleware'
 require_relative 'middleware/validation_middleware'
-require_relative 'authentication/authentication_middleware'
 require_relative 'middleware/rate_limit_middleware'
 
 # Security configuration facade for Otto framework
@@ -75,7 +74,6 @@ class Otto
         enable_hsts! if hsts
         enable_csp! if csp
         enable_frame_protection! if frame_protection
-        enable_authentication! if authentication
       end
 
       # Enable CSRF protection for POST, PUT, DELETE, and PATCH requests.
@@ -171,21 +169,12 @@ class Otto
         @security_config.enable_csp_with_nonce!(debug: debug)
       end
 
-      # Enable authentication middleware for route-level access control.
-      # This will automatically check route auth parameters and enforce authentication.
-      def enable_authentication!
-        return if middleware_enabled?(Otto::Security::Authentication::AuthenticationMiddleware)
-
-        @middleware_stack.add(Otto::Security::Authentication::AuthenticationMiddleware, @auth_config)
-      end
-
       # Add a single authentication strategy
       #
       # @param name [String] Strategy name
       # @param strategy [Otto::Security::Authentication::AuthStrategy] Strategy instance
       def add_auth_strategy(name, strategy)
         @auth_config[:auth_strategies][name] = strategy
-        enable_authentication!
       end
 
       # Configure authentication strategies for route-level access control.
@@ -196,7 +185,6 @@ class Otto
         # Merge new strategies with existing ones, preserving shared state
         @auth_config[:auth_strategies].merge!(strategies)
         @auth_config[:default_auth_strategy] = default_strategy
-        enable_authentication! unless strategies.empty?
       end
 
       # Configure rate limiting settings.

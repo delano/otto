@@ -4,8 +4,26 @@ require 'spec_helper'
 
 RSpec.describe 'Middleware Stack Synchronization' do
   let(:otto) { Otto.new }
-  let(:test_middleware1) { Class.new }
-  let(:test_middleware2) { Class.new }
+  let(:test_middleware1) do
+    Class.new do
+      def initialize(app, *args)
+        @app = app
+      end
+      def call(env)
+        @app.call(env)
+      end
+    end
+  end
+  let(:test_middleware2) do
+    Class.new do
+      def initialize(app, *args)
+        @app = app
+      end
+      def call(env)
+        @app.call(env)
+      end
+    end
+  end
 
   describe 'middleware synchronization' do
     it 'adds middleware to middleware stack via use method' do
@@ -78,26 +96,22 @@ RSpec.describe 'Middleware Stack Synchronization' do
   end
 
   describe 'middleware execution' do
-    let(:base_app) { ->(_env) { [200, {}, ['base']] } }
-
-    it 'uses middleware stack when available' do
-      otto.middleware.add(TestExecutionMiddleware)
-
-      # Mock handle_request to return the result of calling base_app
-      allow(otto).to receive(:handle_request).and_return([200, {}, ['base']])
-
-      # Call should use middleware stack
-      result = otto.call({})
-      expect(result).to eq([200, {}, ['base']])
+    it 'builds middleware app at initialization' do
+      # App should be built during initialization
+      expect(otto.instance_variable_get(:@app)).not_to be_nil
+      expect(otto.instance_variable_get(:@app)).to respond_to(:call)
     end
 
-    it 'handles empty middleware stack' do
-      # Mock handle_request
-      allow(otto).to receive(:handle_request).and_return([200, {}, ['base']])
+    it 'rebuilds app when middleware is added' do
+      # Before adding middleware, count is 0
+      expect(otto.middleware.size).to eq(0)
 
-      # Should work with empty stack
-      result = otto.call({})
-      expect(result).to eq([200, {}, ['base']])
+      otto.use(TestExecutionMiddleware)
+
+      # After adding middleware, count is 1 and app should be TestExecutionMiddleware instance
+      expect(otto.middleware.size).to eq(1)
+      app = otto.instance_variable_get(:@app)
+      expect(app).to be_a(TestExecutionMiddleware)
     end
   end
 
@@ -127,12 +141,11 @@ RSpec.describe 'Middleware Stack Synchronization' do
   end
 
   describe 'edge cases' do
-    it 'handles empty middleware stack gracefully' do
-      # Mock handle_request
-      allow(otto).to receive(:handle_request).and_return([200, {}, ['base']])
-
-      result = otto.call({})
-      expect(result).to eq([200, {}, ['base']])
+    it 'builds app even with empty middleware stack' do
+      # Even with no middleware, app should be built
+      app = otto.instance_variable_get(:@app)
+      expect(app).not_to be_nil
+      expect(app).to respond_to(:call)
     end
 
     it 'handles middleware with custom arguments' do

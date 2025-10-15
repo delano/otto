@@ -44,6 +44,53 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
   end
 
   describe '#call' do
+    context 'with routes without auth requirement' do
+      let(:public_route) do
+        Otto::RouteDefinition.new('GET', '/public', 'TestApp.public')
+      end
+
+      let(:public_wrapper) do
+        described_class.new(mock_handler, public_route, auth_config)
+      end
+
+      it 'sets anonymous StrategyResult and calls handler' do
+        env = mock_rack_env
+
+        status, _headers, body = public_wrapper.call(env)
+
+        expect(status).to eq(200)
+        expect(body).to eq(['handler called'])
+        expect(env['otto.strategy_result']).to be_a(Otto::Security::Authentication::StrategyResult)
+        expect(env['otto.strategy_result'].anonymous?).to be true
+        expect(env['otto.strategy_result'].authenticated?).to be false
+      end
+
+      it 'includes IP metadata in anonymous result' do
+        env = mock_rack_env
+        env['REMOTE_ADDR'] = '192.168.1.100'
+
+        public_wrapper.call(env)
+
+        expect(env['otto.strategy_result'].metadata[:ip]).to eq('192.168.1.100')
+      end
+
+      it 'does not set otto.user for anonymous routes' do
+        env = mock_rack_env
+
+        public_wrapper.call(env)
+
+        expect(env['otto.user']).to be_nil
+      end
+
+      it 'sets empty user_context for anonymous routes' do
+        env = mock_rack_env
+
+        public_wrapper.call(env)
+
+        expect(env['otto.user_context']).to eq({})
+      end
+    end
+
     context 'with successful authentication' do
       it 'sets env variables and calls wrapped handler' do
         env = mock_rack_env
@@ -240,6 +287,91 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
 
       expect(status).to eq(302)
       expect(headers['location']).to eq('/signin')
+    end
+  end
+
+  describe 'session object identity' do
+    it 'ensures env[rack.session] and strategy_result.session are the same object' do
+      env = mock_rack_env
+      initial_session = { 'user_id' => 123 }
+      env['rack.session'] = initial_session
+
+      wrapper.call(env)
+
+      # Verify object identity (not just equality)
+      expect(env['rack.session'].object_id).to eq(env['otto.strategy_result'].session.object_id)
+
+      # Verify that modifying one affects the other
+      env['rack.session']['new_key'] = 'new_value'
+      expect(env['otto.strategy_result'].session['new_key']).to eq('new_value')
+    end
+
+    it 'maintains session object identity across strategy execution' do
+      env = mock_rack_env
+      session_obj = { 'user_id' => 456 }
+      env['rack.session'] = session_obj
+
+      wrapper.call(env)
+
+      # The session object should be the exact same object
+      expect(env['rack.session']).to be(session_obj)
+      expect(env['otto.strategy_result'].session).to be(session_obj)
+    end
+  end
+
+  describe 'security headers consistency' do
+    let(:security_config) do
+      config = Otto::Security::Config.new
+      # Security headers are enabled by default
+      config
+    end
+
+    let(:wrapper_with_security) do
+      described_class.new(mock_handler, route_definition, auth_config, security_config)
+    end
+
+    context 'on authentication failure (JSON)' do
+      it 'includes security headers in 401 response' do
+        env = mock_rack_env(headers: { 'Accept' => 'application/json' })
+        env['rack.session'] = {}
+
+        _status, headers, _body = wrapper_with_security.call(env)
+
+        # Should include standard security headers from default_security_headers
+        expect(headers['x-content-type-options']).to eq('nosniff')
+        expect(headers['x-xss-protection']).to eq('1; mode=block')
+        expect(headers['referrer-policy']).to eq('strict-origin-when-cross-origin')
+      end
+    end
+
+    context 'on authentication failure (HTML redirect)' do
+      it 'includes security headers in 302 response' do
+        env = mock_rack_env
+        env['rack.session'] = {}
+
+        _status, headers, _body = wrapper_with_security.call(env)
+
+        # Should include standard security headers from default_security_headers
+        expect(headers['x-content-type-options']).to eq('nosniff')
+        expect(headers['x-xss-protection']).to eq('1; mode=block')
+        expect(headers['referrer-policy']).to eq('strict-origin-when-cross-origin')
+      end
+    end
+
+    context 'when strategy not configured' do
+      it 'includes security headers in error response' do
+        unknown_route = Otto::RouteDefinition.new('GET', '/test', 'TestApp.test auth=unknown')
+        wrapper_unknown = described_class.new(mock_handler, unknown_route, auth_config, security_config)
+
+        env = mock_rack_env(headers: { 'Accept' => 'application/json' })
+
+        _status, headers, _body = wrapper_unknown.call(env)
+
+        # Should include standard security headers even on error
+        expect(headers['x-content-type-options']).to eq('nosniff')
+        expect(headers['x-xss-protection']).to eq('1; mode=block')
+        expect(headers['referrer-policy']).to eq('strict-origin-when-cross-origin')
+      end
     end
   end
 end

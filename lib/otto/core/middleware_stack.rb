@@ -13,6 +13,13 @@ class Otto
       def initialize
         @stack = []
         @middleware_set = Set.new
+        @on_change_callback = nil
+      end
+
+      # Set a callback to be invoked when the middleware stack changes
+      # @param callback [Proc] A callable object (e.g., method or lambda)
+      def on_change(&callback)
+        @on_change_callback = callback
       end
 
       # Enhanced middleware registration with argument uniqueness and immutability check
@@ -35,6 +42,8 @@ class Otto
         @middleware_set.add(middleware_class)
         # Invalidate memoized middleware list
         @memoized_middleware_list = nil
+        # Notify of change
+        @on_change_callback&.call
       end
 
       # Add middleware with position hint for optimal ordering
@@ -68,6 +77,8 @@ class Otto
 
         @middleware_set.add(middleware_class)
         @memoized_middleware_list = nil
+        # Notify of change
+        @on_change_callback&.call
       end
 
       # Validate MCP middleware ordering
@@ -133,6 +144,8 @@ class Otto
         @middleware_set = Set.new(@stack.map { |entry| entry[:middleware] })
         # Invalidate memoized middleware list
         @memoized_middleware_list = nil
+        # Notify of change
+        @on_change_callback&.call
       end
 
       # Check if middleware is registered - now O(1) using Set
@@ -149,6 +162,8 @@ class Otto
         @middleware_set.clear
         # Invalidate memoized middleware list
         @memoized_middleware_list = nil
+        # Notify of change
+        @on_change_callback&.call
       end
 
       # Enumerable support
@@ -157,7 +172,7 @@ class Otto
       end
 
       # Build Rack application with middleware chain
-      def build_app(base_app, security_config = nil)
+      def wrap(base_app, security_config = nil)
         @stack.reduce(base_app) do |app, entry|
           middleware = entry[:middleware]
           args = entry[:args]
@@ -224,12 +239,10 @@ class Otto
           Otto::Security::Middleware::CSRFMiddleware,
           Otto::Security::Middleware::ValidationMiddleware,
           Otto::Security::Middleware::RateLimitMiddleware,
-          Otto::Security::Authentication::AuthenticationMiddleware,
           # Backward compatibility aliases
           Otto::Security::CSRFMiddleware,
           Otto::Security::ValidationMiddleware,
           Otto::Security::RateLimitMiddleware,
-          Otto::Security::AuthenticationMiddleware,
         ].include?(middleware_class)
       end
     end

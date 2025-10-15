@@ -62,8 +62,7 @@ RSpec.describe Otto::Security::Configurator do
       # Verify frame protection enabled
       expect(security_config.security_headers['x-frame-options']).to eq('SAMEORIGIN')
 
-      # Verify authentication enabled
-      expect(middleware_stack.includes?(Otto::Security::AuthenticationMiddleware)).to be true
+      # Note: Authentication is now handled by RouteAuthWrapper, not middleware
     end
 
     it 'handles boolean rate limiting option' do
@@ -167,11 +166,11 @@ RSpec.describe Otto::Security::Configurator do
   describe '#add_auth_strategy' do
     let(:test_strategy) { double('TestStrategy') }
 
-    it 'adds authentication strategy and enables middleware' do
+    it 'adds authentication strategy to auth_config' do
       configurator.add_auth_strategy('test', test_strategy)
 
       expect(configurator.auth_config[:auth_strategies]['test']).to eq(test_strategy)
-      expect(middleware_stack.includes?(Otto::Security::AuthenticationMiddleware)).to be true
+      # Note: Authentication is now handled by RouteAuthWrapper, not middleware
     end
   end
 
@@ -190,16 +189,11 @@ RSpec.describe Otto::Security::Configurator do
       expect(configurator.auth_config[:default_auth_strategy]).to eq('public')
     end
 
-    it 'enables authentication middleware when strategies provided' do
-      configurator.configure_auth_strategies(strategies)
-
-      expect(middleware_stack.includes?(Otto::Security::AuthenticationMiddleware)).to be true
-    end
-
-    it 'does not enable middleware for empty strategies' do
+    it 'handles empty strategies configuration' do
       configurator.configure_auth_strategies({})
 
-      expect(middleware_stack.includes?(Otto::Security::AuthenticationMiddleware)).to be false
+      expect(configurator.auth_config[:auth_strategies]).to eq({})
+      # Note: Authentication is now handled by RouteAuthWrapper, not middleware
     end
   end
 

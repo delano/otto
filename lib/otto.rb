@@ -23,7 +23,6 @@ require_relative 'otto/version'
 require_relative 'otto/security/config'
 require_relative 'otto/security/middleware/csrf_middleware'
 require_relative 'otto/security/middleware/validation_middleware'
-require_relative 'otto/security/authentication/authentication_middleware'
 require_relative 'otto/security/middleware/rate_limit_middleware'
 require_relative 'otto/mcp/server'
 require_relative 'otto/core/router'
@@ -131,27 +130,54 @@ class Otto
     Otto.logger.debug "new Otto: #{opts}" if Otto.debug
     load(path) unless path.nil?
     super()
+
+    # Build the middleware app once after all initialization is complete
+    build_app!
   end
   alias options option
 
   # Main Rack application interface
   def call(env)
-    # Apply middleware stack
-    base_app = ->(e) { handle_request(e) }
-
-    # Use the middleware stack as the source of truth
-    app = @middleware.build_app(base_app, @security_config)
-
     begin
-      app.call(env)
+      # Use pre-built middleware app (built once at initialization)
+      @app.call(env)
     rescue StandardError => e
       handle_error(e, env)
     end
   end
 
+
+  # Builds the middleware application chain
+  # Called once at initialization and whenever middleware stack changes
+  #
+  # IMPORTANT: If you have routes with auth requirements, you MUST add session
+  # middleware to your middleware stack BEFORE Otto processes requests.
+  #
+  # Session middleware is required for RouteAuthWrapper to correctly persist
+  # session changes during authentication. Common options include:
+  # - Rack::Session::Cookie (requires rack-session gem)
+  # - Rack::Session::Pool
+  # - Rack::Session::Memcache
+  # - Any Rack-compatible session middleware
+  #
+  # Example:
+  #   use Rack::Session::Cookie, secret: ENV['SESSION_SECRET']
+  #   otto = Otto.new('routes.txt')
+  #
+  def build_app!
+    base_app = method(:handle_request)
+    @app = @middleware.wrap(base_app, @security_config)
+  end
+
   # Middleware Management
   def use(middleware, ...)
     @middleware.add(middleware, ...)
+
+    # NOTE: If build_app! is triggered during a request (via use() or
+    # middleware_stack=), the @app instance variable could be swapped
+    # mid-request in a multi-threaded environment.
+
+    build_app! if @app  # Rebuild app if already initialized
   end
 
   # Compatibility method for existing tests
@@ -163,6 +189,7 @@ class Otto
   def middleware_stack=(stack)
     @middleware.clear!
     Array(stack).each { |middleware| @middleware.add(middleware) }
+    build_app! if @app  # Rebuild app if already initialized
   end
 
   # Compatibility method for middleware detection
@@ -291,17 +318,6 @@ class Otto
     @security_config.enable_csp_with_nonce!(debug: debug)
   end
 
-  # Enable authentication middleware for route-level access control.
-  # This will automatically check route auth parameters and enforce authentication.
-  #
-  # @example
-  #   otto.enable_authentication!
-  def enable_authentication!
-    return if @middleware.includes?(Otto::Security::Authentication::AuthenticationMiddleware)
-
-    use Otto::Security::Authentication::AuthenticationMiddleware, @auth_config
-  end
-
   # Add a single authentication strategy
   #
   # @param name [String] Strategy name
@@ -313,8 +329,6 @@ class Otto
     @auth_config = { auth_strategies: {}, default_auth_strategy: 'noauth' } if @auth_config.nil?
 
     @auth_config[:auth_strategies][name] = strategy
-
-    enable_authentication!
   end
 
   # Enable MCP (Model Context Protocol) server support
@@ -350,6 +364,7 @@ class Otto
     # Initialize @auth_config first so it can be shared with the configurator
     @auth_config       = { auth_strategies: {}, default_auth_strategy: 'noauth' }
     @security          = Otto::Security::Configurator.new(@security_config, @middleware, @auth_config)
+    @app               = nil  # Pre-built middleware app (built after initialization)
   end
 
   def initialize_options(_path, opts)

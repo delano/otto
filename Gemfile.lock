@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    otto (2.0.0.pre2)
+    otto (2.0.0.pre3)
       facets (~> 3.1)
       logger (~> 1, < 2.0)
       loofah (~> 2.20)
@@ -13,6 +13,7 @@ GEM
   remote: https://rubygems.org/
   specs:
     ast (2.4.3)
+    benchmark (0.4.1)
     bigdecimal (3.2.3)
     concurrent-ruby (1.3.5)
     crass (1.0.6)
@@ -169,6 +170,7 @@ PLATFORMS
   x86_64-linux-musl
 
 DEPENDENCIES
+  benchmark
   debug
   json_schemer
   otto!

@@ -25,13 +25,16 @@ class Otto
                     raise ArgumentError, "Unknown handler kind: #{route_definition.kind}"
                   end
 
-        # Wrap with auth enforcement if route has auth requirement
-        if route_definition.auth_requirement && otto_instance&.auth_config
+        # Always wrap with RouteAuthWrapper to ensure env['otto.strategy_result'] is set
+        # - Routes WITH auth requirement: Enforces authentication
+        # - Routes WITHOUT auth requirement: Sets anonymous StrategyResult
+        if otto_instance&.auth_config
           require_relative '../security/authentication/route_auth_wrapper'
           handler = Otto::Security::Authentication::RouteAuthWrapper.new(
             handler,
             route_definition,
-            otto_instance.auth_config
+            otto_instance.auth_config,
+            otto_instance.security_config
           )
         end
 

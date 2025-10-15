@@ -299,23 +299,26 @@ RSpec.describe Otto, 'Configuration Methods' do
       expect(config[:default_auth_strategy]).to eq('admin')
     end
 
-    it 'enables authentication middleware when strategies are provided' do
+    it 'configures auth strategies when provided' do
       strategies = { 'admin' => 'AdminAuth' }
-      expect(app).to receive(:enable_authentication!)
-
       app.send(:configure_authentication, { auth_strategies: strategies })
+
+      config = app.instance_variable_get(:@auth_config)
+      expect(config[:auth_strategies]).to eq(strategies)
     end
 
-    it 'does not enable authentication middleware when no strategies provided' do
-      expect(app).not_to receive(:enable_authentication!)
-
+    it 'configures default auth config when no strategies provided' do
       app.send(:configure_authentication, {})
+
+      config = app.instance_variable_get(:@auth_config)
+      expect(config[:auth_strategies]).to eq({})
     end
 
-    it 'does not enable authentication middleware when strategies are empty' do
-      expect(app).not_to receive(:enable_authentication!)
-
+    it 'configures empty strategies correctly' do
       app.send(:configure_authentication, { auth_strategies: {} })
+
+      config = app.instance_variable_get(:@auth_config)
+      expect(config[:auth_strategies]).to eq({})
     end
   end
 

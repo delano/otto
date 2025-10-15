@@ -2,6 +2,28 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Authentication Architecture
+
+**IMPORTANT**: Authentication in Otto is handled by `RouteAuthWrapper` at the handler level, NOT by middleware.
+
+- Authentication strategies are configured via `otto.add_auth_strategy(name, strategy)`
+- RouteAuthWrapper automatically wraps routes that have `auth` requirements
+- When a route has an auth requirement, RouteAuthWrapper:
+  1. Looks up the appropriate strategy from `auth_config[:auth_strategies]`
+  2. Executes `strategy.authenticate(env, requirement)`
+  3. Returns 401/302 if authentication fails (FailureResult)
+  4. Sets `env['rack.session']`, `env['otto.strategy_result']`, `env['otto.user']` on success
+  5. Calls the wrapped handler
+
+- Strategy pattern matching supports:
+  - Exact match: `'authenticated'` → looks up `auth_config[:auth_strategies]['authenticated']`
+  - Prefix match: `'role:admin'` → looks up `'role'` strategy
+  - Fallback: `'role:*'` → creates default RoleStrategy
+  - Results are cached per wrapper instance
+
+- `enable_authentication!` is a no-op kept for API compatibility
+- AuthenticationMiddleware was removed (it was architecturally broken)
+
 ## Development Commands
 
 ### Setup

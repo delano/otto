@@ -6,8 +6,8 @@ class Otto
   module Security
     module Authentication
       # Failure result for authentication failures
-      FailureResult = Data.define(:failure_reason, :auth_method) do
-        # FailureResult represents authentication failure
+      AuthFailure = Data.define(:failure_reason, :auth_method) do
+        # AuthFailure represents authentication failure
         # Returned by strategies when authentication fails
         # Contains failure reason for error messages
 
@@ -36,7 +36,7 @@ class Otto
         #
         # @return [String] Debug representation
         def inspect
-          "#<FailureResult reason=#{failure_reason.inspect} method=#{auth_method}>"
+          "#<AuthFailure reason=#{failure_reason.inspect} method=#{auth_method}>"
         end
       end
     end

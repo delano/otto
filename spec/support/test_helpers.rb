@@ -8,8 +8,7 @@ module OttoTestHelpers
   # Unfreeze Otto configuration for testing
   # This allows tests to modify configuration after initialization
   def unfreeze_otto(otto)
-    otto.unfreeze_configuration!
-    otto
+    Otto.unfreeze_for_testing(otto)
   end
 
   def create_test_routes_file(filename, routes)
@@ -27,7 +26,7 @@ module OttoTestHelpers
              Otto.new
            end
     # Unfreeze for testing to allow post-initialization configuration
-    otto.unfreeze_configuration!
+    Otto.unfreeze_for_testing(otto)
     otto
   end
 
@@ -40,9 +39,10 @@ module OttoTestHelpers
     routes_file = create_test_routes_file('test_routes_secure.txt', ['GET / TestApp.index'])
     otto = Otto.new(routes_file, default_options.merge(options))
     # Unfreeze for testing to allow post-initialization configuration
-    otto.unfreeze_configuration!
+    Otto.unfreeze_for_testing(otto)
     otto
   end
+
 
   def mock_rack_env(method: 'GET', path: '/', headers: {}, params: {})
     # Requires rack-test gem for Rack::MockRequest

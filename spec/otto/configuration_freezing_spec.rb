@@ -197,7 +197,7 @@ RSpec.describe Otto, 'configuration freezing' do
     end
   end
 
-  describe 'unfreeze_configuration! (test-only method)' do
+  describe 'Otto.unfreeze_for_testing (test-only class method)' do
     it 'is used by test helpers to allow post-initialization configuration' do
       # This method is used internally by test helpers like create_minimal_otto
       # It's not meant to actually unfreeze deep-frozen objects, just to allow
@@ -206,8 +206,34 @@ RSpec.describe Otto, 'configuration freezing' do
       otto.freeze_configuration!
 
       expect(otto.frozen_configuration?).to be true
-      otto.unfreeze_configuration!
+      Otto.unfreeze_for_testing(otto)
       expect(otto.frozen_configuration?).to be false
+    end
+
+    it 'raises an error if RSpec is not defined' do
+      # Create Otto instance while RSpec is still defined
+      otto = Otto.new(routes_file)
+      otto.freeze_configuration!
+
+      # Temporarily hide RSpec constant to test the guard
+      rspec_backup = RSpec
+      Object.send(:remove_const, :RSpec)
+
+      # Manually catch and verify the error since expect might not work without RSpec
+      error_raised = false
+      error_message = nil
+      begin
+        Otto.unfreeze_for_testing(otto)
+      rescue RuntimeError => e
+        error_raised = true
+        error_message = e.message
+      ensure
+        # Restore RSpec constant before assertions
+        Object.const_set(:RSpec, rspec_backup) unless defined?(RSpec)
+      end
+
+      expect(error_raised).to be true
+      expect(error_message).to match(/only available in RSpec test environment/)
     end
   end
 

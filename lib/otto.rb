@@ -375,6 +375,28 @@ class Otto
     def env? *guesses
       !guesses.flatten.select { |n| ENV['RACK_ENV'].to_s == n.to_s }.empty?
     end
+
+    # Test-only method to unfreeze Otto configuration
+    #
+    # This method resets the @configuration_frozen flag, allowing tests
+    # to bypass the ensure_not_frozen! check. It does NOT actually unfreeze
+    # Ruby objects (which is impossible once frozen).
+    #
+    # IMPORTANT: Only works when RSpec is defined. Raises an error otherwise
+    # to prevent accidental use in production.
+    #
+    # @param otto [Otto] The Otto instance to unfreeze
+    # @return [Otto] The unfrozen Otto instance
+    # @raise [RuntimeError] if RSpec is not defined (not in test environment)
+    # @api private
+    def unfreeze_for_testing(otto)
+      unless defined?(RSpec)
+        raise 'Otto.unfreeze_for_testing is only available in RSpec test environment'
+      end
+
+      otto.instance_variable_set(:@configuration_frozen, false)
+      otto
+    end
   end
   extend ClassMethods
 end

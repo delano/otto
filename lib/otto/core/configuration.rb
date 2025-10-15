@@ -192,15 +192,6 @@ class Otto
         raise FrozenError, 'Cannot modify frozen configuration' if frozen_configuration?
       end
 
-      # Unfreeze configuration - FOR TESTING ONLY
-      # This allows tests to modify configuration after initialization
-      #
-      # @api private
-      # @return [self]
-      def unfreeze_configuration!
-        @configuration_frozen = false
-        self
-      end
 
       def middleware_enabled?(middleware_class)
         # Only check the new middleware stack as the single source of truth

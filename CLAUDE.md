@@ -197,10 +197,10 @@ env['REMOTE_ADDR']                  # => '9.9.9.0' (masked)
 env['otto.masked_ip']               # => '9.9.9.0' (same as REMOTE_ADDR)
 env['otto.hashed_ip']               # => 'a3f8b2...' (daily-rotating hash)
 env['otto.geo_country']             # => 'US' (country-level only)
-env['otto.private_fingerprint']     # => PrivateFingerprint object
+env['otto.redacted_fingerprint']    # => RedactedFingerprint object
 env['otto.original_ip']             # => nil (NOT available)
 
-# PrivateFingerprint contains:
+# RedactedFingerprint contains:
 fingerprint.masked_ip               # => '9.9.9.0'
 fingerprint.hashed_ip               # => 'a3f8b2...' (for session correlation)
 fingerprint.country                 # => 'US'
@@ -213,7 +213,7 @@ env['REMOTE_ADDR']                  # => '127.0.0.1' (unchanged)
 env['otto.original_ip']             # => '127.0.0.1' (available)
 env['otto.masked_ip']               # => nil
 env['otto.hashed_ip']               # => nil
-env['otto.private_fingerprint']     # => nil (not created)
+env['otto.redacted_fingerprint']    # => nil (not created)
 ```
 
 ### Request Helper Methods
@@ -224,13 +224,13 @@ req.masked_ip                       # => '9.9.9.0'
 req.hashed_ip                       # => 'a3f8b2...'
 req.geo_country                     # => 'US'
 req.anonymized_user_agent           # => 'Mozilla/X.X...'
-req.private_fingerprint             # => Full PrivateFingerprint object
+req.redacted_fingerprint            # => Full RedactedFingerprint object
 req.ip                              # => '9.9.9.0' (masked)
 
 # For PRIVATE/LOCALHOST IPs (never masked):
 req.masked_ip                       # => nil
 req.hashed_ip                       # => nil
-req.private_fingerprint             # => nil
+req.redacted_fingerprint            # => nil
 req.ip                              # => '127.0.0.1' (real IP)
 ```
 
@@ -330,7 +330,7 @@ end
 # Log requests with privacy-safe fingerprints
 class RequestLogger
   def log(req)
-    fingerprint = req.private_fingerprint
+    fingerprint = req.redacted_fingerprint
     Rails.logger.info(fingerprint.to_json)
     # Original IP never logged
   end
@@ -378,7 +378,7 @@ Uses multiple sources (no external APIs required):
 - In test environment (RSpec), privacy is enabled by default
 - Private IPs (including 127.0.0.1) are never masked, making tests straightforward
 - Use `Otto.unfreeze_for_testing(otto)` before calling `disable_ip_privacy!` in tests
-- Helper methods like `req.private_fingerprint` return nil for private/localhost IPs
+- Helper methods like `req.redacted_fingerprint` return nil for private/localhost IPs
 
 ## Development Commands
 

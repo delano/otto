@@ -31,7 +31,7 @@ class Otto
 
         @session_id = SecureRandom.uuid
         @timestamp = Time.now.utc
-        @masked_ip = IPPrivacy.mask_ip(remote_ip, config.mask_level)
+        @masked_ip = IPPrivacy.mask_ip(remote_ip, config.octet_precision)
         @hashed_ip = IPPrivacy.hash_ip(remote_ip, config.rotation_key)
         @country = config.geo_enabled ? GeoResolver.resolve(remote_ip, env) : nil
         @anonymized_ua = anonymize_user_agent(env['HTTP_USER_AGENT'])

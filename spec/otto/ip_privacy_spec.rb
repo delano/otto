@@ -35,7 +35,7 @@ RSpec.describe 'IP Privacy Features' do
       context 'error handling' do
         it 'raises ArgumentError for invalid level' do
           expect { Otto::Privacy::IPPrivacy.mask_ip('192.168.1.1', 3) }
-            .to raise_error(ArgumentError, /Masking level must be 1 or 2/)
+            .to raise_error(ArgumentError, /octet_precision must be 1 or 2/)
         end
 
         it 'raises ArgumentError for invalid IP' do
@@ -401,11 +401,11 @@ RSpec.describe 'IP Privacy Features' do
       expect(otto.security_config.ip_privacy_config.disabled?).to be true
     end
 
-    it 'allows configuring mask level' do
+    it 'allows configuring octet_precision' do
       otto = create_minimal_otto(['GET / TestApp.index'])
-      otto.configure_ip_privacy(mask_level: 2)
+      otto.configure_ip_privacy(octet_precision: 2)
 
-      expect(otto.security_config.ip_privacy_config.mask_level).to eq(2)
+      expect(otto.security_config.ip_privacy_config.octet_precision).to eq(2)
     end
 
     it 'allows enabling full IP privacy (mask private/localhost)' do
@@ -559,9 +559,9 @@ RSpec.describe 'IP Privacy Features' do
         expect(env['otto.masked_ip']).to eq('9.9.9.0')
       end
 
-      it 'applies custom mask_level with full privacy enabled' do
+      it 'applies custom octet_precision with full privacy enabled' do
         otto = create_minimal_otto(['GET / TestApp.index'])
-        otto.configure_ip_privacy(mask_level: 2)
+        otto.configure_ip_privacy(octet_precision: 2)
         otto.enable_full_ip_privacy!
 
         env = {
@@ -785,10 +785,10 @@ RSpec.describe 'IP Privacy Features' do
       end
     end
 
-    context 'with custom mask level' do
+    context 'with custom octet_precision' do
       it 'masks 2 octets when configured (PUBLIC IP)' do
         otto = create_minimal_otto(['GET / TestApp.index'])
-        otto.configure_ip_privacy(mask_level: 2)
+        otto.configure_ip_privacy(octet_precision: 2)
 
         env = {
           'REQUEST_METHOD' => 'GET',

@@ -351,28 +351,28 @@ class Otto
   # Privacy is enabled by default. Use this method to customize privacy
   # behavior without disabling it entirely.
   #
-  # @param mask_level [Integer] Number of octets to mask (1 or 2, default: 1)
+  # @param octet_precision [Integer] Number of octets to mask (1 or 2, default: 1)
   # @param hash_rotation [Integer] Seconds between key rotation (default: 86400)
   # @param geo [Boolean] Enable geo-location resolution (default: true)
   # @param redis [Redis] Redis connection for multi-server atomic key generation
   #
   # @example Mask 2 octets instead of 1
-  #   otto.configure_ip_privacy(mask_level: 2)
+  #   otto.configure_ip_privacy(octet_precision: 2)
   #
   # @example Disable geo-location
   #   otto.configure_ip_privacy(geo: false)
   #
   # @example Custom hash rotation
-  #   otto.configure_ip_privacy(hash_rotation: 12.hours)
+  #   otto.configure_ip_privacy(hash_rotation: 24.hours)
   #
   # @example Multi-server with Redis
   #   redis = Redis.new(url: ENV['REDIS_URL'])
   #   otto.configure_ip_privacy(redis: redis)
-  def configure_ip_privacy(mask_level: nil, hash_rotation: nil, geo: nil, redis: nil)
+  def configure_ip_privacy(octet_precision: nil, hash_rotation: nil, geo: nil, redis: nil)
     ensure_not_frozen!
     config = @security_config.ip_privacy_config
 
-    config.mask_level = mask_level if mask_level
+    config.octet_precision = octet_precision if octet_precision
     config.hash_rotation_period = hash_rotation if hash_rotation
     config.geo_enabled = geo unless geo.nil?
     config.instance_variable_set(:@redis, redis) if redis

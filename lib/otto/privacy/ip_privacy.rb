@@ -32,29 +32,29 @@ class Otto
       # Mask an IP address by zeroing out the specified number of octets/bits
       #
       # For IPv4:
-      # - level 1: Masks last octet (e.g., 192.168.1.100 → 192.168.1.0)
-      # - level 2: Masks last 2 octets (e.g., 192.168.1.100 → 192.168.0.0)
+      # - octet_precision=1: Masks last octet (e.g., 192.168.1.100 → 192.168.1.0)
+      # - octet_precision=2: Masks last 2 octets (e.g., 192.168.1.100 → 192.168.0.0)
       #
       # For IPv6:
-      # - level 1: Masks last 80 bits
-      # - level 2: Masks last 96 bits
+      # - octet_precision=1: Masks last 80 bits
+      # - octet_precision=2: Masks last 96 bits
       #
       # @param ip [String] IP address to mask
-      # @param level [Integer] Masking level (1 or 2, default: 1)
+      # @param octet_precision [Integer] Number of trailing octets to mask (1 or 2, default: 1)
       # @return [String] Masked IP address (UTF-8 encoded)
-      # @raise [ArgumentError] if IP is invalid or level is not 1 or 2
-      def self.mask_ip(ip, level = 1)
+      # @raise [ArgumentError] if IP is invalid or octet_precision is not 1 or 2
+      def self.mask_ip(ip, octet_precision = 1)
         return nil if ip.nil? || ip.empty?
 
-        raise ArgumentError, "Masking level must be 1 or 2, got: #{level}" unless [1, 2].include?(level)
+        raise ArgumentError, "octet_precision must be 1 or 2, got: #{octet_precision}" unless [1, 2].include?(octet_precision)
 
         begin
           addr = IPAddr.new(ip)
 
           if addr.ipv4?
-            mask_ipv4(addr, level)
+            mask_ipv4(addr, octet_precision)
           else
-            mask_ipv6(addr, level)
+            mask_ipv6(addr, octet_precision)
           end
         rescue IPAddr::InvalidAddressError => e
           raise ArgumentError, "Invalid IP address: #{ip} - #{e.message}"
@@ -118,18 +118,18 @@ class Otto
       # Mask IPv4 address
       #
       # @param addr [IPAddr] IPAddr object (must be IPv4)
-      # @param level [Integer] Masking level (1 or 2)
+      # @param octet_precision [Integer] Number of trailing octets to mask (1 or 2)
       # @return [String] Masked IPv4 address (UTF-8 encoded)
       # @api private
       # @see file:docs/ipaddr-encoding-quirk.md IPAddr encoding behavior
-      def self.mask_ipv4(addr, level)
+      def self.mask_ipv4(addr, octet_precision)
         # Convert to integer for bitwise operations
         ip_int = addr.to_i
 
         # Create mask: 0xFFFFFFFF with trailing zeros
-        # Level 1: 0xFFFFFF00 (mask last 8 bits)
-        # Level 2: 0xFFFF0000 (mask last 16 bits)
-        bits_to_mask = level * 8
+        # octet_precision=1: 0xFFFFFF00 (mask last 8 bits)
+        # octet_precision=2: 0xFFFF0000 (mask last 16 bits)
+        bits_to_mask = octet_precision * 8
         mask = (0xFFFFFFFF >> bits_to_mask) << bits_to_mask
 
         # Apply mask and convert back to IP
@@ -147,16 +147,16 @@ class Otto
       # Mask IPv6 address
       #
       # @param addr [IPAddr] IPAddr object (must be IPv6)
-      # @param level [Integer] Masking level (1 or 2)
+      # @param octet_precision [Integer] Number of trailing octets to mask (1 or 2)
       # @return [String] Masked IPv6 address (UTF-8 encoded)
       # @api private
-      def self.mask_ipv6(addr, level)
+      def self.mask_ipv6(addr, octet_precision)
         # Convert to integer for bitwise operations
         ip_int = addr.to_i
 
-        # Level 1: Mask last 80 bits (leave first 48 bits for network)
-        # Level 2: Mask last 96 bits (leave first 32 bits)
-        bits_to_mask = level == 1 ? 80 : 96
+        # octet_precision=1: Mask last 80 bits (leave first 48 bits for network)
+        # octet_precision=2: Mask last 96 bits (leave first 32 bits)
+        bits_to_mask = octet_precision == 1 ? 80 : 96
         bits_to_keep = 128 - bits_to_mask
 
         # Create mask

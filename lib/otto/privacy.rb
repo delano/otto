@@ -21,7 +21,7 @@ require_relative 'privacy/private_fingerprint'
 #   otto.disable_ip_privacy!
 #
 # To configure privacy settings:
-#   otto.configure_ip_privacy(mask_level: 2, geo: true)
+#   otto.configure_ip_privacy(octet_precision: 2, geo: true)
 #
 class Otto
   module Privacy

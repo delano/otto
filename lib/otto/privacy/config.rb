@@ -20,12 +20,12 @@ class Otto
     #
     # @example Configure masking level
     #   config = Otto::Privacy::Config.new
-    #   config.mask_level = 2  # Mask 2 octets instead of 1
+    #   config.octet_precision = 2  # Mask 2 octets instead of 1
     #
     class Config
       include Otto::Core::Freezable
 
-      attr_accessor :mask_level, :hash_rotation_period, :geo_enabled, :mask_private_ips
+      attr_accessor :octet_precision, :hash_rotation_period, :geo_enabled, :mask_private_ips
       attr_reader :disabled
 
       # Class-level rotation key storage (mutable, not frozen with instances)
@@ -44,14 +44,14 @@ class Otto
       # Initialize privacy configuration
       #
       # @param options [Hash] Configuration options
-      # @option options [Integer] :mask_level Number of octets to mask (1 or 2, default: 1)
+      # @option options [Integer] :octet_precision Number of trailing octets to mask (1 or 2, default: 1)
       # @option options [Integer] :hash_rotation_period Seconds between key rotation (default: 86400)
       # @option options [Boolean] :geo_enabled Enable geo-location resolution (default: true)
       # @option options [Boolean] :disabled Disable privacy entirely (default: false)
       # @option options [Boolean] :mask_private_ips Mask private/localhost IPs (default: false)
       # @option options [Redis] :redis Optional Redis connection for multi-server environments
       def initialize(options = {})
-        @mask_level = options.fetch(:mask_level, 1)
+        @octet_precision = options.fetch(:octet_precision, 1)
         @hash_rotation_period = options.fetch(:hash_rotation_period, 86_400) # 24 hours
         @geo_enabled = options.fetch(:geo_enabled, true)
         @disabled = options.fetch(:disabled, false) # Enabled by default (privacy-by-default)
@@ -119,7 +119,7 @@ class Otto
       #
       # @raise [ArgumentError] if configuration is invalid
       def validate!
-        raise ArgumentError, "mask_level must be 1 or 2, got: #{@mask_level}" unless [1, 2].include?(@mask_level)
+        raise ArgumentError, "octet_precision must be 1 or 2, got: #{@octet_precision}" unless [1, 2].include?(@octet_precision)
 
         return unless @hash_rotation_period < 60
 

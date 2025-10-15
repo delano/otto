@@ -193,15 +193,15 @@ end
 
 ```ruby
 # PUBLIC IPs (masked by default):
-env['REMOTE_ADDR']                  # => '8.8.8.0' (masked)
-env['otto.masked_ip']               # => '8.8.8.0' (same as REMOTE_ADDR)
+env['REMOTE_ADDR']                  # => '9.9.9.0' (masked)
+env['otto.masked_ip']               # => '9.9.9.0' (same as REMOTE_ADDR)
 env['otto.hashed_ip']               # => 'a3f8b2...' (daily-rotating hash)
 env['otto.geo_country']             # => 'US' (country-level only)
 env['otto.private_fingerprint']     # => PrivateFingerprint object
 env['otto.original_ip']             # => nil (NOT available)
 
 # PrivateFingerprint contains:
-fingerprint.masked_ip               # => '8.8.8.0'
+fingerprint.masked_ip               # => '9.9.9.0'
 fingerprint.hashed_ip               # => 'a3f8b2...' (for session correlation)
 fingerprint.country                 # => 'US'
 fingerprint.anonymized_ua           # => 'Mozilla/X.X (Windows NT X.X...)'
@@ -220,12 +220,12 @@ env['otto.private_fingerprint']     # => nil (not created)
 
 ```ruby
 # For PUBLIC IPs (privacy enabled by default):
-req.masked_ip                       # => '8.8.8.0'
+req.masked_ip                       # => '9.9.9.0'
 req.hashed_ip                       # => 'a3f8b2...'
 req.geo_country                     # => 'US'
 req.anonymized_user_agent           # => 'Mozilla/X.X...'
 req.private_fingerprint             # => Full PrivateFingerprint object
-req.ip                              # => '8.8.8.0' (masked)
+req.ip                              # => '9.9.9.0' (masked)
 
 # For PRIVATE/LOCALHOST IPs (never masked):
 req.masked_ip                       # => nil
@@ -239,12 +239,12 @@ req.ip                              # => '127.0.0.1' (real IP)
 ```ruby
 # Default: Privacy enabled, 1 octet masked (public IPs only)
 otto = Otto.new(routes_file)
-# Public IPs masked: 8.8.8.8 → 8.8.8.0
+# Public IPs masked: 9.9.9.9 → 9.9.9.0
 # Private IPs unchanged: 127.0.0.1, 192.168.1.100, 10.0.0.5
 
 # Customize privacy settings (still enabled)
 otto.configure_ip_privacy(
-  mask_level: 2,          # Mask 2 octets (8.8.0.0)
+  octet_precision: 2,     # Mask 2 octets (9.9.0.0)
   hash_rotation: 12.hours, # Rotate hashing key every 12 hours
   geo: false              # Disable geo-location
 )
@@ -344,11 +344,11 @@ RouteAuthWrapper and authentication strategies automatically use masked IPs for 
 ```ruby
 # Public IP (masked by default):
 result = StrategyResult.anonymous(metadata: { ip: env['REMOTE_ADDR'] })
-result.user_context[:ip]  # => '8.8.8.0' (masked)
+result.user_context[:ip]  # => '9.9.9.0' (masked)
 
 metadata = {
-  ip: env['REMOTE_ADDR'],           # '8.8.8.0' (masked)
-  country: env['otto.geo_country'], # 'US'
+  ip: env['REMOTE_ADDR'],           # '9.9.9.0' (masked)
+  country: env['otto.geo_country'], # 'CH'
   auth_failure: 'Invalid credentials'
 }
 

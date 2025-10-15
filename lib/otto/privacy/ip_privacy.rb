@@ -153,23 +153,22 @@ class Otto
       # @return [String] Masked IPv6 address (UTF-8 encoded)
       # @api private
       def self.mask_ipv6(addr, octet_precision)
-        # Convert to integer for bitwise operations
         ip_int = addr.to_i
 
         # octet_precision=1: Mask last 80 bits (leave first 48 bits for network)
         # octet_precision=2: Mask last 96 bits (leave first 32 bits)
         bits_to_mask = octet_precision == 1 ? 80 : 96
 
-        # Create mask
-        mask = (0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF >> bits_to_mask) << bits_to_mask
+        # Create mask by setting all 128 bits, then clearing the trailing bits we want to mask
+        # Example: For bits_to_mask=80, this creates a mask with first 48 bits set to 1, last 80 bits set to 0
+        # (1 << 128) - 1 creates 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF (all 128 bits set)
+        mask = ((1 << 128) - 1) >> bits_to_mask << bits_to_mask
 
-        # Apply mask and convert back to IP
         masked_int = ip_int & mask
 
-        # IPv6 already returns UTF-8, but we call force_encoding for consistency
-        # with mask_ipv4. See docs/ipaddr-encoding-quirk.md for details.
         IPAddr.new(masked_int, Socket::AF_INET6).to_s.force_encoding('UTF-8')
       end
+
       private_class_method :mask_ipv6
     end
   end

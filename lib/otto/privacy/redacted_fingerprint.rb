@@ -2,6 +2,7 @@
 
 require 'securerandom'
 require 'time'
+require 'uri'
 
 class Otto
   module Privacy
@@ -120,7 +121,11 @@ class Otto
         begin
           uri = URI.parse(referer)
           # Keep scheme, host, and path only (remove query and fragment)
-          "#{uri.scheme}://#{uri.host}#{uri.path}"
+          if uri.scheme && uri.host
+            "#{uri.scheme}://#{uri.host}#{uri.path}"
+          else
+            uri.path
+          end
         rescue URI::InvalidURIError
           # If referer is malformed, return nil
           nil

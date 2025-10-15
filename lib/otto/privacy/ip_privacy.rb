@@ -47,7 +47,8 @@ class Otto
       def self.mask_ip(ip, octet_precision = 1)
         return nil if ip.nil? || ip.empty?
 
-        raise ArgumentError, "octet_precision must be 1 or 2, got: #{octet_precision}" unless [1, 2].include?(octet_precision)
+        raise ArgumentError, "octet_precision must be 1 or 2, got: #{octet_precision}" unless [1,
+                                                                                               2].include?(octet_precision)
 
         begin
           addr = IPAddr.new(ip)
@@ -158,7 +159,6 @@ class Otto
         # octet_precision=1: Mask last 80 bits (leave first 48 bits for network)
         # octet_precision=2: Mask last 96 bits (leave first 32 bits)
         bits_to_mask = octet_precision == 1 ? 80 : 96
-        bits_to_keep = 128 - bits_to_mask
 
         # Create mask
         mask = (0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF >> bits_to_mask) << bits_to_mask

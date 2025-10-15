@@ -123,7 +123,7 @@ RSpec.describe 'IP Privacy Features' do
         expect(result).to eq('XX')
       end
 
-      it 'detects Cloud9 in Switzerland' do
+      it 'detects Quad9 in Switzerland' do
         result = Otto::Privacy::GeoResolver.resolve('9.9.9.9', {})
 
         expect(result).to eq('CH')

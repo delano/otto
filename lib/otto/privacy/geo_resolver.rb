@@ -17,7 +17,7 @@ class Otto
     #
     # @example Resolve without CloudFlare
     #   GeoResolver.resolve('9.9.9.9', {})
-    #   # => 'CH' (Cloud9 in Switzerland)
+    #   # => 'CH' (Quad9 in Switzerland)
     #
     class GeoResolver
       # Unknown country code (ISO 3166-1 alpha-2)

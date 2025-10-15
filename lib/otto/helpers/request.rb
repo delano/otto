@@ -13,6 +13,22 @@ class Otto
       env['HTTP_USER_AGENT']
     end
 
+    # Override Rack::Request::Helpers#ip to return masked IP
+    #
+    # This ensures that when privacy is enabled (default), all IP address
+    # access through the standard Rack::Request#ip method returns the
+    # masked IP, affecting logging, rate limiting, and any other code
+    # that uses request.ip.
+    #
+    # @return [String, nil] Masked IP address or original if privacy disabled
+    # @example
+    #   req.ip  # => '192.168.1.0' (masked)
+    def ip
+      # When privacy is enabled, REMOTE_ADDR has already been replaced
+      # with the masked IP by IPPrivacyMiddleware
+      env['REMOTE_ADDR']
+    end
+
     # Get the privacy-safe fingerprint for this request
     #
     # Returns nil if IP privacy is disabled. The fingerprint contains

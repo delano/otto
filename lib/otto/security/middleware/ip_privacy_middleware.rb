@@ -29,10 +29,10 @@ class Otto
         def initialize(app, security_config = nil)
           @app = app
           @security_config = security_config
-          @config = security_config&.ip_privacy_config
+          @config = security_config&.ip_privacy_config || Otto::Privacy::Config.new
 
           # Privacy is enabled by default unless explicitly disabled
-          @privacy_enabled = @config.nil? || @config.enabled?
+          @privacy_enabled = @config.enabled?
         end
 
         # Process request with IP privacy
@@ -53,21 +53,29 @@ class Otto
 
         # Apply privacy settings to environment
         #
-        # IMPORTANT: Private/localhost IPs are exempt from masking for development.
-        # Only public IPs are masked by default.
-        #
         # @param env [Hash] Rack environment
         def apply_privacy(env)
           original_ip = env['REMOTE_ADDR']
 
-          # Skip masking for private/localhost IPs (development convenience)
-          if Otto::Privacy::IPPrivacy.private_or_localhost?(original_ip)
-            # Keep original IP unchanged for localhost/private addresses
-            env['otto.original_ip'] = original_ip
-            return
-          end
+          Otto.logger.debug "[IPPrivacyMiddleware] Original IP: #{original_ip}" if Otto.debug
 
-          # Create privacy-safe fingerprint for public IPs
+          # Skip masking for private/localhost IPs (development convenience)
+          #
+          # TODO: There should be a way for implementing projects to opt-in
+          # for IP addresses match `private_or_localhost?`. By default we
+          # don't privatize them b/c they do'nt have the same PII issues
+          # and if we did it would be really annoying DX to figure out
+          # what is going on. So just commenting out for now in lieu
+          # to make sure we can see the privatization at work in
+          # CommonLogger output.
+          #
+          # if Otto::Privacy::IPPrivacy.private_or_localhost?(original_ip)
+          #   # Keep original IP unchanged for localhost/private addresses
+          #   env['otto.original_ip'] = original_ip
+          #   return
+          # end
+
+          # Create privacy-safe fingerprint
           fingerprint = Otto::Privacy::PrivateFingerprint.new(env, @config)
 
           # Set privacy-safe values in environment
@@ -81,7 +89,9 @@ class Otto
           # automatically uses the masked IP without modification
           env['REMOTE_ADDR'] = fingerprint.masked_ip
 
-          # NOTE: We deliberately DO NOT set env['otto.original_ip'] for public IPs
+          Otto.logger.debug "[IPPrivacyMiddleware] Masked IP: #{fingerprint.masked_ip}" if Otto.debug
+
+          # NOTE: We deliberately DO NOT set env['otto.original_ip']
           # This prevents accidental leakage of the real IP address
         end
 

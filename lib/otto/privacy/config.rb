@@ -4,6 +4,10 @@ require 'ipaddr'
 require 'securerandom'
 require 'digest'
 
+require 'concurrent'
+
+require_relative '../core/freezable'
+
 class Otto
   module Privacy
     # Configuration for IP privacy features
@@ -19,8 +23,24 @@ class Otto
     #   config.mask_level = 2  # Mask 2 octets instead of 1
     #
     class Config
+      include Otto::Core::Freezable
       attr_accessor :mask_level, :hash_rotation_period, :geo_enabled
       attr_reader :disabled
+
+      # Class-level rotation key storage (mutable, not frozen with instances)
+      # This is stored at the class level so it persists across frozen config instances
+      @rotation_keys_store = nil
+
+      class << self
+        # Get the class-level rotation keys store
+        # @return [Concurrent::Hash] Thread-safe hash for rotation keys
+        def rotation_keys_store
+          unless defined?(@rotation_keys_store) && @rotation_keys_store
+            @rotation_keys_store = Concurrent::Hash.new
+          end
+          @rotation_keys_store
+        end
+      end
 
       # Initialize privacy configuration
       #
@@ -36,8 +56,6 @@ class Otto
         @geo_enabled = options.fetch(:geo_enabled, true)
         @disabled = options.fetch(:disabled, false)  # Enabled by default (privacy-by-default)
         @redis = options[:redis]  # Optional Redis connection for multi-server environments
-        # Thread-safe hash for rotation keys - initialized lazily (fallback if no Redis)
-        @rotation_keys = nil
       end
 
       # Check if privacy is enabled
@@ -140,15 +158,16 @@ class Otto
 
       # In-memory rotation key (single-server fallback)
       #
-      # Uses Concurrent::Hash for thread-safety within a single process.
+      # Uses class-level Concurrent::Hash for thread-safety within a single process.
       # NOT atomic across multiple servers.
+      #
+      # The rotation keys are stored at the class level so they remain mutable
+      # even when config instances are frozen.
       #
       # @return [String] Current rotation key
       # @api private
       def rotation_key_memory
-        # Lazy initialization of thread-safe hash
-        require 'concurrent' unless defined?(Concurrent::Hash)
-        @rotation_keys ||= Concurrent::Hash.new
+        rotation_keys = self.class.rotation_keys_store
 
         now_seconds = Time.now.utc.to_i
 
@@ -158,8 +177,8 @@ class Otto
 
         # Atomically get or create key for this rotation period
         # Concurrent::Hash doesn't have fetch_or_store, so we use [] with ||=
-        @rotation_keys[rotation_timestamp] ||= begin
-          @rotation_keys.clear if @rotation_keys.size > 1  # Discard old keys
+        rotation_keys[rotation_timestamp] ||= begin
+          rotation_keys.clear if rotation_keys.size > 1  # Discard old keys
           SecureRandom.hex(32)
         end
       end

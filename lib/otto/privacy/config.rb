@@ -34,9 +34,9 @@ class Otto
 
       class << self
         # Get the class-level rotation keys store
-        # @return [Concurrent::Hash] Thread-safe hash for rotation keys
+        # @return [Concurrent::Map] Thread-safe map for rotation keys
         def rotation_keys_store
-          @rotation_keys_store = Concurrent::Hash.new unless defined?(@rotation_keys_store) && @rotation_keys_store
+          @rotation_keys_store = Concurrent::Map.new unless defined?(@rotation_keys_store) && @rotation_keys_store
           @rotation_keys_store
         end
       end
@@ -119,7 +119,8 @@ class Otto
       #
       # @raise [ArgumentError] if configuration is invalid
       def validate!
-        raise ArgumentError, "octet_precision must be 1 or 2, got: #{@octet_precision}" unless [1, 2].include?(@octet_precision)
+        raise ArgumentError, "octet_precision must be 1 or 2, got: #{@octet_precision}" unless [1,
+                                                                                                2].include?(@octet_precision)
 
         return unless @hash_rotation_period < 60
 
@@ -176,11 +177,22 @@ class Otto
         rotation_timestamp = now_seconds - seconds_since_epoch
 
         # Atomically get or create key for this rotation period
-        # Concurrent::Hash doesn't have fetch_or_store, so we use [] with ||=
-        rotation_keys[rotation_timestamp] ||= begin
-          rotation_keys.clear if rotation_keys.size > 1 # Discard old keys
+        # Use compute_if_absent for thread-safe atomic operation
+        key = rotation_keys.compute_if_absent(rotation_timestamp) do
+          # Generate new key atomically
+          # IMPORTANT: Don't modify the map inside this block to avoid deadlock
           SecureRandom.hex(32)
         end
+
+        # Clean up old keys after atomic operation completes
+        # This runs outside compute_if_absent to avoid deadlock
+        if rotation_keys.size > 1
+          rotation_keys.each_key do |ts|
+            rotation_keys.delete(ts) if ts != rotation_timestamp
+          end
+        end
+
+        key
       end
     end
   end

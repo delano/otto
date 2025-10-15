@@ -10,7 +10,11 @@ class Otto
         # Public access strategy - always allows access
         class NoAuthStrategy < AuthStrategy
           def authenticate(env, _requirement)
-            Otto::Security::Authentication::StrategyResult.anonymous(metadata: { ip: env['REMOTE_ADDR'] })
+            # Note: env['REMOTE_ADDR'] is masked by IPPrivacyMiddleware by default
+            metadata = { ip: env['REMOTE_ADDR'] }
+            metadata[:country] = env['otto.geo_country'] if env['otto.geo_country']
+
+            Otto::Security::Authentication::StrategyResult.anonymous(metadata: metadata)
           end
         end
       end

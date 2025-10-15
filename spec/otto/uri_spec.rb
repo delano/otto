@@ -14,7 +14,7 @@ RSpec.describe Otto, '#uri' do
     ]
   end
 
-  let(:routes_file) { create_test_routes_file('uri_test_routes.txt', complex_routes) }
+  let(:routes_file) { create_test_routes_file('common_routes.txt', complex_routes) }
   subject(:otto) { described_class.new(routes_file) }
 
   describe 'basic URI generation' do

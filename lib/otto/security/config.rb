@@ -31,7 +31,8 @@ class Otto
       attr_reader :csrf_protection,  :csrf_header_key,
                   :trusted_proxies, :require_secure_cookies,
                   :security_headers,
-                  :csp_nonce_enabled, :debug_csp, :mcp_auth
+                  :csp_nonce_enabled, :debug_csp, :mcp_auth,
+                  :ip_privacy_config
 
       # Initialize security configuration with safe defaults
       #
@@ -52,6 +53,7 @@ class Otto
         @csp_nonce_enabled      = false
         @debug_csp              = false
         @rate_limiting_config   = { custom_rules: {} }
+        @ip_privacy_config      = Otto::Privacy::Config.new
       end
 
       # Enable CSRF (Cross-Site Request Forgery) protection

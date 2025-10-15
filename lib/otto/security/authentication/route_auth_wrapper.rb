@@ -48,7 +48,11 @@ class Otto
 
           # Routes without auth requirement get anonymous StrategyResult
           unless auth_requirement
-            result = StrategyResult.anonymous(metadata: { ip: env['REMOTE_ADDR'] })
+            # Note: env['REMOTE_ADDR'] is masked by IPPrivacyMiddleware by default
+            metadata = { ip: env['REMOTE_ADDR'] }
+            metadata[:country] = env['otto.geo_country'] if env['otto.geo_country']
+
+            result = StrategyResult.anonymous(metadata: metadata)
             env['otto.strategy_result'] = result
             env['otto.user'] = nil
             env['otto.user_context'] = result.user_context
@@ -69,13 +73,15 @@ class Otto
           # Handle authentication failure
           if result.is_a?(AuthFailure)
             # Create anonymous result with failure info for logging/auditing
-            env['otto.strategy_result'] = StrategyResult.anonymous(
-              metadata: {
-                ip: env['REMOTE_ADDR'],
-                auth_failure: result.failure_reason,
-                attempted_strategy: auth_requirement
-              }
-            )
+            # Note: env['REMOTE_ADDR'] is masked by IPPrivacyMiddleware by default
+            metadata = {
+              ip: env['REMOTE_ADDR'],
+              auth_failure: result.failure_reason,
+              attempted_strategy: auth_requirement
+            }
+            metadata[:country] = env['otto.geo_country'] if env['otto.geo_country']
+
+            env['otto.strategy_result'] = StrategyResult.anonymous(metadata: metadata)
             env['otto.user'] = nil
             env['otto.user_context'] = {}
             return auth_failure_response(env, result)

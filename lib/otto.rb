@@ -20,6 +20,7 @@ require_relative 'otto/route_handlers'
 require_relative 'otto/locale/config'
 require_relative 'otto/mcp'
 require_relative 'otto/core'
+require_relative 'otto/privacy'
 require_relative 'otto/security'
 require_relative 'otto/utils'
 require_relative 'otto/version'
@@ -79,14 +80,32 @@ class Otto
     # Build the middleware app once after all initialization is complete
     build_app!
 
-    # Freeze configuration to prevent runtime modifications
-    # Skip freezing in test environment to allow test flexibility
-    freeze_configuration! unless defined?(RSpec)
+    # Configuration freezing is deferred until first request to support
+    # multi-step initialization (e.g., multi-app architectures).
+    # This allows adding auth strategies, middleware, etc. after Otto.new
+    # but before processing requests.
+    @freeze_mutex = Mutex.new
+    @configuration_frozen = false
   end
   alias options option
 
   # Main Rack application interface
   def call(env)
+    # Freeze configuration on first request (thread-safe)
+    # Skip in test environment to allow test flexibility
+    unless defined?(RSpec) || @configuration_frozen
+      Otto.logger.debug '[Otto] Lazy freezing check: configuration not yet frozen' if Otto.debug
+
+      @freeze_mutex.synchronize do
+        unless @configuration_frozen
+          Otto.logger.info '[Otto] Freezing configuration on first request (lazy freeze)'
+          freeze_configuration!
+          @configuration_frozen = true
+          Otto.logger.debug '[Otto] Configuration frozen successfully' if Otto.debug
+        end
+      end
+    end
+
     begin
       # Use pre-built middleware app (built once at initialization)
       @app.call(env)
@@ -290,6 +309,78 @@ class Otto
     @auth_config[:auth_strategies][name] = strategy
   end
 
+  # Disable IP privacy to access original IP addresses
+  #
+  # IMPORTANT: By default, Otto masks public IP addresses for privacy.
+  # Private/localhost IPs (127.0.0.0/8, 10.0.0.0/8, etc.) are never masked.
+  # Only disable this if you need access to original public IPs.
+  #
+  # When disabled:
+  # - env['REMOTE_ADDR'] contains the real IP address
+  # - env['otto.original_ip'] also contains the real IP
+  # - No PrivateFingerprint is created
+  #
+  # @example
+  #   otto.disable_ip_privacy!
+  def disable_ip_privacy!
+    ensure_not_frozen!
+    @security_config.ip_privacy_config.disable!
+  end
+
+
+  # Enable full IP privacy (mask ALL IPs including private/localhost)
+  #
+  # By default, Otto exempts private and localhost IPs from masking for
+  # better development experience. Call this method to mask ALL IPs
+  # regardless of type.
+  #
+  # @example Enable full privacy (mask all IPs)
+  #   otto = Otto.new(routes_file)
+  #   otto.enable_full_ip_privacy!
+  #   # Now 127.0.0.1 → 127.0.0.0, 192.168.1.100 → 192.168.1.0
+  #
+  # @return [void]
+  # @raise [FrozenError] if called after configuration is frozen
+  def enable_full_ip_privacy!
+    ensure_not_frozen!
+    @security_config.ip_privacy_config.mask_private_ips = true
+  end
+
+  # Configure IP privacy settings
+  #
+  # Privacy is enabled by default. Use this method to customize privacy
+  # behavior without disabling it entirely.
+  #
+  # @param octet_precision [Integer] Number of octets to mask (1 or 2, default: 1)
+  # @param hash_rotation [Integer] Seconds between key rotation (default: 86400)
+  # @param geo [Boolean] Enable geo-location resolution (default: true)
+  # @param redis [Redis] Redis connection for multi-server atomic key generation
+  #
+  # @example Mask 2 octets instead of 1
+  #   otto.configure_ip_privacy(octet_precision: 2)
+  #
+  # @example Disable geo-location
+  #   otto.configure_ip_privacy(geo: false)
+  #
+  # @example Custom hash rotation
+  #   otto.configure_ip_privacy(hash_rotation: 24.hours)
+  #
+  # @example Multi-server with Redis
+  #   redis = Redis.new(url: ENV['REDIS_URL'])
+  #   otto.configure_ip_privacy(redis: redis)
+  def configure_ip_privacy(octet_precision: nil, hash_rotation: nil, geo: nil, redis: nil)
+    ensure_not_frozen!
+    config = @security_config.ip_privacy_config
+
+    config.octet_precision = octet_precision if octet_precision
+    config.hash_rotation_period = hash_rotation if hash_rotation
+    config.geo_enabled = geo unless geo.nil?
+    config.instance_variable_set(:@redis, redis) if redis
+
+    # Validate configuration
+    config.validate!
+  end
+
   # Enable MCP (Model Context Protocol) server support
   #
   # @param options [Hash] MCP configuration options
@@ -325,6 +416,13 @@ class Otto
     @auth_config       = { auth_strategies: {}, default_auth_strategy: 'noauth' }
     @security          = Otto::Security::Configurator.new(@security_config, @middleware, @auth_config)
     @app               = nil  # Pre-built middleware app (built after initialization)
+
+    # Add IP Privacy middleware first in stack (privacy by default for public IPs)
+    # Private/localhost IPs are automatically exempted from masking
+    @middleware.add_with_position(
+      Otto::Security::Middleware::IPPrivacyMiddleware,
+      position: :first
+    )
   end
 
   def initialize_options(_path, opts)

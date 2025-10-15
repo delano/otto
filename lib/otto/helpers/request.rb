@@ -1,5 +1,3 @@
-# frozen_string_literal: true
-
 # lib/otto/helpers/request.rb
 
 require_relative 'base'
@@ -11,6 +9,86 @@ class Otto
 
     def user_agent
       env['HTTP_USER_AGENT']
+    end
+
+    # NOTE: We do NOT override Rack::Request#ip
+    #
+    # IPPrivacyMiddleware masks both REMOTE_ADDR and X-Forwarded-For headers,
+    # so Rack's native ip resolution logic works correctly with masked values.
+    # This allows Rack to handle proxy scenarios (trusted proxies, header parsing)
+    # while still returning privacy-safe masked IPs.
+    #
+    # If you need the masked IP explicitly, use:
+    #   req.masked_ip  # => '192.168.1.0' or nil if privacy disabled
+    #
+    # If you need the geo country:
+    #   req.geo_country  # => 'US' or nil
+    #
+    # If you need the full privacy fingerprint:
+    #   req.redacted_fingerprint  # => RedactedFingerprint object or nil
+
+    # Get the privacy-safe fingerprint for this request
+    #
+    # Returns nil if IP privacy is disabled. The fingerprint contains
+    # anonymized request information suitable for logging and analytics.
+    #
+    # @return [Otto::Privacy::RedactedFingerprint, nil] Privacy-safe fingerprint
+    # @example
+    #   fingerprint = req.redacted_fingerprint
+    #   fingerprint.masked_ip    # => '192.168.1.0'
+    #   fingerprint.country      # => 'US'
+    def redacted_fingerprint
+      env['otto.redacted_fingerprint']
+    end
+
+    # Get the geo-location country code for the request
+    #
+    # Returns ISO 3166-1 alpha-2 country code or 'XX' for unknown.
+    # Only available when IP privacy is enabled (default).
+    #
+    # @return [String, nil] Country code or nil if privacy disabled
+    # @example
+    #   req.geo_country  # => 'US'
+    def geo_country
+      redacted_fingerprint&.country || env['otto.geo_country']
+    end
+
+    # Get anonymized user agent string
+    #
+    # Returns user agent with version numbers stripped for privacy.
+    # Only available when IP privacy is enabled (default).
+    #
+    # @return [String, nil] Anonymized user agent or nil
+    # @example
+    #   req.anonymized_user_agent
+    #   # => 'Mozilla/X.X (Windows NT X.X; Win64; x64) AppleWebKit/X.X'
+    def anonymized_user_agent
+      redacted_fingerprint&.anonymized_ua
+    end
+
+    # Get masked IP address
+    #
+    # Returns privacy-safe masked IP. When privacy is enabled (default),
+    # this returns the masked version. When disabled, returns original IP.
+    #
+    # @return [String, nil] Masked or original IP address
+    # @example
+    #   req.masked_ip  # => '192.168.1.0'
+    def masked_ip
+      env['otto.masked_ip'] || env['REMOTE_ADDR']
+    end
+
+    # Get hashed IP for session correlation
+    #
+    # Returns daily-rotating hash of the IP address, allowing session
+    # tracking without storing the original IP. Only available when
+    # IP privacy is enabled (default).
+    #
+    # @return [String, nil] Hexadecimal hash string or nil
+    # @example
+    #   req.hashed_ip  # => 'a3f8b2c4d5e6f7...'
+    def hashed_ip
+      redacted_fingerprint&.hashed_ip || env['otto.hashed_ip']
     end
 
     def client_ipaddress

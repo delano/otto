@@ -92,7 +92,8 @@ RSpec.describe Otto, 'security features' do
         otto.use(middleware1)
         otto.use(middleware2)
 
-        expect(otto.middleware.middleware_list).to eq([middleware1, middleware2])
+        # IP Privacy middleware is always first, then user-added middleware in order
+        expect(otto.middleware.middleware_list).to eq([Otto::Security::Middleware::IPPrivacyMiddleware, middleware1, middleware2])
       end
     end
 

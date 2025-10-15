@@ -12,7 +12,7 @@ RSpec.describe Otto, 'utility methods' do
     ]
   end
 
-  let(:routes_file) { create_test_routes_file('test_util_routes.txt', test_routes) }
+  let(:routes_file) { create_test_routes_file('common_routes.txt', test_routes) }
   subject(:otto) { described_class.new(routes_file) }
 
   describe '#determine_locale' do

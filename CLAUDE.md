@@ -30,9 +30,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### How It Works
 
-1. **Automatic Freezing**: `freeze_configuration!` is called automatically after initialization (unless in RSpec test environment)
-2. **Deep Freezing**: Uses recursive freezing to prevent modification at any nesting level
-3. **Memoization-Compatible**: Pre-computes memoized values before freezing to avoid FrozenError
+1. **Lazy Freezing**: Configuration freezing is deferred until the first request to support multi-step initialization
+2. **Thread-Safe**: Uses mutex synchronization to ensure configuration is frozen exactly once
+3. **Deep Freezing**: Uses recursive freezing to prevent modification at any nesting level
+4. **Memoization-Compatible**: Pre-computes memoized values before freezing to avoid FrozenError
+
+This lazy approach allows multi-app architectures (like OneTime Secret's registry-based system) to:
+- Create Otto instances with `Otto.new(routes_file)`
+- Add authentication strategies via `otto.add_auth_strategy(name, strategy)`
+- Configure middleware with `otto.use(middleware)`
+- Add security features via `otto.enable_csrf_protection!`
+- All **before** the first request triggers freezing
 
 ### What Gets Frozen
 
@@ -44,7 +52,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Security Guarantees
 
 ```ruby
-# After initialization, ALL of these will raise FrozenError:
+# After first request, ALL of these will raise FrozenError:
 
 # Direct modification attempts
 otto.security_config.csrf_protection = false  # FrozenError!
@@ -60,6 +68,32 @@ otto.security_config.rate_limiting_config[:custom_rules] = {} # FrozenError!
 otto.auth_config[:auth_strategies] = {}        # FrozenError!
 ```
 
+### Multi-Step Initialization Pattern
+
+For complex applications that need to configure Otto after creation (e.g., multi-app architectures):
+
+```ruby
+# Step 1: Create Otto instance
+otto = Otto.new('routes.txt')
+
+# Step 2: Configure after initialization (BEFORE first request)
+otto.add_auth_strategy('session', SessionStrategy.new(session_key: 'user_id'))
+otto.add_auth_strategy('api_key', APIKeyStrategy.new(api_keys: ENV['API_KEYS']))
+otto.enable_csrf_protection!
+otto.use CustomMiddleware
+
+# Step 3: First request triggers automatic freezing
+# From this point on, configuration is immutable
+
+# Later requests: Configuration is already frozen
+# otto.add_auth_strategy(...)  # FrozenError!
+```
+
+This pattern is particularly useful for:
+- Registry-based multi-app systems (like OneTime Secret)
+- Applications that dynamically configure Otto based on environment
+- Testing scenarios where configuration needs to happen in multiple phases
+
 ### Testing Considerations
 
 - Freezing is **automatically disabled** when `RSpec` is defined
@@ -68,10 +102,437 @@ otto.auth_config[:auth_strategies] = {}        # FrozenError!
 
 ### Implementation Details
 
+- Lazy freezing occurs in `Otto#call` on first request (thread-safe with mutex)
+- `@configuration_frozen` flag tracks freeze state (checked by `ensure_not_frozen!`)
 - `Otto::Core::Freezable` module provides `deep_freeze!` method
 - `MiddlewareStack` and `Security::Config` override `deep_freeze!` to pre-compute memoized values
 - Uses `defined?()` pattern instead of `||=` for freeze-compatible memoization
-- All mutation methods check `frozen?` and raise `FrozenError` when frozen
+- All mutation methods check `frozen_configuration?` and raise `FrozenError` when frozen
+
+## IP Privacy (Privacy by Default)
+
+**IMPORTANT**: Otto automatically masks public IP addresses by default to enhance privacy and comply with data protection regulations (GDPR, CCPA, etc.). **Private and localhost IPs are never masked** for development convenience.
+
+### How It Works
+
+1. **Privacy by Default**: `IPPrivacyMiddleware` is added FIRST in the middleware stack during initialization
+2. **Smart Masking**:
+   - **Public IPs**: Automatically masked (192.0.2.100 → 192.0.2.0)
+   - **Private IPs**: Never masked (192.168.1.100, 10.0.0.5, 172.16.0.1)
+   - **Localhost**: Never masked (127.0.0.1, ::1)
+3. **No Original IP Storage**: When privacy is enabled, original public IPs are NEVER stored in `env`
+4. **Middleware Runs First**: Processes IPs before authentication, rate limiting, or any application code
+
+### Multi-Layer Middleware Architecture
+
+For complex applications with multiple middleware layers (common in monolith/multi-app architectures), IPPrivacyMiddleware should be added to your **common middleware stack** before logging/monitoring middleware:
+
+```ruby
+# ❌ WRONG: Adding privacy only to Otto's internal stack
+# Problem: CommonLogger runs before Otto, logging real IPs
+builder.use Rack::CommonLogger
+builder.use OtherMiddleware
+# ... later: Otto router with its internal privacy middleware
+# CommonLogger already logged real IP!
+
+# ✅ CORRECT: Add privacy to common stack FIRST
+builder.use Otto::Security::Middleware::IPPrivacyMiddleware  # <-- FIRST!
+builder.use Rack::CommonLogger  # Now logs masked IPs
+builder.use Rack::Parser
+builder.use YourSessionMiddleware
+builder.use Sentry::Rack::CaptureExceptions  # Captures masked IPs
+# ... later: Otto router (its internal privacy middleware is redundant but harmless)
+```
+
+**Why this matters:**
+
+Otto's internal middleware stack only runs when the request reaches the Otto router. If you have logging, error monitoring (Sentry), or other middleware that runs **before** the router, they will see and potentially log real IP addresses, defeating the purpose of IP privacy.
+
+**Architecture layers:**
+1. **Common Middleware** (all apps): Rack::CommonLogger, Sentry, Session, etc.
+2. **App-Specific Middleware**: Request setup, error handling, etc.
+3. **Otto Internal Middleware**: Privacy (redundant but harmless), CSRF, rate limiting, etc.
+
+**Key insight:** IP privacy is a **Rack concern**, not a routing concern. It should run before any middleware that touches IPs (logging, monitoring, rate limiting).
+
+**Usage in multi-app setups:**
+
+```ruby
+# In your common middleware configuration
+module YourApp
+  module MiddlewareStack
+    def self.configure(builder)
+      # IP Privacy FIRST - masks public IPs before logging/monitoring
+      # Private/localhost IPs are automatically exempted for development
+      builder.use Otto::Security::Middleware::IPPrivacyMiddleware
+
+      builder.use Rack::CommonLogger  # Now logs masked IPs
+      builder.use YourSession
+      builder.use Sentry::Rack::CaptureExceptions  # Captures masked IPs
+      # ... rest of common middleware
+    end
+  end
+end
+
+# In your app-specific code
+class YourApp < Rack::Application
+  use AppSpecificMiddleware
+
+  def build_router
+    Otto.new(routes)  # Otto's internal privacy middleware is redundant but harmless
+  end
+end
+```
+
+**Notes:**
+- IPPrivacyMiddleware is idempotent - running it twice doesn't re-mask already-masked IPs
+- Otto still adds it internally for backward compatibility with single-layer apps
+- Private/localhost IPs are always exempted, making development seamless
+
+### What Gets Anonymized
+
+```ruby
+# PUBLIC IPs (masked by default):
+env['REMOTE_ADDR']                  # => '9.9.9.0' (masked)
+env['otto.masked_ip']               # => '9.9.9.0' (same as REMOTE_ADDR)
+env['otto.hashed_ip']               # => 'a3f8b2...' (daily-rotating hash)
+env['otto.geo_country']             # => 'US' (country-level only)
+env['otto.redacted_fingerprint']    # => RedactedFingerprint object
+env['otto.original_ip']             # => nil (NOT available)
+
+# RedactedFingerprint contains:
+fingerprint.masked_ip               # => '9.9.9.0'
+fingerprint.hashed_ip               # => 'a3f8b2...' (for session correlation)
+fingerprint.country                 # => 'US'
+fingerprint.anonymized_ua           # => 'Mozilla/X.X (Windows NT X.X...)'
+fingerprint.session_id              # => UUID
+fingerprint.timestamp               # => UTC timestamp
+
+# PRIVATE/LOCALHOST IPs (never masked):
+env['REMOTE_ADDR']                  # => '127.0.0.1' (unchanged)
+env['otto.original_ip']             # => '127.0.0.1' (available)
+env['otto.masked_ip']               # => nil
+env['otto.hashed_ip']               # => nil
+env['otto.redacted_fingerprint']    # => nil (not created)
+```
+
+### Request Helper Methods
+
+```ruby
+# For PUBLIC IPs (privacy enabled by default):
+req.masked_ip                       # => '9.9.9.0'
+req.hashed_ip                       # => 'a3f8b2...'
+req.geo_country                     # => 'US'
+req.anonymized_user_agent           # => 'Mozilla/X.X...'
+req.redacted_fingerprint            # => Full RedactedFingerprint object
+req.ip                              # => '9.9.9.0' (masked)
+
+# For PRIVATE/LOCALHOST IPs (never masked):
+req.masked_ip                       # => nil
+req.hashed_ip                       # => nil
+req.redacted_fingerprint            # => nil
+req.ip                              # => '127.0.0.1' (real IP)
+```
+
+### Configuration
+
+```ruby
+# Default: Privacy enabled, 1 octet masked (public IPs only)
+otto = Otto.new(routes_file)
+# Public IPs masked: 9.9.9.9 → 9.9.9.0
+# Private IPs unchanged: 127.0.0.1, 192.168.1.100, 10.0.0.5
+
+# Customize privacy settings (still enabled)
+otto.configure_ip_privacy(
+  octet_precision: 2,     # Mask 2 octets (9.9.0.0)
+  hash_rotation: 12.hours, # Rotate hashing key every 12 hours
+  geo: false              # Disable geo-location
+)
+
+# Multi-server environment with Redis (atomic key generation)
+redis = Redis.new(url: ENV['REDIS_URL'])
+otto.configure_ip_privacy(redis: redis)
+# All servers share same rotation key via Redis SET NX GET EX
+# Single source of truth for IP hashing across cluster
+
+# Explicitly disable privacy (NOT recommended)
+otto.disable_ip_privacy!
+# ALL IPs unmasked (including public IPs)
+# env['REMOTE_ADDR'] contains real IP
+# env['otto.original_ip'] also available
+```
+
+### Multi-Server Support with Redis
+
+For applications running across multiple servers, Otto supports Redis-based atomic key generation to ensure all servers use the same rotation key:
+
+```ruby
+# Single-server (default): In-memory Concurrent::Hash
+otto = Otto.new(routes_file)
+# Each server generates its own keys
+# Works fine for single-server deployments
+
+# Multi-server: Redis-based atomic key generation
+redis = Redis.new(url: ENV['REDIS_URL'])
+otto = Otto.new(routes_file)
+otto.configure_ip_privacy(redis: redis)
+# All servers share keys via Redis SET NX GET EX
+# Guaranteed consistency across entire cluster
+```
+
+**How Redis key generation works:**
+1. Uses `SET key value NX GET EX ttl` for atomic operations
+2. Returns existing key if present, otherwise sets and returns new key
+3. Keys auto-expire after 1.2× rotation period (20% buffer)
+4. No manual cleanup required
+5. Single source of truth across all application servers
+
+**Redis key format:**
+```
+rotation_key:{timestamp}  # e.g., rotation_key:1704067200
+```
+
+**Benefits:**
+- **Consistency**: Same IP always hashes to same value across all servers
+- **Atomic**: No race conditions when rotation occurs
+- **Auto-cleanup**: TTL handles key expiration automatically
+- **Scalable**: Works with any number of application servers
+- **Fallback**: Automatically falls back to in-memory if Redis unavailable
+
+```
+
+### Use Cases
+
+**Session Correlation Without Tracking:**
+```ruby
+# Use hashed IP for rate limiting/analytics without storing real IPs
+Rack::Attack.throttle('requests/ip', limit: 100, period: 60) do |req|
+  req.hashed_ip  # Daily-rotating hash allows session tracking
+end
+```
+
+**Geo-Analytics Without Privacy Invasion:**
+```ruby
+# Country-level analytics without precise location
+class Analytics
+  def track_request(req)
+    log({
+      country: req.geo_country,      # 'US' (country-level only)
+      masked_ip: req.masked_ip,      # '192.168.1.0'
+      path: req.path
+    })
+  end
+end
+```
+
+**Privacy-Compliant Logging:**
+```ruby
+# Log requests with privacy-safe fingerprints
+class RequestLogger
+  def log(req)
+    fingerprint = req.redacted_fingerprint
+    Rails.logger.info(fingerprint.to_json)
+    # Original IP never logged
+  end
+end
+```
+
+### Authentication Integration
+
+RouteAuthWrapper and authentication strategies automatically use masked IPs for public addresses:
+
+```ruby
+# Public IP (masked by default):
+result = StrategyResult.anonymous(metadata: { ip: env['REMOTE_ADDR'] })
+result.user_context[:ip]  # => '9.9.9.0' (masked)
+
+metadata = {
+  ip: env['REMOTE_ADDR'],           # '9.9.9.0' (masked)
+  country: env['otto.geo_country'], # 'CH'
+  auth_failure: 'Invalid credentials'
+}
+
+# Private/localhost IP (never masked):
+result.user_context[:ip]  # => '127.0.0.1' (real IP)
+```
+
+### Privacy Guarantees
+
+1. **No Accidental Leaks**: Original public IPs never stored (private/localhost IPs available)
+2. **GDPR Compliant**: Masked public IPs are not personally identifiable
+3. **Session Correlation**: Daily-rotating hashed IPs enable analytics without tracking
+4. **Geo-Analytics**: Country-level location data without privacy invasion
+5. **User Agent Privacy**: Version numbers stripped to reduce fingerprinting
+6. **Development Friendly**: Localhost and private IPs never masked for debugging
+
+### Geo-Location Resolution
+
+Uses multiple sources (no external APIs required):
+
+1. **CloudFlare Headers** (most reliable): `CF-IPCountry` header
+2. **IP Range Detection**: Basic detection for major providers (Google, AWS, etc.)
+3. **Unknown Fallback**: Returns 'XX' for unresolved IPs
+
+### Proxy Support
+
+**IMPORTANT**: Otto's IP privacy middleware fully supports proxy scenarios by resolving the actual client IP from X-Forwarded-For headers before applying privacy masking.
+
+#### How Proxy Resolution Works
+
+1. **Trusted Proxy Configuration**: Configure proxies via `otto.add_trusted_proxy(ip_or_pattern)`
+2. **Client IP Resolution**: Middleware checks X-Forwarded-For headers from trusted proxies
+3. **Privacy Masking**: Resolved client IP is then masked (if public) or exempted (if private)
+4. **Header Replacement**: Both `REMOTE_ADDR` and forwarded headers are replaced with masked values
+
+#### Proxy Header Priority
+
+Headers are checked in this order:
+1. `X-Forwarded-For` (first non-trusted IP in chain)
+2. `X-Real-IP`
+3. `X-Client-IP`
+
+#### Configuration
+
+```ruby
+# Configure trusted proxies (load balancers, reverse proxies, CDNs)
+otto.add_trusted_proxy('10.0.0.1')                  # Exact IP
+otto.add_trusted_proxy('172.16.0.0/12')             # CIDR range (not yet implemented)
+otto.add_trusted_proxy(/^192\.168\./)               # Regex pattern
+```
+
+#### Behavior Examples
+
+**Scenario 1: Direct Connection (No Proxy)**
+```ruby
+# Request from client 203.0.113.50
+env['REMOTE_ADDR'] = '203.0.113.50'
+
+# After IPPrivacyMiddleware:
+env['REMOTE_ADDR']          # => '203.0.113.0' (masked)
+env['otto.masked_ip']       # => '203.0.113.0'
+```
+
+**Scenario 2: Trusted Proxy with Public Client IP**
+```ruby
+# Request: Client 203.0.113.50 → Proxy 10.0.0.1 → Otto
+env['REMOTE_ADDR'] = '10.0.0.1'                # Trusted proxy
+env['HTTP_X_FORWARDED_FOR'] = '203.0.113.50'   # Real client IP
+
+# After IPPrivacyMiddleware:
+env['REMOTE_ADDR']          # => '203.0.113.0' (resolved & masked)
+env['HTTP_X_FORWARDED_FOR'] # => '203.0.113.0' (masked to prevent leaks)
+env['otto.masked_ip']       # => '203.0.113.0'
+```
+
+**Scenario 3: Trusted Proxy with Private Client IP**
+```ruby
+# Request: Client 192.168.1.100 (internal) → Proxy 10.0.0.1 → Otto
+env['REMOTE_ADDR'] = '10.0.0.1'
+env['HTTP_X_FORWARDED_FOR'] = '192.168.1.100'  # Private client IP
+
+# After IPPrivacyMiddleware:
+env['REMOTE_ADDR']          # => '192.168.1.100' (resolved but NOT masked)
+env['HTTP_X_FORWARDED_FOR'] # => '192.168.1.100' (not masked, private IP)
+env['otto.original_ip']     # => '192.168.1.100'
+```
+
+**Scenario 4: Untrusted Proxy (Security)**
+```ruby
+# Request: Malicious client trying to spoof X-Forwarded-For
+env['REMOTE_ADDR'] = '198.51.100.1'            # NOT in trusted proxies
+env['HTTP_X_FORWARDED_FOR'] = '203.0.113.50'  # Untrusted header (ignored)
+
+# After IPPrivacyMiddleware:
+env['REMOTE_ADDR']          # => '198.51.100.0' (proxy IP masked, header ignored)
+env['HTTP_X_FORWARDED_FOR'] # => '198.51.100.0' (masked to match REMOTE_ADDR)
+env['otto.masked_ip']       # => '198.51.100.0'
+```
+
+**Scenario 5: Proxy Chain**
+```ruby
+# Request: Client → CDN → Load Balancer → Otto
+# Both CDN and LB are trusted proxies
+otto.add_trusted_proxy('172.16.0.1')  # Load balancer
+otto.add_trusted_proxy(/^10\.0\./)    # CDN
+
+env['REMOTE_ADDR'] = '172.16.0.1'
+env['HTTP_X_FORWARDED_FOR'] = '203.0.113.50, 10.0.0.5, 172.16.0.1'
+
+# After IPPrivacyMiddleware:
+# Resolves to first non-trusted IP: 203.0.113.50
+env['REMOTE_ADDR']          # => '203.0.113.0'
+env['HTTP_X_FORWARDED_FOR'] # => '203.0.113.0'
+```
+
+#### Rack::Request#ip Compatibility
+
+Otto does **NOT** override `Rack::Request#ip`. Instead, it ensures Rack's native proxy resolution works correctly with masked values:
+
+1. IPPrivacyMiddleware resolves client IP from X-Forwarded-For
+2. Masks both `REMOTE_ADDR` and forwarded headers
+3. Rack's `request.ip` method uses these masked values naturally
+
+```ruby
+# Behind trusted proxy with privacy enabled
+env['REMOTE_ADDR'] = '10.0.0.1'
+env['HTTP_X_FORWARDED_FOR'] = '203.0.113.50'
+
+# After IPPrivacyMiddleware:
+request = Rack::Request.new(env)
+request.ip  # => '203.0.113.0' (Rack resolves from masked headers)
+```
+
+This architecture allows:
+- Rack's proxy logic to work unchanged
+- No custom overrides needed
+- Full compatibility with Rack middleware ecosystem
+
+#### Common Proxy Configurations
+
+**AWS ELB/ALB:**
+```ruby
+otto.add_trusted_proxy('10.0.0.0/8')   # Private VPC range
+# ALB sets X-Forwarded-For header
+```
+
+**Cloudflare:**
+```ruby
+# Use Cloudflare's IP ranges (update periodically)
+otto.add_trusted_proxy(/^173\.245\./)
+otto.add_trusted_proxy(/^103\.21\./)
+# ... add other Cloudflare ranges
+# Cloudflare sets CF-IPCountry header (used for geo-location)
+```
+
+**nginx Reverse Proxy:**
+```ruby
+otto.add_trusted_proxy('127.0.0.1')
+otto.add_trusted_proxy('::1')
+# nginx sets X-Real-IP and X-Forwarded-For
+```
+
+#### Limitations and Edge Cases
+
+1. **IPv6 Support**: Currently limited to IPv4 validation in `resolve_client_ip`
+2. **CIDR Ranges**: String matching only (regex workaround available)
+3. **Header Spoofing**: Always validate proxy configuration - untrusted sources are treated as direct connections
+4. **Proxy Chain Length**: No limit, but only first non-trusted IP is used
+5. **Header Format**: Expects standard comma-separated format for X-Forwarded-For
+
+#### Security Considerations
+
+- **Always configure trusted proxies explicitly** - don't trust all X-Forwarded-For headers
+- **Verify proxy configuration in production** - incorrect config can expose real IPs
+- **Monitor for header spoofing** - log suspicious X-Forwarded-For patterns
+- **Use HTTPs between proxies and Otto** - prevent header injection attacks
+- **Rotate hashing keys regularly** - use Redis for multi-server consistency
+
+### Testing Considerations
+
+- In test environment (RSpec), privacy is enabled by default
+- Private IPs (including 127.0.0.1) are never masked, making tests straightforward
+- Use `Otto.unfreeze_for_testing(otto)` before calling `disable_ip_privacy!` in tests
+- Helper methods like `req.redacted_fingerprint` return nil for private/localhost IPs
 
 ## Development Commands
 
@@ -102,6 +563,11 @@ bundle exec rspec spec/path/to/specific_spec.rb
 ### Key Features
 - Plain-text routes configuration
 - Automatic locale detection
+- Privacy by default:
+  - Automatic public IP masking (private/localhost IPs exempted)
+  - Daily-rotating IP hashing for session correlation
+  - Country-level geo-location (no external APIs)
+  - User agent anonymization
 - Optional security features:
   - CSRF protection
   - Input validation

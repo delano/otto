@@ -93,7 +93,7 @@ class Otto
         # @param env [Hash] Rack environment
         def apply_no_privacy(env)
           # Store original IP for explicit access
-          env['otto.original_ip'] = env['REMOTE_ADDR']
+          env['otto.original_ip'] = env['REMOTE_ADDR'].dup.force_encoding('UTF-8')
 
           # env['REMOTE_ADDR'] remains unchanged (real IP)
           # No fingerprint is created when privacy is disabled

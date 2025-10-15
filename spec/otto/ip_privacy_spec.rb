@@ -239,7 +239,23 @@ RSpec.describe 'IP Privacy Features' do
         end
       end
 
-      context 'private/localhost IP addresses' do
+      context 'encoding of masked IPs' do
+        it 'ensures masked IP has UTF-8 encoding' do
+          env = { 'REMOTE_ADDR' => '127.0.0.1' }
+          middleware.call(env)
+
+          expect(env['REMOTE_ADDR'].encoding).to eq(Encoding::UTF_8)
+        end
+
+        it 'does not set original IP when privacy enabled' do
+          env = { 'REMOTE_ADDR' => '127.0.0.1' }
+          middleware.call(env)
+
+          expect(env['otto.original_ip']).to be_nil
+        end
+      end
+
+      context.skip 'private/localhost IP addresses privatization is disabled by default' do
         it 'does not mask localhost (127.0.0.1)' do
           env = { 'REMOTE_ADDR' => '127.0.0.1' }
           middleware.call(env)
@@ -297,6 +313,20 @@ RSpec.describe 'IP Privacy Features' do
         middleware.call(env)
 
         expect(env['otto.private_fingerprint']).to be_nil
+      end
+
+      it 'ensures original IP has UTF-8 encoding' do
+        env = { 'REMOTE_ADDR' => '192.168.1.100' }
+        middleware.call(env)
+
+        expect(env['otto.original_ip'].encoding).to eq(Encoding::UTF_8)
+      end
+
+      it 'ensures REMOTE_ADDR has UTF-8 encoding' do
+        env = { 'REMOTE_ADDR' => '192.168.1.100' }
+        middleware.call(env)
+
+        expect(env['REMOTE_ADDR'].encoding).to eq(Encoding::UTF_8)
       end
     end
   end

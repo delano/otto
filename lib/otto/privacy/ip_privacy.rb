@@ -25,6 +25,9 @@ class Otto
     #   IPPrivacy.hash_ip('192.168.1.100', key)
     #   # => 'a3f8b2...' (consistent for same IP+key, changes when key rotates)
     #
+    # @note All methods return UTF-8 encoded strings for Rack compatibility.
+    #   See file:docs/ipaddr-encoding-quirk.md for details on IPAddr#to_s behavior.
+    #
     class IPPrivacy
       # Mask an IP address by zeroing out the specified number of octets/bits
       #
@@ -38,7 +41,7 @@ class Otto
       #
       # @param ip [String] IP address to mask
       # @param level [Integer] Masking level (1 or 2, default: 1)
-      # @return [String] Masked IP address
+      # @return [String] Masked IP address (UTF-8 encoded)
       # @raise [ArgumentError] if IP is invalid or level is not 1 or 2
       def self.mask_ip(ip, level = 1)
         return nil if ip.nil? || ip.empty?
@@ -109,34 +112,10 @@ class Otto
       # @return [Boolean] true if IP is localhost or private
       def self.private_or_localhost?(ip)
         return false if ip.nil? || ip.empty?
-        return false unless valid_ip?(ip)
 
         addr = IPAddr.new(ip)
+        addr.private? || addr.loopback?
 
-        # IPv6 localhost (::1)
-        return true if addr.to_s == '::1'
-
-        # IPv4 checks
-        return false unless addr.ipv4?
-
-        # Localhost (127.0.0.0/8)
-        return true if addr.to_i >= IPAddr.new('127.0.0.0').to_i &&
-                       addr.to_i <= IPAddr.new('127.255.255.255').to_i
-
-        # Private ranges (RFC 1918)
-        # 10.0.0.0/8
-        return true if addr.to_i >= IPAddr.new('10.0.0.0').to_i &&
-                       addr.to_i <= IPAddr.new('10.255.255.255').to_i
-
-        # 172.16.0.0/12
-        return true if addr.to_i >= IPAddr.new('172.16.0.0').to_i &&
-                       addr.to_i <= IPAddr.new('172.31.255.255').to_i
-
-        # 192.168.0.0/16
-        return true if addr.to_i >= IPAddr.new('192.168.0.0').to_i &&
-                       addr.to_i <= IPAddr.new('192.168.255.255').to_i
-
-        false
       rescue IPAddr::InvalidAddressError
         false
       end
@@ -145,8 +124,9 @@ class Otto
       #
       # @param addr [IPAddr] IPAddr object (must be IPv4)
       # @param level [Integer] Masking level (1 or 2)
-      # @return [String] Masked IPv4 address
+      # @return [String] Masked IPv4 address (UTF-8 encoded)
       # @api private
+      # @see file:docs/ipaddr-encoding-quirk.md IPAddr encoding behavior
       def self.mask_ipv4(addr, level)
         # Convert to integer for bitwise operations
         ip_int = addr.to_i
@@ -159,7 +139,13 @@ class Otto
 
         # Apply mask and convert back to IP
         masked_int = ip_int & mask
-        IPAddr.new(masked_int, Socket::AF_INET).to_s
+
+        # Force UTF-8 encoding: IPAddr#to_s returns US-ASCII for IPv4 but UTF-8
+        # for IPv6. We normalize to UTF-8 for Rack compatibility and to prevent
+        # Encoding::CompatibilityError. Safe because IP strings contain only
+        # ASCII characters.
+        # See also: https://github.com/ruby/ruby/blob/master/lib/ipaddr.rb
+        IPAddr.new(masked_int, Socket::AF_INET).to_s.force_encoding('UTF-8')
       end
       private_class_method :mask_ipv4
 
@@ -167,7 +153,7 @@ class Otto
       #
       # @param addr [IPAddr] IPAddr object (must be IPv6)
       # @param level [Integer] Masking level (1 or 2)
-      # @return [String] Masked IPv6 address
+      # @return [String] Masked IPv6 address (UTF-8 encoded)
       # @api private
       def self.mask_ipv6(addr, level)
         # Convert to integer for bitwise operations
@@ -183,7 +169,10 @@ class Otto
 
         # Apply mask and convert back to IP
         masked_int = ip_int & mask
-        IPAddr.new(masked_int, Socket::AF_INET6).to_s
+
+        # IPv6 already returns UTF-8, but we call force_encoding for consistency
+        # with mask_ipv4. See docs/ipaddr-encoding-quirk.md for details.
+        IPAddr.new(masked_int, Socket::AF_INET6).to_s.force_encoding('UTF-8')
       end
       private_class_method :mask_ipv6
     end

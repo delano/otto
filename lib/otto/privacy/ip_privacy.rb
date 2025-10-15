@@ -46,9 +46,7 @@ class Otto
       def self.mask_ip(ip, level = 1)
         return nil if ip.nil? || ip.empty?
 
-        unless [1, 2].include?(level)
-          raise ArgumentError, "Masking level must be 1 or 2, got: #{level}"
-        end
+        raise ArgumentError, "Masking level must be 1 or 2, got: #{level}" unless [1, 2].include?(level)
 
         begin
           addr = IPAddr.new(ip)
@@ -76,9 +74,7 @@ class Otto
       def self.hash_ip(ip, key)
         return nil if ip.nil? || ip.empty?
 
-        if key.nil? || key.empty?
-          raise ArgumentError, 'Key cannot be nil or empty'
-        end
+        raise ArgumentError, 'Key cannot be nil or empty' if key.nil? || key.empty?
 
         # Normalize IP address format before hashing
         normalized_ip = begin
@@ -115,7 +111,6 @@ class Otto
 
         addr = IPAddr.new(ip)
         addr.private? || addr.loopback?
-
       rescue IPAddr::InvalidAddressError
         false
       end

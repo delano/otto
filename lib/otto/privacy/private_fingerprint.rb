@@ -47,15 +47,15 @@ class Otto
       # @return [Hash] Hash representation of fingerprint
       def to_h
         {
-          session_id: @session_id,
-          timestamp: @timestamp.iso8601,
-          masked_ip: @masked_ip,
-          hashed_ip: @hashed_ip,
-          country: @country,
-          anonymized_ua: @anonymized_ua,
+              session_id: @session_id,
+               timestamp: @timestamp.iso8601,
+               masked_ip: @masked_ip,
+               hashed_ip: @hashed_ip,
+                 country: @country,
+           anonymized_ua: @anonymized_ua,
           request_method: @request_method,
-          request_path: @request_path,
-          referer: @referer,
+            request_path: @request_path,
+                 referer: @referer,
         }
       end
 
@@ -78,7 +78,7 @@ class Otto
       #
       # @return [String] Detailed representation for debugging
       def inspect
-        "#<Otto::Privacy::PrivateFingerprint " \
+        '#<Otto::Privacy::PrivateFingerprint ' \
           "masked_ip=#{@masked_ip.inspect} " \
           "hashed_ip=#{@hashed_ip[0..15]}... " \
           "country=#{@country.inspect} " \

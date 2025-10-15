@@ -24,6 +24,7 @@ class Otto
     #
     class Config
       include Otto::Core::Freezable
+
       attr_accessor :mask_level, :hash_rotation_period, :geo_enabled, :mask_private_ips
       attr_reader :disabled
 
@@ -35,9 +36,7 @@ class Otto
         # Get the class-level rotation keys store
         # @return [Concurrent::Hash] Thread-safe hash for rotation keys
         def rotation_keys_store
-          unless defined?(@rotation_keys_store) && @rotation_keys_store
-            @rotation_keys_store = Concurrent::Hash.new
-          end
+          @rotation_keys_store = Concurrent::Hash.new unless defined?(@rotation_keys_store) && @rotation_keys_store
           @rotation_keys_store
         end
       end
@@ -55,9 +54,9 @@ class Otto
         @mask_level = options.fetch(:mask_level, 1)
         @hash_rotation_period = options.fetch(:hash_rotation_period, 86_400) # 24 hours
         @geo_enabled = options.fetch(:geo_enabled, true)
-        @disabled = options.fetch(:disabled, false)  # Enabled by default (privacy-by-default)
-        @mask_private_ips = options.fetch(:mask_private_ips, false)  # Don't mask private/localhost by default
-        @redis = options[:redis]  # Optional Redis connection for multi-server environments
+        @disabled = options.fetch(:disabled, false) # Enabled by default (privacy-by-default)
+        @mask_private_ips = options.fetch(:mask_private_ips, false) # Don't mask private/localhost by default
+        @redis = options[:redis] # Optional Redis connection for multi-server environments
       end
 
       # Check if privacy is enabled
@@ -120,13 +119,11 @@ class Otto
       #
       # @raise [ArgumentError] if configuration is invalid
       def validate!
-        unless [1, 2].include?(@mask_level)
-          raise ArgumentError, "mask_level must be 1 or 2, got: #{@mask_level}"
-        end
+        raise ArgumentError, "mask_level must be 1 or 2, got: #{@mask_level}" unless [1, 2].include?(@mask_level)
 
-        if @hash_rotation_period < 60
-          raise ArgumentError, "hash_rotation_period must be at least 60 seconds"
-        end
+        return unless @hash_rotation_period < 60
+
+        raise ArgumentError, 'hash_rotation_period must be at least 60 seconds'
       end
 
       private
@@ -148,7 +145,7 @@ class Otto
         rotation_timestamp = (now_seconds / @hash_rotation_period) * @hash_rotation_period
 
         redis_key = "rotation_key:#{rotation_timestamp}"
-        ttl = (@hash_rotation_period * 1.2).to_i  # Auto-cleanup with 20% buffer
+        ttl = (@hash_rotation_period * 1.2).to_i # Auto-cleanup with 20% buffer
 
         key = SecureRandom.hex(32)
 
@@ -180,11 +177,10 @@ class Otto
         # Atomically get or create key for this rotation period
         # Concurrent::Hash doesn't have fetch_or_store, so we use [] with ||=
         rotation_keys[rotation_timestamp] ||= begin
-          rotation_keys.clear if rotation_keys.size > 1  # Discard old keys
+          rotation_keys.clear if rotation_keys.size > 1 # Discard old keys
           SecureRandom.hex(32)
         end
       end
-
     end
   end
 end

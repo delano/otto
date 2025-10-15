@@ -16,8 +16,8 @@ class Otto
     #   # => 'US'
     #
     # @example Resolve without CloudFlare
-    #   GeoResolver.resolve('8.8.8.8', {})
-    #   # => 'US' (Google DNS detected as US)
+    #   GeoResolver.resolve('9.9.9.9', {})
+    #   # => 'CH' (Cloud9 in Switzerland)
     #
     class GeoResolver
       # Unknown country code (ISO 3166-1 alpha-2)
@@ -70,8 +70,6 @@ class Otto
       end
       private_class_method :detect_by_range
 
-
-
       # Validate country code format
       #
       # @param code [String] Country code to validate
@@ -81,8 +79,6 @@ class Otto
         code.is_a?(String) && code.length == 2 && code.match?(/^[A-Z]{2}$/)
       end
       private_class_method :valid_country_code?
-
-
 
       # Known IP ranges for major providers (limited set for basic detection)
       # For comprehensive geo-location, use CloudFlare or GeoIP database

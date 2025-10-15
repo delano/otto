@@ -14,10 +14,10 @@ class Otto
     def send_secure_cookie(name, value, ttl, opts = {})
       # Default security options
       defaults = {
-        secure: true,
-        httponly: true,
+           secure: true,
+         httponly: true,
         same_site: :strict,
-        path: '/',
+             path: '/',
       }
 
       # Merge with provided options

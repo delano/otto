@@ -158,8 +158,6 @@ class Otto
       def freeze_configuration!
         return self if frozen_configuration?
 
-        @configuration_frozen = true
-
         # Deep freeze configuration objects with memoization support
         @security_config.deep_freeze! if @security_config.respond_to?(:deep_freeze!)
         @locale_config.deep_freeze! if @locale_config.respond_to?(:deep_freeze!)
@@ -174,6 +172,8 @@ class Otto
         deep_freeze_value(@routes_literal) if @routes_literal
         deep_freeze_value(@routes_static) if @routes_static
         deep_freeze_value(@route_definitions) if @route_definitions
+
+        @configuration_frozen = true
 
         self
       end

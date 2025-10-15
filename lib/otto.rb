@@ -152,41 +152,24 @@ class Otto
 
   # Builds the middleware application chain
   # Called once at initialization and whenever middleware stack changes
+  #
+  # IMPORTANT: If you have routes with auth requirements, you MUST add session
+  # middleware to your middleware stack BEFORE Otto processes requests.
+  #
+  # Session middleware is required for RouteAuthWrapper to correctly persist
+  # session changes during authentication. Common options include:
+  # - Rack::Session::Cookie (requires rack-session gem)
+  # - Rack::Session::Pool
+  # - Rack::Session::Memcache
+  # - Any Rack-compatible session middleware
+  #
+  # Example:
+  #   use Rack::Session::Cookie, secret: ENV['SESSION_SECRET']
+  #   otto = Otto.new('routes.txt')
+  #
   def build_app!
     base_app = method(:handle_request)
     @app = @middleware.wrap(base_app, @security_config)
-
-    # Validate session middleware ordering
-    validate_session_middleware_order!
-  end
-
-  # Validate that session middleware comes before RouteAuthWrapper execution
-  #
-  # Session middleware must be in the middleware stack for RouteAuthWrapper
-  # to correctly persist session changes. This method warns if session
-  # middleware appears to be missing.
-  #
-  # @return [void]
-  def validate_session_middleware_order!
-    # Check if any session middleware is registered
-    session_middleware_classes = [
-      Rack::Session::Cookie,
-      # Add other common session middleware classes
-    ].compact
-
-    has_session_middleware = session_middleware_classes.any? do |middleware_class|
-      @middleware.includes?(middleware_class)
-    end
-
-    # Check if we have routes with auth requirements
-    has_auth_routes = @route_definitions&.any? { |rd| rd.auth_requirement }
-
-    # Warn if we have auth routes but no session middleware
-    if has_auth_routes && !has_session_middleware
-      Otto.logger.warn "[Otto::Security] Routes with auth requirements detected but no session middleware found. " \
-                       "Session persistence may not work correctly. " \
-                       "Add session middleware (e.g., Rack::Session::Cookie) to your middleware stack."
-    end
   end
 
   # Middleware Management

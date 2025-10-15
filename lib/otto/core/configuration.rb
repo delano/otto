@@ -15,46 +15,29 @@ class Otto
     module Configuration
       include Otto::Core::Freezable
       def configure_locale(opts)
-        # Start with global configuration
-        global_config = self.class.global_config
-        @locale_config = nil
-
-        # Check if we have any locale configuration from any source
-        has_global_locale = global_config && (global_config[:available_locales] || global_config[:default_locale])
+        # Check if we have any locale configuration
         has_direct_options = opts[:available_locales] || opts[:default_locale]
         has_legacy_config = opts[:locale_config]
 
-        # Only create locale_config if we have configuration from somewhere
-        return unless has_global_locale || has_direct_options || has_legacy_config
+        # Only create locale_config if we have configuration
+        return unless has_direct_options || has_legacy_config
 
-        @locale_config = {}
+        # Initialize with direct options
+        available_locales = opts[:available_locales]
+        default_locale = opts[:default_locale]
 
-        # Apply global configuration first
-        if global_config && global_config[:available_locales]
-          @locale_config[:available_locales] =
-            global_config[:available_locales]
+        # Legacy support: Configure locale if provided via locale_config hash
+        if opts[:locale_config]
+          locale_opts = opts[:locale_config]
+          available_locales ||= locale_opts[:available_locales] || locale_opts[:available]
+          default_locale ||= locale_opts[:default_locale] || locale_opts[:default]
         end
-        if global_config && global_config[:default_locale]
-          @locale_config[:default_locale] =
-            global_config[:default_locale]
-        end
 
-        # Apply direct instance options (these override global config)
-        @locale_config[:available_locales] = opts[:available_locales] if opts[:available_locales]
-        @locale_config[:default_locale] = opts[:default_locale] if opts[:default_locale]
-
-        # Legacy support: Configure locale if provided in initialization options via locale_config hash
-        return unless opts[:locale_config]
-
-        locale_opts = opts[:locale_config]
-        if locale_opts[:available_locales] || locale_opts[:available]
-          @locale_config[:available_locales] =
-            locale_opts[:available_locales] || locale_opts[:available]
-        end
-        return unless locale_opts[:default_locale] || locale_opts[:default]
-
-        @locale_config[:default_locale] =
-          locale_opts[:default_locale] || locale_opts[:default]
+        # Create Otto::Locale::Config instance
+        @locale_config = Otto::Locale::Config.new(
+          available_locales: available_locales,
+          default_locale: default_locale
+        )
       end
 
       def configure_security(opts)
@@ -117,9 +100,13 @@ class Otto
       #   )
       def configure(available_locales: nil, default_locale: nil)
         ensure_not_frozen!
-        @locale_config ||= {}
-        @locale_config[:available_locales] = available_locales if available_locales
-        @locale_config[:default_locale] = default_locale if default_locale
+
+        # Initialize locale_config if not already set
+        @locale_config ||= Otto::Locale::Config.new
+
+        # Update configuration
+        @locale_config.available_locales = available_locales if available_locales
+        @locale_config.default_locale = default_locale if default_locale
       end
 
       # Configure rate limiting settings.
@@ -175,11 +162,11 @@ class Otto
 
         # Deep freeze configuration objects with memoization support
         @security_config.deep_freeze! if @security_config.respond_to?(:deep_freeze!)
+        @locale_config.deep_freeze! if @locale_config.respond_to?(:deep_freeze!)
         @middleware.deep_freeze! if @middleware.respond_to?(:deep_freeze!)
 
         # Deep freeze configuration hashes (recursively freezes nested structures)
         deep_freeze_value(@auth_config) if @auth_config
-        deep_freeze_value(@locale_config) if @locale_config
         deep_freeze_value(@option) if @option
 
         # Deep freeze route structures (prevent modification of nested hashes/arrays)

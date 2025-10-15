@@ -21,6 +21,7 @@ require_relative 'otto/response_handlers'
 require_relative 'otto/route_handlers'
 require_relative 'otto/version'
 require_relative 'otto/security/config'
+require_relative 'otto/locale/config'
 require_relative 'otto/security/middleware/csrf_middleware'
 require_relative 'otto/security/middleware/validation_middleware'
 require_relative 'otto/security/middleware/rate_limit_middleware'
@@ -55,39 +56,6 @@ require_relative 'otto/utils'
 #   otto.enable_csp!
 #   otto.enable_frame_protection!
 #
-# Configuration Data class to replace OpenStruct
-# Configuration class to replace OpenStruct
-class ConfigData
-  def initialize(**kwargs)
-    @data = kwargs
-  end
-
-  # Dynamic attribute accessors
-  def method_missing(method_name, *args)
-    if method_name.to_s.end_with?('=')
-      # Setter - prevent modification of frozen config
-      # raise FrozenError, 'Cannot modify frozen configuration' if frozen?
-
-      attr_name = method_name.to_s.chomp('=').to_sym
-      @data[attr_name] = args.first
-    elsif @data.key?(method_name)
-      # Getter
-      @data[method_name]
-    else
-      super
-    end
-  end
-
-  def respond_to_missing?(method_name, include_private = false)
-    method_name.to_s.end_with?('=') || @data.key?(method_name) || super
-  end
-
-  # Convert to hash for compatibility
-  def to_h
-    @data.dup
-  end
-end
-
 class Otto
   include Otto::Core::Router
   include Otto::Core::FileSafety
@@ -103,22 +71,7 @@ class Otto
            else
              defined?(Otto::Utils) ? Otto::Utils.yes?(ENV.fetch('OTTO_DEBUG', nil)) : false
            end
-  @logger        = Logger.new($stdout, Logger::INFO)
-  @global_config = nil
-
-  # Global configuration for all Otto instances (Ruby 3.2+ pattern matching)
-  def self.configure
-    config = case @global_config
-             in Hash => h
-               # Transform string keys to symbol keys for ConfigData compatibility
-               symbol_hash = h.transform_keys(&:to_sym)
-               ConfigData.new(**symbol_hash)
-             else
-               ConfigData.new
-             end
-    yield config
-    @global_config = config.to_h
-  end
+  @logger = Logger.new($stdout, Logger::INFO)
 
   attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option,
               :static_route, :security_config, :locale_config, :auth_config,
@@ -152,7 +105,6 @@ class Otto
       handle_error(e, env)
     end
   end
-
 
   # Builds the middleware application chain
   # Called once at initialization and whenever middleware stack changes
@@ -409,7 +361,7 @@ class Otto
   end
 
   class << self
-    attr_accessor :debug, :logger, :global_config # rubocop:disable ThreadSafety/ClassAndModuleAttributes
+    attr_accessor :debug, :logger # rubocop:disable ThreadSafety/ClassAndModuleAttributes
   end
 
   # Class methods for Otto framework providing singleton access and configuration

@@ -6,49 +6,6 @@ RSpec.describe Otto, 'locale configuration' do
   let(:available_locales) { { 'en' => 'English', 'es' => 'Spanish', 'fr' => 'French' } }
   let(:default_locale) { 'en' }
 
-  describe 'global configuration' do
-    after do
-      # Reset global config after each test
-      Otto.instance_variable_set(:@global_config, {})
-    end
-
-    it 'configures locale globally for all instances' do
-      Otto.configure do |opts|
-        opts.available_locales = available_locales
-        opts.default_locale = default_locale
-      end
-
-      otto1 = Otto.new
-      otto2 = Otto.new
-
-      expect(otto1.locale_config).to eq({
-                                          available_locales: available_locales,
-        default_locale: default_locale,
-                                        })
-      expect(otto2.locale_config).to eq({
-                                          available_locales: available_locales,
-        default_locale: default_locale,
-                                        })
-    end
-
-    it 'allows instance options to override global config' do
-      Otto.configure do |opts|
-        opts.available_locales = { 'en' => 'English' }
-        opts.default_locale = 'en'
-      end
-
-      otto = Otto.new(nil, {
-                        available_locales: available_locales,
-        default_locale: 'es',
-                      })
-
-      expect(otto.locale_config).to eq({
-                                         available_locales: available_locales,
-        default_locale: 'es',
-                                       })
-    end
-  end
-
   describe 'initialization with direct locale options' do
     it 'configures locale from direct options' do
       otto = Otto.new(nil, {
@@ -56,7 +13,7 @@ RSpec.describe Otto, 'locale configuration' do
         default_locale: default_locale,
                       })
 
-      expect(otto.locale_config).to eq({
+      expect(otto.locale_config.to_h).to eq({
                                          available_locales: available_locales,
         default_locale: default_locale,
                                        })
@@ -72,7 +29,7 @@ RSpec.describe Otto, 'locale configuration' do
                         },
                       })
 
-      expect(otto.locale_config).to eq({
+      expect(otto.locale_config.to_h).to eq({
                                          available_locales: available_locales,
         default_locale: default_locale,
                                        })
@@ -86,7 +43,7 @@ RSpec.describe Otto, 'locale configuration' do
                         },
                       })
 
-      expect(otto.locale_config).to eq({
+      expect(otto.locale_config.to_h).to eq({
                                          available_locales: available_locales,
         default_locale: default_locale,
                                        })
@@ -108,7 +65,7 @@ RSpec.describe Otto, 'locale configuration' do
         default_locale: default_locale
       )
 
-      expect(otto.locale_config).to eq({
+      expect(otto.locale_config.to_h).to eq({
                                          available_locales: available_locales,
         default_locale: default_locale,
                                        })

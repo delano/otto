@@ -22,7 +22,7 @@ RSpec.describe Otto, 'Configuration Methods' do
         app.send(:configure_locale, opts)
 
         config = app.instance_variable_get(:@locale_config)
-        expect(config[:available_locales]).to eq(%w[en es fr])
+        expect(config.available_locales).to eq(%w[en es fr])
       end
 
       it 'sets default_locale from direct options' do
@@ -32,7 +32,7 @@ RSpec.describe Otto, 'Configuration Methods' do
         app.send(:configure_locale, opts)
 
         config = app.instance_variable_get(:@locale_config)
-        expect(config[:default_locale]).to eq('fr')
+        expect(config.default_locale).to eq('fr')
       end
 
       it 'sets both available_locales and default_locale' do
@@ -45,44 +45,8 @@ RSpec.describe Otto, 'Configuration Methods' do
         app.send(:configure_locale, opts)
 
         config = app.instance_variable_get(:@locale_config)
-        expect(config[:available_locales]).to eq(%w[en jp])
-        expect(config[:default_locale]).to eq('jp')
-      end
-    end
-
-    context 'with global configuration' do
-      before do
-        allow(Otto).to receive(:global_config).and_return({
-                                                            available_locales: %w[en de],
-          default_locale: 'de',
-                                                          })
-      end
-
-      after do
-        allow(Otto).to receive(:global_config).and_call_original
-      end
-
-      it 'applies global configuration' do
-        app = Otto.new
-        app.send(:configure_locale, {})
-
-        config = app.instance_variable_get(:@locale_config)
-        expect(config[:available_locales]).to eq(%w[en de])
-        expect(config[:default_locale]).to eq('de')
-      end
-
-      it 'allows instance options to override global config' do
-        app = Otto.new
-        opts = {
-          available_locales: %w[en it],
-          default_locale: 'it',
-        }
-
-        app.send(:configure_locale, opts)
-
-        config = app.instance_variable_get(:@locale_config)
-        expect(config[:available_locales]).to eq(%w[en it])
-        expect(config[:default_locale]).to eq('it')
+        expect(config.available_locales).to eq(%w[en jp])
+        expect(config.default_locale).to eq('jp')
       end
     end
 
@@ -98,7 +62,7 @@ RSpec.describe Otto, 'Configuration Methods' do
         app.send(:configure_locale, opts)
 
         config = app.instance_variable_get(:@locale_config)
-        expect(config[:available_locales]).to eq(%w[en pt])
+        expect(config.available_locales).to eq(%w[en pt])
       end
 
       it 'supports legacy available key (alias)' do
@@ -112,7 +76,7 @@ RSpec.describe Otto, 'Configuration Methods' do
         app.send(:configure_locale, opts)
 
         config = app.instance_variable_get(:@locale_config)
-        expect(config[:available_locales]).to eq(%w[en ru])
+        expect(config.available_locales).to eq(%w[en ru])
       end
 
       it 'supports legacy default_locale key' do
@@ -126,7 +90,7 @@ RSpec.describe Otto, 'Configuration Methods' do
         app.send(:configure_locale, opts)
 
         config = app.instance_variable_get(:@locale_config)
-        expect(config[:default_locale]).to eq('ru')
+        expect(config.default_locale).to eq('ru')
       end
 
       it 'supports legacy default key (alias)' do
@@ -140,7 +104,7 @@ RSpec.describe Otto, 'Configuration Methods' do
         app.send(:configure_locale, opts)
 
         config = app.instance_variable_get(:@locale_config)
-        expect(config[:default_locale]).to eq('pt')
+        expect(config.default_locale).to eq('pt')
       end
 
       it 'prioritizes available_locales over available' do
@@ -155,7 +119,7 @@ RSpec.describe Otto, 'Configuration Methods' do
         app.send(:configure_locale, opts)
 
         config = app.instance_variable_get(:@locale_config)
-        expect(config[:available_locales]).to eq(%w[en zh])
+        expect(config.available_locales).to eq(%w[en zh])
       end
 
       it 'prioritizes default_locale over default' do
@@ -170,7 +134,7 @@ RSpec.describe Otto, 'Configuration Methods' do
         app.send(:configure_locale, opts)
 
         config = app.instance_variable_get(:@locale_config)
-        expect(config[:default_locale]).to eq('zh')
+        expect(config.default_locale).to eq('zh')
       end
     end
   end

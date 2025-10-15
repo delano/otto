@@ -123,6 +123,72 @@ This pattern is particularly useful for:
 3. **No Original IP Storage**: When privacy is enabled, original public IPs are NEVER stored in `env`
 4. **Middleware Runs First**: Processes IPs before authentication, rate limiting, or any application code
 
+### Multi-Layer Middleware Architecture
+
+For complex applications with multiple middleware layers (common in monolith/multi-app architectures), IPPrivacyMiddleware should be added to your **common middleware stack** before logging/monitoring middleware:
+
+```ruby
+# ❌ WRONG: Adding privacy only to Otto's internal stack
+# Problem: CommonLogger runs before Otto, logging real IPs
+builder.use Rack::CommonLogger
+builder.use OtherMiddleware
+# ... later: Otto router with its internal privacy middleware
+# CommonLogger already logged real IP!
+
+# ✅ CORRECT: Add privacy to common stack FIRST
+builder.use Otto::Security::Middleware::IPPrivacyMiddleware  # <-- FIRST!
+builder.use Rack::CommonLogger  # Now logs masked IPs
+builder.use Rack::Parser
+builder.use YourSessionMiddleware
+builder.use Sentry::Rack::CaptureExceptions  # Captures masked IPs
+# ... later: Otto router (its internal privacy middleware is redundant but harmless)
+```
+
+**Why this matters:**
+
+Otto's internal middleware stack only runs when the request reaches the Otto router. If you have logging, error monitoring (Sentry), or other middleware that runs **before** the router, they will see and potentially log real IP addresses, defeating the purpose of IP privacy.
+
+**Architecture layers:**
+1. **Common Middleware** (all apps): Rack::CommonLogger, Sentry, Session, etc.
+2. **App-Specific Middleware**: Request setup, error handling, etc.
+3. **Otto Internal Middleware**: Privacy (redundant but harmless), CSRF, rate limiting, etc.
+
+**Key insight:** IP privacy is a **Rack concern**, not a routing concern. It should run before any middleware that touches IPs (logging, monitoring, rate limiting).
+
+**Usage in multi-app setups:**
+
+```ruby
+# In your common middleware configuration
+module YourApp
+  module MiddlewareStack
+    def self.configure(builder)
+      # IP Privacy FIRST - masks public IPs before logging/monitoring
+      # Private/localhost IPs are automatically exempted for development
+      builder.use Otto::Security::Middleware::IPPrivacyMiddleware
+
+      builder.use Rack::CommonLogger  # Now logs masked IPs
+      builder.use YourSession
+      builder.use Sentry::Rack::CaptureExceptions  # Captures masked IPs
+      # ... rest of common middleware
+    end
+  end
+end
+
+# In your app-specific code
+class YourApp < Rack::Application
+  use AppSpecificMiddleware
+
+  def build_router
+    Otto.new(routes)  # Otto's internal privacy middleware is redundant but harmless
+  end
+end
+```
+
+**Notes:**
+- IPPrivacyMiddleware is idempotent - running it twice doesn't re-mask already-masked IPs
+- Otto still adds it internally for backward compatibility with single-layer apps
+- Private/localhost IPs are always exempted, making development seamless
+
 ### What Gets Anonymized
 
 ```ruby

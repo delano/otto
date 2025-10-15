@@ -131,11 +131,8 @@ RSpec.describe Otto, 'initialization' do
 
   describe 'configuration isolation' do
     it 'maintains separate configurations between instances' do
-      otto1 = create_minimal_otto
+      otto1 = Otto.new(nil, csrf_protection: true, security_headers: { 'strict-transport-security' => 'max-age=31536000; includeSubDomains' })
       otto2 = create_minimal_otto
-
-      otto1.enable_csrf_protection!
-      otto1.enable_hsts!
 
       expect(otto1.security_config.csrf_enabled?).to be true
       expect(otto2.security_config.csrf_enabled?).to be false

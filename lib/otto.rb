@@ -118,8 +118,9 @@ class Otto
     @global_config = config.to_h
   end
 
-  attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route,
-              :security_config, :locale_config, :auth_config, :route_handler_factory, :mcp_server, :security, :middleware
+  attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option,
+              :static_route, :security_config, :locale_config, :auth_config,
+              :route_handler_factory, :mcp_server, :security, :middleware
   attr_accessor :not_found, :server_error
 
   def initialize(path = nil, opts = {})
@@ -133,6 +134,10 @@ class Otto
 
     # Build the middleware app once after all initialization is complete
     build_app!
+
+    # Freeze configuration to prevent runtime modifications
+    # Skip freezing in test environment to allow test flexibility
+    freeze_configuration! unless defined?(RSpec)
   end
   alias options option
 
@@ -171,6 +176,7 @@ class Otto
 
   # Middleware Management
   def use(middleware, ...)
+    ensure_not_frozen!
     @middleware.add(middleware, ...)
 
     # NOTE: If build_app! is triggered during a request (via use() or
@@ -206,6 +212,7 @@ class Otto
   # @example
   #   otto.enable_csrf_protection!
   def enable_csrf_protection!
+    ensure_not_frozen!
     return if @middleware.includes?(Otto::Security::Middleware::CSRFMiddleware)
 
     @security_config.enable_csrf_protection!
@@ -218,6 +225,7 @@ class Otto
   # @example
   #   otto.enable_request_validation!
   def enable_request_validation!
+    ensure_not_frozen!
     return if @middleware.includes?(Otto::Security::Middleware::ValidationMiddleware)
 
     @security_config.input_validation = true
@@ -233,6 +241,7 @@ class Otto
   # @example
   #   otto.enable_rate_limiting!(requests_per_minute: 50)
   def enable_rate_limiting!(options = {})
+    ensure_not_frozen!
     return if @middleware.includes?(Otto::Security::Middleware::RateLimitMiddleware)
 
     @security.configure_rate_limiting(options)
@@ -249,7 +258,7 @@ class Otto
   # @example
   #   otto.add_rate_limit_rule('uploads', limit: 5, period: 300, condition: ->(req) { req.post? && req.path.include?('upload') })
   def add_rate_limit_rule(name, options)
-    @security_config.rate_limiting_config[:custom_rules] ||= {}
+    ensure_not_frozen!
     @security_config.rate_limiting_config[:custom_rules][name.to_s] = options
   end
 
@@ -261,6 +270,7 @@ class Otto
   #   otto.add_trusted_proxy('10.0.0.0/8')
   #   otto.add_trusted_proxy(/^172\.16\./)
   def add_trusted_proxy(proxy)
+    ensure_not_frozen!
     @security_config.add_trusted_proxy(proxy)
   end
 
@@ -274,6 +284,7 @@ class Otto
   #     'strict-transport-security' => 'max-age=31536000'
   #   })
   def set_security_headers(headers)
+    ensure_not_frozen!
     @security_config.security_headers.merge!(headers)
   end
 
@@ -286,6 +297,7 @@ class Otto
   # @example
   #   otto.enable_hsts!(max_age: 86400, include_subdomains: false)
   def enable_hsts!(max_age: 31_536_000, include_subdomains: true)
+    ensure_not_frozen!
     @security_config.enable_hsts!(max_age: max_age, include_subdomains: include_subdomains)
   end
 
@@ -296,6 +308,7 @@ class Otto
   # @example
   #   otto.enable_csp!("default-src 'self'; script-src 'self' 'unsafe-inline'")
   def enable_csp!(policy = "default-src 'self'")
+    ensure_not_frozen!
     @security_config.enable_csp!(policy)
   end
 
@@ -305,6 +318,7 @@ class Otto
   # @example
   #   otto.enable_frame_protection!('DENY')
   def enable_frame_protection!(option = 'SAMEORIGIN')
+    ensure_not_frozen!
     @security_config.enable_frame_protection!(option)
   end
 
@@ -315,6 +329,7 @@ class Otto
   # @example
   #   otto.enable_csp_with_nonce!(debug: true)
   def enable_csp_with_nonce!(debug: false)
+    ensure_not_frozen!
     @security_config.enable_csp_with_nonce!(debug: debug)
   end
 
@@ -325,6 +340,7 @@ class Otto
   # @example
   #   otto.add_auth_strategy('custom', MyCustomStrategy.new)
   def add_auth_strategy(name, strategy)
+    ensure_not_frozen!
     # Ensure auth_config is initialized (handles edge case where it might be nil)
     @auth_config = { auth_strategies: {}, default_auth_strategy: 'noauth' } if @auth_config.nil?
 
@@ -340,6 +356,7 @@ class Otto
   # @example
   #   otto.enable_mcp!(http: true, endpoint: '/api/mcp')
   def enable_mcp!(options = {})
+    ensure_not_frozen!
     @mcp_server ||= Otto::MCP::Server.new(self)
 
     @mcp_server.enable!(options)

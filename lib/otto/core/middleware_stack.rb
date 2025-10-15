@@ -2,6 +2,8 @@
 
 # lib/otto/core/middleware_stack.rb
 
+require_relative 'freezable'
+
 class Otto
   module Core
     # Enhanced middleware stack management for Otto framework.
@@ -9,6 +11,7 @@ class Otto
     # and improved execution chain management.
     class MiddlewareStack
       include Enumerable
+      include Otto::Core::Freezable
 
       def initialize
         @stack = []
@@ -193,9 +196,11 @@ class Otto
       end
 
       # Cached middleware list to reduce array creation
+      # Uses defined? instead of ||= to work when frozen
       def middleware_list
-        # Memoize the result to avoid repeated array creation
-        @memoized_middleware_list ||= @stack.map { |entry| entry[:middleware] }
+        return @memoized_middleware_list if defined?(@memoized_middleware_list)
+
+        @memoized_middleware_list = @stack.map { |entry| entry[:middleware] }
       end
 
       # Detailed introspection
@@ -228,6 +233,18 @@ class Otto
       # Legacy compatibility methods for existing Otto interface
       def reverse_each(&)
         @stack.reverse_each(&)
+      end
+
+      # Override deep_freeze! to pre-compute memoized values before freezing
+      #
+      # This ensures that the memoized middleware list is calculated before
+      # the object is frozen, preventing FrozenError when accessing the list later.
+      #
+      # @return [self] The frozen middleware stack
+      def deep_freeze!
+        # Pre-compute memoized middleware list before freezing
+        @memoized_middleware_list = @stack.map { |entry| entry[:middleware] }
+        super
       end
 
       private

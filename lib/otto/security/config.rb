@@ -26,12 +26,12 @@ class Otto
     class Config
       include Otto::Core::Freezable
 
-      attr_reader :csrf_protection, :csrf_token_key, :csrf_header_key, :csrf_session_key,
-                  :max_request_size, :max_param_depth, :max_param_keys,
+      attr_accessor :input_validation, :max_param_depth, :csrf_token_key, :rate_limiting_config, :csrf_session_key, :max_request_size, :max_param_keys
+
+      attr_reader :csrf_protection,  :csrf_header_key,
                   :trusted_proxies, :require_secure_cookies,
-                  :security_headers, :input_validation,
-                  :csp_nonce_enabled, :debug_csp, :mcp_auth,
-                  :rate_limiting_config
+                  :security_headers,
+                  :csp_nonce_enabled, :debug_csp, :mcp_auth
 
       # Initialize security configuration with safe defaults
       #

@@ -65,7 +65,9 @@ class ConfigData
   # Dynamic attribute accessors
   def method_missing(method_name, *args)
     if method_name.to_s.end_with?('=')
-      # Setter
+      # Setter - prevent modification of frozen config
+      # raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+
       attr_name = method_name.to_s.chomp('=').to_sym
       @data[attr_name] = args.first
     elsif @data.key?(method_name)

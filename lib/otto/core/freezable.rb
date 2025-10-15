@@ -2,6 +2,8 @@
 
 # lib/otto/core/freezable.rb
 
+require 'set'
+
 class Otto
   module Core
     # Provides deep freezing capability for configuration objects
@@ -23,6 +25,7 @@ class Otto
     #   config = MyConfig.new
     #   config.deep_freeze!
     #   # Now config and all nested hashes/arrays are frozen
+    #
     module Freezable
       # Deeply freeze this object and all its instance variables
       #
@@ -32,8 +35,9 @@ class Otto
       # - Sets
       # - Other freezable objects
       #
+      # NOTE: This method is idempotent and safe to call multiple times.
+      #
       # @return [self] The frozen object
-      # @raise [FrozenError] if attempting to freeze an already frozen object
       def deep_freeze!
         return self if frozen?
 

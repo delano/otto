@@ -63,8 +63,8 @@ otto.auth_config[:auth_strategies] = {}        # FrozenError!
 ### Testing Considerations
 
 - Freezing is **automatically disabled** when `RSpec` is defined
-- For other test frameworks, use `otto.unfreeze_configuration!` before modifying configuration
-- **Never** use `unfreeze_configuration!` in production code
+- For manual unfreezing in tests, use `Otto.unfreeze_for_testing(otto)` (requires RSpec to be defined)
+- **Never** use `unfreeze_for_testing` in production code - it raises an error if RSpec is not defined
 
 ### Implementation Details
 

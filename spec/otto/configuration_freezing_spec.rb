@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe Otto, 'configuration freezing' do
-  let(:routes_file) { create_test_routes_file('freeze_test_routes.txt', ['GET / TestApp.index']) }
+  let(:routes_file) { create_test_routes_file('common_routes.txt', ['GET / TestApp.index']) }
 
   describe 'automatic freezing on initialization' do
     it 'skips freezing when RSpec is defined (test environment)' do

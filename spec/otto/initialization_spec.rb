@@ -54,7 +54,7 @@ RSpec.describe Otto, 'initialization' do
   end
 
   context 'with routes file' do
-    let(:routes_file) { create_test_routes_file('test_routes.txt', test_routes) }
+    let(:routes_file) { create_test_routes_file('common_routes.txt', test_routes) }
     subject(:otto) { described_class.new(routes_file) }
 
     it 'loads routes from file' do
@@ -223,7 +223,7 @@ RSpec.describe Otto, 'initialization' do
   end
 
   describe 'lazy configuration freezing' do
-    let(:routes_file) { create_test_routes_file('lazy_freeze_test.txt', ['GET / TestApp.index']) }
+    let(:routes_file) { create_test_routes_file('common_routes.txt', ['GET / TestApp.index']) }
 
     # Note: These tests run in RSpec environment where auto-freezing is disabled.
     # We manually test the freezing behavior to verify the mechanism works.

@@ -380,7 +380,7 @@ RSpec.describe 'IP Privacy Features' do
   end
 
   describe 'Otto integration' do
-    let(:routes_file) { create_test_routes_file('ip_privacy_routes.txt', ['GET / TestApp.index']) }
+    let(:routes_file) { create_test_routes_file('common_routes.txt', ['GET / TestApp.index']) }
 
     it 'enables IP privacy by default' do
       otto = Otto.new(routes_file)
@@ -684,7 +684,7 @@ RSpec.describe 'IP Privacy Features' do
   end
 
   describe 'Full middleware stack integration' do
-    let(:routes_file) { create_test_routes_file('integration_routes.txt', ['GET / TestApp.index']) }
+    let(:routes_file) { create_test_routes_file('common_routes.txt', ['GET / TestApp.index']) }
 
     context 'with privacy enabled (default)' do
       it 'does NOT mask private IPs through complete middleware chain' do

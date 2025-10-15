@@ -54,11 +54,26 @@ module OttoTestHelpers
   def debug_response(response)
     return unless Otto.debug
 
-    puts "\n=== DEBUG RESPONSE ==="
+    puts "
+=== DEBUG RESPONSE ==="
     puts "Status: #{response[0]}"
     puts 'Headers:'
     response[1].each { |k, v| puts "  #{k}: #{v}" }
     puts "Body: #{response[2].respond_to?(:join) ? response[2].join : response[2]}"
-    puts "=====================\n"
+    puts "=====================
+"
+  end
+
+  # Creates a simple test middleware class for specs
+  def create_test_middleware
+    Class.new do
+      def initialize(app, *args)
+        @app = app
+      end
+
+      def call(env)
+        @app.call(env)
+      end
+    end
   end
 end

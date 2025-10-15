@@ -141,12 +141,16 @@ class Otto
             # Try fallback patterns for role: and permission: requirements
             if requirement.start_with?('role:')
               # Cache the fallback strategy under 'role:' key to create it only once
-              strategy = @strategy_cache['role:'] ||= (auth_config[:auth_strategies]['role'] || Strategies::RoleStrategy.new([]))
+              strategy = @strategy_cache['role:'] ||= begin
+                auth_config[:auth_strategies]['role'] || Strategies::RoleStrategy.new([])
+              end
               @strategy_cache[requirement] = strategy
               return strategy
             elsif requirement.start_with?('permission:')
               # Cache the fallback strategy under 'permission:' key
-              strategy = @strategy_cache['permission:'] ||= (auth_config[:auth_strategies]['permission'] || Strategies::PermissionStrategy.new([]))
+              strategy = @strategy_cache['permission:'] ||= begin
+                auth_config[:auth_strategies]['permission'] || Strategies::PermissionStrategy.new([])
+              end
               @strategy_cache[requirement] = strategy
               return strategy
             end

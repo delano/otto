@@ -80,14 +80,32 @@ class Otto
     # Build the middleware app once after all initialization is complete
     build_app!
 
-    # Freeze configuration to prevent runtime modifications
-    # Skip freezing in test environment to allow test flexibility
-    freeze_configuration! unless defined?(RSpec)
+    # Configuration freezing is deferred until first request to support
+    # multi-step initialization (e.g., multi-app architectures).
+    # This allows adding auth strategies, middleware, etc. after Otto.new
+    # but before processing requests.
+    @freeze_mutex = Mutex.new
+    @configuration_frozen = false
   end
   alias options option
 
   # Main Rack application interface
   def call(env)
+    # Freeze configuration on first request (thread-safe)
+    # Skip in test environment to allow test flexibility
+    unless defined?(RSpec) || @configuration_frozen
+      Otto.logger.debug '[Otto] Lazy freezing check: configuration not yet frozen' if Otto.debug
+
+      @freeze_mutex.synchronize do
+        unless @configuration_frozen
+          Otto.logger.info '[Otto] Freezing configuration on first request (lazy freeze)'
+          freeze_configuration!
+          @configuration_frozen = true
+          Otto.logger.debug '[Otto] Configuration frozen successfully' if Otto.debug
+        end
+      end
+    end
+
     begin
       # Use pre-built middleware app (built once at initialization)
       @app.call(env)

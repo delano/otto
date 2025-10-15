@@ -30,9 +30,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### How It Works
 
-1. **Automatic Freezing**: `freeze_configuration!` is called automatically after initialization (unless in RSpec test environment)
-2. **Deep Freezing**: Uses recursive freezing to prevent modification at any nesting level
-3. **Memoization-Compatible**: Pre-computes memoized values before freezing to avoid FrozenError
+1. **Lazy Freezing**: Configuration freezing is deferred until the first request to support multi-step initialization
+2. **Thread-Safe**: Uses mutex synchronization to ensure configuration is frozen exactly once
+3. **Deep Freezing**: Uses recursive freezing to prevent modification at any nesting level
+4. **Memoization-Compatible**: Pre-computes memoized values before freezing to avoid FrozenError
+
+This lazy approach allows multi-app architectures (like OneTime Secret's registry-based system) to:
+- Create Otto instances with `Otto.new(routes_file)`
+- Add authentication strategies via `otto.add_auth_strategy(name, strategy)`
+- Configure middleware with `otto.use(middleware)`
+- Add security features via `otto.enable_csrf_protection!`
+- All **before** the first request triggers freezing
 
 ### What Gets Frozen
 
@@ -44,7 +52,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Security Guarantees
 
 ```ruby
-# After initialization, ALL of these will raise FrozenError:
+# After first request, ALL of these will raise FrozenError:
 
 # Direct modification attempts
 otto.security_config.csrf_protection = false  # FrozenError!
@@ -60,6 +68,32 @@ otto.security_config.rate_limiting_config[:custom_rules] = {} # FrozenError!
 otto.auth_config[:auth_strategies] = {}        # FrozenError!
 ```
 
+### Multi-Step Initialization Pattern
+
+For complex applications that need to configure Otto after creation (e.g., multi-app architectures):
+
+```ruby
+# Step 1: Create Otto instance
+otto = Otto.new('routes.txt')
+
+# Step 2: Configure after initialization (BEFORE first request)
+otto.add_auth_strategy('session', SessionStrategy.new(session_key: 'user_id'))
+otto.add_auth_strategy('api_key', APIKeyStrategy.new(api_keys: ENV['API_KEYS']))
+otto.enable_csrf_protection!
+otto.use CustomMiddleware
+
+# Step 3: First request triggers automatic freezing
+# From this point on, configuration is immutable
+
+# Later requests: Configuration is already frozen
+# otto.add_auth_strategy(...)  # FrozenError!
+```
+
+This pattern is particularly useful for:
+- Registry-based multi-app systems (like OneTime Secret)
+- Applications that dynamically configure Otto based on environment
+- Testing scenarios where configuration needs to happen in multiple phases
+
 ### Testing Considerations
 
 - Freezing is **automatically disabled** when `RSpec` is defined
@@ -68,10 +102,12 @@ otto.auth_config[:auth_strategies] = {}        # FrozenError!
 
 ### Implementation Details
 
+- Lazy freezing occurs in `Otto#call` on first request (thread-safe with mutex)
+- `@configuration_frozen` flag tracks freeze state (checked by `ensure_not_frozen!`)
 - `Otto::Core::Freezable` module provides `deep_freeze!` method
 - `MiddlewareStack` and `Security::Config` override `deep_freeze!` to pre-compute memoized values
 - Uses `defined?()` pattern instead of `||=` for freeze-compatible memoization
-- All mutation methods check `frozen?` and raise `FrozenError` when frozen
+- All mutation methods check `frozen_configuration?` and raise `FrozenError` when frozen
 
 ## IP Privacy (Privacy by Default)
 

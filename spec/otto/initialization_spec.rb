@@ -221,4 +221,100 @@ RSpec.describe Otto, 'initialization' do
       end
     end
   end
+
+  describe 'lazy configuration freezing' do
+    let(:routes_file) { create_test_routes_file('lazy_freeze_test.txt', ['GET / TestApp.index']) }
+
+    # Note: These tests run in RSpec environment where auto-freezing is disabled.
+    # We manually test the freezing behavior to verify the mechanism works.
+
+    context 'multi-step initialization pattern' do
+      it 'allows configuration after initialization' do
+        otto = described_class.new(routes_file)
+
+        # Should allow adding auth strategies after initialization
+        expect do
+          otto.add_auth_strategy('test', Otto::Security::Authentication::Strategies::NoAuthStrategy.new)
+        end.not_to raise_error
+
+        # Should allow adding middleware after initialization
+        expect do
+          otto.use Otto::Security::Middleware::CSRFMiddleware
+        end.not_to raise_error
+
+        # Should allow enabling features after initialization
+        expect do
+          otto.enable_csrf_protection!
+        end.not_to raise_error
+      end
+
+      it 'manually freezes configuration when requested' do
+        otto = described_class.new(routes_file)
+
+        # Before freezing: modifications allowed
+        expect do
+          otto.add_auth_strategy('test', Otto::Security::Authentication::Strategies::NoAuthStrategy.new)
+        end.not_to raise_error
+
+        # Manually freeze
+        otto.freeze_configuration!
+
+        # After freezing: modifications raise FrozenError
+        expect do
+          otto.add_auth_strategy('another', Otto::Security::Authentication::Strategies::NoAuthStrategy.new)
+        end.to raise_error(FrozenError, 'Cannot modify frozen configuration')
+      end
+
+      it 'freezes configuration only once' do
+        otto = described_class.new(routes_file)
+
+        # Freeze twice should not raise error
+        expect do
+          otto.freeze_configuration!
+          otto.freeze_configuration!
+        end.not_to raise_error
+
+        # But modifications should still be blocked
+        expect do
+          otto.enable_csrf_protection!
+        end.to raise_error(FrozenError)
+      end
+
+      it 'provides frozen_configuration? check' do
+        otto = described_class.new(routes_file)
+
+        expect(otto.frozen_configuration?).to be false
+
+        otto.freeze_configuration!
+
+        expect(otto.frozen_configuration?).to be true
+      end
+    end
+
+    context 'registry-based multi-app pattern (like OneTime Secret)' do
+      it 'supports building multiple Otto apps with deferred freezing' do
+        # Simulate OneTime Secret's registry pattern
+        apps = {}
+
+        # Step 1: Create multiple Otto instances
+        apps[:api_v1] = described_class.new(create_test_routes_file('api_v1.txt', ['GET /api/v1 TestApp.index']))
+        apps[:api_v2] = described_class.new(create_test_routes_file('api_v2.txt', ['GET /api/v2 TestApp.index']))
+
+        # Step 2: Configure each app independently
+        apps[:api_v1].add_auth_strategy('session', Otto::Security::Authentication::Strategies::NoAuthStrategy.new)
+        apps[:api_v2].add_auth_strategy('api_key', Otto::Security::Authentication::Strategies::NoAuthStrategy.new)
+
+        # Step 3: All apps configured successfully before any requests
+        expect(apps[:api_v1].auth_config[:auth_strategies]).to have_key('session')
+        expect(apps[:api_v2].auth_config[:auth_strategies]).to have_key('api_key')
+
+        # Step 4: Manual freeze for production
+        apps.each_value(&:freeze_configuration!)
+
+        # Step 5: All apps now frozen
+        expect(apps[:api_v1].frozen_configuration?).to be true
+        expect(apps[:api_v2].frozen_configuration?).to be true
+      end
+    end
+  end
 end

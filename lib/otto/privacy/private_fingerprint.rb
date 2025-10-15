@@ -5,7 +5,7 @@ require 'time'
 
 class Otto
   module Privacy
-    # Immutable privacy-safe request fingerprint
+    # Immutable privacy-safe request fingerprint (aka CrappyFingerprint)
     #
     # Contains anonymized information about a request that can be used for
     # logging, analytics, and session tracking without storing personally

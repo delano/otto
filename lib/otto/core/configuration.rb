@@ -156,24 +156,39 @@ class Otto
       # @raise [RuntimeError] if configuration is already frozen
       # @return [self]
       def freeze_configuration!
-        return self if frozen_configuration?
+        if frozen_configuration?
+          Otto.logger.debug '[Otto::Configuration] Configuration already frozen, skipping' if Otto.debug
+          return self
+        end
+
+        Otto.logger.debug '[Otto::Configuration] Starting configuration freeze process' if Otto.debug
 
         # Deep freeze configuration objects with memoization support
+        Otto.logger.debug '[Otto::Configuration] Freezing security_config' if Otto.debug
         @security_config.deep_freeze! if @security_config.respond_to?(:deep_freeze!)
+
+        Otto.logger.debug '[Otto::Configuration] Freezing locale_config' if Otto.debug
         @locale_config.deep_freeze! if @locale_config.respond_to?(:deep_freeze!)
+
+        Otto.logger.debug '[Otto::Configuration] Freezing middleware stack' if Otto.debug
         @middleware.deep_freeze! if @middleware.respond_to?(:deep_freeze!)
 
         # Deep freeze configuration hashes (recursively freezes nested structures)
+        Otto.logger.debug '[Otto::Configuration] Freezing auth_config hash' if Otto.debug
         deep_freeze_value(@auth_config) if @auth_config
+
+        Otto.logger.debug '[Otto::Configuration] Freezing option hash' if Otto.debug
         deep_freeze_value(@option) if @option
 
         # Deep freeze route structures (prevent modification of nested hashes/arrays)
+        Otto.logger.debug '[Otto::Configuration] Freezing route structures' if Otto.debug
         deep_freeze_value(@routes) if @routes
         deep_freeze_value(@routes_literal) if @routes_literal
         deep_freeze_value(@routes_static) if @routes_static
         deep_freeze_value(@route_definitions) if @route_definitions
 
         @configuration_frozen = true
+        Otto.logger.info '[Otto::Configuration] Configuration freeze completed successfully'
 
         self
       end

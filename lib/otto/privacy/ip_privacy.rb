@@ -101,6 +101,46 @@ class Otto
         false
       end
 
+      # Check if an IP address is localhost or private (RFC 1918)
+      #
+      # Private/localhost IPs are not masked for development convenience.
+      #
+      # @param ip [String] IP address to check
+      # @return [Boolean] true if IP is localhost or private
+      def self.private_or_localhost?(ip)
+        return false if ip.nil? || ip.empty?
+        return false unless valid_ip?(ip)
+
+        addr = IPAddr.new(ip)
+
+        # IPv6 localhost (::1)
+        return true if addr.to_s == '::1'
+
+        # IPv4 checks
+        return false unless addr.ipv4?
+
+        # Localhost (127.0.0.0/8)
+        return true if addr.to_i >= IPAddr.new('127.0.0.0').to_i &&
+                       addr.to_i <= IPAddr.new('127.255.255.255').to_i
+
+        # Private ranges (RFC 1918)
+        # 10.0.0.0/8
+        return true if addr.to_i >= IPAddr.new('10.0.0.0').to_i &&
+                       addr.to_i <= IPAddr.new('10.255.255.255').to_i
+
+        # 172.16.0.0/12
+        return true if addr.to_i >= IPAddr.new('172.16.0.0').to_i &&
+                       addr.to_i <= IPAddr.new('172.31.255.255').to_i
+
+        # 192.168.0.0/16
+        return true if addr.to_i >= IPAddr.new('192.168.0.0').to_i &&
+                       addr.to_i <= IPAddr.new('192.168.255.255').to_i
+
+        false
+      rescue IPAddr::InvalidAddressError
+        false
+      end
+
       # Mask IPv4 address
       #
       # @param addr [IPAddr] IPAddr object (must be IPv4)

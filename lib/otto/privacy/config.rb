@@ -8,8 +8,7 @@ class Otto
   module Privacy
     # Configuration for IP privacy features
     #
-    # Privacy is enabled by default. IP addresses are automatically masked
-    # unless explicitly disabled with Otto#disable_ip_privacy!
+    # Privacy is ENABLED by default for public IPs. Private/localhost IPs are not masked.
     #
     # @example Default configuration (privacy enabled)
     #   config = Otto::Privacy::Config.new
@@ -34,8 +33,9 @@ class Otto
         @mask_level = options.fetch(:mask_level, 1)
         @hash_rotation_period = options.fetch(:hash_rotation_period, 86_400) # 24 hours
         @geo_enabled = options.fetch(:geo_enabled, true)
-        @disabled = options.fetch(:disabled, false)
-        @daily_keys = {}
+        @disabled = options.fetch(:disabled, false)  # Enabled by default (privacy-by-default)
+        # Thread-safe hash for rotation keys - initialized lazily
+        @rotation_keys = nil
       end
 
       # Check if privacy is enabled
@@ -72,23 +72,37 @@ class Otto
         self
       end
 
-      # Get the current daily key for IP hashing
+      # Get the current rotation key for IP hashing
       #
-      # Keys rotate based on hash_rotation_period (default: 24 hours).
-      # Old keys are automatically cleaned up after 7 days.
+      # Keys rotate at fixed intervals based on hash_rotation_period (default: 24 hours).
+      # Each rotation period gets a unique key, ensuring IP addresses hash differently
+      # across periods while remaining consistent within.
       #
-      # @return [String] Current daily key for hashing
-      def daily_key
-        now = Time.now.utc
-        rotation_id = (now.to_i / @hash_rotation_period).to_i
+      # Thread-safe implementation using Concurrent::Hash for atomic operations.
+      # Automatically discards old keys when rotation occurs, maintaining only
+      # the current period's key in memory.
+      #
+      # NOTE: Concurrent::Hash provides atomic individual operations, but not
+      # atomic composite operations like check-then-modify-then-delete.
+      #
+      # @return [String] Current rotation key for hashing
+      def rotation_key
+        # Lazy initialization of thread-safe hash
+        require 'concurrent' unless defined?(Concurrent::Hash)
+        @rotation_keys ||= Concurrent::Hash.new
 
-        # Generate new key if needed
-        @daily_keys[rotation_id] ||= SecureRandom.hex(32)
+        now_seconds = Time.now.utc.to_i
 
-        # Clean up old keys (keep last 7 rotations)
-        @daily_keys.select! { |id, _| id >= rotation_id - 6 }
+        # Quantize to rotation period boundary (e.g., midnight UTC for 24-hour period)
+        seconds_since_epoch = now_seconds % @hash_rotation_period
+        rotation_timestamp = now_seconds - seconds_since_epoch
 
-        @daily_keys[rotation_id]
+        # Atomically get or create key for this rotation period
+        # Concurrent::Hash doesn't have fetch_or_store, so we use [] with ||=
+        @rotation_keys[rotation_timestamp] ||= begin
+          @rotation_keys.clear if @rotation_keys.size > 1  # Discard old keys
+          SecureRandom.hex(32)
+        end
       end
 
       # Validate configuration settings

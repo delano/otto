@@ -109,21 +109,37 @@ This pattern is particularly useful for:
 - Uses `defined?()` pattern instead of `||=` for freeze-compatible memoization
 - All mutation methods check `frozen_configuration?` and raise `FrozenError` when frozen
 
-## IP Privacy (Privacy by Default)
+## IP Privacy (Opt-In)
 
-**IMPORTANT**: Otto automatically masks IP addresses by default to enhance privacy and comply with data protection regulations (GDPR, CCPA, etc.).
+**IMPORTANT**: Otto provides optional IP privacy features for enhanced data protection compliance (GDPR, CCPA, etc.). Privacy is **disabled by default** and must be explicitly enabled.
 
 ### How It Works
 
-1. **Privacy by Default**: `IPPrivacyMiddleware` is added FIRST in the middleware stack during initialization
-2. **IP Masking**: Automatically zeros out the last octet (IPv4) or last 80 bits (IPv6) of all IP addresses
-3. **No Original IP Storage**: When privacy is enabled (default), original IPs are NEVER stored in `env`
-4. **Middleware Runs First**: Processes IPs before authentication, rate limiting, or any application code
+1. **Opt-In Model**: Privacy is disabled by default. Call `enable_ip_privacy!` to activate
+2. **IP Masking**: When enabled, zeros out the last octet (IPv4) or last 80 bits (IPv6)
+3. **No Original IP Storage**: When privacy is enabled, original IPs are NEVER stored in `env`
+4. **Middleware Runs First**: When enabled, `IPPrivacyMiddleware` processes IPs before any other middleware
+
+### Enabling IP Privacy
+
+```ruby
+# Enable with defaults (1 octet masking, geo-location enabled)
+otto = Otto.new(routes_file)
+otto.enable_ip_privacy!
+
+# Enable with custom settings
+otto = Otto.new(routes_file)
+otto.enable_ip_privacy!(
+  mask_level: 2,           # Mask 2 octets (192.168.0.0)
+  hash_rotation: 12.hours, # Rotate hashing key every 12 hours
+  geo: false               # Disable geo-location
+)
+```
 
 ### What Gets Anonymized
 
 ```ruby
-# With privacy enabled (default):
+# With privacy ENABLED:
 env['REMOTE_ADDR']                  # => '192.168.1.0' (masked)
 env['otto.masked_ip']               # => '192.168.1.0' (same as REMOTE_ADDR)
 env['otto.hashed_ip']               # => 'a3f8b2...' (daily-rotating hash)
@@ -138,40 +154,30 @@ fingerprint.country                 # => 'US'
 fingerprint.anonymized_ua           # => 'Mozilla/X.X (Windows NT X.X...)'
 fingerprint.session_id              # => UUID
 fingerprint.timestamp               # => UTC timestamp
+
+# With privacy DISABLED (default):
+env['REMOTE_ADDR']                  # => '192.168.1.100' (real IP)
+env['otto.masked_ip']               # => nil
+env['otto.hashed_ip']               # => nil
+env['otto.private_fingerprint']     # => nil
 ```
 
 ### Request Helper Methods
 
 ```ruby
-# Privacy-safe helpers (available in all handlers/controllers)
+# When privacy is ENABLED:
 req.masked_ip                       # => '192.168.1.0'
 req.hashed_ip                       # => 'a3f8b2...'
 req.geo_country                     # => 'US'
 req.anonymized_user_agent           # => 'Mozilla/X.X...'
 req.private_fingerprint             # => Full PrivateFingerprint object
+req.ip                              # => '192.168.1.0' (masked)
 
-# Standard Rack helper (returns masked IP by default)
-req.ip                              # => '192.168.1.0' (privacy-safe)
-```
-
-### Configuration
-
-```ruby
-# Default: Privacy enabled, 1 octet masked
-otto = Otto.new(routes_file)
-# env['REMOTE_ADDR'] is masked to 192.168.1.0
-
-# Customize privacy settings (still enabled)
-otto.configure_ip_privacy(
-  mask_level: 2,          # Mask 2 octets (192.168.0.0)
-  hash_rotation: 12.hours, # Rotate hashing key every 12 hours
-  geo: false              # Disable geo-location
-)
-
-# Explicitly disable privacy (NOT recommended)
-otto.disable_ip_privacy!
-# env['REMOTE_ADDR'] contains real IP
-# env['otto.original_ip'] also available
+# When privacy is DISABLED (default):
+req.masked_ip                       # => nil
+req.hashed_ip                       # => nil
+req.private_fingerprint             # => nil
+req.ip                              # => '192.168.1.100' (real IP)
 ```
 
 ### Use Cases
@@ -212,24 +218,26 @@ end
 
 ### Authentication Integration
 
-RouteAuthWrapper and authentication strategies automatically use masked IPs:
+RouteAuthWrapper and authentication strategies use env['REMOTE_ADDR'] which will be masked only if IP privacy is enabled:
 
 ```ruby
-# Anonymous StrategyResult uses masked IP
+# When privacy is enabled:
 result = StrategyResult.anonymous(metadata: { ip: env['REMOTE_ADDR'] })
 result.user_context[:ip]  # => '192.168.1.0' (masked)
 
-# Auth failures include geo-location
 metadata = {
   ip: env['REMOTE_ADDR'],           # Masked
   country: env['otto.geo_country'], # 'US'
   auth_failure: 'Invalid credentials'
 }
+
+# When privacy is disabled (default):
+result.user_context[:ip]  # => '192.168.1.100' (real IP)
 ```
 
-### Privacy Guarantees
+### Privacy Guarantees (When Enabled)
 
-1. **No Accidental Leaks**: Original IPs never stored unless explicitly disabled
+1. **No Accidental Leaks**: Original IPs never stored when privacy is enabled
 2. **GDPR Compliant**: Masked IPs are not personally identifiable
 3. **Session Correlation**: Daily-rotating hashed IPs enable analytics without tracking
 4. **Geo-Analytics**: Country-level location data without privacy invasion
@@ -245,8 +253,8 @@ Uses multiple sources (no external APIs required):
 
 ### Testing Considerations
 
-- In test environment (RSpec), privacy is enabled by default
-- Use `Otto.unfreeze_for_testing(otto)` before calling `disable_ip_privacy!` in tests
+- In test environment (RSpec), privacy is disabled by default (opt-in)
+- Use `otto.enable_ip_privacy!` to enable privacy features in tests
 - Helper methods like `req.private_fingerprint` return nil when privacy is disabled
 
 ## Development Commands
@@ -278,12 +286,12 @@ bundle exec rspec spec/path/to/specific_spec.rb
 ### Key Features
 - Plain-text routes configuration
 - Automatic locale detection
-- Privacy by default:
-  - Automatic IP address masking
-  - Daily-rotating IP hashing for session correlation
-  - Country-level geo-location (no external APIs)
-  - User agent anonymization
 - Optional security features:
+  - IP privacy (opt-in):
+    - IP address masking
+    - Daily-rotating IP hashing for session correlation
+    - Country-level geo-location (no external APIs)
+    - User agent anonymization
   - CSRF protection
   - Input validation
   - Security headers

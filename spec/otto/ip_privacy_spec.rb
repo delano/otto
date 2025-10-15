@@ -208,7 +208,10 @@ RSpec.describe 'IP Privacy Features' do
     let(:security_config) { Otto::Security::Config.new }
     let(:middleware) { Otto::Security::Middleware::IPPrivacyMiddleware.new(app, security_config) }
 
-    context 'privacy enabled (default)' do
+    context 'privacy enabled (opt-in)' do
+      before do
+        security_config.ip_privacy_config.enable!
+      end
       it 'masks IP address by default' do
         env = { 'REMOTE_ADDR' => '192.168.1.100' }
         middleware.call(env)
@@ -269,27 +272,39 @@ RSpec.describe 'IP Privacy Features' do
   describe 'Otto integration' do
     let(:routes_file) { create_test_routes_file('ip_privacy_routes.txt', ['GET / TestApp.index']) }
 
-    it 'enables IP privacy by default' do
+    it 'disables IP privacy by default (opt-in)' do
       otto = Otto.new(routes_file)
-
-      expect(otto.security_config.ip_privacy_config.enabled?).to be true
-    end
-
-    it 'includes IPPrivacyMiddleware in stack' do
-      otto = Otto.new(routes_file)
-
-      expect(otto.middleware.includes?(Otto::Security::Middleware::IPPrivacyMiddleware)).to be true
-    end
-
-    it 'allows disabling IP privacy' do
-      otto = create_minimal_otto(['GET / TestApp.index'])
-      otto.disable_ip_privacy!
 
       expect(otto.security_config.ip_privacy_config.disabled?).to be true
     end
 
+    it 'does not include IPPrivacyMiddleware in stack by default' do
+      otto = Otto.new(routes_file)
+
+      expect(otto.middleware.includes?(Otto::Security::Middleware::IPPrivacyMiddleware)).to be false
+    end
+
+    it 'allows enabling IP privacy' do
+      otto = create_minimal_otto(['GET / TestApp.index'])
+      otto.enable_ip_privacy!
+
+      expect(otto.security_config.ip_privacy_config.enabled?).to be true
+      expect(otto.middleware.includes?(Otto::Security::Middleware::IPPrivacyMiddleware)).to be true
+    end
+
+    it 'allows enabling with custom options' do
+      otto = create_minimal_otto(['GET / TestApp.index'])
+      otto.enable_ip_privacy!(mask_level: 2, geo: false)
+
+      expect(otto.security_config.ip_privacy_config.enabled?).to be true
+      expect(otto.security_config.ip_privacy_config.mask_level).to eq(2)
+      expect(otto.security_config.ip_privacy_config.geo_enabled).to be false
+    end
+
     it 'allows configuring mask level' do
       otto = create_minimal_otto(['GET / TestApp.index'])
+      otto.enable_ip_privacy!
+      Otto.unfreeze_for_testing(otto)
       otto.configure_ip_privacy(mask_level: 2)
 
       expect(otto.security_config.ip_privacy_config.mask_level).to eq(2)

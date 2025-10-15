@@ -59,7 +59,7 @@ class Otto
         addr = IPAddr.new(ip)
 
         # Private/local addresses
-        return UNKNOWN if private_or_local?(addr)
+        return UNKNOWN if IPPrivacy.private_or_localhost?(ip)
 
         # Check against known ranges
         KNOWN_RANGES.each do |range, country|
@@ -70,16 +70,7 @@ class Otto
       end
       private_class_method :detect_by_range
 
-      # Check if IP is private or local
-      #
-      # @param addr [IPAddr] IP address object
-      # @return [Boolean] true if private or local
-      # @api private
-      def self.private_or_local?(addr)
-        # RFC 1918 private ranges
-        PRIVATE_RANGES.any? { |range| range.include?(addr) }
-      end
-      private_class_method :private_or_local?
+
 
       # Validate country code format
       #
@@ -91,17 +82,7 @@ class Otto
       end
       private_class_method :valid_country_code?
 
-      # Private IP ranges (RFC 1918 + loopback + link-local)
-      PRIVATE_RANGES = [
-        IPAddr.new('10.0.0.0/8'),        # Private
-        IPAddr.new('172.16.0.0/12'),     # Private
-        IPAddr.new('192.168.0.0/16'),    # Private
-        IPAddr.new('127.0.0.0/8'),       # Loopback
-        IPAddr.new('169.254.0.0/16'),    # Link-local
-        IPAddr.new('::1/128'),           # IPv6 loopback
-        IPAddr.new('fe80::/10'),         # IPv6 link-local
-        IPAddr.new('fc00::/7'),          # IPv6 private
-      ].freeze
+
 
       # Known IP ranges for major providers (limited set for basic detection)
       # For comprehensive geo-location, use CloudFlare or GeoIP database

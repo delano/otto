@@ -76,8 +76,12 @@ class Otto
           # These types are either immutable or already frozen
           value.freeze if value.respond_to?(:freeze) && !value.frozen?
         else
-          # For other objects, freeze if possible
-          value.freeze if value.respond_to?(:freeze) && !value.frozen?
+          # For other objects, recursively freeze if they support it, otherwise shallow freeze.
+          if value.respond_to?(:deep_freeze!)
+            value.deep_freeze!
+          elsif value.respond_to?(:freeze) && !value.frozen?
+            value.freeze
+          end
         end
       end
     end

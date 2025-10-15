@@ -4,6 +4,7 @@
 
 require 'securerandom'
 require 'digest'
+require_relative '../core/freezable'
 
 class Otto
   module Security
@@ -23,12 +24,14 @@ class Otto
     #   config.max_request_size = 5 * 1024 * 1024  # 5MB
     #   config.max_param_depth = 16
     class Config
-      attr_accessor :csrf_protection, :csrf_token_key, :csrf_header_key, :csrf_session_key,
-                    :max_request_size, :max_param_depth, :max_param_keys,
-                    :trusted_proxies, :require_secure_cookies,
-                    :security_headers, :input_validation,
-                    :csp_nonce_enabled, :debug_csp, :mcp_auth,
-                    :rate_limiting_config
+      include Otto::Core::Freezable
+
+      attr_accessor :input_validation, :max_param_depth, :csrf_token_key, :rate_limiting_config, :csrf_session_key, :max_request_size, :max_param_keys
+
+      attr_reader :csrf_protection,  :csrf_header_key,
+                  :trusted_proxies, :require_secure_cookies,
+                  :security_headers,
+                  :csp_nonce_enabled, :debug_csp, :mcp_auth
 
       # Initialize security configuration with safe defaults
       #
@@ -48,7 +51,7 @@ class Otto
         @input_validation       = true
         @csp_nonce_enabled      = false
         @debug_csp              = false
-        @rate_limiting_config   = {}
+        @rate_limiting_config   = { custom_rules: {} }
       end
 
       # Enable CSRF (Cross-Site Request Forgery) protection
@@ -60,14 +63,20 @@ class Otto
       # - Provide helper methods for forms and AJAX requests
       #
       # @return [void]
+      # @raise [FrozenError] if configuration is frozen
       def enable_csrf_protection!
+        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+
         @csrf_protection = true
       end
 
       # Disable CSRF protection
       #
       # @return [void]
+      # @raise [FrozenError] if configuration is frozen
       def disable_csrf_protection!
+        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+
         @csrf_protection = false
       end
 
@@ -86,6 +95,7 @@ class Otto
       #
       # @param proxy [String, Array] IP address, CIDR range, or array of addresses
       # @raise [ArgumentError] if proxy is not a String or Array
+      # @raise [FrozenError] if configuration is frozen
       # @return [void]
       #
       # @example Add single proxy
@@ -97,6 +107,8 @@ class Otto
       # @example Add multiple proxies
       #   config.add_trusted_proxy(['10.0.0.1', '172.16.0.0/12'])
       def add_trusted_proxy(proxy)
+        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+
         case proxy
         when String, Regexp
           @trusted_proxies << proxy
@@ -175,7 +187,10 @@ class Otto
       # @param max_age [Integer] Maximum age in seconds (default: 1 year)
       # @param include_subdomains [Boolean] Apply to all subdomains (default: true)
       # @return [void]
+      # @raise [FrozenError] if configuration is frozen
       def enable_hsts!(max_age: 31_536_000, include_subdomains: true)
+        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+
         hsts_value                                     = "max-age=#{max_age}"
         hsts_value                                    += '; includeSubDomains' if include_subdomains
         @security_headers['strict-transport-security'] = hsts_value
@@ -188,10 +203,13 @@ class Otto
       #
       # @param policy [String] CSP policy string (default: "default-src 'self'")
       # @return [void]
+      # @raise [FrozenError] if configuration is frozen
       #
       # @example Custom policy
       #   config.enable_csp!("default-src 'self'; script-src 'self' 'unsafe-inline'")
       def enable_csp!(policy = "default-src 'self'")
+        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+
         @security_headers['content-security-policy'] = policy
       end
 
@@ -203,10 +221,13 @@ class Otto
       #
       # @param debug [Boolean] Enable debug logging for CSP headers (default: false)
       # @return [void]
+      # @raise [FrozenError] if configuration is frozen
       #
       # @example
       #   config.enable_csp_with_nonce!(debug: true)
       def enable_csp_with_nonce!(debug: false)
+        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+
         @csp_nonce_enabled = true
         @debug_csp         = debug
       end
@@ -214,7 +235,10 @@ class Otto
       # Disable CSP nonce support
       #
       # @return [void]
+      # @raise [FrozenError] if configuration is frozen
       def disable_csp_nonce!
+        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+
         @csp_nonce_enabled = false
       end
 
@@ -246,7 +270,10 @@ class Otto
       #
       # @param option [String] Frame options: 'DENY', 'SAMEORIGIN', or 'ALLOW-FROM uri'
       # @return [void]
+      # @raise [FrozenError] if configuration is frozen
       def enable_frame_protection!(option = 'SAMEORIGIN')
+        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+
         @security_headers['x-frame-options'] = option
       end
 
@@ -254,6 +281,7 @@ class Otto
       #
       # @param headers [Hash] Hash of header name => value pairs
       # @return [void]
+      # @raise [FrozenError] if configuration is frozen
       #
       # @example
       #   config.set_custom_headers({
@@ -261,7 +289,21 @@ class Otto
       #     'cross-origin-opener-policy' => 'same-origin'
       #   })
       def set_custom_headers(headers)
+        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+
         @security_headers.merge!(headers)
+      end
+
+      # Override deep_freeze! to ensure rate_limiting_config has custom_rules initialized
+      #
+      # This pre-initializes any lazy values before freezing to prevent FrozenError
+      # when accessing configuration after it's frozen.
+      #
+      # @return [self] The frozen configuration
+      def deep_freeze!
+        # Ensure custom_rules is initialized (should already be done in constructor)
+        @rate_limiting_config[:custom_rules] ||= {}
+        super
       end
 
       def get_or_create_session_id(request)

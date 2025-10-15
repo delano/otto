@@ -116,7 +116,6 @@ class Otto
       # @option options [Integer] :period Time period in seconds (default: 60)
       # @option options [Proc] :condition Optional condition proc that receives request
       def add_rate_limit_rule(name, options)
-        @security_config.rate_limiting_config[:custom_rules] ||= {}
         @security_config.rate_limiting_config[:custom_rules][name.to_s] = options
       end
 

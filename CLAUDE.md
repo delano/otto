@@ -24,6 +24,55 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `enable_authentication!` is a no-op kept for API compatibility
 - AuthenticationMiddleware was removed (it was architecturally broken)
 
+## Configuration Freezing
+
+**IMPORTANT**: Otto automatically freezes all configuration at the end of initialization to prevent runtime security bypasses.
+
+### How It Works
+
+1. **Automatic Freezing**: `freeze_configuration!` is called automatically after initialization (unless in RSpec test environment)
+2. **Deep Freezing**: Uses recursive freezing to prevent modification at any nesting level
+3. **Memoization-Compatible**: Pre-computes memoized values before freezing to avoid FrozenError
+
+### What Gets Frozen
+
+- **Security Config**: All security settings including CSRF, validation, rate limiting, and headers
+- **Middleware Stack**: Prevents adding, removing, or modifying middleware after initialization
+- **Routes**: All route structures (`@routes`, `@routes_literal`, `@routes_static`, `@route_definitions`)
+- **Configuration Hashes**: `@auth_config`, `@locale_config`, `@option` and all nested structures
+
+### Security Guarantees
+
+```ruby
+# After initialization, ALL of these will raise FrozenError:
+
+# Direct modification attempts
+otto.security_config.csrf_protection = false  # FrozenError!
+otto.middleware.add(MaliciousMiddleware)       # FrozenError!
+
+# Method-based modification attempts
+otto.enable_csrf_protection!                   # FrozenError!
+otto.add_trusted_proxy('evil.proxy')           # FrozenError!
+otto.add_rate_limit_rule('bypass', limit: 999999) # FrozenError!
+
+# Nested structure modification attempts
+otto.security_config.rate_limiting_config[:custom_rules] = {} # FrozenError!
+otto.auth_config[:auth_strategies] = {}        # FrozenError!
+```
+
+### Testing Considerations
+
+- Freezing is **automatically disabled** when `RSpec` is defined
+- For manual unfreezing in tests, use `Otto.unfreeze_for_testing(otto)` (requires RSpec to be defined)
+- **Never** use `unfreeze_for_testing` in production code - it raises an error if RSpec is not defined
+
+### Implementation Details
+
+- `Otto::Core::Freezable` module provides `deep_freeze!` method
+- `MiddlewareStack` and `Security::Config` override `deep_freeze!` to pre-compute memoized values
+- Uses `defined?()` pattern instead of `||=` for freeze-compatible memoization
+- All mutation methods check `frozen?` and raise `FrozenError` when frozen
+
 ## Development Commands
 
 ### Setup

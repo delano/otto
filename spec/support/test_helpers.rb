@@ -5,6 +5,12 @@ require 'rack/test'
 
 # Test helpers for Otto specs
 module OttoTestHelpers
+  # Unfreeze Otto configuration for testing
+  # This allows tests to modify configuration after initialization
+  def unfreeze_otto(otto)
+    Otto.unfreeze_for_testing(otto)
+  end
+
   def create_test_routes_file(filename, routes)
     # Use spec/fixtures directory for test route files
     file_path = File.join('spec', 'fixtures', filename)
@@ -13,12 +19,15 @@ module OttoTestHelpers
   end
 
   def create_minimal_otto(routes_content = nil)
-    if routes_content
-      routes_file = create_test_routes_file('test_routes_minimal.txt', routes_content)
-      Otto.new(routes_file)
-    else
-      Otto.new
-    end
+    otto = if routes_content
+             routes_file = create_test_routes_file('test_routes_minimal.txt', routes_content)
+             Otto.new(routes_file)
+           else
+             Otto.new
+           end
+    # Unfreeze for testing to allow post-initialization configuration
+    Otto.unfreeze_for_testing(otto)
+    otto
   end
 
   def create_secure_otto(options = {})
@@ -28,8 +37,12 @@ module OttoTestHelpers
       trusted_proxies: ['127.0.0.1', '10.0.0.0/8'],
     }
     routes_file = create_test_routes_file('test_routes_secure.txt', ['GET / TestApp.index'])
-    Otto.new(routes_file, default_options.merge(options))
+    otto = Otto.new(routes_file, default_options.merge(options))
+    # Unfreeze for testing to allow post-initialization configuration
+    Otto.unfreeze_for_testing(otto)
+    otto
   end
+
 
   def mock_rack_env(method: 'GET', path: '/', headers: {}, params: {})
     # Requires rack-test gem for Rack::MockRequest

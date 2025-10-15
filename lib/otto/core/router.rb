@@ -51,7 +51,7 @@ class Otto
       def handle_request(env)
         locale             = determine_locale env
         env['rack.locale'] = locale
-        env['otto.locale_config'] = @locale_config if @locale_config
+        env['otto.locale_config'] = @locale_config.to_h if @locale_config
         @static_route    ||= Rack::Files.new(option[:public]) if option[:public] && safe_dir?(option[:public])
         path_info          = Rack::Utils.unescape(env['PATH_INFO'])
         path_info          = '/' if path_info.to_s.empty?

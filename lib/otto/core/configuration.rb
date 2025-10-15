@@ -7,52 +7,37 @@ require_relative '../security/validator'
 require_relative '../security/authentication'
 require_relative '../security/rate_limiting'
 require_relative '../mcp/server'
+require_relative 'freezable'
 
 class Otto
   module Core
     # Configuration module providing locale and application configuration methods
     module Configuration
+      include Otto::Core::Freezable
       def configure_locale(opts)
-        # Start with global configuration
-        global_config = self.class.global_config
-        @locale_config = nil
-
-        # Check if we have any locale configuration from any source
-        has_global_locale = global_config && (global_config[:available_locales] || global_config[:default_locale])
+        # Check if we have any locale configuration
         has_direct_options = opts[:available_locales] || opts[:default_locale]
         has_legacy_config = opts[:locale_config]
 
-        # Only create locale_config if we have configuration from somewhere
-        return unless has_global_locale || has_direct_options || has_legacy_config
+        # Only create locale_config if we have configuration
+        return unless has_direct_options || has_legacy_config
 
-        @locale_config = {}
+        # Initialize with direct options
+        available_locales = opts[:available_locales]
+        default_locale = opts[:default_locale]
 
-        # Apply global configuration first
-        if global_config && global_config[:available_locales]
-          @locale_config[:available_locales] =
-            global_config[:available_locales]
+        # Legacy support: Configure locale if provided via locale_config hash
+        if opts[:locale_config]
+          locale_opts = opts[:locale_config]
+          available_locales ||= locale_opts[:available_locales] || locale_opts[:available]
+          default_locale ||= locale_opts[:default_locale] || locale_opts[:default]
         end
-        if global_config && global_config[:default_locale]
-          @locale_config[:default_locale] =
-            global_config[:default_locale]
-        end
 
-        # Apply direct instance options (these override global config)
-        @locale_config[:available_locales] = opts[:available_locales] if opts[:available_locales]
-        @locale_config[:default_locale] = opts[:default_locale] if opts[:default_locale]
-
-        # Legacy support: Configure locale if provided in initialization options via locale_config hash
-        return unless opts[:locale_config]
-
-        locale_opts = opts[:locale_config]
-        if locale_opts[:available_locales] || locale_opts[:available]
-          @locale_config[:available_locales] =
-            locale_opts[:available_locales] || locale_opts[:available]
-        end
-        return unless locale_opts[:default_locale] || locale_opts[:default]
-
-        @locale_config[:default_locale] =
-          locale_opts[:default_locale] || locale_opts[:default]
+        # Create Otto::Locale::Config instance
+        @locale_config = Otto::Locale::Config.new(
+          available_locales: available_locales,
+          default_locale: default_locale
+        )
       end
 
       def configure_security(opts)
@@ -114,9 +99,14 @@ class Otto
       #     default_locale: 'en'
       #   )
       def configure(available_locales: nil, default_locale: nil)
-        @locale_config ||= {}
-        @locale_config[:available_locales] = available_locales if available_locales
-        @locale_config[:default_locale] = default_locale if default_locale
+        ensure_not_frozen!
+
+        # Initialize locale_config if not already set
+        @locale_config ||= Otto::Locale::Config.new
+
+        # Update configuration
+        @locale_config.available_locales = available_locales if available_locales
+        @locale_config.default_locale = default_locale if default_locale
       end
 
       # Configure rate limiting settings.
@@ -133,6 +123,7 @@ class Otto
       #     }
       #   })
       def configure_rate_limiting(config)
+        ensure_not_frozen!
         @security_config.rate_limiting_config.merge!(config)
       end
 
@@ -148,13 +139,59 @@ class Otto
       #     'api_key' => Otto::Security::Authentication::Strategies::APIKeyStrategy.new(api_keys: ['secret123'])
       #   })
       def configure_auth_strategies(strategies, default_strategy: 'noauth')
+        ensure_not_frozen!
         # Update existing @auth_config rather than creating a new one
         @auth_config[:auth_strategies] = strategies
         @auth_config[:default_auth_strategy] = default_strategy
 
       end
 
-      private
+      # Freeze the application configuration to prevent runtime modifications.
+      # Called automatically at the end of initialization to ensure immutability.
+      #
+      # This prevents security-critical configuration from being modified after
+      # the application begins handling requests. Uses deep freezing to prevent
+      # both direct modification and modification through nested structures.
+      #
+      # @raise [RuntimeError] if configuration is already frozen
+      # @return [self]
+      def freeze_configuration!
+        return self if frozen_configuration?
+
+        # Deep freeze configuration objects with memoization support
+        @security_config.deep_freeze! if @security_config.respond_to?(:deep_freeze!)
+        @locale_config.deep_freeze! if @locale_config.respond_to?(:deep_freeze!)
+        @middleware.deep_freeze! if @middleware.respond_to?(:deep_freeze!)
+
+        # Deep freeze configuration hashes (recursively freezes nested structures)
+        deep_freeze_value(@auth_config) if @auth_config
+        deep_freeze_value(@option) if @option
+
+        # Deep freeze route structures (prevent modification of nested hashes/arrays)
+        deep_freeze_value(@routes) if @routes
+        deep_freeze_value(@routes_literal) if @routes_literal
+        deep_freeze_value(@routes_static) if @routes_static
+        deep_freeze_value(@route_definitions) if @route_definitions
+
+        @configuration_frozen = true
+
+        self
+      end
+
+      # Check if configuration is frozen
+      #
+      # @return [Boolean] true if configuration is frozen
+      def frozen_configuration?
+        @configuration_frozen == true
+      end
+
+      # Ensure configuration is not frozen before allowing mutations
+      #
+      # @raise [FrozenError] if configuration is frozen
+      def ensure_not_frozen!
+        raise FrozenError, 'Cannot modify frozen configuration' if frozen_configuration?
+      end
+
 
       def middleware_enabled?(middleware_class)
         # Only check the new middleware stack as the single source of truth

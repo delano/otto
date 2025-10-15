@@ -2,6 +2,8 @@
 
 # lib/otto/core/middleware_stack.rb
 
+require_relative 'freezable'
+
 class Otto
   module Core
     # Enhanced middleware stack management for Otto framework.
@@ -9,6 +11,7 @@ class Otto
     # and improved execution chain management.
     class MiddlewareStack
       include Enumerable
+      include Otto::Core::Freezable
 
       def initialize
         @stack = []
@@ -40,8 +43,6 @@ class Otto
         entry = { middleware: middleware_class, args: args, options: options }
         @stack << entry
         @middleware_set.add(middleware_class)
-        # Invalidate memoized middleware list
-        @memoized_middleware_list = nil
         # Notify of change
         @on_change_callback&.call
       end
@@ -76,7 +77,6 @@ class Otto
         end
 
         @middleware_set.add(middleware_class)
-        @memoized_middleware_list = nil
         # Notify of change
         @on_change_callback&.call
       end
@@ -142,8 +142,6 @@ class Otto
 
         # Rebuild the set of unique middleware classes
         @middleware_set = Set.new(@stack.map { |entry| entry[:middleware] })
-        # Invalidate memoized middleware list
-        @memoized_middleware_list = nil
         # Notify of change
         @on_change_callback&.call
       end
@@ -160,8 +158,6 @@ class Otto
 
         @stack.clear
         @middleware_set.clear
-        # Invalidate memoized middleware list
-        @memoized_middleware_list = nil
         # Notify of change
         @on_change_callback&.call
       end
@@ -192,10 +188,9 @@ class Otto
         end
       end
 
-      # Cached middleware list to reduce array creation
+      # Returns list of middleware classes in order
       def middleware_list
-        # Memoize the result to avoid repeated array creation
-        @memoized_middleware_list ||= @stack.map { |entry| entry[:middleware] }
+        @stack.map { |entry| entry[:middleware] }
       end
 
       # Detailed introspection
@@ -229,6 +224,8 @@ class Otto
       def reverse_each(&)
         @stack.reverse_each(&)
       end
+
+
 
       private
 

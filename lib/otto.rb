@@ -11,28 +11,18 @@ require 'rack/request'
 require 'rack/response'
 require 'rack/utils'
 
-require_relative 'otto/security/authentication/strategy_result'
 require_relative 'otto/route_definition'
 require_relative 'otto/route'
 require_relative 'otto/static'
-require_relative 'otto/helpers/request'
-require_relative 'otto/helpers/response'
+require_relative 'otto/helpers'
 require_relative 'otto/response_handlers'
 require_relative 'otto/route_handlers'
-require_relative 'otto/version'
-require_relative 'otto/security/config'
-require_relative 'otto/security/middleware/csrf_middleware'
-require_relative 'otto/security/middleware/validation_middleware'
-require_relative 'otto/security/middleware/rate_limit_middleware'
-require_relative 'otto/mcp/server'
-require_relative 'otto/core/router'
-require_relative 'otto/core/file_safety'
-require_relative 'otto/core/configuration'
-require_relative 'otto/core/error_handler'
-require_relative 'otto/core/uri_generator'
-require_relative 'otto/core/middleware_stack'
-require_relative 'otto/security/configurator'
+require_relative 'otto/locale/config'
+require_relative 'otto/mcp'
+require_relative 'otto/core'
+require_relative 'otto/security'
 require_relative 'otto/utils'
+require_relative 'otto/version'
 
 # Otto is a simple Rack router that allows you to define routes in a file
 # with built-in security features including CSRF protection, input validation,
@@ -55,37 +45,6 @@ require_relative 'otto/utils'
 #   otto.enable_csp!
 #   otto.enable_frame_protection!
 #
-# Configuration Data class to replace OpenStruct
-# Configuration class to replace OpenStruct
-class ConfigData
-  def initialize(**kwargs)
-    @data = kwargs
-  end
-
-  # Dynamic attribute accessors
-  def method_missing(method_name, *args)
-    if method_name.to_s.end_with?('=')
-      # Setter
-      attr_name = method_name.to_s.chomp('=').to_sym
-      @data[attr_name] = args.first
-    elsif @data.key?(method_name)
-      # Getter
-      @data[method_name]
-    else
-      super
-    end
-  end
-
-  def respond_to_missing?(method_name, include_private = false)
-    method_name.to_s.end_with?('=') || @data.key?(method_name) || super
-  end
-
-  # Convert to hash for compatibility
-  def to_h
-    @data.dup
-  end
-end
-
 class Otto
   include Otto::Core::Router
   include Otto::Core::FileSafety
@@ -101,25 +60,11 @@ class Otto
            else
              defined?(Otto::Utils) ? Otto::Utils.yes?(ENV.fetch('OTTO_DEBUG', nil)) : false
            end
-  @logger        = Logger.new($stdout, Logger::INFO)
-  @global_config = nil
+  @logger = Logger.new($stdout, Logger::INFO)
 
-  # Global configuration for all Otto instances (Ruby 3.2+ pattern matching)
-  def self.configure
-    config = case @global_config
-             in Hash => h
-               # Transform string keys to symbol keys for ConfigData compatibility
-               symbol_hash = h.transform_keys(&:to_sym)
-               ConfigData.new(**symbol_hash)
-             else
-               ConfigData.new
-             end
-    yield config
-    @global_config = config.to_h
-  end
-
-  attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option, :static_route,
-              :security_config, :locale_config, :auth_config, :route_handler_factory, :mcp_server, :security, :middleware
+  attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option,
+              :static_route, :security_config, :locale_config, :auth_config,
+              :route_handler_factory, :mcp_server, :security, :middleware
   attr_accessor :not_found, :server_error
 
   def initialize(path = nil, opts = {})
@@ -133,6 +78,10 @@ class Otto
 
     # Build the middleware app once after all initialization is complete
     build_app!
+
+    # Freeze configuration to prevent runtime modifications
+    # Skip freezing in test environment to allow test flexibility
+    freeze_configuration! unless defined?(RSpec)
   end
   alias options option
 
@@ -145,7 +94,6 @@ class Otto
       handle_error(e, env)
     end
   end
-
 
   # Builds the middleware application chain
   # Called once at initialization and whenever middleware stack changes
@@ -171,6 +119,7 @@ class Otto
 
   # Middleware Management
   def use(middleware, ...)
+    ensure_not_frozen!
     @middleware.add(middleware, ...)
 
     # NOTE: If build_app! is triggered during a request (via use() or
@@ -206,6 +155,7 @@ class Otto
   # @example
   #   otto.enable_csrf_protection!
   def enable_csrf_protection!
+    ensure_not_frozen!
     return if @middleware.includes?(Otto::Security::Middleware::CSRFMiddleware)
 
     @security_config.enable_csrf_protection!
@@ -218,6 +168,7 @@ class Otto
   # @example
   #   otto.enable_request_validation!
   def enable_request_validation!
+    ensure_not_frozen!
     return if @middleware.includes?(Otto::Security::Middleware::ValidationMiddleware)
 
     @security_config.input_validation = true
@@ -233,6 +184,7 @@ class Otto
   # @example
   #   otto.enable_rate_limiting!(requests_per_minute: 50)
   def enable_rate_limiting!(options = {})
+    ensure_not_frozen!
     return if @middleware.includes?(Otto::Security::Middleware::RateLimitMiddleware)
 
     @security.configure_rate_limiting(options)
@@ -249,7 +201,7 @@ class Otto
   # @example
   #   otto.add_rate_limit_rule('uploads', limit: 5, period: 300, condition: ->(req) { req.post? && req.path.include?('upload') })
   def add_rate_limit_rule(name, options)
-    @security_config.rate_limiting_config[:custom_rules] ||= {}
+    ensure_not_frozen!
     @security_config.rate_limiting_config[:custom_rules][name.to_s] = options
   end
 
@@ -261,6 +213,7 @@ class Otto
   #   otto.add_trusted_proxy('10.0.0.0/8')
   #   otto.add_trusted_proxy(/^172\.16\./)
   def add_trusted_proxy(proxy)
+    ensure_not_frozen!
     @security_config.add_trusted_proxy(proxy)
   end
 
@@ -274,6 +227,7 @@ class Otto
   #     'strict-transport-security' => 'max-age=31536000'
   #   })
   def set_security_headers(headers)
+    ensure_not_frozen!
     @security_config.security_headers.merge!(headers)
   end
 
@@ -286,6 +240,7 @@ class Otto
   # @example
   #   otto.enable_hsts!(max_age: 86400, include_subdomains: false)
   def enable_hsts!(max_age: 31_536_000, include_subdomains: true)
+    ensure_not_frozen!
     @security_config.enable_hsts!(max_age: max_age, include_subdomains: include_subdomains)
   end
 
@@ -296,6 +251,7 @@ class Otto
   # @example
   #   otto.enable_csp!("default-src 'self'; script-src 'self' 'unsafe-inline'")
   def enable_csp!(policy = "default-src 'self'")
+    ensure_not_frozen!
     @security_config.enable_csp!(policy)
   end
 
@@ -305,6 +261,7 @@ class Otto
   # @example
   #   otto.enable_frame_protection!('DENY')
   def enable_frame_protection!(option = 'SAMEORIGIN')
+    ensure_not_frozen!
     @security_config.enable_frame_protection!(option)
   end
 
@@ -315,6 +272,7 @@ class Otto
   # @example
   #   otto.enable_csp_with_nonce!(debug: true)
   def enable_csp_with_nonce!(debug: false)
+    ensure_not_frozen!
     @security_config.enable_csp_with_nonce!(debug: debug)
   end
 
@@ -325,6 +283,7 @@ class Otto
   # @example
   #   otto.add_auth_strategy('custom', MyCustomStrategy.new)
   def add_auth_strategy(name, strategy)
+    ensure_not_frozen!
     # Ensure auth_config is initialized (handles edge case where it might be nil)
     @auth_config = { auth_strategies: {}, default_auth_strategy: 'noauth' } if @auth_config.nil?
 
@@ -340,6 +299,7 @@ class Otto
   # @example
   #   otto.enable_mcp!(http: true, endpoint: '/api/mcp')
   def enable_mcp!(options = {})
+    ensure_not_frozen!
     @mcp_server ||= Otto::MCP::Server.new(self)
 
     @mcp_server.enable!(options)
@@ -390,7 +350,7 @@ class Otto
   end
 
   class << self
-    attr_accessor :debug, :logger, :global_config # rubocop:disable ThreadSafety/ClassAndModuleAttributes
+    attr_accessor :debug, :logger # rubocop:disable ThreadSafety/ClassAndModuleAttributes
   end
 
   # Class methods for Otto framework providing singleton access and configuration
@@ -414,6 +374,28 @@ class Otto
 
     def env? *guesses
       !guesses.flatten.select { |n| ENV['RACK_ENV'].to_s == n.to_s }.empty?
+    end
+
+    # Test-only method to unfreeze Otto configuration
+    #
+    # This method resets the @configuration_frozen flag, allowing tests
+    # to bypass the ensure_not_frozen! check. It does NOT actually unfreeze
+    # Ruby objects (which is impossible once frozen).
+    #
+    # IMPORTANT: Only works when RSpec is defined. Raises an error otherwise
+    # to prevent accidental use in production.
+    #
+    # @param otto [Otto] The Otto instance to unfreeze
+    # @return [Otto] The unfrozen Otto instance
+    # @raise [RuntimeError] if RSpec is not defined (not in test environment)
+    # @api private
+    def unfreeze_for_testing(otto)
+      unless defined?(RSpec)
+        raise 'Otto.unfreeze_for_testing is only available in RSpec test environment'
+      end
+
+      otto.instance_variable_set(:@configuration_frozen, false)
+      otto
     end
   end
   extend ClassMethods

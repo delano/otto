@@ -27,7 +27,7 @@ RSpec.describe Otto, 'rate limiting features' do
 
     it 'does not add middleware twice when called multiple times' do
       otto.enable_rate_limiting!
-      otto.enable_rate_limiting!
+      otto.enable_rate_limiting! # repeated intentionally for this testcase
 
       middleware_count = otto.middleware.middleware_list.count(Otto::Security::RateLimitMiddleware)
       expect(middleware_count).to eq(1)

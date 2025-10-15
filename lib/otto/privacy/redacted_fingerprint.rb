@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# lib/otto/privacy/redacted_fingerprint.rb
 
 require 'securerandom'
 require 'time'
@@ -13,16 +13,16 @@ class Otto
     #
     # @example Create from Rack environment
     #   config = Otto::Privacy::Config.new
-    #   fingerprint = PrivateFingerprint.new(env, config)
+    #   fingerprint = RedactedFingerprint.new(env, config)
     #   fingerprint.masked_ip   # => '192.168.1.0'
     #   fingerprint.country     # => 'US'
     #
-    class PrivateFingerprint
+    class RedactedFingerprint
       attr_reader :session_id, :timestamp, :masked_ip, :hashed_ip,
                   :country, :anonymized_ua, :request_path,
                   :request_method, :referer
 
-      # Create a new PrivateFingerprint from a Rack environment
+      # Create a new RedactedFingerprint from a Rack environment
       #
       # @param env [Hash] Rack environment hash
       # @param config [Otto::Privacy::Config] Privacy configuration
@@ -71,14 +71,14 @@ class Otto
       #
       # @return [String] Human-readable representation
       def to_s
-        "#<PrivateFingerprint #{@hashed_ip[0..15]}... #{@country} #{@timestamp}>"
+        "#<RedactedFingerprint #{@hashed_ip[0..15]}... #{@country} #{@timestamp}>"
       end
 
       # Inspect representation
       #
       # @return [String] Detailed representation for debugging
       def inspect
-        '#<Otto::Privacy::PrivateFingerprint ' \
+        '#<Otto::Privacy::RedactedFingerprint ' \
           "masked_ip=#{@masked_ip.inspect} " \
           "hashed_ip=#{@hashed_ip[0..15]}... " \
           "country=#{@country.inspect} " \

@@ -13,7 +13,7 @@ class Otto
       #
       # @example Default behavior (privacy enabled)
       #   # env['REMOTE_ADDR'] is masked to 192.168.1.0
-      #   # env['otto.private_fingerprint'] contains full anonymized data
+      #   # env['otto.redacted_fingerprint'] contains full anonymized data
       #   # env['otto.original_ip'] is NOT set
       #
       # @example Privacy disabled
@@ -71,10 +71,10 @@ class Otto
           end
 
           # Create privacy-safe fingerprint
-          fingerprint = Otto::Privacy::PrivateFingerprint.new(env, @config)
+          fingerprint = Otto::Privacy::RedactedFingerprint.new(env, @config)
 
           # Set privacy-safe values in environment
-          env['otto.private_fingerprint'] = fingerprint
+          env['otto.redacted_fingerprint'] = fingerprint
           env['otto.masked_ip'] = fingerprint.masked_ip
           env['otto.hashed_ip'] = fingerprint.hashed_ip
           env['otto.geo_country'] = fingerprint.country

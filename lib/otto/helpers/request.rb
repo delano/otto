@@ -1,5 +1,3 @@
-# frozen_string_literal: true
-
 # lib/otto/helpers/request.rb
 
 require_relative 'base'
@@ -34,13 +32,13 @@ class Otto
     # Returns nil if IP privacy is disabled. The fingerprint contains
     # anonymized request information suitable for logging and analytics.
     #
-    # @return [Otto::Privacy::PrivateFingerprint, nil] Privacy-safe fingerprint
+    # @return [Otto::Privacy::RedactedFingerprint, nil] Privacy-safe fingerprint
     # @example
-    #   fingerprint = req.private_fingerprint
+    #   fingerprint = req.redacted_fingerprint
     #   fingerprint.masked_ip    # => '192.168.1.0'
     #   fingerprint.country      # => 'US'
-    def private_fingerprint
-      env['otto.private_fingerprint']
+    def redacted_fingerprint
+      env['otto.redacted_fingerprint']
     end
 
     # Get the geo-location country code for the request
@@ -52,7 +50,7 @@ class Otto
     # @example
     #   req.geo_country  # => 'US'
     def geo_country
-      private_fingerprint&.country || env['otto.geo_country']
+      redacted_fingerprint&.country || env['otto.geo_country']
     end
 
     # Get anonymized user agent string
@@ -65,7 +63,7 @@ class Otto
     #   req.anonymized_user_agent
     #   # => 'Mozilla/X.X (Windows NT X.X; Win64; x64) AppleWebKit/X.X'
     def anonymized_user_agent
-      private_fingerprint&.anonymized_ua
+      redacted_fingerprint&.anonymized_ua
     end
 
     # Get masked IP address
@@ -90,7 +88,7 @@ class Otto
     # @example
     #   req.hashed_ip  # => 'a3f8b2c4d5e6f7...'
     def hashed_ip
-      private_fingerprint&.hashed_ip || env['otto.hashed_ip']
+      redacted_fingerprint&.hashed_ip || env['otto.hashed_ip']
     end
 
     def client_ipaddress

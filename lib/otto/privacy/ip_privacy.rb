@@ -1,7 +1,8 @@
-# frozen_string_literal: true
+# lib/otto/privacy/ip_privacy.rb
 
 require 'ipaddr'
 require 'digest'
+require 'openssl'
 require 'socket'
 
 class Otto

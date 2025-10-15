@@ -3,7 +3,7 @@
 require_relative 'privacy/config'
 require_relative 'privacy/ip_privacy'
 require_relative 'privacy/geo_resolver'
-require_relative 'privacy/private_fingerprint'
+require_relative 'privacy/redacted_fingerprint'
 
 # Otto::Privacy module provides IP address anonymization and privacy features
 #

@@ -20,6 +20,7 @@ require_relative 'otto/route_handlers'
 require_relative 'otto/locale/config'
 require_relative 'otto/mcp'
 require_relative 'otto/core'
+require_relative 'otto/privacy'
 require_relative 'otto/security'
 require_relative 'otto/utils'
 require_relative 'otto/version'
@@ -290,6 +291,52 @@ class Otto
     @auth_config[:auth_strategies][name] = strategy
   end
 
+  # Disable IP privacy to access original IP addresses
+  #
+  # IMPORTANT: By default, Otto masks IP addresses for privacy. Only disable
+  # this if you have a specific requirement to access original IPs.
+  #
+  # When disabled:
+  # - env['REMOTE_ADDR'] contains the real IP address
+  # - env['otto.original_ip'] also contains the real IP
+  # - No PrivateFingerprint is created
+  #
+  # @example
+  #   otto.disable_ip_privacy!
+  def disable_ip_privacy!
+    ensure_not_frozen!
+    @security_config.ip_privacy_config.disable!
+  end
+
+  # Configure IP privacy settings
+  #
+  # Privacy is enabled by default. Use this method to customize privacy
+  # behavior without disabling it entirely.
+  #
+  # @param mask_level [Integer] Number of octets to mask (1 or 2, default: 1)
+  # @param hash_rotation [Integer] Seconds between key rotation (default: 86400)
+  # @param geo [Boolean] Enable geo-location resolution (default: true)
+  #
+  # @example Mask 2 octets instead of 1
+  #   otto.configure_ip_privacy(mask_level: 2)
+  #
+  # @example Disable geo-location
+  #   otto.configure_ip_privacy(geo: false)
+  #
+  # @example Custom hash rotation
+  #   otto.configure_ip_privacy(hash_rotation: 12.hours)
+  def configure_ip_privacy(mask_level: nil, hash_rotation: nil, geo: nil)
+    ensure_not_frozen!
+    config = @security_config.ip_privacy_config
+
+    config.mask_level = mask_level if mask_level
+    config.hash_rotation_period = hash_rotation if hash_rotation
+    config.geo_enabled = geo unless geo.nil?
+
+    # Validate configuration
+    config.validate!
+  end
+
   # Enable MCP (Model Context Protocol) server support
   #
   # @param options [Hash] MCP configuration options
@@ -325,6 +372,13 @@ class Otto
     @auth_config       = { auth_strategies: {}, default_auth_strategy: 'noauth' }
     @security          = Otto::Security::Configurator.new(@security_config, @middleware, @auth_config)
     @app               = nil  # Pre-built middleware app (built after initialization)
+
+    # Add IP Privacy middleware first in stack (privacy by default)
+    # This ensures IPs are masked before any other middleware processes them
+    @middleware.add_with_position(
+      Otto::Security::Middleware::IPPrivacyMiddleware,
+      position: :first
+    )
   end
 
   def initialize_options(_path, opts)

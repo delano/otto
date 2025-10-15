@@ -13,6 +13,70 @@ class Otto
       env['HTTP_USER_AGENT']
     end
 
+    # Get the privacy-safe fingerprint for this request
+    #
+    # Returns nil if IP privacy is disabled. The fingerprint contains
+    # anonymized request information suitable for logging and analytics.
+    #
+    # @return [Otto::Privacy::PrivateFingerprint, nil] Privacy-safe fingerprint
+    # @example
+    #   fingerprint = req.private_fingerprint
+    #   fingerprint.masked_ip    # => '192.168.1.0'
+    #   fingerprint.country      # => 'US'
+    def private_fingerprint
+      env['otto.private_fingerprint']
+    end
+
+    # Get the geo-location country code for the request
+    #
+    # Returns ISO 3166-1 alpha-2 country code or 'XX' for unknown.
+    # Only available when IP privacy is enabled (default).
+    #
+    # @return [String, nil] Country code or nil if privacy disabled
+    # @example
+    #   req.geo_country  # => 'US'
+    def geo_country
+      private_fingerprint&.country || env['otto.geo_country']
+    end
+
+    # Get anonymized user agent string
+    #
+    # Returns user agent with version numbers stripped for privacy.
+    # Only available when IP privacy is enabled (default).
+    #
+    # @return [String, nil] Anonymized user agent or nil
+    # @example
+    #   req.anonymized_user_agent
+    #   # => 'Mozilla/X.X (Windows NT X.X; Win64; x64) AppleWebKit/X.X'
+    def anonymized_user_agent
+      private_fingerprint&.anonymized_ua
+    end
+
+    # Get masked IP address
+    #
+    # Returns privacy-safe masked IP. When privacy is enabled (default),
+    # this returns the masked version. When disabled, returns original IP.
+    #
+    # @return [String, nil] Masked or original IP address
+    # @example
+    #   req.masked_ip  # => '192.168.1.0'
+    def masked_ip
+      env['otto.masked_ip'] || env['REMOTE_ADDR']
+    end
+
+    # Get hashed IP for session correlation
+    #
+    # Returns daily-rotating hash of the IP address, allowing session
+    # tracking without storing the original IP. Only available when
+    # IP privacy is enabled (default).
+    #
+    # @return [String, nil] Hexadecimal hash string or nil
+    # @example
+    #   req.hashed_ip  # => 'a3f8b2c4d5e6f7...'
+    def hashed_ip
+      private_fingerprint&.hashed_ip || env['otto.hashed_ip']
+    end
+
     def client_ipaddress
       remote_addr = env['REMOTE_ADDR']
 

@@ -73,6 +73,146 @@ otto.auth_config[:auth_strategies] = {}        # FrozenError!
 - Uses `defined?()` pattern instead of `||=` for freeze-compatible memoization
 - All mutation methods check `frozen?` and raise `FrozenError` when frozen
 
+## IP Privacy (Privacy by Default)
+
+**IMPORTANT**: Otto automatically masks IP addresses by default to enhance privacy and comply with data protection regulations (GDPR, CCPA, etc.).
+
+### How It Works
+
+1. **Privacy by Default**: `IPPrivacyMiddleware` is added FIRST in the middleware stack during initialization
+2. **IP Masking**: Automatically zeros out the last octet (IPv4) or last 80 bits (IPv6) of all IP addresses
+3. **No Original IP Storage**: When privacy is enabled (default), original IPs are NEVER stored in `env`
+4. **Middleware Runs First**: Processes IPs before authentication, rate limiting, or any application code
+
+### What Gets Anonymized
+
+```ruby
+# With privacy enabled (default):
+env['REMOTE_ADDR']                  # => '192.168.1.0' (masked)
+env['otto.masked_ip']               # => '192.168.1.0' (same as REMOTE_ADDR)
+env['otto.hashed_ip']               # => 'a3f8b2...' (daily-rotating hash)
+env['otto.geo_country']             # => 'US' (country-level only)
+env['otto.private_fingerprint']     # => PrivateFingerprint object
+env['otto.original_ip']             # => nil (NOT available)
+
+# PrivateFingerprint contains:
+fingerprint.masked_ip               # => '192.168.1.0'
+fingerprint.hashed_ip               # => 'a3f8b2...' (for session correlation)
+fingerprint.country                 # => 'US'
+fingerprint.anonymized_ua           # => 'Mozilla/X.X (Windows NT X.X...)'
+fingerprint.session_id              # => UUID
+fingerprint.timestamp               # => UTC timestamp
+```
+
+### Request Helper Methods
+
+```ruby
+# Privacy-safe helpers (available in all handlers/controllers)
+req.masked_ip                       # => '192.168.1.0'
+req.hashed_ip                       # => 'a3f8b2...'
+req.geo_country                     # => 'US'
+req.anonymized_user_agent           # => 'Mozilla/X.X...'
+req.private_fingerprint             # => Full PrivateFingerprint object
+
+# Standard Rack helper (returns masked IP by default)
+req.ip                              # => '192.168.1.0' (privacy-safe)
+```
+
+### Configuration
+
+```ruby
+# Default: Privacy enabled, 1 octet masked
+otto = Otto.new(routes_file)
+# env['REMOTE_ADDR'] is masked to 192.168.1.0
+
+# Customize privacy settings (still enabled)
+otto.configure_ip_privacy(
+  mask_level: 2,          # Mask 2 octets (192.168.0.0)
+  hash_rotation: 12.hours, # Rotate hashing key every 12 hours
+  geo: false              # Disable geo-location
+)
+
+# Explicitly disable privacy (NOT recommended)
+otto.disable_ip_privacy!
+# env['REMOTE_ADDR'] contains real IP
+# env['otto.original_ip'] also available
+```
+
+### Use Cases
+
+**Session Correlation Without Tracking:**
+```ruby
+# Use hashed IP for rate limiting/analytics without storing real IPs
+Rack::Attack.throttle('requests/ip', limit: 100, period: 60) do |req|
+  req.hashed_ip  # Daily-rotating hash allows session tracking
+end
+```
+
+**Geo-Analytics Without Privacy Invasion:**
+```ruby
+# Country-level analytics without precise location
+class Analytics
+  def track_request(req)
+    log({
+      country: req.geo_country,      # 'US' (country-level only)
+      masked_ip: req.masked_ip,      # '192.168.1.0'
+      path: req.path
+    })
+  end
+end
+```
+
+**Privacy-Compliant Logging:**
+```ruby
+# Log requests with privacy-safe fingerprints
+class RequestLogger
+  def log(req)
+    fingerprint = req.private_fingerprint
+    Rails.logger.info(fingerprint.to_json)
+    # Original IP never logged
+  end
+end
+```
+
+### Authentication Integration
+
+RouteAuthWrapper and authentication strategies automatically use masked IPs:
+
+```ruby
+# Anonymous StrategyResult uses masked IP
+result = StrategyResult.anonymous(metadata: { ip: env['REMOTE_ADDR'] })
+result.user_context[:ip]  # => '192.168.1.0' (masked)
+
+# Auth failures include geo-location
+metadata = {
+  ip: env['REMOTE_ADDR'],           # Masked
+  country: env['otto.geo_country'], # 'US'
+  auth_failure: 'Invalid credentials'
+}
+```
+
+### Privacy Guarantees
+
+1. **No Accidental Leaks**: Original IPs never stored unless explicitly disabled
+2. **GDPR Compliant**: Masked IPs are not personally identifiable
+3. **Session Correlation**: Daily-rotating hashed IPs enable analytics without tracking
+4. **Geo-Analytics**: Country-level location data without privacy invasion
+5. **User Agent Privacy**: Version numbers stripped to reduce fingerprinting
+
+### Geo-Location Resolution
+
+Uses multiple sources (no external APIs required):
+
+1. **CloudFlare Headers** (most reliable): `CF-IPCountry` header
+2. **IP Range Detection**: Basic detection for major providers (Google, AWS, etc.)
+3. **Unknown Fallback**: Returns 'XX' for unresolved IPs
+
+### Testing Considerations
+
+- In test environment (RSpec), privacy is enabled by default
+- Use `Otto.unfreeze_for_testing(otto)` before calling `disable_ip_privacy!` in tests
+- Helper methods like `req.private_fingerprint` return nil when privacy is disabled
+
 ## Development Commands
 
 ### Setup
@@ -102,6 +242,11 @@ bundle exec rspec spec/path/to/specific_spec.rb
 ### Key Features
 - Plain-text routes configuration
 - Automatic locale detection
+- Privacy by default:
+  - Automatic IP address masking
+  - Daily-rotating IP hashing for session correlation
+  - Country-level geo-location (no external APIs)
+  - User agent anonymization
 - Optional security features:
   - CSRF protection
   - Input validation

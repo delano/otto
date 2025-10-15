@@ -131,9 +131,6 @@ class Otto
     load(path) unless path.nil?
     super()
 
-    # Set up middleware callback to auto-rebuild app on changes
-    setup_middleware_callback
-
     # Build the middleware app once after all initialization is complete
     build_app!
   end
@@ -390,11 +387,6 @@ class Otto
 
     # Initialize MCP server
     configure_mcp(opts)
-  end
-
-  # Set up middleware stack change callback to rebuild app
-  def setup_middleware_callback
-    @middleware.on_change { build_app! if @app }
   end
 
   class << self

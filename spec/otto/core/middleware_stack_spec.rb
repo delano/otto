@@ -220,10 +220,10 @@ RSpec.describe Otto::Core::MiddlewareStack do
     end
 
     it 'passes security_config to security middleware' do
-      # Mock Otto::Security::CSRFMiddleware for security config injection
-      stub_const('Otto::Security::CSRFMiddleware', mock_middleware1)
+      # Mock Otto::Security::Middleware::CSRFMiddleware for security config injection
+      stub_const('Otto::Security::Middleware::CSRFMiddleware', mock_middleware1)
 
-      stack.add(Otto::Security::CSRFMiddleware)
+      stack.add(Otto::Security::Middleware::CSRFMiddleware)
       app = stack.wrap(base_app, security_config)
 
       expect(app.config).to eq(security_config)

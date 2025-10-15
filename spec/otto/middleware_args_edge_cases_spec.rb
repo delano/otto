@@ -63,13 +63,13 @@ RSpec.describe 'Middleware Args Edge Cases' do
 
   describe 'security config injection behavior' do
     before do
-      stub_const('Otto::Security::CSRFMiddleware', security_middleware)
-      stub_const('Otto::Security::ValidationMiddleware', security_middleware)
+      stub_const('Otto::Security::Middleware::CSRFMiddleware', security_middleware)
+      stub_const('Otto::Security::Middleware::ValidationMiddleware', security_middleware)
       stub_const('RegularMiddleware', regular_middleware)
     end
 
     it 'injects security_config into known security middleware' do
-      otto.middleware.add(Otto::Security::CSRFMiddleware)
+      otto.middleware.add(Otto::Security::Middleware::CSRFMiddleware)
 
       base_app = ->(_env) { [200, {}, ['base']] }
       app = otto.middleware.wrap(base_app, security_config)
@@ -89,7 +89,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
     end
 
     it 'injects security_config before custom args for security middleware' do
-      otto.middleware.add(Otto::Security::ValidationMiddleware, 'custom_arg', option: 'value')
+      otto.middleware.add(Otto::Security::Middleware::ValidationMiddleware, 'custom_arg', option: 'value')
 
       base_app = ->(_env) { [200, {}, ['base']] }
       app = otto.middleware.wrap(base_app, security_config)
@@ -115,25 +115,27 @@ RSpec.describe 'Middleware Args Edge Cases' do
       base_app = ->(_env) { [200, {}, ['base']] }
       app = otto.middleware.wrap(base_app, security_config)
 
-      expect(app.app).to eq(base_app)
+      # With IP Privacy middleware always present, it wraps the base app first
+      expect(app.app).to be_a(Otto::Security::Middleware::IPPrivacyMiddleware)
+      expect(app.app.instance_variable_get(:@app)).to eq(base_app)
     end
   end
 
   describe 'middleware_needs_config? helper method' do
     let(:middleware_stack) { Otto::Core::MiddlewareStack.new }
 
-    it 'identifies Otto::Security::CSRFMiddleware as needing config' do
-      result = middleware_stack.send(:middleware_needs_config?, Otto::Security::CSRFMiddleware)
+    it 'identifies Otto::Security::Middleware::CSRFMiddleware as needing config' do
+      result = middleware_stack.send(:middleware_needs_config?, Otto::Security::Middleware::CSRFMiddleware)
       expect(result).to be true
     end
 
-    it 'identifies Otto::Security::ValidationMiddleware as needing config' do
-      result = middleware_stack.send(:middleware_needs_config?, Otto::Security::ValidationMiddleware)
+    it 'identifies Otto::Security::Middleware::ValidationMiddleware as needing config' do
+      result = middleware_stack.send(:middleware_needs_config?, Otto::Security::Middleware::ValidationMiddleware)
       expect(result).to be true
     end
 
-    it 'identifies Otto::Security::RateLimitMiddleware as needing config' do
-      result = middleware_stack.send(:middleware_needs_config?, Otto::Security::RateLimitMiddleware)
+    it 'identifies Otto::Security::Middleware::RateLimitMiddleware as needing config' do
+      result = middleware_stack.send(:middleware_needs_config?, Otto::Security::Middleware::RateLimitMiddleware)
       expect(result).to be true
     end
 
@@ -148,13 +150,13 @@ RSpec.describe 'Middleware Args Edge Cases' do
 
   describe 'complex middleware chain scenarios' do
     before do
-      stub_const('Otto::Security::CSRFMiddleware', security_middleware)
+      stub_const('Otto::Security::Middleware::CSRFMiddleware', security_middleware)
       stub_const('RegularMiddleware', regular_middleware)
     end
 
     it 'builds chain with mixed middleware types correctly' do
       otto.middleware.add(RegularMiddleware, 'regular_arg')
-      otto.middleware.add(Otto::Security::CSRFMiddleware, 'csrf_arg')
+      otto.middleware.add(Otto::Security::Middleware::CSRFMiddleware, 'csrf_arg')
 
       base_app = ->(_env) { [200, {}, ['base']] }
 
@@ -162,12 +164,12 @@ RSpec.describe 'Middleware Args Edge Cases' do
       app = otto.middleware.wrap(base_app, security_config)
 
       # The outermost middleware should be CSRFMiddleware (added last, wraps the previous ones)
-      expect(app).to be_a(Otto::Security::CSRFMiddleware)
+      expect(app).to be_a(Otto::Security::Middleware::CSRFMiddleware)
       expect(app.custom_args).to eq(['csrf_arg'])
     end
 
     it 'handles empty args correctly' do
-      otto.middleware.add(Otto::Security::CSRFMiddleware)
+      otto.middleware.add(Otto::Security::Middleware::CSRFMiddleware)
       otto.middleware.add(RegularMiddleware)
 
       base_app = ->(_env) { [200, {}, ['base']] }
@@ -210,11 +212,11 @@ RSpec.describe 'Middleware Args Edge Cases' do
 
   describe 'nil security_config handling' do
     before do
-      stub_const('Otto::Security::CSRFMiddleware', security_middleware)
+      stub_const('Otto::Security::Middleware::CSRFMiddleware', security_middleware)
     end
 
     it 'handles nil security_config gracefully' do
-      otto.middleware.add(Otto::Security::CSRFMiddleware, 'custom_arg')
+      otto.middleware.add(Otto::Security::Middleware::CSRFMiddleware, 'custom_arg')
 
       base_app = ->(_env) { [200, {}, ['base']] }
       app = otto.middleware.wrap(base_app, nil)
@@ -246,8 +248,8 @@ RSpec.describe 'Middleware Args Edge Cases' do
       otto.middleware.add(Middleware2)
       otto.middleware.add(Middleware3)
 
-      # Middleware list should be in addition order
-      expect(otto.middleware.middleware_list).to eq([Middleware1, Middleware2, Middleware3])
+      # Middleware list should be in addition order (IPPrivacyMiddleware is always first)
+      expect(otto.middleware.middleware_list).to eq([Otto::Security::Middleware::IPPrivacyMiddleware, Middleware1, Middleware2, Middleware3])
 
       # But execution follows standard Rack behavior (last added wraps the others)
       base_app = ->(_env) { [200, {}, ['base']] }

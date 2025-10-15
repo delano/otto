@@ -37,8 +37,8 @@ RSpec.describe 'Middleware Stack Synchronization' do
       otto.use(test_middleware1)
       otto.use(test_middleware2)
 
-      # Stack order
-      expect(otto.middleware.middleware_list).to eq([test_middleware1, test_middleware2])
+      # Stack order (IP Privacy middleware is always first)
+      expect(otto.middleware.middleware_list).to eq([Otto::Security::Middleware::IPPrivacyMiddleware, test_middleware1, test_middleware2])
     end
 
     it 'handles middleware added via security methods' do
@@ -103,13 +103,13 @@ RSpec.describe 'Middleware Stack Synchronization' do
     end
 
     it 'rebuilds app when middleware is added' do
-      # Before adding middleware, count is 0
-      expect(otto.middleware.size).to eq(0)
+      # Before adding middleware, count is 1 (IPPrivacyMiddleware is always present)
+      expect(otto.middleware.size).to eq(1)
 
       otto.use(TestExecutionMiddleware)
 
-      # After adding middleware, count is 1 and app should be TestExecutionMiddleware instance
-      expect(otto.middleware.size).to eq(1)
+      # After adding middleware, count is 2 and app should be TestExecutionMiddleware instance
+      expect(otto.middleware.size).to eq(2)
       app = otto.instance_variable_get(:@app)
       expect(app).to be_a(TestExecutionMiddleware)
     end

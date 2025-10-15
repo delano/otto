@@ -47,8 +47,9 @@ RSpec.describe Otto, 'initialization' do
       expect(otto.option[:locale]).to eq('en')
     end
 
-    it 'initializes empty middleware stack' do
-      expect(otto.middleware_stack).to be_empty
+    it 'initializes middleware stack with IP privacy by default' do
+      expect(otto.middleware_stack).to include(Otto::Security::Middleware::IPPrivacyMiddleware)
+      expect(otto.security_config.ip_privacy_config.enabled?).to be true
     end
   end
 

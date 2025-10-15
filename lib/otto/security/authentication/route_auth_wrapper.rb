@@ -66,15 +66,25 @@ class Otto
           # Execute the strategy
           result = strategy.authenticate(env, auth_requirement)
 
-          # Set environment variables for controllers/logic
-          env['otto.strategy_result'] = result
-          env['otto.user'] = result.user if result.is_a?(StrategyResult)
-          env['otto.user_context'] = result.user_context if result.is_a?(StrategyResult)
-
           # Handle authentication failure
-          if result.is_a?(FailureResult)
+          if result.is_a?(AuthFailure)
+            # Create anonymous result with failure info for logging/auditing
+            env['otto.strategy_result'] = StrategyResult.anonymous(
+              metadata: {
+                ip: env['REMOTE_ADDR'],
+                auth_failure: result.failure_reason,
+                attempted_strategy: auth_requirement
+              }
+            )
+            env['otto.user'] = nil
+            env['otto.user_context'] = {}
             return auth_failure_response(env, result)
           end
+
+          # Set environment variables for controllers/logic on success
+          env['otto.strategy_result'] = result
+          env['otto.user'] = result.user
+          env['otto.user_context'] = result.user_context
 
           # SESSION PERSISTENCE: This assignment is INTENTIONAL, not a merge operation.
           # We must ensure env['rack.session'] and strategy_result.session reference
@@ -148,7 +158,7 @@ class Otto
         # Generate 401 response for authentication failure
         #
         # @param env [Hash] Rack environment
-        # @param result [FailureResult] Failure result from strategy
+        # @param result [AuthFailure] Failure result from strategy
         # @return [Array] Rack response array
         def auth_failure_response(env, result)
           # Check if request wants JSON
@@ -164,7 +174,7 @@ class Otto
 
         # Generate JSON 401 response
         #
-        # @param result [FailureResult] Failure result
+        # @param result [AuthFailure] Failure result
         # @return [Array] Rack response array
         def json_auth_error(result)
           body = {
@@ -186,7 +196,7 @@ class Otto
 
         # Generate HTML 401 response or redirect
         #
-        # @param result [FailureResult] Failure result
+        # @param result [AuthFailure] Failure result
         # @return [Array] Rack response array
         def html_auth_error(result)
           # For HTML requests, redirect to login

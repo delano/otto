@@ -7,7 +7,7 @@
 
 require_relative 'authentication/auth_strategy'
 require_relative 'authentication/strategy_result'
-require_relative 'authentication/failure_result'
+require_relative 'authentication/auth_failure'
 require_relative 'authentication/route_auth_wrapper'
 
 # Load all strategies
@@ -30,5 +30,5 @@ class Otto
 
   # Top-level backward compatibility aliases
   StrategyResult = Security::Authentication::StrategyResult
-  FailureResult = Security::Authentication::FailureResult
+  AuthFailure = Security::Authentication::AuthFailure
 end

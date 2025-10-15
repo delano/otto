@@ -175,6 +175,11 @@ class Otto
   # Middleware Management
   def use(middleware, ...)
     @middleware.add(middleware, ...)
+
+    # NOTE: If build_app! is triggered during a request (via use() or
+    # middleware_stack=), the @app instance variable could be swapped
+    # mid-request in a multi-threaded environment.
+
     build_app! if @app  # Rebuild app if already initialized
   end
 

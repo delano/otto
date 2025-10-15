@@ -309,47 +309,28 @@ class Otto
     @auth_config[:auth_strategies][name] = strategy
   end
 
-  # Enable IP privacy with masked IP addresses
+  # Disable IP privacy to access original IP addresses
   #
-  # When enabled, Otto will automatically:
-  # - Mask IP addresses (192.168.1.100 → 192.168.1.0)
-  # - Hash IPs for session correlation without storing originals
-  # - Provide geo-location (country-level) without external APIs
-  # - Create privacy-safe fingerprints for logging
+  # IMPORTANT: By default, Otto masks public IP addresses for privacy.
+  # Private/localhost IPs (127.0.0.0/8, 10.0.0.0/8, etc.) are never masked.
+  # Only disable this if you need access to original public IPs.
   #
-  # @param options [Hash] Privacy configuration options
-  # @option options [Integer] :mask_level Number of octets to mask (1 or 2, default: 1)
-  # @option options [Integer] :hash_rotation Seconds between key rotation (default: 86400)
-  # @option options [Boolean] :geo Enable geo-location resolution (default: true)
+  # When disabled:
+  # - env['REMOTE_ADDR'] contains the real IP address
+  # - env['otto.original_ip'] also contains the real IP
+  # - No PrivateFingerprint is created
   #
-  # @example Enable with defaults
-  #   otto.enable_ip_privacy!
-  #
-  # @example Enable with custom settings
-  #   otto.enable_ip_privacy!(mask_level: 2, hash_rotation: 12.hours)
-  def enable_ip_privacy!(options = {})
+  # @example
+  #   otto.disable_ip_privacy!
+  def disable_ip_privacy!
     ensure_not_frozen!
-    return if @middleware.includes?(Otto::Security::Middleware::IPPrivacyMiddleware)
-
-    # Configure privacy settings
-    config = @security_config.ip_privacy_config
-    config.enable!
-    config.mask_level = options[:mask_level] if options[:mask_level]
-    config.hash_rotation_period = options[:hash_rotation] if options[:hash_rotation]
-    config.geo_enabled = options[:geo] unless options[:geo].nil?
-    config.validate!
-
-    # Add middleware first in stack
-    @middleware.add_with_position(
-      Otto::Security::Middleware::IPPrivacyMiddleware,
-      position: :first
-    )
+    @security_config.ip_privacy_config.disable!
   end
 
   # Configure IP privacy settings
   #
-  # Use this to customize privacy behavior after enabling with enable_ip_privacy!
-  # For enabling privacy, use enable_ip_privacy! instead.
+  # Privacy is enabled by default. Use this method to customize privacy
+  # behavior without disabling it entirely.
   #
   # @param mask_level [Integer] Number of octets to mask (1 or 2, default: 1)
   # @param hash_rotation [Integer] Seconds between key rotation (default: 86400)
@@ -411,8 +392,12 @@ class Otto
     @security          = Otto::Security::Configurator.new(@security_config, @middleware, @auth_config)
     @app               = nil  # Pre-built middleware app (built after initialization)
 
-    # IP Privacy is opt-in (not added by default)
-    # Use enable_ip_privacy! to add IPPrivacyMiddleware
+    # Add IP Privacy middleware first in stack (privacy by default for public IPs)
+    # Private/localhost IPs are automatically exempted from masking
+    @middleware.add_with_position(
+      Otto::Security::Middleware::IPPrivacyMiddleware,
+      position: :first
+    )
   end
 
   def initialize_options(_path, opts)

@@ -53,12 +53,21 @@ class Otto
 
         # Apply privacy settings to environment
         #
-        # IMPORTANT: Original IP is NOT stored when privacy is enabled.
-        # This ensures true privacy by default.
+        # IMPORTANT: Private/localhost IPs are exempt from masking for development.
+        # Only public IPs are masked by default.
         #
         # @param env [Hash] Rack environment
         def apply_privacy(env)
-          # Create privacy-safe fingerprint
+          original_ip = env['REMOTE_ADDR']
+
+          # Skip masking for private/localhost IPs (development convenience)
+          if Otto::Privacy::IPPrivacy.private_or_localhost?(original_ip)
+            # Keep original IP unchanged for localhost/private addresses
+            env['otto.original_ip'] = original_ip
+            return
+          end
+
+          # Create privacy-safe fingerprint for public IPs
           fingerprint = Otto::Privacy::PrivateFingerprint.new(env, @config)
 
           # Set privacy-safe values in environment
@@ -72,7 +81,7 @@ class Otto
           # automatically uses the masked IP without modification
           env['REMOTE_ADDR'] = fingerprint.masked_ip
 
-          # NOTE: We deliberately DO NOT set env['otto.original_ip']
+          # NOTE: We deliberately DO NOT set env['otto.original_ip'] for public IPs
           # This prevents accidental leakage of the real IP address
         end
 

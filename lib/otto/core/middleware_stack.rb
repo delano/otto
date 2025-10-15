@@ -42,6 +42,8 @@ class Otto
         @middleware_set.add(middleware_class)
         # Invalidate memoized middleware list
         @memoized_middleware_list = nil
+        # Notify of change
+        @on_change_callback&.call
       end
 
       # Add middleware with position hint for optimal ordering
@@ -75,6 +77,8 @@ class Otto
 
         @middleware_set.add(middleware_class)
         @memoized_middleware_list = nil
+        # Notify of change
+        @on_change_callback&.call
       end
 
       # Validate MCP middleware ordering

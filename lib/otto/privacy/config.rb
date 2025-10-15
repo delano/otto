@@ -24,7 +24,7 @@ class Otto
     #
     class Config
       include Otto::Core::Freezable
-      attr_accessor :mask_level, :hash_rotation_period, :geo_enabled
+      attr_accessor :mask_level, :hash_rotation_period, :geo_enabled, :mask_private_ips
       attr_reader :disabled
 
       # Class-level rotation key storage (mutable, not frozen with instances)
@@ -49,12 +49,14 @@ class Otto
       # @option options [Integer] :hash_rotation_period Seconds between key rotation (default: 86400)
       # @option options [Boolean] :geo_enabled Enable geo-location resolution (default: true)
       # @option options [Boolean] :disabled Disable privacy entirely (default: false)
+      # @option options [Boolean] :mask_private_ips Mask private/localhost IPs (default: false)
       # @option options [Redis] :redis Optional Redis connection for multi-server environments
       def initialize(options = {})
         @mask_level = options.fetch(:mask_level, 1)
         @hash_rotation_period = options.fetch(:hash_rotation_period, 86_400) # 24 hours
         @geo_enabled = options.fetch(:geo_enabled, true)
         @disabled = options.fetch(:disabled, false)  # Enabled by default (privacy-by-default)
+        @mask_private_ips = options.fetch(:mask_private_ips, false)  # Don't mask private/localhost by default
         @redis = options[:redis]  # Optional Redis connection for multi-server environments
       end
 

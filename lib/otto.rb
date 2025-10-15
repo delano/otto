@@ -327,6 +327,25 @@ class Otto
     @security_config.ip_privacy_config.disable!
   end
 
+
+  # Enable full IP privacy (mask ALL IPs including private/localhost)
+  #
+  # By default, Otto exempts private and localhost IPs from masking for
+  # better development experience. Call this method to mask ALL IPs
+  # regardless of type.
+  #
+  # @example Enable full privacy (mask all IPs)
+  #   otto = Otto.new(routes_file)
+  #   otto.enable_full_ip_privacy!
+  #   # Now 127.0.0.1 → 127.0.0.0, 192.168.1.100 → 192.168.1.0
+  #
+  # @return [void]
+  # @raise [FrozenError] if called after configuration is frozen
+  def enable_full_ip_privacy!
+    ensure_not_frozen!
+    @security_config.ip_privacy_config.mask_private_ips = true
+  end
+
   # Configure IP privacy settings
   #
   # Privacy is enabled by default. Use this method to customize privacy

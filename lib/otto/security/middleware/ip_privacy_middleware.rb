@@ -59,21 +59,16 @@ class Otto
 
           Otto.logger.debug "[IPPrivacyMiddleware] Original IP: #{original_ip}" if Otto.debug
 
-          # Skip masking for private/localhost IPs (development convenience)
-          #
-          # TODO: There should be a way for implementing projects to opt-in
-          # for IP addresses match `private_or_localhost?`. By default we
-          # don't privatize them b/c they do'nt have the same PII issues
-          # and if we did it would be really annoying DX to figure out
-          # what is going on. So just commenting out for now in lieu
-          # to make sure we can see the privatization at work in
-          # CommonLogger output.
-          #
-          # if Otto::Privacy::IPPrivacy.private_or_localhost?(original_ip)
-          #   # Keep original IP unchanged for localhost/private addresses
-          #   env['otto.original_ip'] = original_ip
-          #   return
-          # end
+          # Skip masking for private/localhost IPs unless explicitly configured to mask them
+          # This provides better DX for development while still protecting public IPs
+          unless @config.mask_private_ips
+            if Otto::Privacy::IPPrivacy.private_or_localhost?(original_ip)
+              # Keep original IP unchanged for localhost/private addresses
+              env['otto.original_ip'] = original_ip
+              Otto.logger.debug "[IPPrivacyMiddleware] Private/localhost IP exempted: #{original_ip}" if Otto.debug
+              return
+            end
+          end
 
           # Create privacy-safe fingerprint
           fingerprint = Otto::Privacy::PrivateFingerprint.new(env, @config)

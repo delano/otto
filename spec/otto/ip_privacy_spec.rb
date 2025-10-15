@@ -123,10 +123,10 @@ RSpec.describe 'IP Privacy Features' do
         expect(result).to eq('XX')
       end
 
-      it 'detects Google DNS as US' do
-        result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
+      it 'detects Cloud9 in Switzerland' do
+        result = Otto::Privacy::GeoResolver.resolve('9.9.9.9', {})
 
-        expect(result).to eq('US')
+        expect(result).to eq('CH')
       end
 
       it 'ignores invalid CloudFlare header' do
@@ -211,28 +211,28 @@ RSpec.describe 'IP Privacy Features' do
     context 'privacy enabled (default)' do
       context 'public IP addresses' do
         it 'masks public IP addresses' do
-          env = { 'REMOTE_ADDR' => '8.8.8.8' }
+          env = { 'REMOTE_ADDR' => '9.9.9.9' }
           middleware.call(env)
 
-          expect(env['REMOTE_ADDR']).to eq('8.8.8.0')
+          expect(env['REMOTE_ADDR']).to eq('9.9.9.0')
         end
 
         it 'sets private fingerprint for public IPs' do
-          env = { 'REMOTE_ADDR' => '8.8.8.8' }
+          env = { 'REMOTE_ADDR' => '9.9.9.9' }
           middleware.call(env)
 
           expect(env['otto.private_fingerprint']).to be_a(Otto::Privacy::PrivateFingerprint)
         end
 
         it 'sets masked IP for public IPs' do
-          env = { 'REMOTE_ADDR' => '8.8.8.8' }
+          env = { 'REMOTE_ADDR' => '9.9.9.9' }
           middleware.call(env)
 
-          expect(env['otto.masked_ip']).to eq('8.8.8.0')
+          expect(env['otto.masked_ip']).to eq('9.9.9.0')
         end
 
         it 'does not set original IP for public IPs' do
-          env = { 'REMOTE_ADDR' => '8.8.8.8' }
+          env = { 'REMOTE_ADDR' => '9.9.9.9' }
           middleware.call(env)
 
           expect(env['otto.original_ip']).to be_nil
@@ -240,23 +240,31 @@ RSpec.describe 'IP Privacy Features' do
       end
 
       context 'encoding of masked IPs' do
-        it 'ensures masked IP has UTF-8 encoding' do
-          env = { 'REMOTE_ADDR' => '127.0.0.1' }
+        it 'ensures masked IP has UTF-8 encoding for public IPs' do
+          env = { 'REMOTE_ADDR' => '9.9.9.9' }
           middleware.call(env)
 
           expect(env['REMOTE_ADDR'].encoding).to eq(Encoding::UTF_8)
         end
 
-        it 'does not set original IP when privacy enabled' do
-          env = { 'REMOTE_ADDR' => '127.0.0.1' }
+        it 'does not set original IP for public IPs when privacy enabled' do
+          env = { 'REMOTE_ADDR' => '9.9.9.9' }
           middleware.call(env)
 
           expect(env['otto.original_ip']).to be_nil
         end
+
+        it 'ensures original IP has UTF-8 encoding for private/localhost IPs' do
+          env = { 'REMOTE_ADDR' => '127.0.0.1' }
+          middleware.call(env)
+
+          expect(env['REMOTE_ADDR'].encoding).to eq(Encoding::UTF_8)
+          expect(env['otto.original_ip'].encoding).to eq(Encoding::UTF_8)
+        end
       end
 
-      context.skip 'private/localhost IP addresses privatization is disabled by default' do
-        it 'does not mask localhost (127.0.0.1)' do
+      context 'private/localhost IP addresses (default: NOT masked)' do
+        it 'does NOT mask localhost (127.0.0.1)' do
           env = { 'REMOTE_ADDR' => '127.0.0.1' }
           middleware.call(env)
 
@@ -264,7 +272,7 @@ RSpec.describe 'IP Privacy Features' do
           expect(env['otto.original_ip']).to eq('127.0.0.1')
         end
 
-        it 'does not mask private IPs (192.168.x.x)' do
+        it 'does NOT mask private IPs (192.168.x.x)' do
           env = { 'REMOTE_ADDR' => '192.168.1.100' }
           middleware.call(env)
 
@@ -272,7 +280,7 @@ RSpec.describe 'IP Privacy Features' do
           expect(env['otto.original_ip']).to eq('192.168.1.100')
         end
 
-        it 'does not mask private IPs (10.x.x.x)' do
+        it 'does NOT mask private IPs (10.x.x.x)' do
           env = { 'REMOTE_ADDR' => '10.0.0.5' }
           middleware.call(env)
 
@@ -280,16 +288,21 @@ RSpec.describe 'IP Privacy Features' do
           expect(env['otto.original_ip']).to eq('10.0.0.5')
         end
 
-        it 'does not create fingerprint for private IPs' do
+        it 'does NOT create fingerprint for private IPs' do
           env = { 'REMOTE_ADDR' => '192.168.1.100' }
           middleware.call(env)
 
           expect(env['otto.private_fingerprint']).to be_nil
-
+          expect(env['otto.masked_ip']).to be_nil
+          expect(env['otto.hashed_ip']).to be_nil
         end
       end
 
-      context 'private/localhost IP addresses' do
+      context 'private/localhost IP addresses (with enable_full_ip_privacy!)' do
+        before do
+          security_config.ip_privacy_config.mask_private_ips = true
+        end
+
         it 'masks localhost (127.0.0.1)' do
           env = { 'REMOTE_ADDR' => '127.0.0.1' }
           middleware.call(env)
@@ -394,6 +407,210 @@ RSpec.describe 'IP Privacy Features' do
 
       expect(otto.security_config.ip_privacy_config.mask_level).to eq(2)
     end
+
+    it 'allows enabling full IP privacy (mask private/localhost)' do
+      otto = create_minimal_otto(['GET / TestApp.index'])
+      otto.enable_full_ip_privacy!
+
+      expect(otto.security_config.ip_privacy_config.mask_private_ips).to be true
+    end
+
+    context 'with enable_full_ip_privacy!' do
+      it 'masks localhost IP (127.0.0.1) when full privacy enabled' do
+        otto = create_minimal_otto(['GET / TestApp.index'])
+        otto.enable_full_ip_privacy!
+
+        env = {
+          'REQUEST_METHOD' => 'GET',
+          'PATH_INFO' => '/',
+          'REMOTE_ADDR' => '127.0.0.1',
+          'rack.input' => StringIO.new
+        }
+
+        otto.call(env)
+
+        expect(env['REMOTE_ADDR']).to eq('127.0.0.0')
+        expect(env['otto.original_ip']).to be_nil
+        expect(env['otto.masked_ip']).to eq('127.0.0.0')
+      end
+
+      it 'masks IPv6 localhost (::1) when full privacy enabled' do
+        otto = create_minimal_otto(['GET / TestApp.index'])
+        otto.enable_full_ip_privacy!
+
+        env = {
+          'REQUEST_METHOD' => 'GET',
+          'PATH_INFO' => '/',
+          'REMOTE_ADDR' => '::1',
+          'rack.input' => StringIO.new
+        }
+
+        otto.call(env)
+
+        expect(env['REMOTE_ADDR']).to match(/^::$/)
+        expect(env['otto.original_ip']).to be_nil
+      end
+
+      it 'masks private IP (192.168.x.x) when full privacy enabled' do
+        otto = create_minimal_otto(['GET / TestApp.index'])
+        otto.enable_full_ip_privacy!
+
+        env = {
+          'REQUEST_METHOD' => 'GET',
+          'PATH_INFO' => '/',
+          'REMOTE_ADDR' => '192.168.1.100',
+          'rack.input' => StringIO.new
+        }
+
+        otto.call(env)
+
+        expect(env['REMOTE_ADDR']).to eq('192.168.1.0')
+        expect(env['otto.original_ip']).to be_nil
+        expect(env['otto.masked_ip']).to eq('192.168.1.0')
+      end
+
+      it 'masks private IP (10.x.x.x) when full privacy enabled' do
+        otto = create_minimal_otto(['GET / TestApp.index'])
+        otto.enable_full_ip_privacy!
+
+        env = {
+          'REQUEST_METHOD' => 'GET',
+          'PATH_INFO' => '/',
+          'REMOTE_ADDR' => '10.0.0.5',
+          'rack.input' => StringIO.new
+        }
+
+        otto.call(env)
+
+        expect(env['REMOTE_ADDR']).to eq('10.0.0.0')
+        expect(env['otto.original_ip']).to be_nil
+        expect(env['otto.masked_ip']).to eq('10.0.0.0')
+      end
+
+      it 'masks private IP (172.16.x.x) when full privacy enabled' do
+        otto = create_minimal_otto(['GET / TestApp.index'])
+        otto.enable_full_ip_privacy!
+
+        env = {
+          'REQUEST_METHOD' => 'GET',
+          'PATH_INFO' => '/',
+          'REMOTE_ADDR' => '172.16.0.10',
+          'rack.input' => StringIO.new
+        }
+
+        otto.call(env)
+
+        expect(env['REMOTE_ADDR']).to eq('172.16.0.0')
+        expect(env['otto.original_ip']).to be_nil
+        expect(env['otto.masked_ip']).to eq('172.16.0.0')
+      end
+
+      it 'creates private fingerprint for localhost when full privacy enabled' do
+        otto = create_minimal_otto(['GET / TestApp.index'])
+        otto.enable_full_ip_privacy!
+
+        env = {
+          'REQUEST_METHOD' => 'GET',
+          'PATH_INFO' => '/',
+          'REMOTE_ADDR' => '127.0.0.1',
+          'rack.input' => StringIO.new
+        }
+
+        otto.call(env)
+
+        expect(env['otto.private_fingerprint']).to be_a(Otto::Privacy::PrivateFingerprint)
+        expect(env['otto.private_fingerprint'].masked_ip).to eq('127.0.0.0')
+        expect(env['otto.hashed_ip']).to match(/^[0-9a-f]{64}$/)
+      end
+
+      it 'creates private fingerprint for private IPs when full privacy enabled' do
+        otto = create_minimal_otto(['GET / TestApp.index'])
+        otto.enable_full_ip_privacy!
+
+        env = {
+          'REQUEST_METHOD' => 'GET',
+          'PATH_INFO' => '/',
+          'REMOTE_ADDR' => '192.168.1.100',
+          'rack.input' => StringIO.new
+        }
+
+        otto.call(env)
+
+        expect(env['otto.private_fingerprint']).to be_a(Otto::Privacy::PrivateFingerprint)
+        expect(env['otto.private_fingerprint'].masked_ip).to eq('192.168.1.0')
+        expect(env['otto.hashed_ip']).to match(/^[0-9a-f]{64}$/)
+      end
+
+      it 'still masks public IPs when full privacy enabled' do
+        otto = create_minimal_otto(['GET / TestApp.index'])
+        otto.enable_full_ip_privacy!
+
+        env = {
+          'REQUEST_METHOD' => 'GET',
+          'PATH_INFO' => '/',
+          'REMOTE_ADDR' => '9.9.9.9',
+          'rack.input' => StringIO.new
+        }
+
+        otto.call(env)
+
+        expect(env['REMOTE_ADDR']).to eq('9.9.9.0')
+        expect(env['otto.original_ip']).to be_nil
+        expect(env['otto.masked_ip']).to eq('9.9.9.0')
+      end
+
+      it 'applies custom mask_level with full privacy enabled' do
+        otto = create_minimal_otto(['GET / TestApp.index'])
+        otto.configure_ip_privacy(mask_level: 2)
+        otto.enable_full_ip_privacy!
+
+        env = {
+          'REQUEST_METHOD' => 'GET',
+          'PATH_INFO' => '/',
+          'REMOTE_ADDR' => '192.168.1.100',
+          'rack.input' => StringIO.new
+        }
+
+        otto.call(env)
+
+        expect(env['REMOTE_ADDR']).to eq('192.168.0.0')
+        expect(env['otto.masked_ip']).to eq('192.168.0.0')
+      end
+
+      it 'Rack::Request#ip returns masked private IP when full privacy enabled' do
+        otto = create_minimal_otto(['GET / TestApp.index'])
+        otto.enable_full_ip_privacy!
+
+        env = {
+          'REQUEST_METHOD' => 'GET',
+          'PATH_INFO' => '/',
+          'REMOTE_ADDR' => '192.168.1.100',
+          'rack.input' => StringIO.new
+        }
+
+        otto.call(env)
+
+        request = Rack::Request.new(env)
+        expect(request.ip).to eq('192.168.1.0')
+      end
+
+      it 'Rack::Request#ip returns masked localhost when full privacy enabled' do
+        otto = create_minimal_otto(['GET / TestApp.index'])
+        otto.enable_full_ip_privacy!
+
+        env = {
+          'REQUEST_METHOD' => 'GET',
+          'PATH_INFO' => '/',
+          'REMOTE_ADDR' => '127.0.0.1',
+          'rack.input' => StringIO.new
+        }
+
+        otto.call(env)
+
+        request = Rack::Request.new(env)
+        expect(request.ip).to eq('127.0.0.0')
+      end
+    end
   end
 
   describe 'Rack::Request#ip integration' do
@@ -402,28 +619,28 @@ RSpec.describe 'IP Privacy Features' do
     let(:middleware) { Otto::Security::Middleware::IPPrivacyMiddleware.new(app, security_config) }
 
     context 'with privacy enabled' do
-      it 'Rack::Request#ip returns masked IP' do
+      it 'Rack::Request#ip returns original IP for private addresses' do
         env = { 'REMOTE_ADDR' => '192.168.1.100' }
         middleware.call(env)
 
         request = Rack::Request.new(env)
-        expect(request.ip).to eq('192.168.1.0')
+        expect(request.ip).to eq('192.168.1.100')
       end
 
       it 'works with CommonLogger-style IP access' do
-        env = { 'REMOTE_ADDR' => '8.8.8.8' }
+        env = { 'REMOTE_ADDR' => '9.9.9.9' }
         middleware.call(env)
 
         request = Rack::Request.new(env)
-        expect(request.ip).to eq('8.8.8.0')
+        expect(request.ip).to eq('9.9.9.0')
       end
 
-      it 'masks localhost IPs' do
+      it 'does NOT mask localhost IPs' do
         env = { 'REMOTE_ADDR' => '127.0.0.1' }
         middleware.call(env)
 
         request = Rack::Request.new(env)
-        expect(request.ip).to eq('127.0.0.0')
+        expect(request.ip).to eq('127.0.0.1')
       end
 
       it 'provides consistent IP across multiple request instances' do
@@ -433,8 +650,8 @@ RSpec.describe 'IP Privacy Features' do
         request1 = Rack::Request.new(env)
         request2 = Rack::Request.new(env)
 
-        expect(request1.ip).to eq('192.168.1.0')
-        expect(request2.ip).to eq('192.168.1.0')
+        expect(request1.ip).to eq('192.168.1.100')
+        expect(request2.ip).to eq('192.168.1.100')
       end
 
       it 'does not cache original IP in request memoization' do
@@ -443,12 +660,11 @@ RSpec.describe 'IP Privacy Features' do
         # Create request BEFORE middleware runs
         request = Rack::Request.new(env)
 
-        # Run middleware to mask IP
+        # Run middleware (private IP won't be masked)
         middleware.call(env)
 
-        # Request should return masked IP even though it was created first
-        # (This tests that we're not relying on @ip memoization)
-        expect(request.ip).to eq('192.168.1.0')
+        # Request should return private IP unchanged
+        expect(request.ip).to eq('192.168.1.100')
       end
     end
 
@@ -471,7 +687,7 @@ RSpec.describe 'IP Privacy Features' do
     let(:routes_file) { create_test_routes_file('integration_routes.txt', ['GET / TestApp.index']) }
 
     context 'with privacy enabled (default)' do
-      it 'masks IP through complete middleware chain' do
+      it 'does NOT mask private IPs through complete middleware chain' do
         otto = Otto.new(routes_file)
 
         env = {
@@ -484,15 +700,15 @@ RSpec.describe 'IP Privacy Features' do
         # Call through the full Otto middleware stack
         status, headers, body = otto.call(env)
 
-        # Verify REMOTE_ADDR was masked
-        expect(env['REMOTE_ADDR']).to eq('192.168.1.0')
+        # Verify REMOTE_ADDR was NOT masked (private IP exemption)
+        expect(env['REMOTE_ADDR']).to eq('192.168.1.100')
 
-        # Verify private fingerprint was created
-        expect(env['otto.private_fingerprint']).to be_a(Otto::Privacy::PrivateFingerprint)
-        expect(env['otto.private_fingerprint'].masked_ip).to eq('192.168.1.0')
+        # Verify private fingerprint was NOT created
+        expect(env['otto.private_fingerprint']).to be_nil
+        expect(env['otto.original_ip']).to eq('192.168.1.100')
       end
 
-      it 'masks IP for all HTTP methods' do
+      it 'does NOT mask private IPs for all HTTP methods' do
         otto = Otto.new(routes_file)
 
         %w[GET POST PUT PATCH DELETE].each do |method|
@@ -504,17 +720,17 @@ RSpec.describe 'IP Privacy Features' do
           }
 
           otto.call(env)
-          expect(env['REMOTE_ADDR']).to eq('10.0.0.0')
+          expect(env['REMOTE_ADDR']).to eq('10.0.0.5')
         end
       end
 
-      it 'handles multiple requests with different IPs' do
+      it 'handles multiple requests with different IPs (private exempted, public masked)' do
         otto = Otto.new(routes_file)
 
-        ips = ['192.168.1.100', '10.0.0.5', '172.16.0.10', '8.8.8.8']
-        expected = ['192.168.1.0', '10.0.0.0', '172.16.0.0', '8.8.8.0']
+        ips = ['192.168.1.100', '10.0.0.5', '172.16.0.10', '9.9.9.9']
+        expected = ['192.168.1.100', '10.0.0.5', '172.16.0.10', '9.9.9.0']  # Only public IP masked
 
-        ips.zip(expected).each do |original_ip, masked_ip|
+        ips.zip(expected).each do |original_ip, expected_ip|
           env = {
             'REQUEST_METHOD' => 'GET',
             'PATH_INFO' => '/',
@@ -523,11 +739,11 @@ RSpec.describe 'IP Privacy Features' do
           }
 
           otto.call(env)
-          expect(env['REMOTE_ADDR']).to eq(masked_ip)
+          expect(env['REMOTE_ADDR']).to eq(expected_ip)
         end
       end
 
-      it 'creates unique hashed IPs for different IPs' do
+      it 'does NOT create hashed IPs for private addresses' do
         otto = Otto.new(routes_file)
 
         hashes = []
@@ -543,12 +759,12 @@ RSpec.describe 'IP Privacy Features' do
           hashes << env['otto.hashed_ip']
         end
 
-        expect(hashes[0]).not_to eq(hashes[1])
-        expect(hashes[0]).to match(/^[0-9a-f]{64}$/)
-        expect(hashes[1]).to match(/^[0-9a-f]{64}$/)
+        # Private IPs are not hashed
+        expect(hashes[0]).to be_nil
+        expect(hashes[1]).to be_nil
       end
 
-      it 'creates consistent hashed IPs for same IP across requests' do
+      it 'creates consistent hashed IPs for same PUBLIC IP across requests' do
         otto = Otto.new(routes_file)
 
         hashes = []
@@ -556,7 +772,7 @@ RSpec.describe 'IP Privacy Features' do
           env = {
             'REQUEST_METHOD' => 'GET',
             'PATH_INFO' => '/',
-            'REMOTE_ADDR' => '192.168.1.100',
+            'REMOTE_ADDR' => '9.9.9.9',  # Use public IP
             'rack.input' => StringIO.new
           }
 
@@ -565,24 +781,25 @@ RSpec.describe 'IP Privacy Features' do
         end
 
         expect(hashes[0]).to eq(hashes[1])
+        expect(hashes[0]).to match(/^[0-9a-f]{64}$/)
       end
     end
 
     context 'with custom mask level' do
-      it 'masks 2 octets when configured' do
+      it 'masks 2 octets when configured (PUBLIC IP)' do
         otto = create_minimal_otto(['GET / TestApp.index'])
         otto.configure_ip_privacy(mask_level: 2)
 
         env = {
           'REQUEST_METHOD' => 'GET',
           'PATH_INFO' => '/',
-          'REMOTE_ADDR' => '192.168.1.100',
+          'REMOTE_ADDR' => '9.9.9.9',  # Use public IP
           'rack.input' => StringIO.new
         }
 
         otto.call(env)
-        expect(env['REMOTE_ADDR']).to eq('192.168.0.0')
-        expect(env['otto.masked_ip']).to eq('192.168.0.0')
+        expect(env['REMOTE_ADDR']).to eq('9.9.0.0')
+        expect(env['otto.masked_ip']).to eq('9.9.0.0')
       end
     end
 
@@ -887,7 +1104,7 @@ RSpec.describe 'IP Privacy Features' do
     let(:logged_output) { StringIO.new }
     let(:logger) { Logger.new(logged_output) }
 
-    it 'CommonLogger logs masked IP when privacy enabled' do
+    it 'CommonLogger logs original private IP (not masked by default)' do
       security_config = Otto::Security::Config.new
 
       # Build middleware stack: CommonLogger wraps IPPrivacyMiddleware
@@ -906,9 +1123,8 @@ RSpec.describe 'IP Privacy Features' do
       logged_output.rewind
       log_line = logged_output.read
 
-      # CommonLogger should log the masked IP
-      expect(log_line).to include('192.168.1.0')
-      expect(log_line).not_to include('192.168.1.100')
+      # CommonLogger should log the original private IP (not masked)
+      expect(log_line).to include('192.168.1.100')
     end
 
     it 'CommonLogger logs original IP when privacy disabled' do
@@ -934,7 +1150,7 @@ RSpec.describe 'IP Privacy Features' do
       expect(log_line).to include('192.168.1.100')
     end
 
-    it 'CommonLogger logs masked localhost' do
+    it 'CommonLogger logs original localhost IP (not masked by default)' do
       security_config = Otto::Security::Config.new
 
       app = ->(env) { [200, { 'content-type' => 'text/plain' }, ['OK']] }
@@ -952,9 +1168,8 @@ RSpec.describe 'IP Privacy Features' do
       logged_output.rewind
       log_line = logged_output.read
 
-      # CommonLogger should log the masked localhost IP
-      expect(log_line).to include('127.0.0.0')
-      expect(log_line).not_to include('127.0.0.1')
+      # CommonLogger should log the original localhost IP (not masked)
+      expect(log_line).to include('127.0.0.1')
     end
   end
 end

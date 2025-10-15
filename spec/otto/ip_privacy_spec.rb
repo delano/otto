@@ -1100,6 +1100,234 @@ RSpec.describe 'IP Privacy Features' do
     end
   end
 
+  describe 'Proxy scenario handling' do
+    let(:app) { ->(env) { [200, {}, ['OK']] } }
+    let(:security_config) { Otto::Security::Config.new }
+    let(:middleware) { Otto::Security::Middleware::IPPrivacyMiddleware.new(app, security_config) }
+
+    before do
+      # Configure trusted proxies
+      security_config.add_trusted_proxy('10.0.0.1')
+      security_config.add_trusted_proxy(/^172\.16\./)
+    end
+
+    context 'direct connection (no proxy)' do
+      it 'masks public IP from direct connection' do
+        env = { 'REMOTE_ADDR' => '203.0.113.50' }
+        middleware.call(env)
+
+        expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
+        expect(env['otto.masked_ip']).to eq('203.0.113.0')
+      end
+
+      it 'does not mask private IP from direct connection' do
+        env = { 'REMOTE_ADDR' => '192.168.1.100' }
+        middleware.call(env)
+
+        expect(env['REMOTE_ADDR']).to eq('192.168.1.100')
+        expect(env['otto.original_ip']).to eq('192.168.1.100')
+      end
+    end
+
+    context 'request through trusted proxy' do
+      it 'resolves and masks client IP from X-Forwarded-For' do
+        env = {
+          'REMOTE_ADDR' => '10.0.0.1',  # Trusted proxy
+          'HTTP_X_FORWARDED_FOR' => '203.0.113.50'  # Real client IP
+        }
+        middleware.call(env)
+
+        # Client IP should be masked
+        expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
+        expect(env['otto.masked_ip']).to eq('203.0.113.0')
+
+        # X-Forwarded-For should be masked to prevent leakage
+        expect(env['HTTP_X_FORWARDED_FOR']).to eq('203.0.113.0')
+      end
+
+      it 'resolves and masks client IP from X-Real-IP' do
+        env = {
+          'REMOTE_ADDR' => '10.0.0.1',  # Trusted proxy
+          'HTTP_X_REAL_IP' => '203.0.113.50'  # Real client IP
+        }
+        middleware.call(env)
+
+        expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
+        expect(env['HTTP_X_REAL_IP']).to eq('203.0.113.0')
+      end
+
+      it 'resolves and masks client IP from X-Client-IP' do
+        env = {
+          'REMOTE_ADDR' => '10.0.0.1',  # Trusted proxy
+          'HTTP_X_CLIENT_IP' => '203.0.113.50'  # Real client IP
+        }
+        middleware.call(env)
+
+        expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
+        expect(env['HTTP_X_CLIENT_IP']).to eq('203.0.113.0')
+      end
+
+      it 'handles multiple IPs in X-Forwarded-For chain' do
+        env = {
+          'REMOTE_ADDR' => '10.0.0.1',  # Trusted proxy
+          'HTTP_X_FORWARDED_FOR' => '203.0.113.50, 172.16.0.10, 10.0.0.1'
+        }
+        middleware.call(env)
+
+        # Should resolve to first non-trusted IP (203.0.113.50) and mask it
+        expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
+        expect(env['HTTP_X_FORWARDED_FOR']).to eq('203.0.113.0')
+      end
+
+      it 'exempts private IP from X-Forwarded-For' do
+        env = {
+          'REMOTE_ADDR' => '10.0.0.1',  # Trusted proxy
+          'HTTP_X_FORWARDED_FOR' => '192.168.1.100'  # Private client IP
+        }
+        middleware.call(env)
+
+        # Private IP should not be masked
+        expect(env['REMOTE_ADDR']).to eq('192.168.1.100')
+        expect(env['otto.original_ip']).to eq('192.168.1.100')
+        # Header should not be masked for private IPs
+        expect(env['HTTP_X_FORWARDED_FOR']).to eq('192.168.1.100')
+      end
+
+      it 'prefers X-Forwarded-For over X-Real-IP' do
+        env = {
+          'REMOTE_ADDR' => '10.0.0.1',
+          'HTTP_X_FORWARDED_FOR' => '203.0.113.50',
+          'HTTP_X_REAL_IP' => '198.51.100.25'
+        }
+        middleware.call(env)
+
+        # Should use X-Forwarded-For (first in priority)
+        expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
+      end
+    end
+
+    context 'request through untrusted proxy' do
+      it 'treats untrusted proxy IP as client IP' do
+        env = {
+          'REMOTE_ADDR' => '198.51.100.1',  # Untrusted proxy
+          'HTTP_X_FORWARDED_FOR' => '203.0.113.50'
+        }
+        middleware.call(env)
+
+        # Should mask the proxy IP (not trust the header)
+        expect(env['REMOTE_ADDR']).to eq('198.51.100.0')
+        expect(env['otto.masked_ip']).to eq('198.51.100.0')
+
+        # X-Forwarded-For should be masked with the proxy IP
+        expect(env['HTTP_X_FORWARDED_FOR']).to eq('198.51.100.0')
+      end
+
+      it 'ignores X-Forwarded-For from untrusted source' do
+        env = {
+          'REMOTE_ADDR' => '203.0.113.100',  # Untrusted public IP
+          'HTTP_X_FORWARDED_FOR' => '192.168.1.1, 10.0.0.1'
+        }
+        middleware.call(env)
+
+        # Should use REMOTE_ADDR and ignore untrusted headers
+        expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
+      end
+    end
+
+    context 'with Rack::Request#ip' do
+      it 'returns masked client IP when behind trusted proxy' do
+        env = {
+          'REMOTE_ADDR' => '10.0.0.1',
+          'HTTP_X_FORWARDED_FOR' => '203.0.113.50'
+        }
+        middleware.call(env)
+
+        request = Rack::Request.new(env)
+        # Rack's ip method should work with masked values
+        expect(request.ip).to eq('203.0.113.0')
+      end
+
+      it 'returns masked proxy IP when proxy is untrusted' do
+        env = {
+          'REMOTE_ADDR' => '198.51.100.1',
+          'HTTP_X_FORWARDED_FOR' => '203.0.113.50'
+        }
+        middleware.call(env)
+
+        request = Rack::Request.new(env)
+        expect(request.ip).to eq('198.51.100.0')
+      end
+    end
+
+    context 'full stack with Otto integration' do
+      it 'handles proxy scenarios with trusted proxies configured' do
+        routes_file = create_test_routes_file('common_routes.txt', ['GET / TestApp.index'])
+        otto = Otto.new(routes_file)
+
+        # Configure trusted proxy
+        otto.add_trusted_proxy('10.0.0.1')
+
+        env = {
+          'REQUEST_METHOD' => 'GET',
+          'PATH_INFO' => '/',
+          'REMOTE_ADDR' => '10.0.0.1',
+          'HTTP_X_FORWARDED_FOR' => '203.0.113.50',
+          'rack.input' => StringIO.new
+        }
+
+        otto.call(env)
+
+        # Client IP should be resolved and masked
+        expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
+        expect(env['HTTP_X_FORWARDED_FOR']).to eq('203.0.113.0')
+        expect(env['otto.masked_ip']).to eq('203.0.113.0')
+
+        # Should have fingerprint for public IP
+        expect(env['otto.redacted_fingerprint']).to be_a(Otto::Privacy::RedactedFingerprint)
+      end
+
+      it 'handles private client IP behind proxy' do
+        routes_file = create_test_routes_file('common_routes.txt', ['GET / TestApp.index'])
+        otto = Otto.new(routes_file)
+        otto.add_trusted_proxy('10.0.0.1')
+
+        env = {
+          'REQUEST_METHOD' => 'GET',
+          'PATH_INFO' => '/',
+          'REMOTE_ADDR' => '10.0.0.1',
+          'HTTP_X_FORWARDED_FOR' => '192.168.1.100',
+          'rack.input' => StringIO.new
+        }
+
+        otto.call(env)
+
+        # Private client IP should not be masked
+        expect(env['REMOTE_ADDR']).to eq('192.168.1.100')
+        expect(env['otto.original_ip']).to eq('192.168.1.100')
+        expect(env['otto.redacted_fingerprint']).to be_nil
+      end
+    end
+
+    context 'with enable_full_ip_privacy!' do
+      before do
+        security_config.ip_privacy_config.mask_private_ips = true
+      end
+
+      it 'masks private client IP from X-Forwarded-For when full privacy enabled' do
+        env = {
+          'REMOTE_ADDR' => '10.0.0.1',  # Trusted proxy
+          'HTTP_X_FORWARDED_FOR' => '192.168.1.100'  # Private client IP
+        }
+        middleware.call(env)
+
+        # With full privacy, private IPs should be masked
+        expect(env['REMOTE_ADDR']).to eq('192.168.1.0')
+        expect(env['HTTP_X_FORWARDED_FOR']).to eq('192.168.1.0')
+        expect(env['otto.masked_ip']).to eq('192.168.1.0')
+      end
+    end
+  end
+
   describe 'Rack::CommonLogger compatibility' do
     let(:logged_output) { StringIO.new }
     let(:logger) { Logger.new(logged_output) }

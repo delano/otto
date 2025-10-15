@@ -373,6 +373,160 @@ Uses multiple sources (no external APIs required):
 2. **IP Range Detection**: Basic detection for major providers (Google, AWS, etc.)
 3. **Unknown Fallback**: Returns 'XX' for unresolved IPs
 
+### Proxy Support
+
+**IMPORTANT**: Otto's IP privacy middleware fully supports proxy scenarios by resolving the actual client IP from X-Forwarded-For headers before applying privacy masking.
+
+#### How Proxy Resolution Works
+
+1. **Trusted Proxy Configuration**: Configure proxies via `otto.add_trusted_proxy(ip_or_pattern)`
+2. **Client IP Resolution**: Middleware checks X-Forwarded-For headers from trusted proxies
+3. **Privacy Masking**: Resolved client IP is then masked (if public) or exempted (if private)
+4. **Header Replacement**: Both `REMOTE_ADDR` and forwarded headers are replaced with masked values
+
+#### Proxy Header Priority
+
+Headers are checked in this order:
+1. `X-Forwarded-For` (first non-trusted IP in chain)
+2. `X-Real-IP`
+3. `X-Client-IP`
+
+#### Configuration
+
+```ruby
+# Configure trusted proxies (load balancers, reverse proxies, CDNs)
+otto.add_trusted_proxy('10.0.0.1')                  # Exact IP
+otto.add_trusted_proxy('172.16.0.0/12')             # CIDR range (not yet implemented)
+otto.add_trusted_proxy(/^192\.168\./)               # Regex pattern
+```
+
+#### Behavior Examples
+
+**Scenario 1: Direct Connection (No Proxy)**
+```ruby
+# Request from client 203.0.113.50
+env['REMOTE_ADDR'] = '203.0.113.50'
+
+# After IPPrivacyMiddleware:
+env['REMOTE_ADDR']          # => '203.0.113.0' (masked)
+env['otto.masked_ip']       # => '203.0.113.0'
+```
+
+**Scenario 2: Trusted Proxy with Public Client IP**
+```ruby
+# Request: Client 203.0.113.50 → Proxy 10.0.0.1 → Otto
+env['REMOTE_ADDR'] = '10.0.0.1'                # Trusted proxy
+env['HTTP_X_FORWARDED_FOR'] = '203.0.113.50'   # Real client IP
+
+# After IPPrivacyMiddleware:
+env['REMOTE_ADDR']          # => '203.0.113.0' (resolved & masked)
+env['HTTP_X_FORWARDED_FOR'] # => '203.0.113.0' (masked to prevent leaks)
+env['otto.masked_ip']       # => '203.0.113.0'
+```
+
+**Scenario 3: Trusted Proxy with Private Client IP**
+```ruby
+# Request: Client 192.168.1.100 (internal) → Proxy 10.0.0.1 → Otto
+env['REMOTE_ADDR'] = '10.0.0.1'
+env['HTTP_X_FORWARDED_FOR'] = '192.168.1.100'  # Private client IP
+
+# After IPPrivacyMiddleware:
+env['REMOTE_ADDR']          # => '192.168.1.100' (resolved but NOT masked)
+env['HTTP_X_FORWARDED_FOR'] # => '192.168.1.100' (not masked, private IP)
+env['otto.original_ip']     # => '192.168.1.100'
+```
+
+**Scenario 4: Untrusted Proxy (Security)**
+```ruby
+# Request: Malicious client trying to spoof X-Forwarded-For
+env['REMOTE_ADDR'] = '198.51.100.1'            # NOT in trusted proxies
+env['HTTP_X_FORWARDED_FOR'] = '203.0.113.50'  # Untrusted header (ignored)
+
+# After IPPrivacyMiddleware:
+env['REMOTE_ADDR']          # => '198.51.100.0' (proxy IP masked, header ignored)
+env['HTTP_X_FORWARDED_FOR'] # => '198.51.100.0' (masked to match REMOTE_ADDR)
+env['otto.masked_ip']       # => '198.51.100.0'
+```
+
+**Scenario 5: Proxy Chain**
+```ruby
+# Request: Client → CDN → Load Balancer → Otto
+# Both CDN and LB are trusted proxies
+otto.add_trusted_proxy('172.16.0.1')  # Load balancer
+otto.add_trusted_proxy(/^10\.0\./)    # CDN
+
+env['REMOTE_ADDR'] = '172.16.0.1'
+env['HTTP_X_FORWARDED_FOR'] = '203.0.113.50, 10.0.0.5, 172.16.0.1'
+
+# After IPPrivacyMiddleware:
+# Resolves to first non-trusted IP: 203.0.113.50
+env['REMOTE_ADDR']          # => '203.0.113.0'
+env['HTTP_X_FORWARDED_FOR'] # => '203.0.113.0'
+```
+
+#### Rack::Request#ip Compatibility
+
+Otto does **NOT** override `Rack::Request#ip`. Instead, it ensures Rack's native proxy resolution works correctly with masked values:
+
+1. IPPrivacyMiddleware resolves client IP from X-Forwarded-For
+2. Masks both `REMOTE_ADDR` and forwarded headers
+3. Rack's `request.ip` method uses these masked values naturally
+
+```ruby
+# Behind trusted proxy with privacy enabled
+env['REMOTE_ADDR'] = '10.0.0.1'
+env['HTTP_X_FORWARDED_FOR'] = '203.0.113.50'
+
+# After IPPrivacyMiddleware:
+request = Rack::Request.new(env)
+request.ip  # => '203.0.113.0' (Rack resolves from masked headers)
+```
+
+This architecture allows:
+- Rack's proxy logic to work unchanged
+- No custom overrides needed
+- Full compatibility with Rack middleware ecosystem
+
+#### Common Proxy Configurations
+
+**AWS ELB/ALB:**
+```ruby
+otto.add_trusted_proxy('10.0.0.0/8')   # Private VPC range
+# ALB sets X-Forwarded-For header
+```
+
+**Cloudflare:**
+```ruby
+# Use Cloudflare's IP ranges (update periodically)
+otto.add_trusted_proxy(/^173\.245\./)
+otto.add_trusted_proxy(/^103\.21\./)
+# ... add other Cloudflare ranges
+# Cloudflare sets CF-IPCountry header (used for geo-location)
+```
+
+**nginx Reverse Proxy:**
+```ruby
+otto.add_trusted_proxy('127.0.0.1')
+otto.add_trusted_proxy('::1')
+# nginx sets X-Real-IP and X-Forwarded-For
+```
+
+#### Limitations and Edge Cases
+
+1. **IPv6 Support**: Currently limited to IPv4 validation in `resolve_client_ip`
+2. **CIDR Ranges**: String matching only (regex workaround available)
+3. **Header Spoofing**: Always validate proxy configuration - untrusted sources are treated as direct connections
+4. **Proxy Chain Length**: No limit, but only first non-trusted IP is used
+5. **Header Format**: Expects standard comma-separated format for X-Forwarded-For
+
+#### Security Considerations
+
+- **Always configure trusted proxies explicitly** - don't trust all X-Forwarded-For headers
+- **Verify proxy configuration in production** - incorrect config can expose real IPs
+- **Monitor for header spoofing** - log suspicious X-Forwarded-For patterns
+- **Use HTTPs between proxies and Otto** - prevent header injection attacks
+- **Rotate hashing keys regularly** - use Redis for multi-server consistency
+
 ### Testing Considerations
 
 - In test environment (RSpec), privacy is enabled by default

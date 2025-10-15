@@ -242,9 +242,7 @@ class Otto
         def merge_security_headers!(headers)
           return unless security_config
 
-          security_config.security_headers.each do |key, value|
-            headers[key] = value
-          end
+          headers.merge!(security_config.security_headers)
         end
       end
     end

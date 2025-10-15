@@ -43,8 +43,6 @@ class Otto
         entry = { middleware: middleware_class, args: args, options: options }
         @stack << entry
         @middleware_set.add(middleware_class)
-        # Invalidate memoized middleware list
-        @memoized_middleware_list = nil
         # Notify of change
         @on_change_callback&.call
       end
@@ -79,7 +77,6 @@ class Otto
         end
 
         @middleware_set.add(middleware_class)
-        @memoized_middleware_list = nil
         # Notify of change
         @on_change_callback&.call
       end
@@ -145,8 +142,6 @@ class Otto
 
         # Rebuild the set of unique middleware classes
         @middleware_set = Set.new(@stack.map { |entry| entry[:middleware] })
-        # Invalidate memoized middleware list
-        @memoized_middleware_list = nil
         # Notify of change
         @on_change_callback&.call
       end
@@ -163,8 +158,6 @@ class Otto
 
         @stack.clear
         @middleware_set.clear
-        # Invalidate memoized middleware list
-        @memoized_middleware_list = nil
         # Notify of change
         @on_change_callback&.call
       end
@@ -195,12 +188,9 @@ class Otto
         end
       end
 
-      # Cached middleware list to reduce array creation
-      # Uses defined? instead of ||= to work when frozen
+      # Returns list of middleware classes in order
       def middleware_list
-        return @memoized_middleware_list if defined?(@memoized_middleware_list)
-
-        @memoized_middleware_list = @stack.map { |entry| entry[:middleware] }
+        @stack.map { |entry| entry[:middleware] }
       end
 
       # Detailed introspection
@@ -235,17 +225,7 @@ class Otto
         @stack.reverse_each(&)
       end
 
-      # Override deep_freeze! to pre-compute memoized values before freezing
-      #
-      # This ensures that the memoized middleware list is calculated before
-      # the object is frozen, preventing FrozenError when accessing the list later.
-      #
-      # @return [self] The frozen middleware stack
-      def deep_freeze!
-        # Pre-compute memoized middleware list before freezing
-        @memoized_middleware_list = @stack.map { |entry| entry[:middleware] }
-        super
-      end
+
 
       private
 

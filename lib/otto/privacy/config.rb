@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# lib/otto/privacy/config.rb
 
 require 'ipaddr'
 require 'securerandom'
@@ -150,6 +150,7 @@ class Otto
         key = SecureRandom.hex(32)
 
         # SET NX GET returns old value if key exists, nil if we set it
+        # @see https://valkey.io/commands/set/
         existing_key = @redis.set(redis_key, key, nx: true, get: true, ex: ttl)
 
         existing_key || key

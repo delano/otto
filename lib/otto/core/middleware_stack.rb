@@ -13,6 +13,13 @@ class Otto
       def initialize
         @stack = []
         @middleware_set = Set.new
+        @on_change_callback = nil
+      end
+
+      # Set a callback to be invoked when the middleware stack changes
+      # @param callback [Proc] A callable object (e.g., method or lambda)
+      def on_change(&callback)
+        @on_change_callback = callback
       end
 
       # Enhanced middleware registration with argument uniqueness and immutability check
@@ -133,6 +140,8 @@ class Otto
         @middleware_set = Set.new(@stack.map { |entry| entry[:middleware] })
         # Invalidate memoized middleware list
         @memoized_middleware_list = nil
+        # Notify of change
+        @on_change_callback&.call
       end
 
       # Check if middleware is registered - now O(1) using Set
@@ -149,6 +158,8 @@ class Otto
         @middleware_set.clear
         # Invalidate memoized middleware list
         @memoized_middleware_list = nil
+        # Notify of change
+        @on_change_callback&.call
       end
 
       # Enumerable support

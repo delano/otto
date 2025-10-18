@@ -15,7 +15,7 @@ class Otto
       #   1. Route matched (route_definition available)
       #   2. RouteAuthWrapper#call invoked
       #   3. Execute auth strategy based on route's auth_requirement
-      #   4. Set env['otto.strategy_result'], env['otto.user']
+      #   4. Set env['otto.strategy_result']
       #   5. If auth fails, return 401 or redirect
       #   6. If auth succeeds, call wrapped handler
       #
@@ -50,12 +50,10 @@ class Otto
           unless auth_requirement
             # Note: env['REMOTE_ADDR'] is masked by IPPrivacyMiddleware by default
             metadata = { ip: env['REMOTE_ADDR'] }
-            metadata[:country] = env['otto.geo_country'] if env['otto.geo_country']
+            metadata[:country] = env['otto.privacy.geo_country'] if env['otto.privacy.geo_country']
 
             result = StrategyResult.anonymous(metadata: metadata)
             env['otto.strategy_result'] = result
-            env['otto.user'] = nil
-            env['otto.user_context'] = result.user_context
             return wrapped_handler.call(env, extra_params)
           end
 
@@ -79,18 +77,14 @@ class Otto
               auth_failure: result.failure_reason,
               attempted_strategy: auth_requirement
             }
-            metadata[:country] = env['otto.geo_country'] if env['otto.geo_country']
+            metadata[:country] = env['otto.privacy.geo_country'] if env['otto.privacy.geo_country']
 
             env['otto.strategy_result'] = StrategyResult.anonymous(metadata: metadata)
-            env['otto.user'] = nil
-            env['otto.user_context'] = {}
             return auth_failure_response(env, result)
           end
 
           # Set environment variables for controllers/logic on success
           env['otto.strategy_result'] = result
-          env['otto.user'] = result.user
-          env['otto.user_context'] = result.user_context
 
           # SESSION PERSISTENCE: This assignment is INTENTIONAL, not a merge operation.
           # We must ensure env['rack.session'] and strategy_result.session reference

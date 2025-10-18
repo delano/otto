@@ -43,19 +43,11 @@ class Otto
     # - Routes WITHOUT auth requirement: Anonymous StrategyResult
     STRATEGY_RESULT = 'otto.strategy_result'
 
-    # Authenticated user object (convenience accessor)
-    # Type: Hash, Custom User Object, or nil
-    # Set by: RouteAuthWrapper (from strategy_result.user)
-    # Used by: Controllers, RouteHandlers
-    # Note: nil for anonymous/unauthenticated requests
-    USER = 'otto.user'
+    # REMOVED: Use strategy_result.user instead
+    # USER = 'otto.user'
 
-    # User-specific context (session, roles, permissions, etc.)
-    # Type: Hash
-    # Set by: RouteAuthWrapper (from strategy_result.user_context)
-    # Used by: Controllers, Analytics
-    # Note: Empty hash {} for anonymous requests
-    USER_CONTEXT = 'otto.user_context'
+    # REMOVED: Use strategy_result.metadata instead
+    # USER_CONTEXT = 'otto.user_context'
 
     # =========================================================================
     # SECURITY & CONFIGURATION
@@ -104,6 +96,36 @@ class Otto
     # Set by: ErrorHandler, RouteHandlers
     # Used by: Error responses, logging, support
     ERROR_ID = 'otto.error_id'
+
+    # =========================================================================
+    # PRIVACY (IP MASKING)
+    # =========================================================================
+
+    # Privacy-safe masked IP address
+    # Type: String (e.g., '192.168.1.0')
+    # Set by: IPPrivacyMiddleware
+    # Used by: Rate limiting, analytics, logging
+    module Privacy
+      MASKED_IP = 'otto.privacy.masked_ip'
+
+      # Geo-location country code
+      # Type: String (ISO 3166-1 alpha-2)
+      # Set by: IPPrivacyMiddleware
+      # Used by: Analytics, localization
+      GEO_COUNTRY = 'otto.privacy.geo_country'
+
+      # Daily-rotating IP hash for session correlation
+      # Type: String (hexadecimal)
+      # Set by: IPPrivacyMiddleware
+      # Used by: Session correlation without storing IPs
+      HASHED_IP = 'otto.privacy.hashed_ip'
+
+      # Privacy fingerprint object
+      # Type: Otto::Privacy::RedactedFingerprint
+      # Set by: IPPrivacyMiddleware
+      # Used by: Full privacy context access
+      FINGERPRINT = 'otto.privacy.fingerprint'
+    end
 
     # =========================================================================
     # MCP (MODEL CONTEXT PROTOCOL)

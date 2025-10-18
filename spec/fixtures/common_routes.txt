@@ -1,1 +1,3 @@
 GET / TestApp.index
+GET /show/:id TestApp.show
+POST /create TestApp.create

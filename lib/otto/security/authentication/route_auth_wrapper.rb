@@ -15,7 +15,7 @@ class Otto
       #   1. Route matched (route_definition available)
       #   2. RouteAuthWrapper#call invoked
       #   3. Execute auth strategy based on route's auth_requirement
-      #   4. Set env['otto.strategy_result'], env['otto.user']
+      #   4. Set env['otto.strategy_result']
       #   5. If auth fails, return 401 or redirect
       #   6. If auth succeeds, call wrapped handler
       #

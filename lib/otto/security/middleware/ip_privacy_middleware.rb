@@ -87,10 +87,10 @@ class Otto
           env['REMOTE_ADDR'] = original_remote_addr
 
           # Set privacy-safe values in environment
-          env['otto.redacted_fingerprint'] = fingerprint
-          env['otto.masked_ip'] = fingerprint.masked_ip
-          env['otto.hashed_ip'] = fingerprint.hashed_ip
-          env['otto.geo_country'] = fingerprint.country
+          env['otto.privacy.fingerprint'] = fingerprint
+          env['otto.privacy.masked_ip'] = fingerprint.masked_ip
+          env['otto.privacy.hashed_ip'] = fingerprint.hashed_ip
+          env['otto.privacy.geo_country'] = fingerprint.country
 
           # CRITICAL: Replace REMOTE_ADDR and forwarded headers with masked IP
           # This ensures downstream code (rate limiting, auth, logging, Rack's request.ip)

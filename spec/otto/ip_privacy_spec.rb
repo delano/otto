@@ -221,14 +221,14 @@ RSpec.describe 'IP Privacy Features' do
           env = { 'REMOTE_ADDR' => '9.9.9.9' }
           middleware.call(env)
 
-          expect(env['otto.redacted_fingerprint']).to be_a(Otto::Privacy::RedactedFingerprint)
+          expect(env['otto.privacy.fingerprint']).to be_a(Otto::Privacy::RedactedFingerprint)
         end
 
         it 'sets masked IP for public IPs' do
           env = { 'REMOTE_ADDR' => '9.9.9.9' }
           middleware.call(env)
 
-          expect(env['otto.masked_ip']).to eq('9.9.9.0')
+          expect(env['otto.privacy.masked_ip']).to eq('9.9.9.0')
         end
 
         it 'does not set original IP for public IPs' do
@@ -292,9 +292,9 @@ RSpec.describe 'IP Privacy Features' do
           env = { 'REMOTE_ADDR' => '192.168.1.100' }
           middleware.call(env)
 
-          expect(env['otto.redacted_fingerprint']).to be_nil
-          expect(env['otto.masked_ip']).to be_nil
-          expect(env['otto.hashed_ip']).to be_nil
+          expect(env['otto.privacy.fingerprint']).to be_nil
+          expect(env['otto.privacy.masked_ip']).to be_nil
+          expect(env['otto.privacy.hashed_ip']).to be_nil
         end
       end
 
@@ -331,8 +331,8 @@ RSpec.describe 'IP Privacy Features' do
           env = { 'REMOTE_ADDR' => '192.168.1.100' }
           middleware.call(env)
 
-          expect(env['otto.redacted_fingerprint']).to be_a(Otto::Privacy::RedactedFingerprint)
-          expect(env['otto.redacted_fingerprint'].masked_ip).to eq('192.168.1.0')
+          expect(env['otto.privacy.fingerprint']).to be_a(Otto::Privacy::RedactedFingerprint)
+          expect(env['otto.privacy.fingerprint'].masked_ip).to eq('192.168.1.0')
         end
       end
     end
@@ -360,7 +360,7 @@ RSpec.describe 'IP Privacy Features' do
         env = { 'REMOTE_ADDR' => '192.168.1.100' }
         middleware.call(env)
 
-        expect(env['otto.redacted_fingerprint']).to be_nil
+        expect(env['otto.privacy.fingerprint']).to be_nil
       end
 
       it 'ensures original IP has UTF-8 encoding' do
@@ -431,7 +431,7 @@ RSpec.describe 'IP Privacy Features' do
 
         expect(env['REMOTE_ADDR']).to eq('127.0.0.0')
         expect(env['otto.original_ip']).to be_nil
-        expect(env['otto.masked_ip']).to eq('127.0.0.0')
+        expect(env['otto.privacy.masked_ip']).to eq('127.0.0.0')
       end
 
       it 'masks IPv6 localhost (::1) when full privacy enabled' do
@@ -466,7 +466,7 @@ RSpec.describe 'IP Privacy Features' do
 
         expect(env['REMOTE_ADDR']).to eq('192.168.1.0')
         expect(env['otto.original_ip']).to be_nil
-        expect(env['otto.masked_ip']).to eq('192.168.1.0')
+        expect(env['otto.privacy.masked_ip']).to eq('192.168.1.0')
       end
 
       it 'masks private IP (10.x.x.x) when full privacy enabled' do
@@ -484,7 +484,7 @@ RSpec.describe 'IP Privacy Features' do
 
         expect(env['REMOTE_ADDR']).to eq('10.0.0.0')
         expect(env['otto.original_ip']).to be_nil
-        expect(env['otto.masked_ip']).to eq('10.0.0.0')
+        expect(env['otto.privacy.masked_ip']).to eq('10.0.0.0')
       end
 
       it 'masks private IP (172.16.x.x) when full privacy enabled' do
@@ -502,7 +502,7 @@ RSpec.describe 'IP Privacy Features' do
 
         expect(env['REMOTE_ADDR']).to eq('172.16.0.0')
         expect(env['otto.original_ip']).to be_nil
-        expect(env['otto.masked_ip']).to eq('172.16.0.0')
+        expect(env['otto.privacy.masked_ip']).to eq('172.16.0.0')
       end
 
       it 'creates private fingerprint for localhost when full privacy enabled' do
@@ -518,9 +518,9 @@ RSpec.describe 'IP Privacy Features' do
 
         otto.call(env)
 
-        expect(env['otto.redacted_fingerprint']).to be_a(Otto::Privacy::RedactedFingerprint)
-        expect(env['otto.redacted_fingerprint'].masked_ip).to eq('127.0.0.0')
-        expect(env['otto.hashed_ip']).to match(/^[0-9a-f]{64}$/)
+        expect(env['otto.privacy.fingerprint']).to be_a(Otto::Privacy::RedactedFingerprint)
+        expect(env['otto.privacy.fingerprint'].masked_ip).to eq('127.0.0.0')
+        expect(env['otto.privacy.hashed_ip']).to match(/^[0-9a-f]{64}$/)
       end
 
       it 'creates private fingerprint for private IPs when full privacy enabled' do
@@ -536,9 +536,9 @@ RSpec.describe 'IP Privacy Features' do
 
         otto.call(env)
 
-        expect(env['otto.redacted_fingerprint']).to be_a(Otto::Privacy::RedactedFingerprint)
-        expect(env['otto.redacted_fingerprint'].masked_ip).to eq('192.168.1.0')
-        expect(env['otto.hashed_ip']).to match(/^[0-9a-f]{64}$/)
+        expect(env['otto.privacy.fingerprint']).to be_a(Otto::Privacy::RedactedFingerprint)
+        expect(env['otto.privacy.fingerprint'].masked_ip).to eq('192.168.1.0')
+        expect(env['otto.privacy.hashed_ip']).to match(/^[0-9a-f]{64}$/)
       end
 
       it 'still masks public IPs when full privacy enabled' do
@@ -556,7 +556,7 @@ RSpec.describe 'IP Privacy Features' do
 
         expect(env['REMOTE_ADDR']).to eq('9.9.9.0')
         expect(env['otto.original_ip']).to be_nil
-        expect(env['otto.masked_ip']).to eq('9.9.9.0')
+        expect(env['otto.privacy.masked_ip']).to eq('9.9.9.0')
       end
 
       it 'applies custom octet_precision with full privacy enabled' do
@@ -574,7 +574,7 @@ RSpec.describe 'IP Privacy Features' do
         otto.call(env)
 
         expect(env['REMOTE_ADDR']).to eq('192.168.0.0')
-        expect(env['otto.masked_ip']).to eq('192.168.0.0')
+        expect(env['otto.privacy.masked_ip']).to eq('192.168.0.0')
       end
 
       it 'Rack::Request#ip returns masked private IP when full privacy enabled' do
@@ -704,7 +704,7 @@ RSpec.describe 'IP Privacy Features' do
         expect(env['REMOTE_ADDR']).to eq('192.168.1.100')
 
         # Verify private fingerprint was NOT created
-        expect(env['otto.redacted_fingerprint']).to be_nil
+        expect(env['otto.privacy.fingerprint']).to be_nil
         expect(env['otto.original_ip']).to eq('192.168.1.100')
       end
 
@@ -756,7 +756,7 @@ RSpec.describe 'IP Privacy Features' do
           }
 
           otto.call(env)
-          hashes << env['otto.hashed_ip']
+          hashes << env['otto.privacy.hashed_ip']
         end
 
         # Private IPs are not hashed
@@ -777,7 +777,7 @@ RSpec.describe 'IP Privacy Features' do
           }
 
           otto.call(env)
-          hashes << env['otto.hashed_ip']
+          hashes << env['otto.privacy.hashed_ip']
         end
 
         expect(hashes[0]).to eq(hashes[1])
@@ -799,7 +799,7 @@ RSpec.describe 'IP Privacy Features' do
 
         otto.call(env)
         expect(env['REMOTE_ADDR']).to eq('9.9.0.0')
-        expect(env['otto.masked_ip']).to eq('9.9.0.0')
+        expect(env['otto.privacy.masked_ip']).to eq('9.9.0.0')
       end
     end
 
@@ -824,7 +824,7 @@ RSpec.describe 'IP Privacy Features' do
         otto.call(env)
         expect(env['REMOTE_ADDR']).to eq('192.168.1.100')
         expect(env['otto.original_ip']).to eq('192.168.1.100')
-        expect(env['otto.redacted_fingerprint']).to be_nil
+        expect(env['otto.privacy.fingerprint']).to be_nil
       end
     end
   end
@@ -1117,7 +1117,7 @@ RSpec.describe 'IP Privacy Features' do
         middleware.call(env)
 
         expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
-        expect(env['otto.masked_ip']).to eq('203.0.113.0')
+        expect(env['otto.privacy.masked_ip']).to eq('203.0.113.0')
       end
 
       it 'does not mask private IP from direct connection' do
@@ -1139,7 +1139,7 @@ RSpec.describe 'IP Privacy Features' do
 
         # Client IP should be masked
         expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
-        expect(env['otto.masked_ip']).to eq('203.0.113.0')
+        expect(env['otto.privacy.masked_ip']).to eq('203.0.113.0')
 
         # X-Forwarded-For should be masked to prevent leakage
         expect(env['HTTP_X_FORWARDED_FOR']).to eq('203.0.113.0')
@@ -1216,7 +1216,7 @@ RSpec.describe 'IP Privacy Features' do
 
         # Should mask the proxy IP (not trust the header)
         expect(env['REMOTE_ADDR']).to eq('198.51.100.0')
-        expect(env['otto.masked_ip']).to eq('198.51.100.0')
+        expect(env['otto.privacy.masked_ip']).to eq('198.51.100.0')
 
         # X-Forwarded-For should be masked with the proxy IP
         expect(env['HTTP_X_FORWARDED_FOR']).to eq('198.51.100.0')
@@ -1280,10 +1280,10 @@ RSpec.describe 'IP Privacy Features' do
         # Client IP should be resolved and masked
         expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
         expect(env['HTTP_X_FORWARDED_FOR']).to eq('203.0.113.0')
-        expect(env['otto.masked_ip']).to eq('203.0.113.0')
+        expect(env['otto.privacy.masked_ip']).to eq('203.0.113.0')
 
         # Should have fingerprint for public IP
-        expect(env['otto.redacted_fingerprint']).to be_a(Otto::Privacy::RedactedFingerprint)
+        expect(env['otto.privacy.fingerprint']).to be_a(Otto::Privacy::RedactedFingerprint)
       end
 
       it 'handles private client IP behind proxy' do
@@ -1304,7 +1304,7 @@ RSpec.describe 'IP Privacy Features' do
         # Private client IP should not be masked
         expect(env['REMOTE_ADDR']).to eq('192.168.1.100')
         expect(env['otto.original_ip']).to eq('192.168.1.100')
-        expect(env['otto.redacted_fingerprint']).to be_nil
+        expect(env['otto.privacy.fingerprint']).to be_nil
       end
     end
 
@@ -1323,7 +1323,7 @@ RSpec.describe 'IP Privacy Features' do
         # With full privacy, private IPs should be masked
         expect(env['REMOTE_ADDR']).to eq('192.168.1.0')
         expect(env['HTTP_X_FORWARDED_FOR']).to eq('192.168.1.0')
-        expect(env['otto.masked_ip']).to eq('192.168.1.0')
+        expect(env['otto.privacy.masked_ip']).to eq('192.168.1.0')
       end
     end
   end

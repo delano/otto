@@ -74,20 +74,13 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
         expect(env['otto.strategy_result'].metadata[:ip]).to eq('192.168.1.100')
       end
 
-      it 'does not set otto.user for anonymous routes' do
+      it 'returns user and metadata via strategy_result for anonymous routes' do
         env = mock_rack_env
 
         public_wrapper.call(env)
 
-        expect(env['otto.user']).to be_nil
-      end
-
-      it 'sets empty user_context for anonymous routes' do
-        env = mock_rack_env
-
-        public_wrapper.call(env)
-
-        expect(env['otto.user_context']).to eq({})
+        expect(env['otto.strategy_result'].user).to be_nil
+        expect(env['otto.strategy_result'].metadata).to include(:ip)
       end
     end
 
@@ -101,16 +94,15 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
         expect(status).to eq(200)
         expect(body).to eq(['handler called'])
         expect(env['otto.strategy_result']).to be_a(Otto::Security::Authentication::StrategyResult)
-        expect(env['otto.user_context']).to eq(user_id: 123, session: { 'user_id' => 123 })
+        expect(env['otto.strategy_result']).to be_authenticated
       end
 
-      it 'sets otto.user convenience key' do
+      it 'provides user via strategy_result' do
         env = mock_rack_env
         env['rack.session'] = { 'user_id' => 456 }
 
         wrapper.call(env)
 
-        expect(env['otto.user']).to eq({ id: 456, user_id: 456 })
         expect(env['otto.strategy_result'].user).to eq({ id: 456, user_id: 456 })
       end
     end

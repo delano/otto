@@ -83,24 +83,40 @@ class Otto
         @default_locale
       end
 
-      # Parse Accept-Language header
+      # Parse Accept-Language header with RFC 2616 quality value support
       #
       # Handles formats like:
-      # - "en-US,en;q=0.9,fr;q=0.8" → "en"
-      # - "es" → "es"
+      # - "en-US,en;q=0.9,fr;q=0.8" → finds first available from [en, en, fr]
+      # - "es,en;q=0.9" → returns "en" if "es" unavailable but "en" is
       # - "fr-CA" → "fr"
       #
+      # Respects q-values (quality factors) and returns the highest-priority
+      # available locale instead of just the first language tag.
+      #
       # @param header [String, nil] Accept-Language header value
-      # @return [String, nil] Locale code or nil
+      # @return [String, nil] Best matching available locale code or nil
       def parse_accept_language(header)
         return nil unless header
 
-        # Parse "en-US,en;q=0.9,fr;q=0.8" → "en"
-        lang = header.split(',').first
-        return nil unless lang
+        # Parse all language tags with their q-values
+        # Format: "en-US,en;q=0.9,fr;q=0.8" → [[en-US, 1.0], [en, 0.9], [fr, 0.8]]
+        languages = header.split(',').map do |tag|
+          # Split on semicolon and extract q-value
+          parts = tag.strip.split(/\s*;\s*q\s*=\s*/)
+          locale_str = parts[0]
+          q_value = parts[1] ? parts[1].to_f : 1.0
+          [locale_str, q_value]
+        end
 
-        # Extract language code before hyphen or semicolon
-        lang.split(/[-;]/).first.downcase
+        # Sort by q-value descending (highest preference first)
+        # and find the first locale that matches available_locales
+        languages.sort_by { |_, q| -q }.each do |lang_tag, _|
+          # Extract primary language code: "en-US" → "en", "fr" → "fr"
+          locale_code = lang_tag.split('-').first.downcase
+          return locale_code if valid_locale?(locale_code)
+        end
+
+        nil # No matching locale found
       rescue StandardError => ex
         Otto.logger&.warn "[Otto::Locale] Failed to parse Accept-Language: #{ex.message}"
         nil

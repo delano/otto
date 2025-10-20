@@ -498,7 +498,7 @@ class Otto
       when :error
         log_method = :error
       else
-        log_method = :info
+        raise ArgumentError, "Unsupported log level: #{level.inspect}. Valid levels: :debug, :info, :warn, :error"
       end
 
       # Try structured logging first (SemanticLogger, etc.)

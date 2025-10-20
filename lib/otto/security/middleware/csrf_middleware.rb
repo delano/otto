@@ -27,7 +27,17 @@ class Otto
           end
 
           # Validate CSRF token for unsafe methods
-          return csrf_error_response unless valid_csrf_token?(request)
+          unless valid_csrf_token?(request)
+            # Log CSRF validation failure
+            Otto.structured_log(:warn, "CSRF validation failed", {
+              method: request.request_method,
+              path: request.path_info,
+              ip: request.ip,
+              referrer: request.referrer,
+              user_agent: request.user_agent
+            })
+            return csrf_error_response
+          end
 
           @app.call(env)
         end

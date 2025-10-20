@@ -106,12 +106,33 @@ class Otto
       end
     end
 
+    # Track request timing for lifecycle hooks
+    start_time = Time.now
+    request = Rack::Request.new(env)
+    response = nil
+
     begin
       # Use pre-built middleware app (built once at initialization)
-      @app.call(env)
+      response = @app.call(env)
     rescue StandardError => e
-      handle_error(e, env)
+      response = handle_error(e, env)
+    ensure
+      # Execute request completion hooks if any are registered
+      unless self.class.request_complete_callbacks.empty?
+        begin
+          duration_ms = ((Time.now - start_time) * 1000).round(2)
+          self.class.request_complete_callbacks.each do |callback|
+            callback.call(request, response, duration_ms, env)
+          end
+        rescue StandardError => hook_error
+          Otto.logger.error "[Otto] Request completion hook error: #{hook_error.message}"
+          Otto.logger.debug "[Otto] Hook error backtrace: #{hook_error.backtrace.join("
+")}" if Otto.debug
+        end
+      end
     end
+
+    response
   end
 
   # Builds the middleware application chain
@@ -449,6 +470,45 @@ class Otto
 
   class << self
     attr_accessor :debug, :logger # rubocop:disable ThreadSafety/ClassAndModuleAttributes
+
+    # Request lifecycle callback registry
+    def on_request_complete(&block)
+      @request_complete_callbacks ||= []
+      @request_complete_callbacks << block if block_given?
+    end
+
+    # Get registered callbacks (for internal use)
+    def request_complete_callbacks
+      @request_complete_callbacks ||= []
+    end
+
+    # Helper method for structured logging that works with both standard Logger and structured loggers
+    def structured_log(level, message, data = {})
+      return unless logger
+
+      case level
+      when :debug
+        return unless debug
+        log_method = :debug
+      when :info
+        log_method = :info
+      when :warn
+        log_method = :warn
+      when :error
+        log_method = :error
+      else
+        log_method = :info
+      end
+
+      # Try structured logging first (SemanticLogger, etc.)
+      if logger.respond_to?(log_method) && logger.method(log_method).arity > 1
+        logger.send(log_method, message, data)
+      else
+        # Fallback to standard logger with formatted string
+        formatted_data = data.empty? ? "" : " -- #{data.inspect}"
+        logger.send(log_method, "[Otto] #{message}#{formatted_data}")
+      end
+    end
   end
 
   # Class methods for Otto framework providing singleton access and configuration

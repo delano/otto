@@ -52,8 +52,24 @@ class Otto
 
             @app.call(env)
           rescue Otto::Security::ValidationError => e
+            # Log validation failure
+            Otto.structured_log(:warn, "Input validation failed", {
+              method: request.request_method,
+              path: request.path_info,
+              ip: request.ip,
+              error: e.message,
+              user_agent: request.user_agent
+            })
             validation_error_response(e.message)
           rescue Otto::Security::RequestTooLargeError => e
+            # Log request size violation
+            Otto.structured_log(:warn, "Request too large", {
+              method: request.request_method,
+              path: request.path_info,
+              ip: request.ip,
+              error: e.message,
+              content_length: request.env['CONTENT_LENGTH']
+            })
             request_too_large_response(e.message)
           end
         end

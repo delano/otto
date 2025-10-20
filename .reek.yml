@@ -1,6 +1,6 @@
 # .reek.yml
 #
-# Reek configuration for Rhales
+# Reek configuration for Otto
 #
 # Basic commands:
 #   bundle exec reek                           # Analyze all Ruby files

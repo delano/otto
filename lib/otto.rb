@@ -127,8 +127,7 @@ class Otto
           end
         rescue StandardError => hook_error
           Otto.logger.error "[Otto] Request completion hook error: #{hook_error.message}"
-          Otto.logger.debug "[Otto] Hook error backtrace: #{hook_error.backtrace.join("
-")}" if Otto.debug
+          Otto.logger.debug "[Otto] Hook error backtrace: #{hook_error.backtrace.join("\n")}" if Otto.debug
         end
       end
     end

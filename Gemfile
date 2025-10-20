@@ -33,5 +33,5 @@ group :development do
   gem 'ruby-lsp', require: false
   gem 'stackprof', require: false
   gem 'syntax_tree', require: false
-  gem 'tryouts', '~> 3.6.1', require: false
+  gem 'tryouts', '~> 3.7.1', require: false
 end

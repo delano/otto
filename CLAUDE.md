@@ -534,6 +534,111 @@ otto.add_trusted_proxy('::1')
 - Use `Otto.unfreeze_for_testing(otto)` before calling `disable_ip_privacy!` in tests
 - Helper methods like `req.redacted_fingerprint` return nil for private/localhost IPs
 
+## Structured Logging Conventions
+
+**IMPORTANT**: Otto uses simple, explicit structured logging. Avoid creating abstraction layers or event classes.
+
+### LoggingHelpers Module
+
+Otto provides `Otto::LoggingHelpers.request_context(env)` to eliminate duplication of common request fields:
+
+```ruby
+# lib/otto/logging_helpers.rb
+Otto::LoggingHelpers.request_context(env)
+# Returns: { method:, path:, ip:, country:, user_agent: }
+```
+
+### Logging Pattern
+
+Use `Otto.structured_log` with `LoggingHelpers.request_context(env).merge()` for consistent logs:
+
+```ruby
+# Route logging
+Otto.structured_log(:debug, "Route matched",
+  Otto::LoggingHelpers.request_context(env).merge(
+    type: 'literal',
+    handler: route.route_definition.definition,
+    auth_strategy: route.route_definition.auth_requirement || 'none'
+  )
+)
+
+# Authentication logging
+Otto.structured_log(:info, "Auth strategy result",
+  Otto::LoggingHelpers.request_context(env).merge(
+    strategy: strategy.class.name.split('::').last.downcase.gsub('strategy', ''),
+    success: true,
+    user_id: result.user_id,
+    duration_ms: duration_ms
+  )
+)
+
+# Security event logging
+Otto.structured_log(:warn, "CSRF validation failed",
+  Otto::LoggingHelpers.request_context(env).merge(
+    referrer: request.referrer
+  )
+)
+```
+
+### Required Fields
+
+All structured logs should include:
+- **method** - HTTP method (GET, POST, etc.)
+- **path** - Request path
+- **ip** - Client IP (automatically masked by IPPrivacyMiddleware for public IPs)
+- **Event-specific data** - Handler, type, error message, etc.
+
+### Optional Fields
+
+Include when relevant:
+- **country** - Geo-location country code (from IPPrivacyMiddleware)
+- **user_agent** - Browser/client info (truncated to 100 chars)
+- **duration_ms** - Operation timing
+- **user_id** - Authenticated user ID
+- **referrer** - HTTP Referer header
+- **error** - Error message
+
+### Privacy Awareness
+
+- IP addresses in logs are **already masked** by `IPPrivacyMiddleware` (public IPs only)
+- Private IPs (127.0.0.1, 192.168.x.x, 10.x.x.x) are **never masked**
+- `env['REMOTE_ADDR']` contains masked IP for public addresses
+- User agents are automatically truncated to prevent log bloat
+
+### Anti-Patterns
+
+**❌ Don't create event classes:**
+```ruby
+# NO - Adds unnecessary abstraction
+event = RouteMatchEvent.new(type: :literal, method: http_verb, path: path)
+Otto.structured_log(event.level, event.message, event.to_h)
+```
+
+**❌ Don't create helper wrappers:**
+```ruby
+# NO - Hides what's being logged
+Otto::Logging.log_route_match(type: :literal, method: http_verb, path: path, env: env)
+```
+
+**✅ Do use explicit inline logging:**
+```ruby
+# YES - Clear, simple, explicit
+Otto.structured_log(:debug, "Route matched",
+  Otto::LoggingHelpers.request_context(env).merge(
+    type: 'literal',
+    handler: 'App#index'
+  )
+)
+```
+
+### Rationale
+
+- **Simplicity**: Direct logging calls are easier to understand than abstraction layers
+- **Explicitness**: You can see exactly what's being logged at the call site
+- **Flexibility**: Easy to add one-off fields without modifying event classes
+- **Performance**: No object allocation overhead for disabled debug logs
+- **Maintainability**: One helper file vs multiple event classes/helpers
+
 ## Development Commands
 
 ### Setup

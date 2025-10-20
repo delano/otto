@@ -66,11 +66,12 @@ class Otto
           end
 
           # Log strategy execution start
-          Otto.structured_log(:debug, "Auth strategy executing", {
-            strategy: strategy.class.name.split('::').last.downcase.gsub('strategy', ''),
-            requirement: auth_requirement,
-            ip: env['REMOTE_ADDR']
-          })
+          Otto.structured_log(:debug, "Auth strategy executing",
+            Otto::LoggingHelpers.request_context(env).merge(
+              strategy: strategy.class.name.split('::').last.downcase.gsub('strategy', ''),
+              requirement: auth_requirement
+            )
+          )
 
           # Execute the strategy
           start_time = Time.now
@@ -80,13 +81,14 @@ class Otto
           # Handle authentication failure
           if result.is_a?(AuthFailure)
             # Log authentication failure
-            Otto.structured_log(:info, "Auth strategy result", {
-              strategy: strategy.class.name.split('::').last.downcase.gsub('strategy', ''),
-              success: false,
-              failure_reason: result.failure_reason,
-              duration_ms: duration_ms,
-              ip: env['REMOTE_ADDR']
-            })
+            Otto.structured_log(:info, "Auth strategy result",
+              Otto::LoggingHelpers.request_context(env).merge(
+                strategy: strategy.class.name.split('::').last.downcase.gsub('strategy', ''),
+                success: false,
+                failure_reason: result.failure_reason,
+                duration_ms: duration_ms
+              )
+            )
 
             # Create anonymous result with failure info for logging/auditing
             # Note: env['REMOTE_ADDR'] is masked by IPPrivacyMiddleware by default
@@ -102,13 +104,14 @@ class Otto
           end
 
           # Log authentication success
-          Otto.structured_log(:info, "Auth strategy result", {
-            strategy: strategy.class.name.split('::').last.downcase.gsub('strategy', ''),
-            success: true,
-            user_id: result.user_id,
-            duration_ms: duration_ms,
-            ip: env['REMOTE_ADDR']
-          })
+          Otto.structured_log(:info, "Auth strategy result",
+            Otto::LoggingHelpers.request_context(env).merge(
+              strategy: strategy.class.name.split('::').last.downcase.gsub('strategy', ''),
+              success: true,
+              user_id: result.user_id,
+              duration_ms: duration_ms
+            )
+          )
 
           # Set environment variables for controllers/logic on success
           env['otto.strategy_result'] = result

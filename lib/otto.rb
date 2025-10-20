@@ -24,6 +24,7 @@ require_relative 'otto/privacy'
 require_relative 'otto/security'
 require_relative 'otto/utils'
 require_relative 'otto/version'
+require_relative 'otto/logging_helpers'
 
 # Otto is a simple Rack router that allows you to define routes in a file
 # with built-in security features including CSRF protection, input validation,

@@ -1,0 +1,99 @@
+# .reek.yml
+#
+# Reek configuration for Rhales
+#
+# Basic commands:
+#   bundle exec reek                           # Analyze all Ruby files
+#   bundle exec reek lib/                      # Analyze specific directory
+#   bundle exec reek lib/otto.rb               # Analyze specific file
+#   bundle exec reek --help                    # Show all options
+#   bundle exec reek --docs                    # Open documentation
+#
+# Advanced usage:
+#   bundle exec reek --format=html > report.html     # Generate HTML report
+#   bundle exec reek --format=json                   # JSON output for CI
+#   bundle exec reek --config .reek.yml              # Use specific config
+#   bundle exec reek --show-docs IrresponsibleModule # Explain specific smell
+#   bundle exec reek --failure-exit-code 1           # Exit with error on smells (for CI)
+
+---
+detectors:
+  # Disable some detectors for initial adoption
+  # You can gradually enable these as you clean up the codebase
+
+  # Class/Module Structure
+  IrresponsibleModule:
+    enabled: false # Modules without documentation - start with this disabled
+
+  # Method Complexity
+  TooManyStatements:
+    enabled: true
+    max_statements: 15 # Default is 5, relaxed for initial adoption
+
+  TooManyMethods:
+    enabled: true
+    max_methods: 25 # Default is 15, relaxed for ORMs which often have many methods
+
+  LongParameterList:
+    enabled: true
+    max_params: 4 # Default is 3, slightly relaxed
+
+  # Data Classes and Feature Envy
+  DataClump:
+    enabled: true
+
+  FeatureEnvy:
+    enabled: true
+
+  # Control Structure
+  NestedIterators:
+    enabled: true
+    max_allowed_nesting: 2 # Default is 1, relaxed for data processing
+
+  # Variable and Constant Usage
+  UnusedParameters:
+    enabled: true
+
+  InstanceVariableAssumption:
+    enabled: true
+
+  # Naming
+  UncommunicativeParameterName:
+    enabled: true
+    reject:
+      - "/^.$/" # Single letter names
+      - "/[0-9]$/" # Names ending in numbers
+      - "/^_/" # Names starting with underscore (common Ruby pattern)
+    accept: []
+
+  UncommunicativeVariableName:
+    enabled: true
+    reject:
+      - "/^.$/" # Single letter names
+      - "/[0-9]$/" # Names ending in numbers
+    accept:
+      - e # Exception variable
+      - id # Common identifier
+      - db # Database connection
+      - op # Operation
+      - io # Input/output
+
+  UncommunicativeMethodName:
+    enabled: true
+    reject:
+      - "/^.$/" # Single letter method names
+      - "/[0-9]$/" # Methods ending in numbers
+    accept:
+      - "<<" # Common Ruby operator overload
+
+# Directory and file exclusions
+exclude_paths:
+  - "vendor/**/*.rb"
+  - "tmp/**/*.rb"
+  - "try/**/*.rb" # Test files using tryouts framework
+  - "examples/**/*.rb" # Example code files
+  - "bin/*" # Executable scripts
+  - "*.gemspec" # Gem specification files
+
+# Note: For limiting warnings output, use CLI: bundle exec reek | head -50
+# Note: For failure exit codes, use CLI: bundle exec reek --failure-exit-code 1

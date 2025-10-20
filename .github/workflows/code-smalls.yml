@@ -1,0 +1,146 @@
+# .github/workflows/code-smells.yml
+---
+name: Code Smells
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write # Needed to post comments on PRs
+
+jobs:
+  reek-analysis:
+    name: Reek Code Analysis
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 3.4
+          bundler-cache: true
+
+      - name: Configure Bundler for secure gem installation
+        run: |
+          bundle config set --local path 'vendor/bundle'
+          bundle config set --local deployment 'false'
+
+      - name: Install dependencies
+        run: bundle install --jobs 4 --retry 3
+
+      - name: Run Reek analysis
+        run: |
+          echo "=== Running Reek code analysis ==="
+          echo "This analysis identifies code smells and potential improvements."
+          echo "Results are informational and won't fail the build."
+          echo ""
+
+          # Run reek and capture output (don't fail on warnings)
+          # Use success-exit-code to prevent failures from stopping the analysis
+          bundle exec reek --format=text --success-exit-code 0 --failure-exit-code 0 || true
+
+          echo ""
+          echo "=== Reek analysis complete ==="
+        continue-on-error: true # Don't fail the build on code smells
+
+      - name: Generate Reek report
+        run: |
+          echo "=== Generating detailed Reek report ==="
+
+          # Generate JSON report for potential future processing
+          bundle exec reek --format=json --success-exit-code 0 --failure-exit-code 0 > reek-report.json || true
+
+          # If no JSON was generated, create an empty valid JSON array
+          if [ ! -s reek-report.json ]; then
+            echo "[]" > reek-report.json
+            echo "No code smells detected - created empty report"
+          else
+            echo "Reek JSON report generated: $(wc -l < reek-report.json) lines"
+            echo "Top code smell types found:"
+            jq -r '.[].smells[].smell_type' reek-report.json 2>/dev/null | sort | uniq -c | sort -rn | head -10 || echo "Unable to parse JSON report"
+          fi
+
+          # Also generate a human-readable HTML report for easier viewing
+          bundle exec reek --format=html --success-exit-code 0 --failure-exit-code 0 > reek-report.html || echo "<!-- No code smells detected -->" > reek-report.html
+        continue-on-error: true
+
+      - name: Upload Reek report as artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reek-report
+          path: |
+            reek-report.json
+            reek-report.html
+          if-no-files-found: ignore
+          retention-days: 30
+
+  additional-checks:
+    name: Additional Quality Checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 3.4
+          bundler-cache: true
+
+      - name: Configure Bundler for secure gem installation
+        run: |
+          bundle config set --local path 'vendor/bundle'
+          bundle config set --local deployment 'false'
+
+      - name: Install dependencies
+        run: bundle install --jobs 4 --retry 3
+
+      - name: Check for TODO/FIXME comments
+        run: |
+          echo "=== Scanning for TODO/FIXME comments ==="
+          echo "This helps track technical debt and action items."
+          echo ""
+
+          # Find TODO/FIXME comments (excluding vendor and tmp directories)
+          find . -name "*.rb" -not -path "./vendor/*" -not -path "./tmp/*" | \
+            xargs grep -Hn -i -E "(TODO|FIXME|HACK|XXX|NOTE):" 2>/dev/null | \
+            head -20 || echo "No TODO/FIXME comments found"
+        continue-on-error: true
+
+      - name: Check Ruby file syntax
+        run: |
+          echo "=== Checking Ruby syntax ==="
+          echo "Validates that all Ruby files have correct syntax."
+          echo ""
+
+          find . -name "*.rb" -not -path "./vendor/*" -not -path "./tmp/*" | \
+            while read -r file; do
+              if ! ruby -c "$file" > /dev/null 2>&1; then
+                echo "Syntax error in: $file"
+                ruby -c "$file"
+              fi
+            done
+        continue-on-error: true
+
+      - name: Check for long lines
+        run: |
+          echo "=== Checking for long lines (>120 characters) ==="
+          echo "Identifies potentially hard-to-read code lines."
+          echo ""
+
+          find . -name "*.rb" -not -path "./vendor/*" -not -path "./tmp/*" | \
+            xargs grep -Hn "^.\{121,\}$" | \
+            head -10 || echo "No overly long lines found"
+        continue-on-error: true

@@ -10,21 +10,25 @@ Gem::Specification.new do |spec|
   spec.email         = 'gems@solutious.com'
   spec.authors       = ['Delano Mandelbaum']
   spec.license       = 'MIT'
-  spec.files         = `git ls-files -z`.split("\x0").reject { |f| f.match(%r{^(test|spec|features)/}) }
+  spec.files         = if File.directory?('.git') && system('git --version > /dev/null 2>&1')
+                         `git ls-files -z`.split("\x0").reject { |f| f.match(%r{^(test|spec|features)/}) }
+                       else
+                         Dir['**/*'].select { |f| File.file?(f) }.reject { |f| f.match(%r{^(test|spec|features)/}) }
+                       end
   spec.homepage      = 'https://github.com/delano/otto'
   spec.require_paths = ['lib']
 
   spec.required_ruby_version = ['>= 3.2', '< 4.0']
 
-  spec.add_dependency 'ipaddr', '~> 1', '< 2.0'
   spec.add_dependency 'concurrent-ruby', '~> 1.3', '< 2.0'
+  spec.add_dependency 'ipaddr', '~> 1', '< 2.0'
 
   # Logger is not part of the default gems as of Ruby 3.5.0
   spec.add_dependency 'logger', '~> 1', '< 2.0'
 
   spec.add_dependency 'rack', '~> 3.1', '< 4.0'
   spec.add_dependency 'rack-parser', '~> 0.7'
-  spec.add_dependency 'rexml', '>= 3.3.6'
+  spec.add_dependency 'rexml', '~> 3.3.6'
 
   # Security dependencies
   spec.add_dependency 'facets', '~> 3.1'

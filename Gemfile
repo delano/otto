@@ -21,6 +21,7 @@ group :development, :test, optional: true do
   # Keep gems that need to be in both environments
   gem 'json_schemer'
   gem 'rack-attack'
+  gem 'reek', '~> 6.5'
 end
 
 group :development do

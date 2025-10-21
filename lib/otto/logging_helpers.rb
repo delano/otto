@@ -34,5 +34,82 @@ class Otto
         user_agent: env['HTTP_USER_AGENT']&.slice(0, 100)  # Already anonymized by IPPrivacyMiddleware
       }.compact
     end
+
+    # Log a timed operation with consistent timing and error handling
+    #
+    # @param level [Symbol] The log level (:debug, :info, :warn, :error)
+    # @param message [String] The log message
+    # @param env [Hash] Rack environment for request context
+    # @param metadata [Hash] Additional metadata to include in the log
+    # @yield The block to execute and time
+    # @return The result of the block
+    #
+    # @example
+    #   Otto::LoggingHelpers.log_timed_operation(:info, "Template compiled", env,
+    #     template_type: 'handlebars', cached: false
+    #   ) do
+    #     compile_template(template)
+    #   end
+    #
+    def self.log_timed_operation(level, message, env, **metadata, &block)
+      start_time = Otto::Utils.now_in_μs
+      result = yield
+      duration = Otto::Utils.now_in_μs - start_time
+
+      Otto.structured_log(level, message,
+        request_context(env).merge(metadata).merge(duration: duration)
+      )
+
+      result
+    rescue StandardError => ex
+      duration = Otto::Utils.now_in_μs - start_time
+      Otto.structured_log(:error, "#{message} failed",
+        request_context(env).merge(metadata).merge(
+          duration: duration,
+          error: ex.message,
+          error_class: ex.class.name
+        )
+      )
+      raise
+    end
+
+    # Format a value for key=value log output (like the inspiration example)
+    #
+    # @param value [Object] The value to format
+    # @return [String] Formatted value
+    #
+    def self.format_value(value)
+      case value
+      when String
+        value.to_s
+      when Integer, Float
+        value.to_s
+      when true, false
+        value.to_s
+      when nil
+        'nil'
+      else
+        value.inspect
+      end
+    end
+
+    # Log with key=value format (alternative to structured_log for simple cases)
+    #
+    # @param level [Symbol] The log level (:debug, :info, :warn, :error)
+    # @param message [String] The log message
+    # @param metadata [Hash] Key-value pairs to format
+    #
+    # @example
+    #   Otto::LoggingHelpers.log_with_metadata(:info, "Template compiled",
+    #     template_type: 'handlebars', cached: false, duration: 68
+    #   )
+    #   # Output: Template compiled: template_type=handlebars cached=false duration=68
+    #
+    def self.log_with_metadata(level, message, metadata = {})
+      return Otto.structured_log(level, message) if metadata.empty?
+
+      metadata_str = metadata.map { |k, v| "#{k}=#{format_value(v)}" }.join(' ')
+      Otto.logger.send(level, "#{message}: #{metadata_str}")
+    end
   end
 end

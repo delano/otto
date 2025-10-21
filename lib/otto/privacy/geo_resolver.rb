@@ -81,8 +81,15 @@ class Otto
       #     result&.dig('country', 'iso_code')
       #   }
       #
-      # IMPORTANT: Configure the custom resolver once at application boot time,
-      # before accepting requests. Runtime changes are not thread-safe.
+      # Thread Safety Model:
+      # This follows Ruby's standard configuration pattern:
+      # - Set ONCE at boot time (single-threaded initialization)
+      # - Read many times during requests (multi-threaded reads)
+      # - No synchronization needed for this access pattern
+      #
+      # Runtime resolver switching is NOT supported. Changing the resolver
+      # while processing requests creates race conditions (write vs read).
+      # This is intentional - resolver configuration is boot-time only.
       @custom_resolver = nil
 
       class << self
@@ -90,8 +97,9 @@ class Otto
 
         # Set a custom resolver for geo-location
         #
-        # Configure once at boot time before accepting requests.
-        # Runtime changes are not thread-safe.
+        # MUST be called during single-threaded initialization (before
+        # accepting requests). Runtime changes while serving requests
+        # will cause race conditions.
         #
         # @param resolver [Proc, #call] A proc or callable object that takes (ip, env)
         #   and returns a country code string or nil

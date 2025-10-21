@@ -132,12 +132,13 @@ RSpec.describe 'IP Privacy Features' do
         expect(result).to eq('XX')
       end
 
-      it 'ignores invalid CloudFlare header and falls back to MaxMind' do
+      it 'ignores invalid CloudFlare header and falls back to range detection' do
         env = { 'HTTP_CF_IPCOUNTRY' => 'invalid' }
         result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
 
-        # Should ignore invalid CF header and resolve via MaxMind (1.2.3.4 resolves to AU)
-        expect(result).to eq('AU')
+        # Should ignore invalid CF header and fall back to range detection
+        # 1.2.3.4 is not in KNOWN_RANGES, so returns XX
+        expect(result).to eq('XX')
       end
 
       it 'returns XX for private IPs' do

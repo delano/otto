@@ -99,10 +99,11 @@ class Otto
         return nil if ua.nil? || ua.empty?
 
         # Remove version patterns (X.X.X.X, X.X.X, X.X)
+        # Support both dot and underscore separators (e.g., 10.15.7 and 10_15_7)
         anonymized = ua
-                     .gsub(/\d+\.\d+\.\d+\.\d+/, 'X.X.X.X')
-                     .gsub(/\d+\.\d+\.\d+/, 'X.X.X')
-                     .gsub(/\d+\.\d+/, 'X.X')
+                     .gsub(/\d+[._]\d+[._]\d+[._]\d+/, 'X.X.X.X')
+                     .gsub(/\d+[._]\d+[._]\d+/, 'X.X.X')
+                     .gsub(/\d+[._]\d+/, 'X.X')
 
         # Truncate if too long (prevent DoS via huge UA strings)
         anonymized.length > 500 ? anonymized[0..499] : anonymized

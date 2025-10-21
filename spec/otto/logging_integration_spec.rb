@@ -182,12 +182,14 @@ RSpec.describe 'Otto Logging Integration' do
     end
 
     it 'includes all expected request metadata' do
+      # When privacy is enabled, IPPrivacyMiddleware has already replaced
+      # env['HTTP_USER_AGENT'] with the anonymized version
       fingerprint = double('fingerprint', anonymized_ua: 'Mozilla/X.X')
       env = {
         'REQUEST_METHOD' => 'POST',
         'PATH_INFO' => '/api/endpoint',
         'REMOTE_ADDR' => '9.9.9.0',
-        'HTTP_USER_AGENT' => 'Mozilla/5.0',
+        'HTTP_USER_AGENT' => 'Mozilla/X.X',  # Already anonymized by middleware
         'otto.privacy.fingerprint' => fingerprint,
         'otto.geo_country' => 'CH'
       }

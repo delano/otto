@@ -1378,10 +1378,7 @@ RSpec.describe 'IP Privacy Features' do
         #
         # Why this works:
         # - CyclicBarrier synchronizes thread start to maximize contention (all threads hit
-        #   rotation_key at same instant)
-        # - 100 threads is enough to expose races without excessive test duration
-        # - All threads should get identical key since we're within same rotation period
-        # - Detailed failure message helps debug if race condition occurs
+        #   rotation_key at the same instant, exposing any race conditions)
         config = Otto::Privacy::Config.new(hash_rotation_period: 3600)
         barrier = Concurrent::CyclicBarrier.new(100)
         keys = Concurrent::Array.new
@@ -1407,10 +1404,9 @@ RSpec.describe 'IP Privacy Features' do
         # don't corrupt internal state or generate invalid keys.
         #
         # Why this works:
-        # - Tests different concurrency pattern: many rapid calls per thread vs single call
-        # - CountDownLatch ensures all threads complete within timeout (no hangs)
-        # - Thread#value provides clean collection without manual array management
-        # - Smaller scale (50 threads × 10 calls) runs fast while still exposing races
+        # - Rapid sequential calls per thread expose state corruption from reentrant access
+        #   (different failure mode than simultaneous single calls)
+        # - CountDownLatch ensures all threads complete within timeout (prevents test hangs)
         config = Otto::Privacy::Config.new(hash_rotation_period: 3600)
         latch = Concurrent::CountDownLatch.new(50)
 
@@ -1439,10 +1435,9 @@ RSpec.describe 'IP Privacy Features' do
         # multiple Config instances exist (tests class-level synchronization).
         #
         # Why this works:
-        # - Tests whether rotation key generation uses shared state correctly
-        # - Each thread creates its own Config instance (mimics real multi-request scenario)
-        # - Barrier ensures simultaneous creation and access
-        # - All instances should generate same key for same rotation period
+        # - Creating separate instances per thread exposes incorrect instance-level locking
+        #   (vs correct class-level synchronization of shared rotation keys)
+        # - Mimics real multi-request scenario where each request creates its own Config
         barrier = Concurrent::CyclicBarrier.new(50)
         keys = Concurrent::Array.new
 
@@ -1479,9 +1474,8 @@ RSpec.describe 'IP Privacy Features' do
         # rotation boundary (no off-by-one errors).
         #
         # Why this works:
-        # - Tests edge case where timestamp is exactly divisible by rotation period
-        # - Ensures boundary calculation doesn't cause errors or invalid keys
-        # - Simple, focused test with single assertion
+        # - Timestamps exactly divisible by period expose off-by-one errors in boundary
+        #   calculations (e.g., < vs <= in modulo arithmetic)
         boundary_time = Time.utc(2025, 1, 15, 12, 0, 0)
         allow(Time).to receive(:now).and_return(boundary_time)
 
@@ -1493,10 +1487,8 @@ RSpec.describe 'IP Privacy Features' do
         # NOTE: Test goal - verify that crossing a rotation boundary produces different keys.
         #
         # Why this works:
-        # - Tests core rotation behavior: keys should change at boundary
-        # - Uses 1-second difference to clearly cross boundary (11:59:59 → 12:00:01)
-        # - Single config instance tests that internal state updates correctly
-        # - Simple before/after pattern is easy to understand and maintain
+        # - Before/after timestamps on either side of boundary verify the rotation calculation
+        #   triggers correctly (catches bugs where rotation logic fails to detect period change)
         keys = []
 
         # Just before rotation: 11:59:59
@@ -1516,10 +1508,8 @@ RSpec.describe 'IP Privacy Features' do
         # get identical keys (idempotency within period).
         #
         # Why this works:
-        # - Tests that key is stable within rotation period (critical for session correlation)
-        # - Uses sub-second intervals (0.1s) to test rapid requests
-        # - 5 samples is enough to verify consistency without excessive assertions
-        # - Verifies both uniqueness (1 key) and format (valid hex)
+        # - Multiple timestamps within same period verify key remains stable until boundary
+        #   (critical for session correlation - premature rotation would break tracking)
         base_time = Time.utc(2025, 1, 15, 12, 0, 0)
         keys = []
 
@@ -1542,7 +1532,6 @@ RSpec.describe 'IP Privacy Features' do
         # - 60-second period tests edge case (most production uses hours/days)
         # - Three consecutive periods verify consistent rotation behavior
         # - Tests that rotation isn't accidentally tied to hour boundaries
-        # - Ensures period parameter is respected regardless of value
         config_60s = Otto::Privacy::Config.new(hash_rotation_period: 60)
 
         keys = []
@@ -1572,8 +1561,6 @@ RSpec.describe 'IP Privacy Features' do
         # Why this works:
         # - Tests that rotation key is based purely on timestamp, not instance state
         # - Important for multi-server deployments (same time = same key everywhere)
-        # - Two instances with same period should be interchangeable
-        # - Verifies no hidden instance-specific state affects key generation
         timestamp = Time.utc(2025, 1, 15, 12, 30, 0)
         allow(Time).to receive(:now).and_return(timestamp)
 

@@ -226,4 +226,87 @@ RSpec.describe 'Otto Logging Integration' do
       })
     end
   end
+
+  describe 'LoggingHelpers timing methods' do
+    let(:env) do
+      {
+        'REQUEST_METHOD' => 'POST',
+        'PATH_INFO' => '/api/test',
+        'REMOTE_ADDR' => '192.0.2.100',
+        'HTTP_USER_AGENT' => 'TestAgent/1.0'
+      }
+    end
+
+    describe '#log_timed_operation' do
+      it 'logs successful operations with timing' do
+        expect(logger_double).to receive(:info).with(
+          'Operation completed',
+          hash_including(
+            method: 'POST',
+            path: '/api/test',
+            ip: '192.0.2.100',
+            duration: kind_of(Integer),
+            result: 'success'
+          )
+        )
+
+        result = Otto::LoggingHelpers.log_timed_operation(:info, 'Operation completed', env, result: 'success') do
+          sleep(0.001)
+          'test_result'
+        end
+
+        expect(result).to eq('test_result')
+      end
+
+      it 'logs failed operations with error details' do
+        expect(logger_double).to receive(:error).with(
+          'Operation completed failed',
+          hash_including(
+            method: 'POST',
+            path: '/api/test',
+            duration: kind_of(Integer),
+            error: 'Test error',
+            error_class: 'StandardError'
+          )
+        )
+
+        expect {
+          Otto::LoggingHelpers.log_timed_operation(:info, 'Operation completed', env) do
+            raise StandardError, 'Test error'
+          end
+        }.to raise_error(StandardError, 'Test error')
+      end
+    end
+
+    describe '#log_with_metadata' do
+      it 'formats metadata as key=value pairs' do
+        expect(Otto.logger).to receive(:info).with(
+          'Template compiled: template_type=handlebars cached=false duration=68'
+        )
+
+        Otto::LoggingHelpers.log_with_metadata(:info, 'Template compiled',
+          template_type: 'handlebars',
+          cached: false,
+          duration: 68
+        )
+      end
+
+      it 'handles empty metadata' do
+        expect(Otto).to receive(:structured_log).with(:info, 'Simple message')
+
+        Otto::LoggingHelpers.log_with_metadata(:info, 'Simple message')
+      end
+    end
+
+    describe '#format_value' do
+      it 'formats different value types correctly' do
+        expect(Otto::LoggingHelpers.format_value('string')).to eq('string')
+        expect(Otto::LoggingHelpers.format_value(42)).to eq('42')
+        expect(Otto::LoggingHelpers.format_value(true)).to eq('true')
+        expect(Otto::LoggingHelpers.format_value(false)).to eq('false')
+        expect(Otto::LoggingHelpers.format_value(nil)).to eq('nil')
+        expect(Otto::LoggingHelpers.format_value(['array'])).to eq('["array"]')
+      end
+    end
+  end
 end

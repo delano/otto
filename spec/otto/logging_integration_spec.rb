@@ -55,11 +55,11 @@ RSpec.describe 'Otto Logging Integration' do
       allow(Rack::Request).to receive(:new).and_return(request_double)
       allow(otto.instance_variable_get(:@app)).to receive(:call).and_return(response)
 
-      Otto.on_request_complete do |req, res, duration_ms, env|
+      Otto.on_request_complete do |req, res, duration_ms|
         callback_called << {
           method: req.request_method,
           path: req.path_info,
-          status: res[0],
+          status: res.status,
           duration: duration_ms.is_a?(Numeric)
         }
       end
@@ -84,7 +84,7 @@ RSpec.describe 'Otto Logging Integration' do
 
     it 'handles multiple callbacks' do
       second_callback_called = false
-      Otto.on_request_complete { |_req, _res, _duration, _env| second_callback_called = true }
+      Otto.on_request_complete { |_req, _res, _duration| second_callback_called = true }
 
       env = { 'REQUEST_METHOD' => 'GET', 'PATH_INFO' => '/test' }
       otto.call(env)
@@ -94,13 +94,34 @@ RSpec.describe 'Otto Logging Integration' do
     end
 
     it 'handles callback errors gracefully' do
-      Otto.on_request_complete { |_req, _res, _duration, _env| raise 'Callback error' }
+      Otto.on_request_complete { |_req, _res, _duration| raise 'Callback error' }
 
       expect(logger_double).to receive(:error).with(/Request completion hook error/)
       expect(logger_double).to receive(:debug).with(/Hook error backtrace/)
 
       env = { 'REQUEST_METHOD' => 'GET', 'PATH_INFO' => '/test' }
       expect { otto.call(env) }.not_to raise_error
+    end
+
+    it 'provides Rack::Response object with developer-friendly API' do
+      response_object = nil
+      Otto.on_request_complete do |_req, res, _duration_ms|
+        response_object = res
+      end
+
+      env = { 'REQUEST_METHOD' => 'GET', 'PATH_INFO' => '/test' }
+      otto.call(env)
+
+      # Verify response is a Rack::Response with clean API
+      expect(response_object).to be_a(Rack::Response)
+      expect(response_object.status).to eq(200)
+      expect(response_object.headers).to be_a(Hash)
+      expect(response_object.body).to respond_to(:each)
+
+      # Verify it can be converted back to tuple if needed
+      tuple = response_object.finish
+      expect(tuple).to be_a(Array)
+      expect(tuple[0]).to eq(200)
     end
   end
 

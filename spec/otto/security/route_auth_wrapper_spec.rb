@@ -217,26 +217,30 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
   end
 
   describe '#get_strategy' do
-    it 'returns strategy for valid requirement' do
-      strategy = wrapper.send(:get_strategy, 'authenticated')
+    it 'returns strategy and name for valid requirement' do
+      strategy, name = wrapper.send(:get_strategy, 'authenticated')
       expect(strategy).to eq(session_strategy)
+      expect(name).to eq('authenticated')
     end
 
-    it 'returns nil for unknown requirement' do
-      strategy = wrapper.send(:get_strategy, 'unknown')
+    it 'returns nil tuple for unknown requirement' do
+      strategy, name = wrapper.send(:get_strategy, 'unknown')
       expect(strategy).to be_nil
+      expect(name).to be_nil
     end
 
-    it 'returns nil when auth_config is nil' do
+    it 'returns nil tuple when auth_config is nil' do
       wrapper_no_config = described_class.new(mock_handler, route_definition, nil)
-      strategy = wrapper_no_config.send(:get_strategy, 'authenticated')
+      strategy, name = wrapper_no_config.send(:get_strategy, 'authenticated')
       expect(strategy).to be_nil
+      expect(name).to be_nil
     end
 
-    it 'returns nil when auth_strategies is missing' do
+    it 'returns nil tuple when auth_strategies is missing' do
       wrapper_no_strategies = described_class.new(mock_handler, route_definition, {})
-      strategy = wrapper_no_strategies.send(:get_strategy, 'authenticated')
+      strategy, name = wrapper_no_strategies.send(:get_strategy, 'authenticated')
       expect(strategy).to be_nil
+      expect(name).to be_nil
     end
   end
 

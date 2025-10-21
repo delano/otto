@@ -185,19 +185,6 @@ RSpec.describe 'IP Privacy Features' do
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
           expect(result).to eq('US')  # Uses range detection
         end
-
-        it 'is thread-safe when setting resolver' do
-          threads = 10.times.map do |i|
-            Thread.new do
-              Otto::Privacy::GeoResolver.custom_resolver = ->(ip, _env) { "T#{i}" }
-            end
-          end
-
-          threads.each(&:join)
-
-          # Just verify no exceptions were raised
-          expect(Otto::Privacy::GeoResolver.custom_resolver).to be_a(Proc)
-        end
       end
 
       context 'CDN/Infrastructure provider headers' do

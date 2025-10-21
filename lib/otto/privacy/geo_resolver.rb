@@ -80,21 +80,27 @@ class Otto
       #     result = reader.get(ip)
       #     result&.dig('country', 'iso_code')
       #   }
+      #
+      # IMPORTANT: Configure the custom resolver once at application boot time,
+      # before accepting requests. Runtime changes are not thread-safe.
       @custom_resolver = nil
-      @resolver_mutex = Mutex.new
 
       class << self
-        attr_reader :custom_resolver
+        attr_accessor :custom_resolver
 
         # Set a custom resolver for geo-location
         #
+        # Configure once at boot time before accepting requests.
+        # Runtime changes are not thread-safe.
+        #
         # @param resolver [Proc, #call] A proc or callable object that takes (ip, env)
         #   and returns a country code string or nil
+        # @raise [ArgumentError] if resolver doesn't respond to :call
         def custom_resolver=(resolver)
           unless resolver.nil? || resolver.respond_to?(:call)
             raise ArgumentError, 'Custom resolver must respond to :call'
           end
-          @resolver_mutex.synchronize { @custom_resolver = resolver }
+          @custom_resolver = resolver
         end
       end
 

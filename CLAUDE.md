@@ -404,11 +404,43 @@ result.user_context[:ip]  # => '127.0.0.1' (real IP)
 
 ### Geo-Location Resolution
 
-Uses multiple sources (no external APIs required):
+Otto provides country-level geo-location without requiring external databases or API calls. It checks CDN/infrastructure provider headers with intelligent fallback to IP range detection.
 
-1. **CloudFlare Headers** (most reliable): `CF-IPCountry` header
-2. **IP Range Detection**: Basic detection for major providers (Google, AWS, etc.)
-3. **Unknown Fallback**: Returns 'XX' for unresolved IPs
+**Supported CDN/Infrastructure Headers** (checked in priority order):
+
+1. **Cloudflare**: `CF-IPCountry` (most widely deployed)
+2. **AWS CloudFront**: `CloudFront-Viewer-Country`
+3. **Fastly**: `Fastly-Client-IP-Country`
+4. **Akamai**: `X-Akamai-Edgescape` (extracts from `country_code=XX` format)
+5. **Azure Front Door**: `X-Azure-ClientIP-Country`
+6. **Semi-standard headers**: `X-Geo-Country`, `X-Country-Code`, `Country-Code` (least reliable)
+7. **IP Range Detection**: Basic detection for major providers (Google, AWS, etc.)
+8. **Unknown Fallback**: Returns '**' for unresolved IPs
+
+**Header Format**: All headers use ISO 3166-1 alpha-2 country codes (e.g., 'US', 'GB', 'DE')
+
+**Validation**: Only valid 2-letter uppercase codes are accepted. Invalid headers are ignored and fallback continues.
+
+**Examples**:
+```ruby
+# Cloudflare
+env = { 'HTTP_CF_IPCOUNTRY' => 'US' }
+GeoResolver.resolve('1.2.3.4', env)  # => 'US'
+
+# AWS CloudFront
+env = { 'HTTP_CLOUDFRONT_VIEWER_COUNTRY' => 'GB' }
+GeoResolver.resolve('1.2.3.4', env)  # => 'GB'
+
+# Akamai Edgescape
+env = { 'HTTP_X_AKAMAI_EDGESCAPE' => 'country_code=FR,region_code=IDF' }
+GeoResolver.resolve('1.2.3.4', env)  # => 'FR'
+
+# Fallback to IP range
+GeoResolver.resolve('8.8.8.8', {})   # => 'US' (Google DNS)
+
+# Unknown IP
+GeoResolver.resolve('240.0.0.1', {}) # => '**'
+```
 
 ### Proxy Support
 

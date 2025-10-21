@@ -78,15 +78,9 @@ class Otto
           result = strategy.authenticate(env, auth_requirement)
           duration_ms = ((Time.now - start_time) * 1000).round(2)
 
-          # Inject strategy_name into result (Data.define objects are immutable, so create new instance)
+          # Inject strategy_name into result (Data.define objects are immutable, use #with for updates)
           if result.is_a?(StrategyResult)
-            result = StrategyResult.new(
-              session: result.session,
-              user: result.user,
-              auth_method: result.auth_method,
-              metadata: result.metadata,
-              strategy_name: strategy_name
-            )
+            result = result.with(strategy_name: strategy_name)
           end
 
           # Handle authentication failure
@@ -188,21 +182,19 @@ class Otto
             if requirement.start_with?('role:')
               # Cache the fallback strategy under 'role:' key to create it only once
               fallback_key = 'role:'
-              unless @strategy_cache.key?(fallback_key)
+              result = @strategy_cache[fallback_key] ||= begin
                 strategy = auth_config[:auth_strategies]['role'] || Strategies::RoleStrategy.new([])
-                @strategy_cache[fallback_key] = [strategy, 'role']
+                [strategy, 'role']
               end
-              result = @strategy_cache[fallback_key]
               @strategy_cache[requirement] = result
               return result
             elsif requirement.start_with?('permission:')
               # Cache the fallback strategy under 'permission:' key
               fallback_key = 'permission:'
-              unless @strategy_cache.key?(fallback_key)
+              result = @strategy_cache[fallback_key] ||= begin
                 strategy = auth_config[:auth_strategies]['permission'] || Strategies::PermissionStrategy.new([])
-                @strategy_cache[fallback_key] = [strategy, 'permission']
+                [strategy, 'permission']
               end
-              result = @strategy_cache[fallback_key]
               @strategy_cache[requirement] = result
               return result
             end

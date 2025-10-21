@@ -13,6 +13,7 @@ class Otto
     # Maintains backward compatibility for Controller.action patterns
     class ClassMethodHandler < BaseHandler
       def call(env, extra_params = {})
+        start_time = Otto::Utils.now_in_μs
         req = Rack::Request.new(env)
         res = Rack::Response.new
 
@@ -36,7 +37,14 @@ class Otto
           # In direct testing context, handle errors locally for unit testing
           if otto_instance
             # Log error for handler-specific context but let Otto's centralized error handler manage the response
-            Otto.logger.error "[ClassMethodHandler] #{e.class}: #{e.message}"
+            Otto.structured_log(:error, "Handler execution failed",
+              Otto::LoggingHelpers.request_context(env).merge(
+                handler: "#{klass}##{method_name}",
+                error: e.message,
+                error_class: e.class.name,
+                duration: Otto::Utils.now_in_μs - start_time
+              )
+            )
             Otto.logger.debug "[ClassMethodHandler] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
             raise e # Re-raise to let Otto's centralized error handler manage the response
           else

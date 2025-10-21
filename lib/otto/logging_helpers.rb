@@ -7,6 +7,47 @@ class Otto
   # across the Otto framework. Centralizes common request context extraction
   # to eliminate duplication while keeping logging calls simple and explicit.
   module LoggingHelpers
+    # Structured logging helpers for Otto framework.
+    #
+    # BASE CONTEXT PATTERN (recommended for downstream projects):
+    #
+    # Create base context once per error/event, then merge event-specific fields:
+    #
+    #   base_context = Otto::LoggingHelpers.request_context(env)
+    #
+    #   Otto.structured_log(:error, "Handler failed",
+    #     base_context.merge(
+    #       error: error.message,
+    #       error_class: error.class.name,
+    #       error_id: error_id,
+    #       duration: duration
+    #     )
+    #   )
+    #
+    #   Otto::LoggingHelpers.log_backtrace(error,
+    #     base_context.merge(error_id: error_id, handler: 'Controller#action')
+    #   )
+    #
+    # DOWNSTREAM EXTENSIBILITY:
+    #
+    # Large projects can inject custom shared fields:
+    #
+    #   custom_base = Otto::LoggingHelpers.request_context(env).merge(
+    #     transaction_id: Thread.current[:transaction_id],
+    #     user_id: env['otto.user']&.id,
+    #     tenant_id: env['tenant_id']
+    #   )
+    #
+    #   Otto.structured_log(:error, "Business operation failed",
+    #     custom_base.merge(
+    #       error: error.message,
+    #       error_class: error.class.name,
+    #       account_id: account.id,
+    #       operation: :withdrawal
+    #     )
+    #   )
+    #
+
     # Extract common request context for structured logging
     #
     # Returns a hash containing privacy-aware request metadata suitable
@@ -73,7 +114,43 @@ class Otto
       raise
     end
 
+    # Log exception backtrace with correlation fields for debugging.
+    # Only logs when Otto.debug is enabled. Limits to first 10 lines.
+    #
+    # Expects caller to provide correlation context (error_id, handler, etc).
+    # Does NOT duplicate error/error_class fields - those belong in main error log.
+    #
+    # @param error [Exception] The exception to log backtrace for
+    # @param context [Hash] Correlation fields (error_id, method, path, ip, handler, etc)
+    #
+    # @example Basic usage
+    #   Otto::LoggingHelpers.log_backtrace(error,
+    #     base_context.merge(error_id: error_id, handler: 'UserController#create')
+    #   )
+    #
+    # @example Downstream extensibility
+    #   custom_context = Otto::LoggingHelpers.request_context(env).merge(
+    #     error_id: error_id,
+    #     transaction_id: Thread.current[:transaction_id],
+    #     tenant_id: env['tenant_id']
+    #   )
+    #   Otto::LoggingHelpers.log_backtrace(error, custom_context)
+    #
+    def self.log_backtrace(error, context = {})
+      return unless Otto.debug
+
+      backtrace = error.backtrace&.first(10) || []
+      Otto.structured_log(:debug, "Exception backtrace",
+        context.merge(backtrace: backtrace)
+      )
+    end
+
     # Format a value for key=value log output (like the inspiration example)
+    #
+    # Handles truncation of large data structures to prevent log bloat:
+    # - Arrays with >5 items: [Array(N)]
+    # - Hashes with >5 keys: {Hash(N)}
+    # - Other inspect output: truncated to 100 chars
     #
     # @param value [Object] The value to format
     # @return [String] Formatted value
@@ -88,8 +165,15 @@ class Otto
         value.to_s
       when nil
         'nil'
+      when Symbol
+        ":#{value}"
+      when Array
+        value.length > 5 ? "[Array(#{value.length})]" : value.inspect
+      when Hash
+        value.length > 5 ? "{Hash(#{value.length})}" : value.inspect
       else
-        value.inspect
+        inspected = value.inspect
+        inspected.length > 100 ? "#{inspected[0...100]}..." : inspected
       end
     end
 

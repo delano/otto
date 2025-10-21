@@ -2,6 +2,7 @@
 
 require 'rack'
 require 'rack/test'
+require 'tempfile'
 
 # Test helpers for Otto specs
 module OttoTestHelpers
@@ -12,10 +13,18 @@ module OttoTestHelpers
   end
 
   def create_test_routes_file(filename, routes)
-    # Use spec/fixtures directory for test route files
-    file_path = File.join('spec', 'fixtures', filename)
-    File.write(file_path, routes.join("\n") + "\n")
-    file_path
+    # Create a unique tempfile to avoid shared mutable fixture issues
+    # The filename parameter is kept for backwards compatibility but not used
+    tempfile = Tempfile.new(['routes', '.txt'])
+    tempfile.write(routes.join("\n") + "\n")
+    tempfile.rewind
+    tempfile.close
+
+    # Store the tempfile in an instance variable to prevent GC during test
+    @_test_tempfiles ||= []
+    @_test_tempfiles << tempfile
+
+    tempfile.path
   end
 
   def create_minimal_otto(routes_content = nil)

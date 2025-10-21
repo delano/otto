@@ -52,13 +52,13 @@ class Otto
             metadata = { ip: env['REMOTE_ADDR'] }
             metadata[:country] = env['otto.privacy.geo_country'] if env['otto.privacy.geo_country']
 
-            result = StrategyResult.anonymous(metadata: metadata)
+            result = StrategyResult.anonymous(metadata: metadata, strategy_name: 'anonymous')
             env['otto.strategy_result'] = result
             return wrapped_handler.call(env, extra_params)
           end
 
           # Routes WITH auth requirement: Execute authentication strategy
-          strategy = get_strategy(auth_requirement)
+          strategy, strategy_name = get_strategy(auth_requirement)
 
           unless strategy
             Otto.logger.error "[RouteAuthWrapper] No strategy found for requirement: #{auth_requirement}"
@@ -68,7 +68,7 @@ class Otto
           # Log strategy execution start
           Otto.structured_log(:debug, "Auth strategy executing",
             Otto::LoggingHelpers.request_context(env).merge(
-              strategy: strategy.class.name.split('::').last.downcase.gsub('strategy', ''),
+              strategy: strategy_name,
               requirement: auth_requirement
             )
           )
@@ -78,12 +78,17 @@ class Otto
           result = strategy.authenticate(env, auth_requirement)
           duration_ms = ((Time.now - start_time) * 1000).round(2)
 
+          # Inject strategy_name into result (Data.define objects are immutable, use #with for updates)
+          if result.is_a?(StrategyResult)
+            result = result.with(strategy_name: strategy_name)
+          end
+
           # Handle authentication failure
           if result.is_a?(AuthFailure)
             # Log authentication failure
             Otto.structured_log(:info, "Auth strategy result",
               Otto::LoggingHelpers.request_context(env).merge(
-                strategy: strategy.class.name.split('::').last.downcase.gsub('strategy', ''),
+                strategy: strategy_name,
                 success: false,
                 failure_reason: result.failure_reason,
                 duration_ms: duration_ms
@@ -99,14 +104,17 @@ class Otto
             }
             metadata[:country] = env['otto.privacy.geo_country'] if env['otto.privacy.geo_country']
 
-            env['otto.strategy_result'] = StrategyResult.anonymous(metadata: metadata)
+            env['otto.strategy_result'] = StrategyResult.anonymous(
+              metadata: metadata,
+              strategy_name: strategy_name
+            )
             return auth_failure_response(env, result)
           end
 
           # Log authentication success
           Otto.structured_log(:info, "Auth strategy result",
             Otto::LoggingHelpers.request_context(env).merge(
-              strategy: strategy.class.name.split('::').last.downcase.gsub('strategy', ''),
+              strategy: strategy_name,
               success: true,
               user_id: result.user_id,
               duration_ms: duration_ms
@@ -145,16 +153,17 @@ class Otto
         # @param requirement [String] Auth requirement from route
         # @return [AuthStrategy, nil] Strategy instance or nil
         def get_strategy(requirement)
-          return nil unless auth_config && auth_config[:auth_strategies]
+          return [nil, nil] unless auth_config && auth_config[:auth_strategies]
 
-          # Check cache first
+          # Check cache first (cache stores [strategy, name] tuples)
           return @strategy_cache[requirement] if @strategy_cache.key?(requirement)
 
           # Try exact match first - this has highest priority
           strategy = auth_config[:auth_strategies][requirement]
           if strategy
-            @strategy_cache[requirement] = strategy
-            return strategy
+            result = [strategy, requirement]
+            @strategy_cache[requirement] = result
+            return result
           end
 
           # For colon-separated requirements like "role:admin", try prefix match
@@ -164,31 +173,36 @@ class Otto
             # Check if we have a strategy registered for the prefix
             prefix_strategy = auth_config[:auth_strategies][prefix]
             if prefix_strategy
-              @strategy_cache[requirement] = prefix_strategy
-              return prefix_strategy
+              result = [prefix_strategy, prefix]
+              @strategy_cache[requirement] = result
+              return result
             end
 
             # Try fallback patterns for role: and permission: requirements
             if requirement.start_with?('role:')
               # Cache the fallback strategy under 'role:' key to create it only once
-              strategy = @strategy_cache['role:'] ||= begin
-                auth_config[:auth_strategies]['role'] || Strategies::RoleStrategy.new([])
+              fallback_key = 'role:'
+              result = @strategy_cache[fallback_key] ||= begin
+                strategy = auth_config[:auth_strategies]['role'] || Strategies::RoleStrategy.new([])
+                [strategy, 'role']
               end
-              @strategy_cache[requirement] = strategy
-              return strategy
+              @strategy_cache[requirement] = result
+              return result
             elsif requirement.start_with?('permission:')
               # Cache the fallback strategy under 'permission:' key
-              strategy = @strategy_cache['permission:'] ||= begin
-                auth_config[:auth_strategies]['permission'] || Strategies::PermissionStrategy.new([])
+              fallback_key = 'permission:'
+              result = @strategy_cache[fallback_key] ||= begin
+                strategy = auth_config[:auth_strategies]['permission'] || Strategies::PermissionStrategy.new([])
+                [strategy, 'permission']
               end
-              @strategy_cache[requirement] = strategy
-              return strategy
+              @strategy_cache[requirement] = result
+              return result
             end
           end
 
           # Cache nil results too to avoid repeated failed lookups
-          @strategy_cache[requirement] = nil
-          nil
+          @strategy_cache[requirement] = [nil, nil]
+          [nil, nil]
         end
 
         # Generate 401 response for authentication failure

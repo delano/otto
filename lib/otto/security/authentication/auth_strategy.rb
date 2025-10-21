@@ -21,12 +21,17 @@ class Otto
         protected
 
         # Helper to create successful strategy result
+        #
+        # NOTE: strategy_name will be injected by RouteAuthWrapper after strategy execution.
+        # Strategies don't know their registered name, so we pass nil here and let the wrapper
+        # set it based on how the strategy was registered via add_auth_strategy(name, strategy).
         def success(user:, session: {}, auth_method: nil, **metadata)
           Otto::Security::Authentication::StrategyResult.new(
             session: session,
             user: user,
             auth_method: auth_method || self.class.name.split('::').last,
-            metadata: metadata
+            metadata: metadata,
+            strategy_name: nil  # Will be set by RouteAuthWrapper
           )
         end
 

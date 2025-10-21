@@ -170,8 +170,17 @@ class Otto
 
       # Add a single authentication strategy
       #
+      # Part of the Security::Configurator facade for consolidated configuration.
+      # This delegates to the same storage as Otto#add_auth_strategy, allowing
+      # authentication to be configured alongside other security features.
+      #
+      # Prefer using Otto#add_auth_strategy directly for simpler cases, or use this
+      # when configuring multiple security features together via the security facade.
+      #
       # @param name [String] Strategy name
       # @param strategy [Otto::Security::Authentication::AuthStrategy] Strategy instance
+      # @example
+      #   otto.security.add_auth_strategy('session', SessionStrategy.new)
       def add_auth_strategy(name, strategy)
         @auth_config[:auth_strategies][name] = strategy
       end

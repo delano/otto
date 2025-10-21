@@ -21,7 +21,7 @@
 class Otto
   module Security
     module Authentication
-      StrategyResult = Data.define(:session, :user, :auth_method, :metadata) do
+      StrategyResult = Data.define(:session, :user, :auth_method, :metadata, :strategy_name) do
         # =====================================================================
         # USAGE PATTERNS - READ THIS FIRST
         # =====================================================================
@@ -110,12 +110,13 @@ class Otto
         #
         # @param metadata [Hash] Optional metadata (IP, user agent, etc.)
         # @return [StrategyResult] Anonymous result with nil user
-        def self.anonymous(metadata: {})
+        def self.anonymous(metadata: {}, strategy_name: 'anonymous')
           new(
             session: {},
             user: nil,
             auth_method: 'anonymous',
-            metadata: metadata
+            metadata: metadata,
+            strategy_name: strategy_name
           )
         end
 

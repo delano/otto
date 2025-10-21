@@ -322,13 +322,27 @@ class Otto
   # @param strategy [Otto::Security::Authentication::AuthStrategy] Strategy instance
   # @example
   #   otto.add_auth_strategy('custom', MyCustomStrategy.new)
-  def add_auth_strategy(name, strategy)
-    ensure_not_frozen!
-    # Ensure auth_config is initialized (handles edge case where it might be nil)
-    @auth_config = { auth_strategies: {}, default_auth_strategy: 'noauth' } if @auth_config.nil?
+  # Add an authentication strategy with a registered name
+      #
+      # This is the primary public API for registering authentication strategies.
+      # The name you provide here will be available as `strategy_result.strategy_name`
+      # in your application code, making it easy to identify which strategy authenticated
+      # the current request.
+      #
+      # Also available via Otto::Security::Configurator for consolidated security config.
+      #
+      # @param name [String, Symbol] Strategy name (e.g., 'session', 'api_key', 'jwt')
+      # @param strategy [AuthStrategy] Strategy instance
+      # @example
+      #   otto.add_auth_strategy('session', SessionStrategy.new(session_key: 'user_id'))
+      #   otto.add_auth_strategy('api_key', APIKeyStrategy.new)
+      def add_auth_strategy(name, strategy)
+        ensure_not_frozen!
+        # Ensure auth_config is initialized (handles edge case where it might be nil)
+        @auth_config = { auth_strategies: {}, default_auth_strategy: 'noauth' } if @auth_config.nil?
 
-    @auth_config[:auth_strategies][name] = strategy
-  end
+        @auth_config[:auth_strategies][name] = strategy
+      end
 
   # Disable IP privacy to access original IP addresses
   #

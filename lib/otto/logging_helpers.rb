@@ -145,55 +145,5 @@ class Otto
       )
     end
 
-    # Format a value for key=value log output (like the inspiration example)
-    #
-    # Handles truncation of large data structures to prevent log bloat:
-    # - Arrays with >5 items: [Array(N)]
-    # - Hashes with >5 keys: {Hash(N)}
-    # - Other inspect output: truncated to 100 chars
-    #
-    # @param value [Object] The value to format
-    # @return [String] Formatted value
-    #
-    def self.format_value(value)
-      case value
-      when String
-        value.to_s
-      when Integer, Float
-        value.to_s
-      when true, false
-        value.to_s
-      when nil
-        'nil'
-      when Symbol
-        ":#{value}"
-      when Array
-        value.length > 5 ? "[Array(#{value.length})]" : value.inspect
-      when Hash
-        value.length > 5 ? "{Hash(#{value.length})}" : value.inspect
-      else
-        inspected = value.inspect
-        inspected.length > 100 ? "#{inspected[0...100]}..." : inspected
-      end
-    end
-
-    # Log with key=value format (alternative to structured_log for simple cases)
-    #
-    # @param level [Symbol] The log level (:debug, :info, :warn, :error)
-    # @param message [String] The log message
-    # @param metadata [Hash] Key-value pairs to format
-    #
-    # @example
-    #   Otto::LoggingHelpers.log_with_metadata(:info, "Template compiled",
-    #     template_type: 'handlebars', cached: false, duration: 68
-    #   )
-    #   # Output: Template compiled: template_type=handlebars cached=false duration=68
-    #
-    def self.log_with_metadata(level, message, metadata = {})
-      return Otto.structured_log(level, message) if metadata.empty?
-
-      metadata_str = metadata.map { |k, v| "#{k}=#{format_value(v)}" }.join(' ')
-      Otto.logger.send(level, "#{message}: #{metadata_str}")
-    end
   end
 end

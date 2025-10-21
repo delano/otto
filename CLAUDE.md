@@ -712,16 +712,11 @@ Otto::LoggingHelpers.request_context(env)
 
 # Timed operation logging
 Otto::LoggingHelpers.log_timed_operation(level, message, env, **metadata) { block }
-
-# Key=value format logging
-Otto::LoggingHelpers.log_with_metadata(level, message, metadata)
 ```
 
 ### Logging Patterns
 
-**1. Standard Structured Logging**
-
-Use `Otto.structured_log` with `LoggingHelpers.request_context(env).merge()` for consistent logs:
+Use `Otto.structured_log` with `LoggingHelpers.request_context(env).merge()` for all structured logging:
 
 ```ruby
 # Route logging
@@ -744,9 +739,7 @@ Otto.structured_log(:info, "Auth strategy result",
 )
 ```
 
-**2. Timed Operations**
-
-Use `log_timed_operation` for automatic timing with error handling:
+For operations that need timing, use `log_timed_operation` which wraps `structured_log` with automatic timing:
 
 ```ruby
 # Template compilation with timing
@@ -764,29 +757,6 @@ Otto::LoggingHelpers.log_timed_operation(:debug, "User lookup", env,
 ) do
   User.find(user_id)
 end
-```
-
-**3. Key=Value Format Logging**
-
-Use `log_with_metadata` for simple key=value output (similar to your inspiration):
-
-```ruby
-# Simple operations
-Otto::LoggingHelpers.log_with_metadata(:info, "Template compiled",
-  template_type: 'handlebars',
-  cached: false,
-  duration: 68
-)
-# Output: Template compiled: template_type=handlebars cached=false duration=68
-
-Otto::LoggingHelpers.log_with_metadata(:info, "View rendered",
-  template: 'user_profile',
-  layout: 'application',
-  partials: ['header', 'sidebar'],
-  duration: 1118,
-  response_size_bytes: 2048
-)
-# Output: View rendered: template=user_profile layout=application partials=["header", "sidebar"] duration=1118 response_size_bytes=2048
 ```
 
 ### Timing Conventions
@@ -903,16 +873,10 @@ Otto.structured_log(:info, "Operation completed",
 
 ### Output Examples
 
-**Structured Logger (SemanticLogger, etc.):**
+**Example Output (with SemanticLogger or similar structured logger):**
 ```
 I, [2025-01-21T14:39:39.462833 #82244] INFO -- : Template compiled -- {method: "GET", path: "/users", ip: "192.0.2.0", template_type: "handlebars", cached: false, duration: 68}
 I, [2025-01-21T14:39:39.462926 #82244] INFO -- : View rendered -- {method: "GET", path: "/users", ip: "192.0.2.0", template: "user_profile", layout: "application", partials: ["header", "sidebar"], duration: 1118, response_size_bytes: 2048}
-```
-
-**Standard Logger (with log_with_metadata):**
-```
-I, [2025-01-21T14:39:39.462833 #82244] INFO -- : Template compiled: template_type=handlebars cached=false duration=68
-I, [2025-01-21T14:39:39.462926 #82244] INFO -- : View rendered: template=user_profile layout=application partials=["header", "sidebar"] duration=1118 response_size_bytes=2048
 ```
 
 ### Rationale

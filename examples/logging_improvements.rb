@@ -19,10 +19,13 @@ end
 # Example handler class demonstrating the new logging patterns
 class App
   def self.handle_request(req, res)
-    Otto::LoggingHelpers.log_with_metadata(:info, "Request processed",
-      user_id: req.params['user_id'],
-      cached: false,
-      response_size_bytes: 1024
+    # Example of structured logging with request context
+    Otto.structured_log(:info, "Request processed",
+      Otto::LoggingHelpers.request_context(req.env).merge(
+        user_id: req.params['user_id'],
+        cached: false,
+        response_size_bytes: 1024
+      )
     )
 
     res.write("Hello World")
@@ -57,7 +60,7 @@ end
 
 # Test the logging
 puts "\n=== Testing Enhanced Logging ==="
-puts "\n1. Standard request (uses log_with_metadata):"
+puts "\n1. Standard request (uses structured_log):"
 env1 = { 'REQUEST_METHOD' => 'GET', 'PATH_INFO' => '/example', 'QUERY_STRING' => 'user_id=123' }
 otto.call(env1)
 
@@ -66,8 +69,8 @@ env2 = { 'REQUEST_METHOD' => 'GET', 'PATH_INFO' => '/timed' }
 otto.call(env2)
 
 puts "\n=== Expected Output Format ==="
-puts "Standard logger format:"
-puts "I, [timestamp] INFO -- : Request processed: user_id=123 cached=false response_size_bytes=1024"
+puts "Standard logger (structured_log):"
+puts "I, [timestamp] INFO -- : [Otto] Request processed -- {method: \"GET\", path: \"/example\", ip: \"127.0.0.1\", user_id: \"123\", cached: false, response_size_bytes: 1024}"
 
-puts "\nStructured logging format (if using SemanticLogger or similar):"
-puts "I, [timestamp] INFO -- : Template rendered -- {method: \"GET\", path: \"/timed\", ip: \"127.0.0.1\", template: \"example_template\", layout: \"application\", partials: [\"header\", \"footer\"], duration: 10123}"
+puts "\nStructured logging with timing (log_timed_operation):"
+puts "I, [timestamp] INFO -- : [Otto] Template rendered -- {method: \"GET\", path: \"/timed\", ip: \"127.0.0.1\", template: \"example_template\", layout: \"application\", partials: [\"header\", \"footer\"], duration: 10123}"

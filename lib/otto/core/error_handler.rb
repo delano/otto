@@ -43,20 +43,22 @@ class Otto
             env['otto.error_id'] = error_id
             return found_route.call(env)
           rescue StandardError => e
-            # Base context pattern: create once, reuse for correlation
+            # When the custom error handler itself fails, generate a new error ID
+            # to distinguish it from the original error, but link them.
+            custom_handler_error_id = SecureRandom.hex(8)
             base_context = Otto::LoggingHelpers.request_context(env)
 
             Otto.structured_log(:error, "Error in custom error handler",
               base_context.merge(
                 error: e.message,
                 error_class: e.class.name,
-                error_id: error_id,
+                error_id: custom_handler_error_id,
                 original_error_id: error_id  # Link to original error
               )
             )
 
             Otto::LoggingHelpers.log_backtrace(e,
-              base_context.merge(error_id: error_id)
+              base_context.merge(error_id: custom_handler_error_id, original_error_id: error_id)
             )
           end
         end

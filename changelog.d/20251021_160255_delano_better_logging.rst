@@ -4,11 +4,10 @@ Added
 -----
 
 - Added ``Otto::LoggingHelpers.log_timed_operation`` for automatic timing and error handling of operations
-- Added ``Otto::LoggingHelpers.log_with_metadata`` for key=value format logging
 - Added ``Otto::LoggingHelpers.log_backtrace`` for consistent backtrace logging with correlation fields
-- Added ``Otto::LoggingHelpers.format_value`` for smart truncation of large data structures in logs
 - Added microsecond-precision timing to configuration freeze process
 - Added base context pattern documentation for downstream extensibility
+- Added unique error ID generation for nested error handler failures (links via ``original_error_id``)
 
 Changed
 -------

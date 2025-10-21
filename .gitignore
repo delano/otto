@@ -13,6 +13,7 @@
 !spec/fixtures/*.txt
 .ruby-version
 appendonlydir
+data/
 etc/config
 log
 tmp

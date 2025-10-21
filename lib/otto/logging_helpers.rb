@@ -11,7 +11,13 @@ class Otto
     #
     # BASE CONTEXT PATTERN (recommended for downstream projects):
     #
-    # Create base context once per error/event, then merge event-specific fields:
+    # Create base context once per error/event, then merge event-specific fields.
+    #
+    # THREAD SAFETY: This pattern is thread-safe for concurrent requests. Each
+    # request has its own `env` hash, so `request_context(env)` creates isolated
+    # context hashes per request. The pattern extracts immutable values (strings,
+    # symbols) from `env`, and `.merge()` creates new hashes rather than mutating
+    # shared state. Safe for use in multi-threaded Rack servers (Puma, Falcon).
     #
     #   base_context = Otto::LoggingHelpers.request_context(env)
     #

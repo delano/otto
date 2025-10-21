@@ -718,6 +718,8 @@ Otto::LoggingHelpers.log_timed_operation(level, message, env, **metadata) { bloc
 
 Use `Otto.structured_log` with `LoggingHelpers.request_context(env).merge()` for all structured logging:
 
+**Thread Safety Note**: The base context pattern is thread-safe for concurrent requests. Each request has its own `env` hash, so `request_context(env)` creates isolated context hashes per request. The pattern extracts immutable values (strings, symbols) from `env`, and the `.merge()` creates a new hash rather than mutating shared state. This makes it safe for use in multi-threaded Rack servers (Puma, Falcon, etc.).
+
 ```ruby
 # Route logging
 Otto.structured_log(:debug, "Route matched",

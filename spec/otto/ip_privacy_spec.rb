@@ -110,6 +110,96 @@ RSpec.describe 'IP Privacy Features' do
 
   describe Otto::Privacy::GeoResolver do
     describe '.resolve' do
+      context 'custom resolver' do
+        after do
+          # Reset custom resolver after each test
+          Otto::Privacy::GeoResolver.custom_resolver = nil
+        end
+
+        it 'uses custom resolver when configured' do
+          Otto::Privacy::GeoResolver.custom_resolver = ->(ip, _env) {
+            ip == '1.2.3.4' ? 'XX' : nil
+          }
+
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', {})
+          expect(result).to eq('XX')
+        end
+
+        it 'validates country code from custom resolver' do
+          Otto::Privacy::GeoResolver.custom_resolver = ->(ip, _env) {
+            'INVALID'  # Invalid format
+          }
+
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', {})
+          # Falls back to range detection since custom resolver returned invalid code
+          expect(result).to eq('**')
+        end
+
+        it 'falls back to range detection when custom resolver returns nil' do
+          Otto::Privacy::GeoResolver.custom_resolver = ->(ip, _env) { nil }
+
+          result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
+          expect(result).to eq('US')  # From range detection
+        end
+
+        it 'handles custom resolver errors gracefully' do
+          Otto::Privacy::GeoResolver.custom_resolver = ->(ip, _env) {
+            raise StandardError, 'Database unavailable'
+          }
+
+          result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
+          # Falls back to range detection
+          expect(result).to eq('US')
+        end
+
+        it 'prefers CDN headers over custom resolver' do
+          Otto::Privacy::GeoResolver.custom_resolver = ->(ip, _env) { 'XX' }
+          env = { 'HTTP_CF_IPCOUNTRY' => 'US' }
+
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+          expect(result).to eq('US')  # CDN header wins
+        end
+
+        it 'accepts callable objects' do
+          resolver_class = Class.new do
+            def call(ip, _env)
+              'JP'
+            end
+          end
+
+          Otto::Privacy::GeoResolver.custom_resolver = resolver_class.new
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', {})
+          expect(result).to eq('JP')
+        end
+
+        it 'raises ArgumentError for non-callable resolver' do
+          expect {
+            Otto::Privacy::GeoResolver.custom_resolver = 'not callable'
+          }.to raise_error(ArgumentError, /must respond to :call/)
+        end
+
+        it 'allows setting resolver to nil' do
+          Otto::Privacy::GeoResolver.custom_resolver = ->(ip, _env) { 'XX' }
+          Otto::Privacy::GeoResolver.custom_resolver = nil
+
+          result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
+          expect(result).to eq('US')  # Uses range detection
+        end
+
+        it 'is thread-safe when setting resolver' do
+          threads = 10.times.map do |i|
+            Thread.new do
+              Otto::Privacy::GeoResolver.custom_resolver = ->(ip, _env) { "T#{i}" }
+            end
+          end
+
+          threads.each(&:join)
+
+          # Just verify no exceptions were raised
+          expect(Otto::Privacy::GeoResolver.custom_resolver).to be_a(Proc)
+        end
+      end
+
       context 'CDN/Infrastructure provider headers' do
         it 'uses Cloudflare header (highest priority)' do
           env = { 'HTTP_CF_IPCOUNTRY' => 'US' }
@@ -295,7 +385,6 @@ RSpec.describe 'IP Privacy Features' do
 
         expect(result).to eq('**')
       end
-
       it 'returns ** for private IPs' do
         result = Otto::Privacy::GeoResolver.resolve('192.168.1.1', {})
 

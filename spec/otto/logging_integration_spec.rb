@@ -299,13 +299,175 @@ RSpec.describe 'Otto Logging Integration' do
     end
 
     describe '#format_value' do
-      it 'formats different value types correctly' do
+      it 'formats basic types correctly' do
         expect(Otto::LoggingHelpers.format_value('string')).to eq('string')
         expect(Otto::LoggingHelpers.format_value(42)).to eq('42')
+        expect(Otto::LoggingHelpers.format_value(3.14)).to eq('3.14')
         expect(Otto::LoggingHelpers.format_value(true)).to eq('true')
         expect(Otto::LoggingHelpers.format_value(false)).to eq('false')
         expect(Otto::LoggingHelpers.format_value(nil)).to eq('nil')
-        expect(Otto::LoggingHelpers.format_value(['array'])).to eq('["array"]')
+      end
+
+      it 'formats symbols correctly' do
+        expect(Otto::LoggingHelpers.format_value(:test)).to eq(':test')
+        expect(Otto::LoggingHelpers.format_value(:some_symbol)).to eq(':some_symbol')
+      end
+
+      it 'formats small arrays without truncation' do
+        small_array = [1, 2, 3]
+        expect(Otto::LoggingHelpers.format_value(small_array)).to eq('[1, 2, 3]')
+      end
+
+      it 'truncates large arrays (>5 items)' do
+        large_array = (1..10).to_a
+        expect(Otto::LoggingHelpers.format_value(large_array)).to eq('[Array(10)]')
+      end
+
+      it 'formats small hashes without truncation' do
+        small_hash = { a: 1, b: 2 }
+        result = Otto::LoggingHelpers.format_value(small_hash)
+        # Hash#inspect returns {key: value} format (no colons in keys)
+        expect(result).to include('a:')
+        expect(result).to include('b:')
+      end
+
+      it 'truncates large hashes (>5 keys)' do
+        large_hash = (1..10).map { |i| [:"key#{i}", i] }.to_h
+        expect(Otto::LoggingHelpers.format_value(large_hash)).to eq('{Hash(10)}')
+      end
+
+      it 'truncates long inspect output (>100 chars)' do
+        long_object = double('long_object')
+        allow(long_object).to receive(:inspect).and_return('X' * 150)
+        result = Otto::LoggingHelpers.format_value(long_object)
+        expect(result.length).to eq(103)  # 100 chars + '...'
+        expect(result).to end_with('...')
+      end
+
+      it 'does not truncate inspect output <=100 chars' do
+        short_object = double('short_object')
+        allow(short_object).to receive(:inspect).and_return('Y' * 100)
+        result = Otto::LoggingHelpers.format_value(short_object)
+        expect(result).to eq('Y' * 100)
+        expect(result).not_to end_with('...')
+      end
+    end
+
+    describe '#log_backtrace' do
+      let(:test_error) { StandardError.new('Test error message') }
+      let(:backtrace) { Array.new(20) { |i| "/path/to/file.rb:#{i + 1}:in `method_#{i}'" } }
+      let(:env) do
+        {
+          'REQUEST_METHOD' => 'GET',
+          'PATH_INFO' => '/test',
+          'REMOTE_ADDR' => '127.0.0.1'
+        }
+      end
+
+      before do
+        test_error.set_backtrace(backtrace)
+      end
+
+      it 'only logs when Otto.debug is true' do
+        Otto.debug = true
+
+        expect(Otto).to receive(:structured_log).with(:debug, 'Exception backtrace', hash_including(
+          backtrace: kind_of(Array),
+          handler: 'TestHandler'
+        ))
+
+        Otto::LoggingHelpers.log_backtrace(test_error,
+          Otto::LoggingHelpers.request_context(env).merge(handler: 'TestHandler')
+        )
+      end
+
+      it 'does not log when Otto.debug is false' do
+        Otto.debug = false
+
+        expect(Otto).not_to receive(:structured_log)
+
+        Otto::LoggingHelpers.log_backtrace(test_error,
+          Otto::LoggingHelpers.request_context(env).merge(handler: 'TestHandler')
+        )
+      end
+
+      it 'limits backtrace to first 10 lines' do
+        Otto.debug = true
+
+        expect(Otto).to receive(:structured_log) do |_level, _message, metadata|
+          expect(metadata[:backtrace].length).to eq(10)
+          expect(metadata[:backtrace].first).to eq('/path/to/file.rb:1:in `method_0\'')
+          expect(metadata[:backtrace].last).to eq('/path/to/file.rb:10:in `method_9\'')
+        end
+
+        Otto::LoggingHelpers.log_backtrace(test_error,
+          Otto::LoggingHelpers.request_context(env).merge(handler: 'TestHandler')
+        )
+      end
+
+      it 'handles errors with nil backtrace' do
+        Otto.debug = true
+        error_without_backtrace = StandardError.new('No backtrace')
+
+        expect(Otto).to receive(:structured_log) do |_level, _message, metadata|
+          expect(metadata[:backtrace]).to eq([])
+        end
+
+        Otto::LoggingHelpers.log_backtrace(error_without_backtrace,
+          Otto::LoggingHelpers.request_context(env).merge(handler: 'TestHandler')
+        )
+      end
+
+      it 'includes request context in log' do
+        Otto.debug = true
+
+        expect(Otto).to receive(:structured_log) do |_level, _message, metadata|
+          expect(metadata[:method]).to eq('GET')
+          expect(metadata[:path]).to eq('/test')
+          expect(metadata[:ip]).to eq('127.0.0.1')
+          expect(metadata[:handler]).to eq('TestHandler')
+          expect(metadata[:backtrace]).to be_a(Array)
+        end
+
+        Otto::LoggingHelpers.log_backtrace(test_error,
+          Otto::LoggingHelpers.request_context(env).merge(handler: 'TestHandler')
+        )
+      end
+
+      it 'does not duplicate error fields from context' do
+        Otto.debug = true
+
+        context_with_error = Otto::LoggingHelpers.request_context(env).merge(
+          error: 'Already logged',
+          error_class: 'AlreadyLogged',
+          error_id: 'test123'
+        )
+
+        expect(Otto).to receive(:structured_log).with(
+          :debug,
+          'Exception backtrace',
+          hash_including(
+            error_id: 'test123',
+            backtrace: kind_of(Array)
+          )
+        ).and_wrap_original do |method, *args|
+          # Verify we only have ONE error field (from context), not duplicated
+          expect(args[2].keys.count { |k| k == :error }).to eq(1)
+          expect(args[2][:error]).to eq('Already logged')  # Original context value preserved
+          method.call(*args)
+        end
+
+        Otto::LoggingHelpers.log_backtrace(StandardError.new('New error'), context_with_error)
+      end
+
+      it 'works with empty context' do
+        Otto.debug = true
+
+        expect(Otto).to receive(:structured_log).with(:debug, 'Exception backtrace', hash_including(
+          backtrace: kind_of(Array)
+        ))
+
+        Otto::LoggingHelpers.log_backtrace(test_error, {})
       end
     end
   end

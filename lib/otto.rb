@@ -121,12 +121,12 @@ class Otto
       # Execute request completion hooks if any are registered
       unless self.class.request_complete_callbacks.empty?
         begin
-          duration_ms = ((Time.now - start_time) * 1000).round(2)
+          duration = ((Otto::Utils.now.to_f - start_time) * 1_000_000).round
           # Wrap response tuple in Rack::Response for developer-friendly API
           # Otto's hook API should provide nice abstractions like Rack::Request/Response
           response = Rack::Response.new(response_raw[2], response_raw[0], response_raw[1])
           self.class.request_complete_callbacks.each do |callback|
-            callback.call(request, response, duration_ms)
+            callback.call(request, response, duration)
           end
         rescue StandardError => hook_error
           Otto.logger.error "[Otto] Request completion hook error: #{hook_error.message}"

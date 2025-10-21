@@ -89,7 +89,7 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
         env = mock_rack_env
         env['rack.session'] = { 'user_id' => 123 }
 
-        status, headers, body = wrapper.call(env)
+        status, _headers, body = wrapper.call(env)
 
         expect(status).to eq(200)
         expect(body).to eq(['handler called'])

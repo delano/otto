@@ -132,4 +132,77 @@ RSpec.describe 'Otto Logging Integration' do
       })
     end
   end
+
+  describe 'LoggingHelpers.request_context' do
+    it 'uses already-anonymized user agent from env (privacy enabled)' do
+      # When privacy is enabled, IPPrivacyMiddleware has already replaced
+      # env['HTTP_USER_AGENT'] with the anonymized version
+      env = {
+        'REQUEST_METHOD' => 'GET',
+        'PATH_INFO' => '/test',
+        'REMOTE_ADDR' => '192.168.1.0',  # Already masked
+        'HTTP_USER_AGENT' => 'Mozilla/*.* (Macintosh; Intel Mac OS X *.*) Chrome/*.*',  # Already anonymized
+        'otto.geo_country' => 'US'
+      }
+
+      context = Otto::LoggingHelpers.request_context(env)
+
+      expect(context[:user_agent]).to eq('Mozilla/*.* (Macintosh; Intel Mac OS X *.*) Chrome/*.*')
+      expect(context[:user_agent]).not_to include('141.0')
+      expect(context[:user_agent]).not_to include('10_15_7')
+    end
+
+    it 'truncates long user agent strings (privacy disabled)' do
+      # When privacy is disabled, env['HTTP_USER_AGENT'] contains the raw UA
+      long_ua = 'Mozilla/5.0 ' + 'X' * 200
+      env = {
+        'REQUEST_METHOD' => 'GET',
+        'PATH_INFO' => '/test',
+        'REMOTE_ADDR' => '127.0.0.1',
+        'HTTP_USER_AGENT' => long_ua  # Raw UA (privacy disabled)
+      }
+
+      context = Otto::LoggingHelpers.request_context(env)
+
+      # Still truncated to 100 chars to prevent log bloat
+      expect(context[:user_agent].length).to eq(100)
+      expect(context[:user_agent]).to eq(long_ua[0..99])
+    end
+
+    it 'handles nil user agent gracefully' do
+      env = {
+        'REQUEST_METHOD' => 'GET',
+        'PATH_INFO' => '/test',
+        'REMOTE_ADDR' => '127.0.0.1'
+      }
+
+      context = Otto::LoggingHelpers.request_context(env)
+
+      expect(context).not_to have_key(:user_agent)
+    end
+
+    it 'includes all expected request metadata' do
+      # When privacy is enabled, IPPrivacyMiddleware has already replaced
+      # env['HTTP_USER_AGENT'] with the anonymized version
+      fingerprint = double('fingerprint', anonymized_ua: 'Mozilla/*.*')
+      env = {
+        'REQUEST_METHOD' => 'POST',
+        'PATH_INFO' => '/api/endpoint',
+        'REMOTE_ADDR' => '9.9.9.0',
+        'HTTP_USER_AGENT' => 'Mozilla/*.*',  # Already anonymized by middleware
+        'otto.privacy.fingerprint' => fingerprint,
+        'otto.geo_country' => 'CH'
+      }
+
+      context = Otto::LoggingHelpers.request_context(env)
+
+      expect(context).to eq({
+        method: 'POST',
+        path: '/api/endpoint',
+        ip: '9.9.9.0',
+        country: 'CH',
+        user_agent: 'Mozilla/*.*'
+      })
+    end
+  end
 end

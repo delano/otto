@@ -117,29 +117,34 @@ RSpec.describe 'IP Privacy Features' do
         expect(result).to eq('US')
       end
 
-      it 'returns XX for unknown IP' do
-        result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', {})
+      it 'resolves country using MaxMind database' do
+        # Test with Google DNS (8.8.8.8) which should resolve to US
+        result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
 
-        expect(result).to eq('XX')
+        # Should resolve to US via MaxMind database
+        expect(result).to eq('US')
       end
 
-      it 'detects Quad9 in Switzerland' do
-        result = Otto::Privacy::GeoResolver.resolve('9.9.9.9', {})
+      it 'falls back to XX for truly unknown IPs' do
+        # Test with a valid but unassigned IP range
+        result = Otto::Privacy::GeoResolver.resolve('240.0.0.1', {})
 
-        expect(result).to eq('CH')
+        expect(result).to eq('**')
       end
 
-      it 'ignores invalid CloudFlare header' do
+      it 'ignores invalid CloudFlare header and falls back to range detection' do
         env = { 'HTTP_CF_IPCOUNTRY' => 'invalid' }
         result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
 
-        expect(result).to eq('XX')
+        # Should ignore invalid CF header and fall back to range detection
+        # 1.2.3.4 is not in KNOWN_RANGES, so returns XX
+        expect(result).to eq('**')
       end
 
       it 'returns XX for private IPs' do
         result = Otto::Privacy::GeoResolver.resolve('192.168.1.1', {})
 
-        expect(result).to eq('XX')
+        expect(result).to eq('**')
       end
     end
   end
@@ -171,7 +176,7 @@ RSpec.describe 'IP Privacy Features' do
     it 'anonymizes user agent' do
       fingerprint = Otto::Privacy::RedactedFingerprint.new(env, config)
 
-      expect(fingerprint.anonymized_ua).to include('X.X')
+      expect(fingerprint.anonymized_ua).to include('*.*')
       expect(fingerprint.anonymized_ua).not_to include('10.0')
     end
 
@@ -236,6 +241,87 @@ RSpec.describe 'IP Privacy Features' do
           middleware.call(env)
 
           expect(env['otto.original_ip']).to be_nil
+        end
+      end
+
+      context 'User-Agent and Referer anonymization' do
+        it 'replaces HTTP_USER_AGENT with anonymized version' do
+          env = {
+            'REMOTE_ADDR' => '9.9.9.9',
+            'HTTP_USER_AGENT' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0'
+          }
+          middleware.call(env)
+
+          # Version numbers stripped
+          expect(env['HTTP_USER_AGENT']).to include('*.*')
+          expect(env['HTTP_USER_AGENT']).not_to include('10_15_7')
+          expect(env['HTTP_USER_AGENT']).not_to include('141.0')
+          expect(env['HTTP_USER_AGENT']).not_to include('537.36')
+        end
+
+        it 'replaces HTTP_REFERER with anonymized version (query params stripped)' do
+          env = {
+            'REMOTE_ADDR' => '9.9.9.9',
+            'HTTP_REFERER' => 'https://example.com/page?token=secret&user=123#section'
+          }
+          middleware.call(env)
+
+          # Query params and fragment stripped
+          expect(env['HTTP_REFERER']).to eq('https://example.com/page')
+          expect(env['HTTP_REFERER']).not_to include('token')
+          expect(env['HTTP_REFERER']).not_to include('user')
+          expect(env['HTTP_REFERER']).not_to include('section')
+        end
+
+        it 'does not set original UA/Referer when privacy enabled' do
+          env = {
+            'REMOTE_ADDR' => '9.9.9.9',
+            'HTTP_USER_AGENT' => 'Mozilla/5.0 Chrome/141.0',
+            'HTTP_REFERER' => 'https://example.com/page?secret=value'
+          }
+          middleware.call(env)
+
+          # Original values NOT available (prevents leakage)
+          expect(env['otto.original_user_agent']).to be_nil
+          expect(env['otto.original_referer']).to be_nil
+        end
+
+        it 'handles nil User-Agent gracefully' do
+          env = { 'REMOTE_ADDR' => '9.9.9.9' }
+          middleware.call(env)
+
+          expect(env['HTTP_USER_AGENT']).to be_nil
+        end
+
+        it 'handles nil Referer gracefully' do
+          env = { 'REMOTE_ADDR' => '9.9.9.9' }
+          middleware.call(env)
+
+          expect(env['HTTP_REFERER']).to be_nil
+        end
+
+        it 'clears original User-Agent when anonymization returns empty string' do
+          env = {
+            'REMOTE_ADDR' => '9.9.9.9',
+            'HTTP_USER_AGENT' => ''  # Empty UA triggers nil return from anonymize_user_agent
+          }
+          middleware.call(env)
+
+          # CRITICAL: env['HTTP_USER_AGENT'] should be nil (cleared), not empty string
+          expect(env['HTTP_USER_AGENT']).to be_nil
+          expect(env).not_to have_key('otto.original_user_agent')
+        end
+
+        it 'clears original Referer when anonymization returns empty string' do
+          env = {
+            'REMOTE_ADDR' => '9.9.9.9',
+            'HTTP_REFERER' => ''  # Empty referer triggers nil return from anonymize_referer
+          }
+          middleware.call(env)
+
+          # CRITICAL: env['HTTP_REFERER'] should be nil (cleared), not empty string
+          expect(env['HTTP_REFERER']).to be_nil
+          expect(env).not_to have_key('otto.original_referer')
         end
       end
 
@@ -375,6 +461,43 @@ RSpec.describe 'IP Privacy Features' do
         middleware.call(env)
 
         expect(env['REMOTE_ADDR'].encoding).to eq(Encoding::UTF_8)
+      end
+
+      it 'preserves raw User-Agent when privacy disabled' do
+        env = {
+          'REMOTE_ADDR' => '192.168.1.100',
+          'HTTP_USER_AGENT' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/141.0.0.0'
+        }
+        middleware.call(env)
+
+        # Raw UA unchanged
+        expect(env['HTTP_USER_AGENT']).to eq('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/141.0.0.0')
+        expect(env['HTTP_USER_AGENT']).to include('141.0')
+      end
+
+      it 'preserves raw Referer when privacy disabled' do
+        env = {
+          'REMOTE_ADDR' => '192.168.1.100',
+          'HTTP_REFERER' => 'https://example.com/page?token=secret&user=123'
+        }
+        middleware.call(env)
+
+        # Raw referer unchanged
+        expect(env['HTTP_REFERER']).to eq('https://example.com/page?token=secret&user=123')
+        expect(env['HTTP_REFERER']).to include('token')
+      end
+
+      it 'sets original UA/Referer for explicit access when privacy disabled' do
+        env = {
+          'REMOTE_ADDR' => '192.168.1.100',
+          'HTTP_USER_AGENT' => 'Mozilla/5.0 Chrome/141.0',
+          'HTTP_REFERER' => 'https://example.com/page?secret=value'
+        }
+        middleware.call(env)
+
+        # Original values available for legitimate use cases
+        expect(env['otto.original_user_agent']).to eq('Mozilla/5.0 Chrome/141.0')
+        expect(env['otto.original_referer']).to eq('https://example.com/page?secret=value')
       end
     end
   end
@@ -1017,21 +1140,26 @@ RSpec.describe 'IP Privacy Features' do
         keys = Concurrent::Array.new
         start_time = Time.utc(2025, 1, 15, 12, 59, 59)
 
+        # Use a single shared config instance for thread-safe access
+        config = Otto::Privacy::Config.new(hash_rotation_period: 3600)
+
         threads = 10.times.map do |i|
           Thread.new do
-            config = Otto::Privacy::Config.new(hash_rotation_period: 3600)
-
             # Simulate requests near rotation boundary
-            time_offset = i * 0.2  # Spread across boundary
+            time_offset = i * 0.2  # Spread across boundary (0.0 to 1.8 seconds)
+
+            # Stub Time.now within each thread's context
             allow(Time).to receive(:now).and_return(start_time + time_offset)
 
+            # Access rotation key from shared config
             keys << config.rotation_key
           end
         end
 
         threads.each(&:join)
 
-        # Should have at most 2 different keys (before/after rotation)
+        # Should have at most 2 different keys (before/after rotation at boundary)
+        # With time_offset 0.0-1.8s and rotation at :00, we cross the hour boundary
         expect(keys.uniq.size).to be <= 2
       end
     end

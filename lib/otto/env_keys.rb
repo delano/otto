@@ -128,6 +128,31 @@ class Otto
     end
 
     # =========================================================================
+    # ORIGINAL VALUES (Privacy Disabled)
+    # =========================================================================
+
+    # Original client IP address (only when privacy disabled)
+    # Type: String
+    # Set by: IPPrivacyMiddleware (when privacy disabled)
+    # Used by: Debugging, legitimate use cases requiring real IP
+    # NOTE: Not available when privacy is enabled (intentional)
+    ORIGINAL_IP = 'otto.original_ip'
+
+    # Original User-Agent string (only when privacy disabled)
+    # Type: String
+    # Set by: IPPrivacyMiddleware (when privacy disabled)
+    # Used by: Bot detection, browser feature detection
+    # NOTE: Not available when privacy is enabled (intentional)
+    ORIGINAL_USER_AGENT = 'otto.original_user_agent'
+
+    # Original Referer URL (only when privacy disabled)
+    # Type: String
+    # Set by: IPPrivacyMiddleware (when privacy disabled)
+    # Used by: Analytics, debugging
+    # NOTE: Not available when privacy is enabled (intentional)
+    ORIGINAL_REFERER = 'otto.original_referer'
+
+    # =========================================================================
     # MCP (MODEL CONTEXT PROTOCOL)
     # =========================================================================
 

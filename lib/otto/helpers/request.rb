@@ -56,14 +56,17 @@ class Otto
     # Get anonymized user agent string
     #
     # Returns user agent with version numbers stripped for privacy.
-    # Only available when IP privacy is enabled (default).
+    # When privacy is enabled (default), env['HTTP_USER_AGENT'] is already
+    # anonymized by IPPrivacyMiddleware, so this just returns that value.
+    # When privacy is disabled, returns the raw user agent.
     #
-    # @return [String, nil] Anonymized user agent or nil
+    # @return [String, nil] Anonymized (or raw if privacy disabled) user agent
     # @example
     #   req.anonymized_user_agent
     #   # => 'Mozilla/X.X (Windows NT X.X; Win64; x64) AppleWebKit/X.X'
+    # @deprecated Use env['HTTP_USER_AGENT'] directly (already anonymized when privacy enabled)
     def anonymized_user_agent
-      redacted_fingerprint&.anonymized_ua
+      user_agent
     end
 
     # Get masked IP address

@@ -116,12 +116,17 @@ This pattern is particularly useful for:
 ### How It Works
 
 1. **Privacy by Default**: `IPPrivacyMiddleware` is added FIRST in the middleware stack during initialization
-2. **Smart Masking**:
+2. **Consistent Architecture**: Privacy middleware **replaces `env` values directly** for all sensitive data:
+   - `env['REMOTE_ADDR']` → masked IP (e.g., `'9.9.9.0'`)
+   - `env['HTTP_USER_AGENT']` → anonymized UA (versions stripped)
+   - `env['HTTP_REFERER']` → anonymized referer (query params stripped)
+3. **Smart Masking**:
    - **Public IPs**: Automatically masked (192.0.2.100 → 192.0.2.0)
    - **Private IPs**: Never masked (192.168.1.100, 10.0.0.5, 172.16.0.1)
    - **Localhost**: Never masked (127.0.0.1, ::1)
-3. **No Original IP Storage**: When privacy is enabled, original public IPs are NEVER stored in `env`
-4. **Middleware Runs First**: Processes IPs before authentication, rate limiting, or any application code
+4. **No Original Values Storage**: When privacy is enabled, original public values are NEVER stored in `env`
+5. **Middleware Runs First**: Processes all values before authentication, rate limiting, logging, or any application code
+6. **Pit of Success**: Downstream code (logging, rate limiting, third-party gems) automatically gets anonymized values
 
 ### Multi-Layer Middleware Architecture
 
@@ -191,48 +196,80 @@ end
 
 ### What Gets Anonymized
 
-```ruby
-# PUBLIC IPs (masked by default):
-env['REMOTE_ADDR']                  # => '9.9.9.0' (masked)
-env['otto.masked_ip']               # => '9.9.9.0' (same as REMOTE_ADDR)
-env['otto.hashed_ip']               # => 'a3f8b2...' (daily-rotating hash)
-env['otto.geo_country']             # => 'US' (country-level only)
-env['otto.redacted_fingerprint']    # => RedactedFingerprint object
-env['otto.original_ip']             # => nil (NOT available)
+**IMPORTANT**: Privacy middleware **replaces env values directly**. Downstream code automatically gets anonymized values without special handling.
 
-# RedactedFingerprint contains:
+```ruby
+# PUBLIC IPs (privacy enabled - default):
+env['REMOTE_ADDR']                  # => '9.9.9.0' (REPLACED with masked IP)
+env['HTTP_USER_AGENT']              # => 'Mozilla/*.* (Windows NT *.*; Win64; x64) AppleWebKit/*.*' (REPLACED, versions stripped)
+env['HTTP_REFERER']                 # => 'https://example.com/page' (REPLACED, query params stripped)
+env['otto.privacy.masked_ip']       # => '9.9.9.0' (same as REMOTE_ADDR)
+env['otto.privacy.hashed_ip']       # => 'a3f8b2...' (daily-rotating hash)
+env['otto.privacy.geo_country']     # => 'US' (country-level only)
+env['otto.privacy.fingerprint']     # => RedactedFingerprint object
+env['otto.original_ip']             # => nil (NOT available - prevents leakage)
+env['otto.original_user_agent']    # => nil (NOT available - prevents leakage)
+env['otto.original_referer']       # => nil (NOT available - prevents leakage)
+
+# RedactedFingerprint contains (for reference):
 fingerprint.masked_ip               # => '9.9.9.0'
 fingerprint.hashed_ip               # => 'a3f8b2...' (for session correlation)
 fingerprint.country                 # => 'US'
-fingerprint.anonymized_ua           # => 'Mozilla/X.X (Windows NT X.X...)'
+fingerprint.anonymized_ua           # => 'Mozilla/*.* (Windows NT *.*...)'
+fingerprint.referer                 # => 'https://example.com/page' (query params stripped)
 fingerprint.session_id              # => UUID
 fingerprint.timestamp               # => UTC timestamp
 
-# PRIVATE/LOCALHOST IPs (never masked):
+# PRIVATE/LOCALHOST IPs (never masked by default):
 env['REMOTE_ADDR']                  # => '127.0.0.1' (unchanged)
-env['otto.original_ip']             # => '127.0.0.1' (available)
-env['otto.masked_ip']               # => nil
-env['otto.hashed_ip']               # => nil
-env['otto.redacted_fingerprint']    # => nil (not created)
+env['HTTP_USER_AGENT']              # => '...' (unchanged, raw value)
+env['HTTP_REFERER']                 # => 'https://...' (unchanged, raw value)
+env['otto.original_ip']             # => '127.0.0.1' (available for debugging)
+env['otto.original_user_agent']    # => nil (not set for private IPs)
+env['otto.original_referer']       # => nil (not set for private IPs)
+env['otto.privacy.masked_ip']       # => nil
+env['otto.privacy.hashed_ip']       # => nil
+env['otto.privacy.fingerprint']     # => nil (not created)
+
+# PRIVACY DISABLED (otto.disable_ip_privacy!):
+env['REMOTE_ADDR']                  # => '9.9.9.9' (unchanged, real IP)
+env['HTTP_USER_AGENT']              # => 'Mozilla/5.0 Chrome/141.0.0.0' (unchanged, raw UA)
+env['HTTP_REFERER']                 # => 'https://example.com/page?token=secret' (unchanged, with query params)
+env['otto.original_ip']             # => '9.9.9.9' (available for explicit access)
+env['otto.original_user_agent']    # => 'Mozilla/5.0 Chrome/141.0.0.0' (available for explicit access)
+env['otto.original_referer']       # => 'https://example.com/page?token=secret' (available for explicit access)
+env['otto.privacy.fingerprint']     # => nil (not created when disabled)
 ```
 
 ### Request Helper Methods
 
-```ruby
-# For PUBLIC IPs (privacy enabled by default):
-req.masked_ip                       # => '9.9.9.0'
-req.hashed_ip                       # => 'a3f8b2...'
-req.geo_country                     # => 'US'
-req.anonymized_user_agent           # => 'Mozilla/X.X...'
-req.redacted_fingerprint            # => Full RedactedFingerprint object
-req.ip                              # => '9.9.9.0' (masked)
+**IMPORTANT**: With the new architecture, most helper methods are **deprecated** in favor of using `env` directly.
 
-# For PRIVATE/LOCALHOST IPs (never masked):
-req.masked_ip                       # => nil
-req.hashed_ip                       # => nil
-req.redacted_fingerprint            # => nil
-req.ip                              # => '127.0.0.1' (real IP)
+```ruby
+# RECOMMENDED: Use env directly (already anonymized when privacy enabled)
+env['REMOTE_ADDR']                  # Already masked for public IPs
+env['HTTP_USER_AGENT']              # Already anonymized for public IPs
+env['HTTP_REFERER']                 # Already anonymized for public IPs
+
+# Helper methods (maintained for backward compatibility):
+req.ip                              # => env['REMOTE_ADDR'] (already masked)
+req.user_agent                      # => env['HTTP_USER_AGENT'] (already anonymized)
+req.anonymized_user_agent           # => DEPRECATED: same as user_agent
+req.masked_ip                       # => env['otto.privacy.masked_ip'] || env['REMOTE_ADDR']
+req.hashed_ip                       # => env['otto.privacy.hashed_ip']
+req.geo_country                     # => env['otto.privacy.geo_country']
+req.redacted_fingerprint            # => env['otto.privacy.fingerprint']
+
+# For explicit access to original values (only when privacy disabled):
+env['otto.original_ip']             # Real IP (only if privacy disabled)
+env['otto.original_user_agent']    # Real UA (only if privacy disabled)
+env['otto.original_referer']       # Real referer (only if privacy disabled)
 ```
+
+**Migration Guide**:
+- OLD: `req.anonymized_user_agent` → NEW: `env['HTTP_USER_AGENT']` (already anonymized)
+- OLD: `req.masked_ip` → NEW: `env['REMOTE_ADDR']` (already masked)
+- OLD: Access via RedactedFingerprint → NEW: Use `env` directly
 
 ### Configuration
 

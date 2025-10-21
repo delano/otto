@@ -92,10 +92,18 @@ class Otto
           env['otto.privacy.hashed_ip'] = fingerprint.hashed_ip
           env['otto.privacy.geo_country'] = fingerprint.country
 
-          # CRITICAL: Replace REMOTE_ADDR and forwarded headers with masked IP
+          # CRITICAL: Replace REMOTE_ADDR and forwarded headers with masked values
           # This ensures downstream code (rate limiting, auth, logging, Rack's request.ip)
-          # automatically uses the masked IP without modification
+          # automatically uses the masked values without modification
           env['REMOTE_ADDR'] = fingerprint.masked_ip
+
+          # Replace User-Agent with anonymized version (consistent with IP masking)
+          # CRITICAL: Always replace, even if nil, to clear original sensitive data
+          env['HTTP_USER_AGENT'] = fingerprint.anonymized_ua
+
+          # Replace Referer with anonymized version (query params stripped)
+          # CRITICAL: Always replace, even if nil, to clear original sensitive data
+          env['HTTP_REFERER'] = fingerprint.referer
 
           # Mask X-Forwarded-For headers to prevent leakage
           # Replace with masked IP so proxy resolution logic finds the masked IP
@@ -103,8 +111,8 @@ class Otto
 
           Otto.logger.debug "[IPPrivacyMiddleware] Masked IP: #{fingerprint.masked_ip}" if Otto.debug
 
-          # NOTE: We deliberately DO NOT set env['otto.original_ip']
-          # This prevents accidental leakage of the real IP address
+          # NOTE: We deliberately DO NOT set env['otto.original_ip'], env['otto.original_user_agent'],
+          # or env['otto.original_referer']. This prevents accidental leakage of the real values.
         end
 
 
@@ -199,10 +207,20 @@ class Otto
         #
         # @param env [Hash] Rack environment
         def apply_no_privacy(env)
-          # Store original IP for explicit access
-          env['otto.original_ip'] = env['REMOTE_ADDR'].dup.force_encoding('UTF-8')
+          # Store original values for explicit access when privacy is disabled
+          if env['REMOTE_ADDR']
+            env['otto.original_ip'] = env['REMOTE_ADDR'].dup.force_encoding('UTF-8')
+          end
 
-          # env['REMOTE_ADDR'] remains unchanged (real IP)
+          if env['HTTP_USER_AGENT']
+            env['otto.original_user_agent'] = env['HTTP_USER_AGENT'].dup.force_encoding('UTF-8')
+          end
+
+          if env['HTTP_REFERER']
+            env['otto.original_referer'] = env['HTTP_REFERER'].dup.force_encoding('UTF-8')
+          end
+
+          # env['REMOTE_ADDR'], env['HTTP_USER_AGENT'], env['HTTP_REFERER'] remain unchanged (real values)
           # No fingerprint is created when privacy is disabled
         end
       end

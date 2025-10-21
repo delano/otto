@@ -699,19 +699,27 @@ otto.add_trusted_proxy('::1')
 
 ## Structured Logging Conventions
 
-**IMPORTANT**: Otto uses simple, explicit structured logging. Avoid creating abstraction layers or event classes.
+**IMPORTANT**: Otto uses simple, explicit structured logging with timing capabilities. Avoid creating abstraction layers or event classes.
 
 ### LoggingHelpers Module
 
-Otto provides `Otto::LoggingHelpers.request_context(env)` to eliminate duplication of common request fields:
+Otto provides several helper methods for consistent logging:
 
 ```ruby
-# lib/otto/logging_helpers.rb
+# Request context extraction
 Otto::LoggingHelpers.request_context(env)
 # Returns: { method:, path:, ip:, country:, user_agent: }
+
+# Timed operation logging
+Otto::LoggingHelpers.log_timed_operation(level, message, env, **metadata) { block }
+
+# Key=value format logging
+Otto::LoggingHelpers.log_with_metadata(level, message, metadata)
 ```
 
-### Logging Pattern
+### Logging Patterns
+
+**1. Standard Structured Logging**
 
 Use `Otto.structured_log` with `LoggingHelpers.request_context(env).merge()` for consistent logs:
 
@@ -731,16 +739,80 @@ Otto.structured_log(:info, "Auth strategy result",
     strategy: strategy.class.name.split('::').last.downcase.gsub('strategy', ''),
     success: true,
     user_id: result.user_id,
-    duration_ms: duration_ms
+    duration: duration_μs
+  )
+)
+```
+
+**2. Timed Operations**
+
+Use `log_timed_operation` for automatic timing with error handling:
+
+```ruby
+# Template compilation with timing
+result = Otto::LoggingHelpers.log_timed_operation(:info, "Template compiled", env,
+  template_type: 'handlebars',
+  cached: false
+) do
+  compile_template(template_path)
+end
+
+# Database operation with timing
+Otto::LoggingHelpers.log_timed_operation(:debug, "User lookup", env,
+  user_id: user_id,
+  cache_hit: false
+) do
+  User.find(user_id)
+end
+```
+
+**3. Key=Value Format Logging**
+
+Use `log_with_metadata` for simple key=value output (similar to your inspiration):
+
+```ruby
+# Simple operations
+Otto::LoggingHelpers.log_with_metadata(:info, "Template compiled",
+  template_type: 'handlebars',
+  cached: false,
+  duration: 68
+)
+# Output: Template compiled: template_type=handlebars cached=false duration=68
+
+Otto::LoggingHelpers.log_with_metadata(:info, "View rendered",
+  template: 'user_profile',
+  layout: 'application',
+  partials: ['header', 'sidebar'],
+  duration: 1118,
+  response_size_bytes: 2048
+)
+# Output: View rendered: template=user_profile layout=application partials=["header", "sidebar"] duration=1118 response_size_bytes=2048
+```
+
+### Timing Conventions
+
+Otto uses **microseconds** for all timing measurements via `Otto::Utils.now_in_μs`:
+
+```ruby
+# Manual timing
+start_time = Otto::Utils.now_in_μs
+result = perform_operation()
+duration = Otto::Utils.now_in_μs - start_time
+
+Otto.structured_log(:info, "Operation completed",
+  Otto::LoggingHelpers.request_context(env).merge(
+    operation: 'user_creation',
+    duration: duration  # Always in microseconds
   )
 )
 
-# Security event logging
-Otto.structured_log(:warn, "CSRF validation failed",
-  Otto::LoggingHelpers.request_context(env).merge(
-    referrer: request.referrer
-  )
-)
+# Automatic timing with error handling
+Otto::LoggingHelpers.log_timed_operation(:info, "Database query", env,
+  table: 'users',
+  query_type: 'SELECT'
+) do
+  database.execute(query)
+end
 ```
 
 ### Required Fields
@@ -749,6 +821,7 @@ All structured logs should include:
 - **method** - HTTP method (GET, POST, etc.)
 - **path** - Request path
 - **ip** - Client IP (automatically masked by IPPrivacyMiddleware for public IPs)
+- **duration** - Operation timing in microseconds (for timed operations)
 - **Event-specific data** - Handler, type, error message, etc.
 
 ### Optional Fields
@@ -756,10 +829,29 @@ All structured logs should include:
 Include when relevant:
 - **country** - Geo-location country code (from IPPrivacyMiddleware)
 - **user_agent** - Browser/client info (truncated to 100 chars)
-- **duration_ms** - Operation timing
 - **user_id** - Authenticated user ID
 - **referrer** - HTTP Referer header
 - **error** - Error message
+- **error_class** - Error class name (for exceptions)
+
+### Error Handling in Timed Operations
+
+`log_timed_operation` automatically handles exceptions:
+
+```ruby
+# Successful operation
+Otto::LoggingHelpers.log_timed_operation(:info, "Template compiled", env, template: 'user') do
+  compile_template('user')
+end
+# Logs: Template compiled: method=GET path=/users template=user duration=15230
+
+# Failed operation (automatic error logging + re-raise)
+Otto::LoggingHelpers.log_timed_operation(:info, "Template compiled", env, template: 'user') do
+  raise StandardError, "Template not found"
+end
+# Logs: Template compiled failed: method=GET path=/users template=user duration=1520 error="Template not found" error_class=StandardError
+# Then re-raises the original exception
+```
 
 ### Privacy Awareness
 
@@ -783,6 +875,13 @@ Otto.structured_log(event.level, event.message, event.to_h)
 Otto::Logging.log_route_match(type: :literal, method: http_verb, path: path, env: env)
 ```
 
+**❌ Don't mix timing units:**
+```ruby
+# NO - Inconsistent units
+duration_ms = (Otto::Utils.now_in_μs - start_time) / 1000  # Converting to milliseconds
+Otto.structured_log(:info, "Operation done", { duration_ms: duration_ms })
+```
+
 **✅ Do use explicit inline logging:**
 ```ruby
 # YES - Clear, simple, explicit
@@ -792,6 +891,28 @@ Otto.structured_log(:debug, "Route matched",
     handler: 'App#index'
   )
 )
+
+# YES - Consistent microsecond timing
+Otto.structured_log(:info, "Operation completed",
+  Otto::LoggingHelpers.request_context(env).merge(
+    operation: 'user_lookup',
+    duration: Otto::Utils.now_in_μs - start_time
+  )
+)
+```
+
+### Output Examples
+
+**Structured Logger (SemanticLogger, etc.):**
+```
+I, [2025-01-21T14:39:39.462833 #82244] INFO -- : Template compiled -- {method: "GET", path: "/users", ip: "192.0.2.0", template_type: "handlebars", cached: false, duration: 68}
+I, [2025-01-21T14:39:39.462926 #82244] INFO -- : View rendered -- {method: "GET", path: "/users", ip: "192.0.2.0", template: "user_profile", layout: "application", partials: ["header", "sidebar"], duration: 1118, response_size_bytes: 2048}
+```
+
+**Standard Logger (with log_with_metadata):**
+```
+I, [2025-01-21T14:39:39.462833 #82244] INFO -- : Template compiled: template_type=handlebars cached=false duration=68
+I, [2025-01-21T14:39:39.462926 #82244] INFO -- : View rendered: template=user_profile layout=application partials=["header", "sidebar"] duration=1118 response_size_bytes=2048
 ```
 
 ### Rationale
@@ -800,6 +921,7 @@ Otto.structured_log(:debug, "Route matched",
 - **Explicitness**: You can see exactly what's being logged at the call site
 - **Flexibility**: Easy to add one-off fields without modifying event classes
 - **Performance**: No object allocation overhead for disabled debug logs
+- **Consistency**: All timing in microseconds, automatic error handling for timed operations
 - **Maintainability**: One helper file vs multiple event classes/helpers
 
 ## Development Commands

@@ -298,6 +298,30 @@ RSpec.describe 'IP Privacy Features' do
 
           expect(env['HTTP_REFERER']).to be_nil
         end
+
+        it 'clears original User-Agent when anonymization returns empty string' do
+          env = {
+            'REMOTE_ADDR' => '9.9.9.9',
+            'HTTP_USER_AGENT' => ''  # Empty UA triggers nil return from anonymize_user_agent
+          }
+          middleware.call(env)
+
+          # CRITICAL: env['HTTP_USER_AGENT'] should be nil (cleared), not empty string
+          expect(env['HTTP_USER_AGENT']).to be_nil
+          expect(env).not_to have_key('otto.original_user_agent')
+        end
+
+        it 'clears original Referer when anonymization returns empty string' do
+          env = {
+            'REMOTE_ADDR' => '9.9.9.9',
+            'HTTP_REFERER' => ''  # Empty referer triggers nil return from anonymize_referer
+          }
+          middleware.call(env)
+
+          # CRITICAL: env['HTTP_REFERER'] should be nil (cleared), not empty string
+          expect(env['HTTP_REFERER']).to be_nil
+          expect(env).not_to have_key('otto.original_referer')
+        end
       end
 
       context 'encoding of masked IPs' do

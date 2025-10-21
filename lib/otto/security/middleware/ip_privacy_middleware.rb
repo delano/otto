@@ -98,14 +98,12 @@ class Otto
           env['REMOTE_ADDR'] = fingerprint.masked_ip
 
           # Replace User-Agent with anonymized version (consistent with IP masking)
-          if fingerprint.anonymized_ua
-            env['HTTP_USER_AGENT'] = fingerprint.anonymized_ua
-          end
+          # CRITICAL: Always replace, even if nil, to clear original sensitive data
+          env['HTTP_USER_AGENT'] = fingerprint.anonymized_ua
 
           # Replace Referer with anonymized version (query params stripped)
-          if fingerprint.referer
-            env['HTTP_REFERER'] = fingerprint.referer
-          end
+          # CRITICAL: Always replace, even if nil, to clear original sensitive data
+          env['HTTP_REFERER'] = fingerprint.referer
 
           # Mask X-Forwarded-For headers to prevent leakage
           # Replace with masked IP so proxy resolution logic finds the masked IP
@@ -210,7 +208,9 @@ class Otto
         # @param env [Hash] Rack environment
         def apply_no_privacy(env)
           # Store original values for explicit access when privacy is disabled
-          env['otto.original_ip'] = env['REMOTE_ADDR'].dup.force_encoding('UTF-8')
+          if env['REMOTE_ADDR']
+            env['otto.original_ip'] = env['REMOTE_ADDR'].dup.force_encoding('UTF-8')
+          end
 
           if env['HTTP_USER_AGENT']
             env['otto.original_user_agent'] = env['HTTP_USER_AGENT'].dup.force_encoding('UTF-8')

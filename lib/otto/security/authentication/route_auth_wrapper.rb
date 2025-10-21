@@ -74,9 +74,9 @@ class Otto
           )
 
           # Execute the strategy
-          start_time = Time.now
+          start_time = Otto::Utils.now_in_μs
           result = strategy.authenticate(env, auth_requirement)
-          duration_ms = ((Time.now - start_time) * 1000).round(2)
+          duration = Otto::Utils.now_in_μs - start_time
 
           # Inject strategy_name into result (Data.define objects are immutable, use #with for updates)
           if result.is_a?(StrategyResult)
@@ -91,7 +91,7 @@ class Otto
                 strategy: strategy_name,
                 success: false,
                 failure_reason: result.failure_reason,
-                duration_ms: duration_ms
+                duration: duration
               )
             )
 
@@ -117,7 +117,7 @@ class Otto
               strategy: strategy_name,
               success: true,
               user_id: result.user_id,
-              duration_ms: duration_ms
+              duration: duration
             )
           )
 

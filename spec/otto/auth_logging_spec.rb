@@ -42,7 +42,7 @@ RSpec.describe 'Otto Authentication and Security Logging' do
         strategy: 'session',
         success: true,
         user_id: 'user123',
-        duration_ms: 15.2
+        duration: 15200
       })
     end
 
@@ -57,7 +57,7 @@ RSpec.describe 'Otto Authentication and Security Logging' do
         strategy: 'api_key',
         success: false,
         failure_reason: 'Invalid API key',
-        duration_ms: 8.1
+        duration: 8100
       })
     end
   end

@@ -55,12 +55,12 @@ RSpec.describe 'Otto Logging Integration' do
       allow(Rack::Request).to receive(:new).and_return(request_double)
       allow(otto.instance_variable_get(:@app)).to receive(:call).and_return(response)
 
-      Otto.on_request_complete do |req, res, duration_ms|
+      Otto.on_request_complete do |req, res, duration|
         callback_called << {
           method: req.request_method,
           path: req.path_info,
           status: res.status,
-          duration: duration_ms.is_a?(Numeric)
+          duration: duration.is_a?(Numeric)
         }
       end
     end
@@ -105,7 +105,7 @@ RSpec.describe 'Otto Logging Integration' do
 
     it 'provides Rack::Response object with developer-friendly API' do
       response_object = nil
-      Otto.on_request_complete do |_req, res, _duration_ms|
+      Otto.on_request_complete do |_req, res, _duration|
         response_object = res
       end
 

@@ -1071,7 +1071,7 @@ RSpec.describe 'IP Privacy Features' do
         }
 
         # Call through the full Otto middleware stack
-        status, headers, body = otto.call(env)
+        otto.call(env)
 
         # Verify REMOTE_ADDR was NOT masked (private IP exemption)
         expect(env['REMOTE_ADDR']).to eq('192.168.1.100')
@@ -1273,8 +1273,6 @@ RSpec.describe 'IP Privacy Features' do
       end
 
       it 'returns existing key when already set' do
-        rotation_timestamp = 1736942400
-        redis_key = "rotation_key:#{rotation_timestamp}"
         existing_key = 'a' * 64
 
         # Simulate key already exists (another server set it)
@@ -1302,9 +1300,6 @@ RSpec.describe 'IP Privacy Features' do
       end
 
       it 'uses correct TTL with 20% buffer' do
-        rotation_timestamp = 1736942400
-        redis_key = "rotation_key:#{rotation_timestamp}"
-
         config_2h = Otto::Privacy::Config.new(hash_rotation_period: 7200, redis: redis)
 
         allow(Time).to receive(:now).and_return(Time.utc(2025, 1, 15, 12, 0, 0))
@@ -1821,7 +1816,7 @@ RSpec.describe 'IP Privacy Features' do
         'REMOTE_ADDR' => '192.168.1.100'
       )
 
-      status, headers, body = common_logger.call(env)
+      _status, _headers, body = common_logger.call(env)
       body.close if body.respond_to?(:close)
 
       logged_output.rewind
@@ -1844,7 +1839,7 @@ RSpec.describe 'IP Privacy Features' do
         'REMOTE_ADDR' => '192.168.1.100'
       )
 
-      status, headers, body = common_logger.call(env)
+      _status, _headers, body = common_logger.call(env)
       body.close if body.respond_to?(:close)
 
       logged_output.rewind
@@ -1866,7 +1861,7 @@ RSpec.describe 'IP Privacy Features' do
         'REMOTE_ADDR' => '127.0.0.1'
       )
 
-      status, headers, body = common_logger.call(env)
+      _status, _headers, body = common_logger.call(env)
       body.close if body.respond_to?(:close)
 
       logged_output.rewind

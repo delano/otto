@@ -534,7 +534,7 @@ end
 # - Perfect for CDN header fallback scenarios
 ```
 
-**See**: `examples/custom_geo_resolver.rb` for complete implementation examples including Bloom filter integration
+**See**: `examples/simple_geo_resolver.rb` for complete implementation examples including Bloom filter integration
 
 ### Proxy Support
 

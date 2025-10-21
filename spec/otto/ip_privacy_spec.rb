@@ -314,6 +314,25 @@ RSpec.describe 'IP Privacy Features' do
           # Falls back to range detection
           expect(result).to eq('US')
         end
+
+        it 'handles trailing comma edge cases' do
+          # Double comma
+          env = { 'HTTP_X_AKAMAI_EDGESCAPE' => 'country_code=US,,' }
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+          expect(result).to eq('US')
+
+          # Empty value after comma
+          env = { 'HTTP_X_AKAMAI_EDGESCAPE' => 'country_code=GB,region_code=' }
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+          expect(result).to eq('GB')
+        end
+
+        it 'extracts country from middle of parameter list' do
+          env = { 'HTTP_X_AKAMAI_EDGESCAPE' => 'foo=bar,country_code=DE,baz=qux' }
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+
+          expect(result).to eq('DE')
+        end
       end
 
       context 'header validation' do

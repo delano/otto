@@ -11,6 +11,8 @@
 Changed
 -------
 
+- **Timing precision standardization**: All timing calculations now use microsecond precision instead of milliseconds. This affects authentication duration tracking and request lifecycle timing. Duration values are now reported in microseconds as integers (e.g., ``15200`` instead of ``15.2``).
+
 - **Request completion hooks API improvement**: ``Otto.on_request_complete`` callbacks now receive a ``Rack::Response`` object instead of the raw ``[status, headers, body]`` tuple. This provides a more developer-friendly API consistent with ``Rack::Request``, allowing clean access via ``res.status``, ``res.headers``, and ``res.body`` instead of array indexing.
 
 ..

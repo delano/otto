@@ -108,7 +108,7 @@ class Otto
     end
 
     # Track request timing for lifecycle hooks
-    start_time = Otto::Utils.now.to_f
+    start_time = Otto::Utils.now_in_μs
     request = Rack::Request.new(env)
     response_raw = nil
 
@@ -121,7 +121,7 @@ class Otto
       # Execute request completion hooks if any are registered
       unless self.class.request_complete_callbacks.empty?
         begin
-          duration = ((Otto::Utils.now.to_f - start_time) * 1_000_000).round
+          duration = Otto::Utils.now_in_μs - start_time
           # Wrap response tuple in Rack::Response for developer-friendly API
           # Otto's hook API should provide nice abstractions like Rack::Request/Response
           response = Rack::Response.new(response_raw[2], response_raw[0], response_raw[1])

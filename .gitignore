@@ -23,3 +23,6 @@ vendor
 .mcp.json
 .claude
 .serena
+
+# Test fixtures that are dynamically generated
+spec/fixtures/common_routes.txt

@@ -90,7 +90,7 @@ class Otto
 
       # Anonymize user agent string by removing version numbers
       #
-      # Removes specific version numbers (X.X.X pattern) to reduce
+      # Removes specific version numbers (*.*.* pattern) to reduce
       # fingerprinting granularity while maintaining browser/OS info.
       #
       # @param ua [String, nil] User agent string
@@ -98,12 +98,12 @@ class Otto
       def anonymize_user_agent(ua)
         return nil if ua.nil? || ua.empty?
 
-        # Remove version patterns (X.X.X.X, X.X.X, X.X)
+        # Remove version patterns (*.*.*.*, *.*.*, *.*)
         # Support both dot and underscore separators (e.g., 10.15.7 and 10_15_7)
         anonymized = ua
-                     .gsub(/\d+[._]\d+[._]\d+[._]\d+/, 'X.X.X.X')
-                     .gsub(/\d+[._]\d+[._]\d+/, 'X.X.X')
-                     .gsub(/\d+[._]\d+/, 'X.X')
+                     .gsub(/\d+[._]\d+[._]\d+[._]\d+/, '*.*.*.*')
+                     .gsub(/\d+[._]\d+[._]\d+/, '*.*.*')
+                     .gsub(/\d+[._]\d+/, '*.*')
 
         # Truncate if too long (prevent DoS via huge UA strings)
         anonymized.length > 500 ? anonymized[0..499] : anonymized

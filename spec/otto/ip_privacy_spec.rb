@@ -129,7 +129,7 @@ RSpec.describe 'IP Privacy Features' do
         # Test with a valid but unassigned IP range
         result = Otto::Privacy::GeoResolver.resolve('240.0.0.1', {})
 
-        expect(result).to eq('XX')
+        expect(result).to eq('**')
       end
 
       it 'ignores invalid CloudFlare header and falls back to range detection' do
@@ -138,13 +138,13 @@ RSpec.describe 'IP Privacy Features' do
 
         # Should ignore invalid CF header and fall back to range detection
         # 1.2.3.4 is not in KNOWN_RANGES, so returns XX
-        expect(result).to eq('XX')
+        expect(result).to eq('**')
       end
 
       it 'returns XX for private IPs' do
         result = Otto::Privacy::GeoResolver.resolve('192.168.1.1', {})
 
-        expect(result).to eq('XX')
+        expect(result).to eq('**')
       end
     end
   end
@@ -176,7 +176,7 @@ RSpec.describe 'IP Privacy Features' do
     it 'anonymizes user agent' do
       fingerprint = Otto::Privacy::RedactedFingerprint.new(env, config)
 
-      expect(fingerprint.anonymized_ua).to include('X.X')
+      expect(fingerprint.anonymized_ua).to include('*.*')
       expect(fingerprint.anonymized_ua).not_to include('10.0')
     end
 
@@ -253,7 +253,7 @@ RSpec.describe 'IP Privacy Features' do
           middleware.call(env)
 
           # Version numbers stripped
-          expect(env['HTTP_USER_AGENT']).to include('X.X')
+          expect(env['HTTP_USER_AGENT']).to include('*.*')
           expect(env['HTTP_USER_AGENT']).not_to include('10_15_7')
           expect(env['HTTP_USER_AGENT']).not_to include('141.0')
           expect(env['HTTP_USER_AGENT']).not_to include('537.36')

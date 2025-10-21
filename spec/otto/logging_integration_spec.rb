@@ -141,13 +141,13 @@ RSpec.describe 'Otto Logging Integration' do
         'REQUEST_METHOD' => 'GET',
         'PATH_INFO' => '/test',
         'REMOTE_ADDR' => '192.168.1.0',  # Already masked
-        'HTTP_USER_AGENT' => 'Mozilla/X.X (Macintosh; Intel Mac OS X X.X) Chrome/X.X',  # Already anonymized
+        'HTTP_USER_AGENT' => 'Mozilla/*.* (Macintosh; Intel Mac OS X *.*) Chrome/*.*',  # Already anonymized
         'otto.geo_country' => 'US'
       }
 
       context = Otto::LoggingHelpers.request_context(env)
 
-      expect(context[:user_agent]).to eq('Mozilla/X.X (Macintosh; Intel Mac OS X X.X) Chrome/X.X')
+      expect(context[:user_agent]).to eq('Mozilla/*.* (Macintosh; Intel Mac OS X *.*) Chrome/*.*')
       expect(context[:user_agent]).not_to include('141.0')
       expect(context[:user_agent]).not_to include('10_15_7')
     end
@@ -184,12 +184,12 @@ RSpec.describe 'Otto Logging Integration' do
     it 'includes all expected request metadata' do
       # When privacy is enabled, IPPrivacyMiddleware has already replaced
       # env['HTTP_USER_AGENT'] with the anonymized version
-      fingerprint = double('fingerprint', anonymized_ua: 'Mozilla/X.X')
+      fingerprint = double('fingerprint', anonymized_ua: 'Mozilla/*.*')
       env = {
         'REQUEST_METHOD' => 'POST',
         'PATH_INFO' => '/api/endpoint',
         'REMOTE_ADDR' => '9.9.9.0',
-        'HTTP_USER_AGENT' => 'Mozilla/X.X',  # Already anonymized by middleware
+        'HTTP_USER_AGENT' => 'Mozilla/*.*',  # Already anonymized by middleware
         'otto.privacy.fingerprint' => fingerprint,
         'otto.geo_country' => 'CH'
       }
@@ -201,7 +201,7 @@ RSpec.describe 'Otto Logging Integration' do
         path: '/api/endpoint',
         ip: '9.9.9.0',
         country: 'CH',
-        user_agent: 'Mozilla/X.X'
+        user_agent: 'Mozilla/*.*'
       })
     end
   end

@@ -20,19 +20,19 @@ class Otto
     #   # => 'CH' (Quad9 in Switzerland)
     #
     class GeoResolver
-      # Unknown country code (ISO 3166-1 alpha-2)
-      UNKNOWN = 'XX'
+      # Unknown country code (not ISO 3166-1 alpha-2, intentionally distinct)
+      UNKNOWN = '**'
 
       # Resolve country code for an IP address
       #
       # Resolution priority:
       # 1. CloudFlare CF-IPCountry header (most reliable)
       # 2. Basic IP range detection for major countries/providers
-      # 3. Return 'XX' for unknown
+      # 3. Return '**' for unknown
       #
       # @param ip [String] IP address to resolve
       # @param env [Hash] Rack environment (may contain CF headers)
-      # @return [String] ISO 3166-1 alpha-2 country code or 'XX'
+      # @return [String] ISO 3166-1 alpha-2 country code or '**'
       def self.resolve(ip, env = {})
         return UNKNOWN if ip.nil? || ip.empty?
 
@@ -53,7 +53,7 @@ class Otto
       # use CloudFlare or a dedicated GeoIP database.
       #
       # @param ip [String] IP address
-      # @return [String] Country code or 'XX'
+      # @return [String] Country code or '**'
       # @api private
       def self.detect_by_range(ip)
         addr = IPAddr.new(ip)

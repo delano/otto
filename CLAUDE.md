@@ -201,7 +201,7 @@ end
 ```ruby
 # PUBLIC IPs (privacy enabled - default):
 env['REMOTE_ADDR']                  # => '9.9.9.0' (REPLACED with masked IP)
-env['HTTP_USER_AGENT']              # => 'Mozilla/X.X (Windows NT X.X; Win64; x64) AppleWebKit/X.X' (REPLACED, versions stripped)
+env['HTTP_USER_AGENT']              # => 'Mozilla/*.* (Windows NT *.*; Win64; x64) AppleWebKit/*.*' (REPLACED, versions stripped)
 env['HTTP_REFERER']                 # => 'https://example.com/page' (REPLACED, query params stripped)
 env['otto.privacy.masked_ip']       # => '9.9.9.0' (same as REMOTE_ADDR)
 env['otto.privacy.hashed_ip']       # => 'a3f8b2...' (daily-rotating hash)
@@ -215,7 +215,7 @@ env['otto.original_referer']       # => nil (NOT available - prevents leakage)
 fingerprint.masked_ip               # => '9.9.9.0'
 fingerprint.hashed_ip               # => 'a3f8b2...' (for session correlation)
 fingerprint.country                 # => 'US'
-fingerprint.anonymized_ua           # => 'Mozilla/X.X (Windows NT X.X...)'
+fingerprint.anonymized_ua           # => 'Mozilla/*.* (Windows NT *.*...)'
 fingerprint.referer                 # => 'https://example.com/page' (query params stripped)
 fingerprint.session_id              # => UUID
 fingerprint.timestamp               # => UTC timestamp

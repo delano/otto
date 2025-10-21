@@ -30,12 +30,73 @@ class Otto
     #   # => 'GB'
     #
     # @example Resolve without CDN headers
-    #   GeoResolver.resolve('9.9.9.9', {})
-    #   # => 'CH' (Quad9 in Switzerland)
+    #   GeoResolver.resolve('8.8.8.8', {})
+    #   # => 'US' (Google DNS via range detection)
+    #
+    # @example Using a custom resolver (MaxMind)
+    #   GeoResolver.custom_resolver = ->(ip, env) {
+    #     reader = MaxMind::DB.new('GeoLite2-Country.mmdb')
+    #     result = reader.get(ip)
+    #     result&.dig('country', 'iso_code')
+    #   }
+    #   GeoResolver.resolve('1.2.3.4', {})  # Uses custom resolver
+    #
+    # @example Extending via subclass
+    #   class MyGeoResolver < Otto::Privacy::GeoResolver
+    #     def self.detect_by_range(ip)
+    #       # Custom logic here
+    #       super  # Fall back to parent
+    #     end
+    #   end
+    #
+    #
+    # Resolution flow
+    #
+    #    Request → Has familiar HTTP Header?
+    #              ├─ Yes → Return country (Cloudflare, AWS, etc.)
+    #              └─ No → Custom Resolver?
+    #                      ├─ Configured → Call & validate
+    #                      │               ├─ Valid → Return country
+    #                      │               └─ Invalid/Error → Continue
+    #                      └─ Not configured → Built-in range detection
+    #                                          └─ Unknown ('**')
     #
     class GeoResolver
       # Unknown country code (not ISO 3166-1 alpha-2, intentionally distinct)
       UNKNOWN = '**'
+
+      # Custom resolver for extending geo-location capabilities
+      # Can be set to a proc/lambda or a class responding to .call(ip, env)
+      #
+      # @example Using a proc
+      #   GeoResolver.custom_resolver = ->(ip, env) {
+      #     return nil  # Return nil to continue with built-in resolution
+      #     # or return 'US' to provide custom country code
+      #   }
+      #
+      # @example Using MaxMind
+      #   GeoResolver.custom_resolver = ->(ip, env) {
+      #     reader = MaxMind::DB.new('path/to/GeoLite2-Country.mmdb')
+      #     result = reader.get(ip)
+      #     result&.dig('country', 'iso_code')
+      #   }
+      @custom_resolver = nil
+      @resolver_mutex = Mutex.new
+
+      class << self
+        attr_reader :custom_resolver
+
+        # Set a custom resolver for geo-location
+        #
+        # @param resolver [Proc, #call] A proc or callable object that takes (ip, env)
+        #   and returns a country code string or nil
+        def custom_resolver=(resolver)
+          unless resolver.nil? || resolver.respond_to?(:call)
+            raise ArgumentError, 'Custom resolver must respond to :call'
+          end
+          @resolver_mutex.synchronize { @custom_resolver = resolver }
+        end
+      end
 
       # Resolve country code for an IP address
       #
@@ -54,6 +115,17 @@ class Otto
         # Priority based on reliability and deployment frequency
         country = check_geo_headers(env)
         return country if country
+
+        # Try custom resolver if configured
+        if @custom_resolver
+          begin
+            country = @custom_resolver.call(ip, env)
+            return country if country && valid_country_code?(country)
+          rescue StandardError => e
+            # Log error but don't crash - fall through to built-in detection
+            warn "GeoResolver custom resolver error: #{e.message}" if $DEBUG
+          end
+        end
 
         # Fallback: Basic range detection
         detect_by_range(ip)
@@ -132,7 +204,7 @@ class Otto
       #
       # Detects major cloud providers and well-known IP ranges.
       # This is intentionally limited - for comprehensive geo-location,
-      # use CloudFlare or a dedicated GeoIP database.
+      # use CDN headers or configure a custom resolver.
       #
       # @param ip [String] IP address
       # @return [String] Country code or '**'
@@ -152,18 +224,8 @@ class Otto
       end
       private_class_method :detect_by_range
 
-      # Validate country code format
-      #
-      # @param code [String] Country code to validate
-      # @return [Boolean] true if valid ISO 3166-1 alpha-2 code
-      # @api private
-      def self.valid_country_code?(code)
-        code.is_a?(String) && code.length == 2 && code.match?(/^[A-Z]{2}$/)
-      end
-      private_class_method :valid_country_code?
-
       # Known IP ranges for major providers (limited set for basic detection)
-      # For comprehensive geo-location, use CloudFlare or GeoIP database
+      # For comprehensive geo-location, use CDN headers or custom resolver
       KNOWN_RANGES = {
         # Google Public DNS
         IPAddr.new('8.8.8.0/24') => 'US',
@@ -192,6 +254,16 @@ class Otto
         IPAddr.new('208.67.222.0/24') => 'US',
         IPAddr.new('208.67.220.0/24') => 'US',
       }.freeze
+
+      # Validate country code format
+      #
+      # @param code [String] Country code to validate
+      # @return [Boolean] true if valid ISO 3166-1 alpha-2 code
+      # @api private
+      def self.valid_country_code?(code)
+        code.is_a?(String) && code.length == 2 && code.match?(/^[A-Z]{2}$/)
+      end
+      private_class_method :valid_country_code?
     end
   end
 end

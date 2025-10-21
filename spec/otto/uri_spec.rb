@@ -168,9 +168,9 @@ RSpec.describe Otto, '#uri' do
       large_params = {}
       (1..100).each { |i| large_params["param#{i}"] = "value#{i}" }
 
-      start_time = Time.now
+      start_time = Otto::Utils.now.to_f
       uri = otto.uri('TestApp.index', large_params)
-      execution_time = Time.now - start_time
+      execution_time = Otto::Utils.now.to_f - start_time
 
       expect(uri).to start_with('/?')
       expect(execution_time).to be < 0.1 # Should complete in under 100ms

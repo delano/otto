@@ -108,7 +108,7 @@ class Otto
     end
 
     # Track request timing for lifecycle hooks
-    start_time = Time.now
+    start_time = Otto::Utils.now.to_f
     request = Rack::Request.new(env)
     response_raw = nil
 

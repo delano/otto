@@ -158,9 +158,9 @@ RSpec.describe Otto, 'initialization' do
     it 'handles large numbers of routes efficiently' do
       routes_file = create_test_routes_file('large_routes.txt', large_routes)
 
-      start_time = Time.now
+      start_time = Otto::Utils.now.to_f
       otto = described_class.new(routes_file)
-      load_time = Time.now - start_time
+      load_time = Otto::Utils.now.to_f - start_time
 
       expect(otto.routes[:GET].size).to eq(100)
       expect(load_time).to be < 1.0 # Should load in under 1 second

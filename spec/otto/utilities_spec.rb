@@ -40,5 +40,50 @@ RSpec.describe Otto, 'utility methods' do
       locales = otto.determine_locale(env)
       expect(locales).to eq(['en'])  # Uses default locale option
     end
+
+end
+
+    describe Otto::Utils do
+      describe '#now' do
+        it 'returns current time in UTC' do
+          freeze_time = Time.parse('2023-01-01 12:00:00 UTC')
+          allow(Time).to receive(:now).and_return(freeze_time)
+
+          result = Otto::Utils.now
+
+          expect(result).to eq(freeze_time.utc)
+          expect(result.zone).to eq('UTC')
+        end
+      end
+
+      describe '#yes?' do
+        it 'returns true for truthy string values' do
+          expect(Otto::Utils.yes?('true')).to be true
+          expect(Otto::Utils.yes?('TRUE')).to be true
+          expect(Otto::Utils.yes?('yes')).to be true
+          expect(Otto::Utils.yes?('YES')).to be true
+          expect(Otto::Utils.yes?('1')).to be true
+        end
+
+        it 'returns false for falsy string values' do
+          expect(Otto::Utils.yes?('false')).to be false
+          expect(Otto::Utils.yes?('no')).to be false
+          expect(Otto::Utils.yes?('0')).to be false
+          expect(Otto::Utils.yes?('random')).to be false
+        end
+
+        it 'returns false for empty or nil values' do
+          expect(Otto::Utils.yes?(nil)).to be false
+          expect(Otto::Utils.yes?('')).to be false
+          expect(Otto::Utils.yes?('   ')).to be false
+        end
+
+        it 'handles non-string values by converting to string' do
+          expect(Otto::Utils.yes?(1)).to be true
+          expect(Otto::Utils.yes?(0)).to be false
+          expect(Otto::Utils.yes?(true)).to be true
+          expect(Otto::Utils.yes?(false)).to be false
+        end
+      end
   end
 end

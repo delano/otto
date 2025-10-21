@@ -315,6 +315,90 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
     end
   end
 
+  describe 'strategy_name tracking' do
+    context 'with anonymous routes' do
+      let(:public_route) do
+        Otto::RouteDefinition.new('GET', '/public', 'TestApp.public')
+      end
+
+      let(:public_wrapper) do
+        described_class.new(mock_handler, public_route, auth_config)
+      end
+
+      it 'sets strategy_name to "anonymous" for routes without auth requirement' do
+        env = mock_rack_env
+
+        public_wrapper.call(env)
+
+        expect(env['otto.strategy_result'].strategy_name).to eq('anonymous')
+      end
+    end
+
+    context 'with successful authentication' do
+      it 'sets strategy_name to the registered name (not class name)' do
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123 }
+
+        wrapper.call(env)
+
+        # Should be 'authenticated' (the registered name), not 'SessionStrategy' (the class name)
+        expect(env['otto.strategy_result'].strategy_name).to eq('authenticated')
+      end
+
+      it 'provides strategy_name via strategy_result accessor' do
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 456 }
+
+        wrapper.call(env)
+
+        result = env['otto.strategy_result']
+        expect(result.strategy_name).to eq('authenticated')
+        expect(result).to respond_to(:strategy_name)
+      end
+    end
+
+    context 'with authentication failure' do
+      it 'sets strategy_name even when authentication fails' do
+        env = mock_rack_env
+        env['rack.session'] = {} # No user_id, will fail
+
+        wrapper.call(env)
+
+        # Even on failure, strategy_name should be set
+        expect(env['otto.strategy_result'].strategy_name).to eq('authenticated')
+      end
+    end
+
+    context 'with custom strategy name' do
+      let(:custom_route) do
+        Otto::RouteDefinition.new('GET', '/custom', 'TestApp.custom auth=custom_auth')
+      end
+
+      let(:custom_config) do
+        {
+          auth_strategies: {
+            'custom_auth' => session_strategy, # Using SessionStrategy but registered as 'custom_auth'
+          },
+        }
+      end
+
+      let(:custom_wrapper) do
+        described_class.new(mock_handler, custom_route, custom_config)
+      end
+
+      it 'uses the registered name, not the strategy class name' do
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 789 }
+
+        custom_wrapper.call(env)
+
+        # Should be 'custom_auth' (registered name), not 'SessionStrategy' (class name)
+        expect(env['otto.strategy_result'].strategy_name).to eq('custom_auth')
+        expect(env['otto.strategy_result'].strategy_name).not_to include('Session')
+      end
+    end
+  end
+
   describe 'security headers consistency' do
     let(:security_config) do
       config = Otto::Security::Config.new

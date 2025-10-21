@@ -404,11 +404,137 @@ result.user_context[:ip]  # => '127.0.0.1' (real IP)
 
 ### Geo-Location Resolution
 
-Uses multiple sources (no external APIs required):
+Otto provides country-level geo-location without requiring external databases or API calls. It checks CDN/infrastructure provider headers with intelligent fallback to IP range detection.
 
-1. **CloudFlare Headers** (most reliable): `CF-IPCountry` header
-2. **IP Range Detection**: Basic detection for major providers (Google, AWS, etc.)
-3. **Unknown Fallback**: Returns 'XX' for unresolved IPs
+**Supported CDN/Infrastructure Headers** (checked in priority order):
+
+1. **Cloudflare**: `CF-IPCountry` (most widely deployed)
+2. **AWS CloudFront**: `CloudFront-Viewer-Country`
+3. **Fastly**: `Fastly-Client-IP-Country`
+4. **Akamai**: `X-Akamai-Edgescape` (extracts from `country_code=XX` format)
+5. **Azure Front Door**: `X-Azure-ClientIP-Country`
+6. **Semi-standard headers**: `X-Geo-Country`, `X-Country-Code`, `Country-Code` (least reliable)
+7. **IP Range Detection**: Basic detection for major providers (Google, AWS, etc.)
+8. **Unknown Fallback**: Returns '**' for unresolved IPs
+
+**Header Format**: All headers use ISO 3166-1 alpha-2 country codes (e.g., 'US', 'GB', 'DE')
+
+**Validation**: Only valid 2-letter uppercase codes are accepted. Invalid headers are ignored and fallback continues.
+
+**Examples**:
+```ruby
+# Cloudflare
+env = { 'HTTP_CF_IPCOUNTRY' => 'US' }
+GeoResolver.resolve('1.2.3.4', env)  # => 'US'
+
+# AWS CloudFront
+env = { 'HTTP_CLOUDFRONT_VIEWER_COUNTRY' => 'GB' }
+GeoResolver.resolve('1.2.3.4', env)  # => 'GB'
+
+# Akamai Edgescape
+env = { 'HTTP_X_AKAMAI_EDGESCAPE' => 'country_code=FR,region_code=IDF' }
+GeoResolver.resolve('1.2.3.4', env)  # => 'FR'
+
+# Fallback to IP range
+GeoResolver.resolve('8.8.8.8', {})   # => 'US' (Google DNS)
+
+# Unknown IP
+GeoResolver.resolve('240.0.0.1', {}) # => '**'
+```
+
+#### Extending Geo-Location Resolution
+
+Otto provides a pluggable architecture for extending geo-location capabilities. Choose based on your needs:
+
+**Configuration-Based (Proc/Lambda)** - Best for simple integrations:
+
+```ruby
+# Example: MaxMind GeoLite2 integration
+Otto::Privacy::GeoResolver.custom_resolver = ->(ip, env) {
+  reader = MaxMind::DB.new('GeoLite2-Country.mmdb')
+  result = reader.get(ip)
+  result&.dig('country', 'iso_code')
+rescue StandardError
+  nil  # Return nil to fall back to built-in resolution
+}
+
+# Example: External API with caching
+class GeoAPIResolver
+  def initialize(api_key)
+    @api_key = api_key
+    @cache = {}
+  end
+
+  def call(ip, _env)
+    @cache[ip] ||= fetch_from_api(ip)
+  rescue StandardError
+    nil  # Fall back to built-in resolution
+  end
+end
+
+Otto::Privacy::GeoResolver.custom_resolver = GeoAPIResolver.new(ENV['GEO_API_KEY'])
+```
+
+**Subclass-Based** - Best for complex logic or multiple method overrides:
+
+```ruby
+class ExtendedGeoResolver < Otto::Privacy::GeoResolver
+  # Add custom IP ranges
+  CUSTOM_RANGES = {
+    IPAddr.new('100.64.0.0/10') => 'US',  # Carrier-grade NAT
+  }.freeze
+
+  def self.detect_by_range(ip)
+    addr = IPAddr.new(ip)
+
+    # Check custom ranges first
+    CUSTOM_RANGES.each do |range, country|
+      return country if range.include?(addr)
+    end
+
+    # Fall back to parent's built-in ranges
+    super
+  end
+end
+```
+
+**Resolution Priority** (with custom resolver):
+1. CDN/infrastructure headers (always checked first)
+2. Custom resolver (if configured and returns valid code)
+3. Built-in IP range detection
+4. Unknown fallback ('**')
+
+**Production Pattern: Bloom/Cuckoo Filters for RIR Data**
+
+For production systems needing comprehensive IP coverage without external dependencies:
+
+```ruby
+# Bloom filter per country, built from RIR delegation files
+# - Memory: ~1MB for entire IPv4 table at 1% FPR
+# - Lookup: O(1) microsecond-level performance
+# - Zero external dependencies (no GeoIP DB, no API calls)
+
+class RIRBloomResolver < Otto::Privacy::GeoResolver
+  # Load RIR delegation files from ARIN, RIPE, APNIC, etc.
+  # Parse prefixes: registry|cc|type|start|value|date|status
+  # Insert /8, /16, /19 prefixes into per-country Bloom filters
+
+  def self.detect_by_range(ip)
+    # Check Bloom filters: O(1) lookup, ~1-5μs
+    # False positive rate: 0.5-1% ("possibly this country")
+    # No false negatives ("definitely not" is trusted)
+    super  # Fall back to built-in ranges
+  end
+end
+
+# Benefits:
+# - 40x smaller than GeoIP DB (3MB vs 40MB)
+# - 20-50x faster lookups (1-5μs vs 50-100μs)
+# - Nightly rebuild from public RIR files
+# - Perfect for CDN header fallback scenarios
+```
+
+**See**: `examples/simple_geo_resolver.rb` for complete implementation examples including Bloom filter integration
 
 ### Proxy Support
 

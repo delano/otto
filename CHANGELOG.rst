@@ -7,6 +7,37 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+   .. _changelog-2.0.0.pre4:
+
+
+2.0.0.pre4 — 2025-10-20
+=======================
+Changed
+-------
+- Authentication moved from middleware to RouteAuthWrapper at handler level (executes after routing)
+- RouteAuthWrapper now wraps all routes and provides session persistence, security headers, strategy caching, and pattern matching (exact, prefix, fallback)
+- env['otto.strategy_result'] now guaranteed present on all routes (authenticated or anonymous)
+- Renamed MiddlewareStack#build_app to #wrap (reflects per-request wrapping vs one-time initialization)
+
+Removed
+-------
+- AuthenticationMiddleware (executed before routing)
+- enable_authentication! (RouteAuthWrapper handles auth automatically)
+- Defensive nil fallback from LogicClassHandler (no longer needed)
+
+Fixed
+-----
+- Session persistence: env['rack.session'] now references same object as strategy_result.session
+- Security headers included on all auth failure responses (401/302)
+- Anonymous routes now receive StrategyResult with IP metadata
+
+Documentation
+-------------
+- Updated CLAUDE.md with RouteAuthWrapper architecture
+- Updated env_keys.rb to document strategy_result guarantee
+- Added tests for anonymous route handling
+
+
 .. _changelog-2.0.0.pre2:
 
 2.0.0.pre2 — 2025-10-11
@@ -59,6 +90,7 @@ AI Assistance
 - AI-assisted architectural design for RequestContext Data class and security module reorganization
 - Comprehensive migration of Logic classes and documentation with AI guidance for consistency
 - Automated test validation and intelligent file organization following Ruby conventions
+
 
 .. _changelog-2.0.0-pre1:
 

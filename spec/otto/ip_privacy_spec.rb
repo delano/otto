@@ -110,38 +110,288 @@ RSpec.describe 'IP Privacy Features' do
 
   describe Otto::Privacy::GeoResolver do
     describe '.resolve' do
-      it 'uses CloudFlare header when available' do
-        env = { 'HTTP_CF_IPCOUNTRY' => 'US' }
-        result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+      context 'custom resolver' do
+        after do
+          # Reset custom resolver after each test
+          Otto::Privacy::GeoResolver.custom_resolver = nil
+        end
 
-        expect(result).to eq('US')
+        it 'uses custom resolver when configured' do
+          Otto::Privacy::GeoResolver.custom_resolver = ->(ip, _env) {
+            ip == '1.2.3.4' ? 'XX' : nil
+          }
+
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', {})
+          expect(result).to eq('XX')
+        end
+
+        it 'validates country code from custom resolver' do
+          Otto::Privacy::GeoResolver.custom_resolver = ->(ip, _env) {
+            'INVALID'  # Invalid format
+          }
+
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', {})
+          # Falls back to range detection since custom resolver returned invalid code
+          expect(result).to eq('**')
+        end
+
+        it 'falls back to range detection when custom resolver returns nil' do
+          Otto::Privacy::GeoResolver.custom_resolver = ->(ip, _env) { nil }
+
+          result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
+          expect(result).to eq('US')  # From range detection
+        end
+
+        it 'handles custom resolver errors gracefully' do
+          Otto::Privacy::GeoResolver.custom_resolver = ->(ip, _env) {
+            raise StandardError, 'Database unavailable'
+          }
+
+          result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
+          # Falls back to range detection
+          expect(result).to eq('US')
+        end
+
+        it 'prefers CDN headers over custom resolver' do
+          Otto::Privacy::GeoResolver.custom_resolver = ->(ip, _env) { 'XX' }
+          env = { 'HTTP_CF_IPCOUNTRY' => 'US' }
+
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+          expect(result).to eq('US')  # CDN header wins
+        end
+
+        it 'accepts callable objects' do
+          resolver_class = Class.new do
+            def call(ip, _env)
+              'JP'
+            end
+          end
+
+          Otto::Privacy::GeoResolver.custom_resolver = resolver_class.new
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', {})
+          expect(result).to eq('JP')
+        end
+
+        it 'raises ArgumentError for non-callable resolver' do
+          expect {
+            Otto::Privacy::GeoResolver.custom_resolver = 'not callable'
+          }.to raise_error(ArgumentError, /must respond to :call/)
+        end
+
+        it 'allows setting resolver to nil' do
+          Otto::Privacy::GeoResolver.custom_resolver = ->(ip, _env) { 'XX' }
+          Otto::Privacy::GeoResolver.custom_resolver = nil
+
+          result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
+          expect(result).to eq('US')  # Uses range detection
+        end
       end
 
-      it 'resolves country using MaxMind database' do
+      context 'CDN/Infrastructure provider headers' do
+        it 'uses Cloudflare header (highest priority)' do
+          env = { 'HTTP_CF_IPCOUNTRY' => 'US' }
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+
+          expect(result).to eq('US')
+        end
+
+        it 'uses AWS CloudFront header' do
+          env = { 'HTTP_CLOUDFRONT_VIEWER_COUNTRY' => 'GB' }
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+
+          expect(result).to eq('GB')
+        end
+
+        it 'uses Fastly header' do
+          env = { 'HTTP_FASTLY_CLIENT_IP_COUNTRY' => 'DE' }
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+
+          expect(result).to eq('DE')
+        end
+
+        it 'uses Akamai Edgescape header' do
+          env = { 'HTTP_X_AKAMAI_EDGESCAPE' => 'country_code=FR,region_code=IDF,city=PARIS' }
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+
+          expect(result).to eq('FR')
+        end
+
+        it 'uses Azure Front Door header' do
+          env = { 'HTTP_X_AZURE_CLIENTIP_COUNTRY' => 'CA' }
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+
+          expect(result).to eq('CA')
+        end
+
+        it 'uses X-Geo-Country header' do
+          env = { 'HTTP_X_GEO_COUNTRY' => 'JP' }
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+
+          expect(result).to eq('JP')
+        end
+
+        it 'uses X-Country-Code header' do
+          env = { 'HTTP_X_COUNTRY_CODE' => 'AU' }
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+
+          expect(result).to eq('AU')
+        end
+
+        it 'uses Country-Code header' do
+          env = { 'HTTP_COUNTRY_CODE' => 'BR' }
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+
+          expect(result).to eq('BR')
+        end
+      end
+
+      context 'header priority' do
+        it 'prefers Cloudflare over AWS CloudFront' do
+          env = {
+            'HTTP_CF_IPCOUNTRY' => 'US',
+            'HTTP_CLOUDFRONT_VIEWER_COUNTRY' => 'GB'
+          }
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+
+          expect(result).to eq('US')
+        end
+
+        it 'prefers AWS CloudFront over Fastly' do
+          env = {
+            'HTTP_CLOUDFRONT_VIEWER_COUNTRY' => 'GB',
+            'HTTP_FASTLY_CLIENT_IP_COUNTRY' => 'DE'
+          }
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+
+          expect(result).to eq('GB')
+        end
+
+        it 'prefers Fastly over semi-standard headers' do
+          env = {
+            'HTTP_FASTLY_CLIENT_IP_COUNTRY' => 'DE',
+            'HTTP_X_GEO_COUNTRY' => 'FR'
+          }
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+
+          expect(result).to eq('DE')
+        end
+
+        it 'uses semi-standard headers when CDN headers unavailable' do
+          env = { 'HTTP_X_GEO_COUNTRY' => 'JP' }
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+
+          expect(result).to eq('JP')
+        end
+      end
+
+      context 'Akamai Edgescape parsing' do
+        it 'extracts country from full Edgescape header' do
+          env = { 'HTTP_X_AKAMAI_EDGESCAPE' => 'country_code=US,region_code=CA,city=LOSANGELES,lat=34.05,long=-118.24' }
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+
+          expect(result).to eq('US')
+        end
+
+        it 'extracts country from minimal Edgescape header' do
+          env = { 'HTTP_X_AKAMAI_EDGESCAPE' => 'country_code=GB' }
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+
+          expect(result).to eq('GB')
+        end
+
+        it 'handles malformed Edgescape header' do
+          env = { 'HTTP_X_AKAMAI_EDGESCAPE' => 'invalid_format' }
+          result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
+
+          # Falls back to range detection (Google DNS -> US)
+          expect(result).to eq('US')
+        end
+
+        it 'handles Edgescape with invalid country code' do
+          env = { 'HTTP_X_AKAMAI_EDGESCAPE' => 'country_code=INVALID' }
+          result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
+
+          # Falls back to range detection
+          expect(result).to eq('US')
+        end
+
+        it 'handles trailing comma edge cases' do
+          # Double comma
+          env = { 'HTTP_X_AKAMAI_EDGESCAPE' => 'country_code=US,,' }
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+          expect(result).to eq('US')
+
+          # Empty value after comma
+          env = { 'HTTP_X_AKAMAI_EDGESCAPE' => 'country_code=GB,region_code=' }
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+          expect(result).to eq('GB')
+        end
+
+        it 'extracts country from middle of parameter list' do
+          env = { 'HTTP_X_AKAMAI_EDGESCAPE' => 'foo=bar,country_code=DE,baz=qux' }
+          result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
+
+          expect(result).to eq('DE')
+        end
+      end
+
+      context 'header validation' do
+        it 'ignores invalid Cloudflare header and falls back to range detection' do
+          env = { 'HTTP_CF_IPCOUNTRY' => 'invalid' }
+          result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
+
+          # Should ignore invalid CF header and fall back to range detection
+          expect(result).to eq('US')
+        end
+
+        it 'ignores lowercase country codes' do
+          env = { 'HTTP_CF_IPCOUNTRY' => 'us' }
+          result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
+
+          # Falls back to range detection
+          expect(result).to eq('US')
+        end
+
+        it 'ignores 3-letter codes' do
+          env = { 'HTTP_CF_IPCOUNTRY' => 'USA' }
+          result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
+
+          # Falls back to range detection
+          expect(result).to eq('US')
+        end
+
+        it 'ignores single-letter codes' do
+          env = { 'HTTP_CF_IPCOUNTRY' => 'U' }
+          result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
+
+          # Falls back to range detection
+          expect(result).to eq('US')
+        end
+
+        it 'ignores non-string values' do
+          env = { 'HTTP_CF_IPCOUNTRY' => 123 }
+          result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
+
+          # Falls back to range detection
+          expect(result).to eq('US')
+        end
+      end
+
+      it 'resolves country using IP range detection' do
         # Test with Google DNS (8.8.8.8) which should resolve to US
         result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
 
-        # Should resolve to US via MaxMind database
+        # Should resolve to US via range detection
         expect(result).to eq('US')
       end
 
-      it 'falls back to XX for truly unknown IPs' do
+      it 'falls back to ** for truly unknown IPs' do
         # Test with a valid but unassigned IP range
         result = Otto::Privacy::GeoResolver.resolve('240.0.0.1', {})
 
         expect(result).to eq('**')
       end
-
-      it 'ignores invalid CloudFlare header and falls back to range detection' do
-        env = { 'HTTP_CF_IPCOUNTRY' => 'invalid' }
-        result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
-
-        # Should ignore invalid CF header and fall back to range detection
-        # 1.2.3.4 is not in KNOWN_RANGES, so returns XX
-        expect(result).to eq('**')
-      end
-
-      it 'returns XX for private IPs' do
+      it 'returns ** for private IPs' do
         result = Otto::Privacy::GeoResolver.resolve('192.168.1.1', {})
 
         expect(result).to eq('**')

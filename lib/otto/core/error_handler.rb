@@ -13,8 +13,21 @@ class Otto
       def handle_error(error, env)
         # Log error details internally but don't expose them
         error_id = SecureRandom.hex(8)
-        Otto.logger.error "[#{error_id}] #{error.class}: #{error.message}"
-        Otto.logger.debug "[#{error_id}] Backtrace: #{error.backtrace.join("\n")}" if Otto.debug
+
+        # Base context pattern: create once, reuse for correlation
+        base_context = Otto::LoggingHelpers.request_context(env)
+
+        Otto.structured_log(:error, "Unhandled error in request",
+          base_context.merge(
+            error: error.message,
+            error_class: error.class.name,
+            error_id: error_id
+          )
+        )
+
+        Otto::LoggingHelpers.log_backtrace(error,
+          base_context.merge(error_id: error_id)
+        )
 
         # Parse request for content negotiation
         begin
@@ -30,7 +43,21 @@ class Otto
             env['otto.error_id'] = error_id
             return found_route.call(env)
           rescue StandardError => e
-            Otto.logger.error "[#{error_id}] Error in custom error handler: #{e.message}"
+            # Base context pattern: create once, reuse for correlation
+            base_context = Otto::LoggingHelpers.request_context(env)
+
+            Otto.structured_log(:error, "Error in custom error handler",
+              base_context.merge(
+                error: e.message,
+                error_class: e.class.name,
+                error_id: error_id,
+                original_error_id: error_id  # Link to original error
+              )
+            )
+
+            Otto::LoggingHelpers.log_backtrace(e,
+              base_context.merge(error_id: error_id)
+            )
           end
         end
 

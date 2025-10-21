@@ -13,6 +13,7 @@ class Otto
     # Logic classes use signature: initialize(context, params, locale)
     class LogicClassHandler < BaseHandler
       def call(env, extra_params = {})
+        start_time = Otto::Utils.now_in_μs
         req = Rack::Request.new(env)
         res = Rack::Response.new
 
@@ -30,7 +31,21 @@ class Otto
               json_data = JSON.parse(req.body.read)
               logic_params = logic_params.merge(json_data) if json_data.is_a?(Hash)
             rescue JSON::ParserError => e
-              Otto.logger.error "[LogicClassHandler] JSON parsing error: #{e.message}"
+              # Base context pattern: create once, reuse for correlation
+              base_context = Otto::LoggingHelpers.request_context(env)
+
+              Otto.structured_log(:error, "JSON parsing error",
+                base_context.merge(
+                  handler: "#{target_class}#call",
+                  error: e.message,
+                  error_class: e.class.name,
+                  duration: Otto::Utils.now_in_μs - start_time
+                )
+              )
+
+              Otto::LoggingHelpers.log_backtrace(e,
+                base_context.merge(handler: "#{target_class}#call")
+              )
             end
           end
 
@@ -58,9 +73,24 @@ class Otto
           # In integrated context, let Otto's centralized error handler manage the response
           # In direct testing context, handle errors locally for unit testing
           if otto_instance
+            # Base context pattern: create once, reuse for correlation
+            base_context = Otto::LoggingHelpers.request_context(env)
+            handler_name = "#{target_class}#call"
+
             # Log error for handler-specific context but let Otto's centralized error handler manage the response
-            Otto.logger.error "[LogicClassHandler] #{e.class}: #{e.message}"
-            Otto.logger.debug "[LogicClassHandler] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
+            Otto.structured_log(:error, "Handler execution failed",
+              base_context.merge(
+                handler: handler_name,
+                error: e.message,
+                error_class: e.class.name,
+                duration: Otto::Utils.now_in_μs - start_time
+              )
+            )
+
+            Otto::LoggingHelpers.log_backtrace(e,
+              base_context.merge(handler: handler_name)
+            )
+
             raise e # Re-raise to let Otto's centralized error handler manage the response
           else
             # Direct handler testing context - handle errors locally with security improvements

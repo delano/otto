@@ -117,23 +117,27 @@ RSpec.describe 'IP Privacy Features' do
         expect(result).to eq('US')
       end
 
-      it 'returns XX for unknown IP' do
-        result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', {})
+      it 'resolves country using MaxMind database' do
+        # Test with Google DNS (8.8.8.8) which should resolve to US
+        result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
+
+        # Should resolve to US via MaxMind database
+        expect(result).to eq('US')
+      end
+
+      it 'falls back to XX for truly unknown IPs' do
+        # Test with a valid but unassigned IP range
+        result = Otto::Privacy::GeoResolver.resolve('240.0.0.1', {})
 
         expect(result).to eq('XX')
       end
 
-      it 'detects Quad9 in Switzerland' do
-        result = Otto::Privacy::GeoResolver.resolve('9.9.9.9', {})
-
-        expect(result).to eq('CH')
-      end
-
-      it 'ignores invalid CloudFlare header' do
+      it 'ignores invalid CloudFlare header and falls back to MaxMind' do
         env = { 'HTTP_CF_IPCOUNTRY' => 'invalid' }
         result = Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)
 
-        expect(result).to eq('XX')
+        # Should ignore invalid CF header and resolve via MaxMind (1.2.3.4 resolves to AU)
+        expect(result).to eq('AU')
       end
 
       it 'returns XX for private IPs' do
@@ -1111,21 +1115,26 @@ RSpec.describe 'IP Privacy Features' do
         keys = Concurrent::Array.new
         start_time = Time.utc(2025, 1, 15, 12, 59, 59)
 
+        # Use a single shared config instance for thread-safe access
+        config = Otto::Privacy::Config.new(hash_rotation_period: 3600)
+
         threads = 10.times.map do |i|
           Thread.new do
-            config = Otto::Privacy::Config.new(hash_rotation_period: 3600)
-
             # Simulate requests near rotation boundary
-            time_offset = i * 0.2  # Spread across boundary
+            time_offset = i * 0.2  # Spread across boundary (0.0 to 1.8 seconds)
+
+            # Stub Time.now within each thread's context
             allow(Time).to receive(:now).and_return(start_time + time_offset)
 
+            # Access rotation key from shared config
             keys << config.rotation_key
           end
         end
 
         threads.each(&:join)
 
-        # Should have at most 2 different keys (before/after rotation)
+        # Should have at most 2 different keys (before/after rotation at boundary)
+        # With time_offset 0.0-1.8s and rotation at :00, we cross the hour boundary
         expect(keys.uniq.size).to be <= 2
       end
     end

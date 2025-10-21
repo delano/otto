@@ -1368,57 +1368,120 @@ RSpec.describe 'IP Privacy Features' do
     end
 
     describe 'thread safety' do
-      it 'handles concurrent rotation key access without race conditions' do
+      # NOTE: Thread safety tests use barriers to maximize contention and expose race conditions.
+      # We use 50-100 threads (not 1000+) for practical test execution while still catching races.
+      # Concurrent::CyclicBarrier ensures all threads start simultaneously for true concurrent access.
+
+      it 'prevents race conditions with concurrent rotation key access' do
+        # NOTE: Test goal - verify that rotation_key is thread-safe when accessed concurrently
+        # from multiple threads within the same rotation period.
+        #
+        # Why this works:
+        # - CyclicBarrier synchronizes thread start to maximize contention (all threads hit
+        #   rotation_key at same instant)
+        # - 100 threads is enough to expose races without excessive test duration
+        # - All threads should get identical key since we're within same rotation period
+        # - Detailed failure message helps debug if race condition occurs
         config = Otto::Privacy::Config.new(hash_rotation_period: 3600)
+        barrier = Concurrent::CyclicBarrier.new(100)
         keys = Concurrent::Array.new
 
-        threads = 10.times.map do
+        threads = 100.times.map do
           Thread.new do
-            100.times do
-              keys << config.rotation_key
-            end
-          end
-        end
-
-        threads.each(&:join)
-
-        # All keys within same rotation period should be identical
-        expect(keys.uniq.size).to eq(1)
-      end
-
-      it 'handles concurrent rotation key access during rotation boundary' do
-        keys = Concurrent::Array.new
-        start_time = Time.utc(2025, 1, 15, 12, 59, 59)
-
-        # Use a single shared config instance for thread-safe access
-        config = Otto::Privacy::Config.new(hash_rotation_period: 3600)
-
-        threads = 10.times.map do |i|
-          Thread.new do
-            # Simulate requests near rotation boundary
-            time_offset = i * 0.2  # Spread across boundary (0.0 to 1.8 seconds)
-
-            # Stub Time.now within each thread's context
-            allow(Time).to receive(:now).and_return(start_time + time_offset)
-
-            # Access rotation key from shared config
+            barrier.wait  # Synchronize thread start for maximum contention
             keys << config.rotation_key
           end
         end
 
         threads.each(&:join)
 
-        # Should have at most 2 different keys (before/after rotation at boundary)
-        # With time_offset 0.0-1.8s and rotation at :00, we cross the hour boundary
-        expect(keys.uniq.size).to be <= 2
+        # All threads started simultaneously within same rotation period = identical keys
+        expect(keys.uniq.size).to eq(1),
+          "Expected single key, got #{keys.uniq.size}: #{keys.uniq.inspect}"
+        expect(keys.first).to match(/^[0-9a-f]{64}$/)
+        expect(keys.size).to eq(100)
+      end
+
+      it 'maintains thread safety during rapid sequential access' do
+        # NOTE: Test goal - verify that rapid sequential calls from different threads
+        # don't corrupt internal state or generate invalid keys.
+        #
+        # Why this works:
+        # - Tests different concurrency pattern: many rapid calls per thread vs single call
+        # - CountDownLatch ensures all threads complete within timeout (no hangs)
+        # - Thread#value provides clean collection without manual array management
+        # - Smaller scale (50 threads × 10 calls) runs fast while still exposing races
+        config = Otto::Privacy::Config.new(hash_rotation_period: 3600)
+        latch = Concurrent::CountDownLatch.new(50)
+
+        threads = 50.times.map do
+          Thread.new do
+            keys = 10.times.map { config.rotation_key }
+            latch.count_down
+            keys
+          end
+        end
+
+        # Wait for all threads with timeout to prevent test hangs
+        expect(latch.wait(5)).to be(true), "Threads did not complete within 5 seconds"
+
+        # Collect all keys from all threads
+        all_keys = threads.flat_map(&:value)
+
+        # All keys should be identical (same rotation period)
+        expect(all_keys.uniq.size).to eq(1)
+        expect(all_keys.first).to match(/^[0-9a-f]{64}$/)
+        expect(all_keys.size).to eq(500)  # 50 threads × 10 calls
+      end
+
+      it 'handles concurrent access from multiple config instances' do
+        # NOTE: Test goal - verify that rotation_key access is thread-safe even when
+        # multiple Config instances exist (tests class-level synchronization).
+        #
+        # Why this works:
+        # - Tests whether rotation key generation uses shared state correctly
+        # - Each thread creates its own Config instance (mimics real multi-request scenario)
+        # - Barrier ensures simultaneous creation and access
+        # - All instances should generate same key for same rotation period
+        barrier = Concurrent::CyclicBarrier.new(50)
+        keys = Concurrent::Array.new
+
+        threads = 50.times.map do
+          Thread.new do
+            barrier.wait
+            config = Otto::Privacy::Config.new(hash_rotation_period: 3600)
+            keys << config.rotation_key
+          end
+        end
+
+        threads.each(&:join)
+
+        # All configs should generate identical key for current rotation period
+        expect(keys.uniq.size).to eq(1)
+        expect(keys.first).to match(/^[0-9a-f]{64}$/)
       end
     end
 
     describe 'rotation boundary edge cases' do
+      # NOTE: These tests verify rotation key behavior at period boundaries using
+      # deterministic time control (not threading). Each test stubs Time.now to specific
+      # values to test boundary logic in isolation.
+      #
+      # Why separate from thread safety tests:
+      # - Boundary logic is deterministic and should be tested without race conditions
+      # - Time stubbing in tests is simpler and more reliable than threading
+      # - Faster execution and easier debugging than threaded boundary tests
+
       let(:config) { Otto::Privacy::Config.new(hash_rotation_period: 3600) }
 
       it 'handles exact rotation boundary timestamp' do
-        # Exactly at rotation boundary: 2025-01-15 12:00:00 UTC
+        # NOTE: Test goal - verify that key generation works correctly at exact
+        # rotation boundary (no off-by-one errors).
+        #
+        # Why this works:
+        # - Tests edge case where timestamp is exactly divisible by rotation period
+        # - Ensures boundary calculation doesn't cause errors or invalid keys
+        # - Simple, focused test with single assertion
         boundary_time = Time.utc(2025, 1, 15, 12, 0, 0)
         allow(Time).to receive(:now).and_return(boundary_time)
 
@@ -1427,6 +1490,13 @@ RSpec.describe 'IP Privacy Features' do
       end
 
       it 'generates different keys across rotation boundary' do
+        # NOTE: Test goal - verify that crossing a rotation boundary produces different keys.
+        #
+        # Why this works:
+        # - Tests core rotation behavior: keys should change at boundary
+        # - Uses 1-second difference to clearly cross boundary (11:59:59 → 12:00:01)
+        # - Single config instance tests that internal state updates correctly
+        # - Simple before/after pattern is easy to understand and maintain
         keys = []
 
         # Just before rotation: 11:59:59
@@ -1438,9 +1508,18 @@ RSpec.describe 'IP Privacy Features' do
         keys << config.rotation_key
 
         expect(keys[0]).not_to eq(keys[1])
+        expect(keys).to all(match(/^[0-9a-f]{64}$/))
       end
 
-      it 'maintains consistency within one second of boundary' do
+      it 'maintains consistency within same rotation period' do
+        # NOTE: Test goal - verify that multiple requests within same rotation period
+        # get identical keys (idempotency within period).
+        #
+        # Why this works:
+        # - Tests that key is stable within rotation period (critical for session correlation)
+        # - Uses sub-second intervals (0.1s) to test rapid requests
+        # - 5 samples is enough to verify consistency without excessive assertions
+        # - Verifies both uniqueness (1 key) and format (valid hex)
         base_time = Time.utc(2025, 1, 15, 12, 0, 0)
         keys = []
 
@@ -1452,9 +1531,18 @@ RSpec.describe 'IP Privacy Features' do
 
         # All should use same key (same rotation period)
         expect(keys.uniq.size).to eq(1)
+        expect(keys.first).to match(/^[0-9a-f]{64}$/)
       end
 
       it 'handles very short rotation periods correctly' do
+        # NOTE: Test goal - verify that rotation works correctly with short periods
+        # (edge case for high-frequency rotation scenarios).
+        #
+        # Why this works:
+        # - 60-second period tests edge case (most production uses hours/days)
+        # - Three consecutive periods verify consistent rotation behavior
+        # - Tests that rotation isn't accidentally tied to hour boundaries
+        # - Ensures period parameter is respected regardless of value
         config_60s = Otto::Privacy::Config.new(hash_rotation_period: 60)
 
         keys = []
@@ -1474,6 +1562,29 @@ RSpec.describe 'IP Privacy Features' do
 
         # Each minute should have different key
         expect(keys.uniq.size).to eq(3)
+        expect(keys).to all(match(/^[0-9a-f]{64}$/))
+      end
+
+      it 'generates consistent keys for same timestamp across config instances' do
+        # NOTE: Test goal - verify that different config instances generate identical
+        # keys for the same timestamp (deterministic generation).
+        #
+        # Why this works:
+        # - Tests that rotation key is based purely on timestamp, not instance state
+        # - Important for multi-server deployments (same time = same key everywhere)
+        # - Two instances with same period should be interchangeable
+        # - Verifies no hidden instance-specific state affects key generation
+        timestamp = Time.utc(2025, 1, 15, 12, 30, 0)
+        allow(Time).to receive(:now).and_return(timestamp)
+
+        config1 = Otto::Privacy::Config.new(hash_rotation_period: 3600)
+        config2 = Otto::Privacy::Config.new(hash_rotation_period: 3600)
+
+        key1 = config1.rotation_key
+        key2 = config2.rotation_key
+
+        expect(key1).to eq(key2)
+        expect(key1).to match(/^[0-9a-f]{64}$/)
       end
     end
   end

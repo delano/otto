@@ -239,6 +239,63 @@ RSpec.describe 'IP Privacy Features' do
         end
       end
 
+      context 'User-Agent and Referer anonymization' do
+        it 'replaces HTTP_USER_AGENT with anonymized version' do
+          env = {
+            'REMOTE_ADDR' => '9.9.9.9',
+            'HTTP_USER_AGENT' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0'
+          }
+          middleware.call(env)
+
+          # Version numbers stripped
+          expect(env['HTTP_USER_AGENT']).to include('X.X')
+          expect(env['HTTP_USER_AGENT']).not_to include('10_15_7')
+          expect(env['HTTP_USER_AGENT']).not_to include('141.0')
+          expect(env['HTTP_USER_AGENT']).not_to include('537.36')
+        end
+
+        it 'replaces HTTP_REFERER with anonymized version (query params stripped)' do
+          env = {
+            'REMOTE_ADDR' => '9.9.9.9',
+            'HTTP_REFERER' => 'https://example.com/page?token=secret&user=123#section'
+          }
+          middleware.call(env)
+
+          # Query params and fragment stripped
+          expect(env['HTTP_REFERER']).to eq('https://example.com/page')
+          expect(env['HTTP_REFERER']).not_to include('token')
+          expect(env['HTTP_REFERER']).not_to include('user')
+          expect(env['HTTP_REFERER']).not_to include('section')
+        end
+
+        it 'does not set original UA/Referer when privacy enabled' do
+          env = {
+            'REMOTE_ADDR' => '9.9.9.9',
+            'HTTP_USER_AGENT' => 'Mozilla/5.0 Chrome/141.0',
+            'HTTP_REFERER' => 'https://example.com/page?secret=value'
+          }
+          middleware.call(env)
+
+          # Original values NOT available (prevents leakage)
+          expect(env['otto.original_user_agent']).to be_nil
+          expect(env['otto.original_referer']).to be_nil
+        end
+
+        it 'handles nil User-Agent gracefully' do
+          env = { 'REMOTE_ADDR' => '9.9.9.9' }
+          middleware.call(env)
+
+          expect(env['HTTP_USER_AGENT']).to be_nil
+        end
+
+        it 'handles nil Referer gracefully' do
+          env = { 'REMOTE_ADDR' => '9.9.9.9' }
+          middleware.call(env)
+
+          expect(env['HTTP_REFERER']).to be_nil
+        end
+      end
+
       context 'encoding of masked IPs' do
         it 'ensures masked IP has UTF-8 encoding for public IPs' do
           env = { 'REMOTE_ADDR' => '9.9.9.9' }
@@ -375,6 +432,43 @@ RSpec.describe 'IP Privacy Features' do
         middleware.call(env)
 
         expect(env['REMOTE_ADDR'].encoding).to eq(Encoding::UTF_8)
+      end
+
+      it 'preserves raw User-Agent when privacy disabled' do
+        env = {
+          'REMOTE_ADDR' => '192.168.1.100',
+          'HTTP_USER_AGENT' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/141.0.0.0'
+        }
+        middleware.call(env)
+
+        # Raw UA unchanged
+        expect(env['HTTP_USER_AGENT']).to eq('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/141.0.0.0')
+        expect(env['HTTP_USER_AGENT']).to include('141.0')
+      end
+
+      it 'preserves raw Referer when privacy disabled' do
+        env = {
+          'REMOTE_ADDR' => '192.168.1.100',
+          'HTTP_REFERER' => 'https://example.com/page?token=secret&user=123'
+        }
+        middleware.call(env)
+
+        # Raw referer unchanged
+        expect(env['HTTP_REFERER']).to eq('https://example.com/page?token=secret&user=123')
+        expect(env['HTTP_REFERER']).to include('token')
+      end
+
+      it 'sets original UA/Referer for explicit access when privacy disabled' do
+        env = {
+          'REMOTE_ADDR' => '192.168.1.100',
+          'HTTP_USER_AGENT' => 'Mozilla/5.0 Chrome/141.0',
+          'HTTP_REFERER' => 'https://example.com/page?secret=value'
+        }
+        middleware.call(env)
+
+        # Original values available for legitimate use cases
+        expect(env['otto.original_user_agent']).to eq('Mozilla/5.0 Chrome/141.0')
+        expect(env['otto.original_referer']).to eq('https://example.com/page?secret=value')
       end
     end
   end

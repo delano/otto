@@ -31,7 +31,7 @@ class Otto
         path: env['PATH_INFO'],
         ip: env['REMOTE_ADDR'],  # Already masked by IPPrivacyMiddleware for public IPs
         country: env['otto.geo_country'],
-        user_agent: env['HTTP_USER_AGENT']&.slice(0, 100)  # Truncate to prevent bloat
+        user_agent: env['HTTP_USER_AGENT']&.slice(0, 100)  # Already anonymized by IPPrivacyMiddleware
       }.compact
     end
   end

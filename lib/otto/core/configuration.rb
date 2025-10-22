@@ -157,38 +157,36 @@ class Otto
       # @return [self]
       def freeze_configuration!
         if frozen_configuration?
-          Otto.logger.debug '[Otto::Configuration] Configuration already frozen, skipping' if Otto.debug
+          Otto.structured_log(:debug, "Configuration already frozen", { status: 'skipped' }) if Otto.debug
           return self
         end
 
-        Otto.logger.debug '[Otto::Configuration] Starting configuration freeze process' if Otto.debug
+        start_time = Otto::Utils.now_in_μs
 
         # Deep freeze configuration objects with memoization support
-        Otto.logger.debug '[Otto::Configuration] Freezing security_config' if Otto.debug
         @security_config.deep_freeze! if @security_config.respond_to?(:deep_freeze!)
-
-        Otto.logger.debug '[Otto::Configuration] Freezing locale_config' if Otto.debug
         @locale_config.deep_freeze! if @locale_config.respond_to?(:deep_freeze!)
-
-        Otto.logger.debug '[Otto::Configuration] Freezing middleware stack' if Otto.debug
         @middleware.deep_freeze! if @middleware.respond_to?(:deep_freeze!)
 
         # Deep freeze configuration hashes (recursively freezes nested structures)
-        Otto.logger.debug '[Otto::Configuration] Freezing auth_config hash' if Otto.debug
         deep_freeze_value(@auth_config) if @auth_config
-
-        Otto.logger.debug '[Otto::Configuration] Freezing option hash' if Otto.debug
         deep_freeze_value(@option) if @option
 
         # Deep freeze route structures (prevent modification of nested hashes/arrays)
-        Otto.logger.debug '[Otto::Configuration] Freezing route structures' if Otto.debug
         deep_freeze_value(@routes) if @routes
         deep_freeze_value(@routes_literal) if @routes_literal
         deep_freeze_value(@routes_static) if @routes_static
         deep_freeze_value(@route_definitions) if @route_definitions
 
         @configuration_frozen = true
-        Otto.logger.info '[Otto::Configuration] Configuration freeze completed successfully'
+
+        duration = Otto::Utils.now_in_μs - start_time
+        Otto.structured_log(:info, "Configuration freeze completed",
+          {
+            duration: duration,
+            frozen_objects: %w[security_config locale_config middleware auth_config option routes].join(',')
+          }
+        )
 
         self
       end

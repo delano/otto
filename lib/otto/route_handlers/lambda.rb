@@ -10,6 +10,7 @@ class Otto
     # Custom handler for lambda/proc definitions (future extension)
     class LambdaHandler < BaseHandler
       def call(env, extra_params = {})
+        start_time = Otto::Utils.now_in_μs
         req = Rack::Request.new(env)
         res = Rack::Response.new
 
@@ -32,8 +33,24 @@ class Otto
                           })
         rescue StandardError => e
           error_id = SecureRandom.hex(8)
-          Otto.logger.error "[#{error_id}] #{e.class}: #{e.message}"
-          Otto.logger.debug "[#{error_id}] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
+
+          # Base context pattern: create once, reuse for correlation
+          base_context = Otto::LoggingHelpers.request_context(env)
+          handler_name = "Lambda[#{route_definition.klass_name}]"
+
+          Otto.structured_log(:error, "Handler execution failed",
+            base_context.merge(
+              handler: handler_name,
+              error: e.message,
+              error_class: e.class.name,
+              error_id: error_id,
+              duration: Otto::Utils.now_in_μs - start_time
+            )
+          )
+
+          Otto::LoggingHelpers.log_backtrace(e,
+            base_context.merge(handler: handler_name, error_id: error_id)
+          )
 
           res.status                  = 500
           res.headers['content-type'] = 'text/plain'

@@ -226,4 +226,176 @@ RSpec.describe 'Otto Logging Integration' do
       })
     end
   end
+
+  describe 'LoggingHelpers timing methods' do
+    let(:env) do
+      {
+        'REQUEST_METHOD' => 'POST',
+        'PATH_INFO' => '/api/test',
+        'REMOTE_ADDR' => '192.0.2.100',
+        'HTTP_USER_AGENT' => 'TestAgent/1.0'
+      }
+    end
+
+    describe '#log_timed_operation' do
+      it 'logs successful operations with timing' do
+        expect(logger_double).to receive(:info).with(
+          'Operation completed',
+          hash_including(
+            method: 'POST',
+            path: '/api/test',
+            ip: '192.0.2.100',
+            duration: kind_of(Integer),
+            result: 'success'
+          )
+        )
+
+        result = Otto::LoggingHelpers.log_timed_operation(:info, 'Operation completed', env, result: 'success') do
+          sleep(0.001)
+          'test_result'
+        end
+
+        expect(result).to eq('test_result')
+      end
+
+      it 'logs failed operations with error details' do
+        expect(logger_double).to receive(:error).with(
+          'Operation completed failed',
+          hash_including(
+            method: 'POST',
+            path: '/api/test',
+            duration: kind_of(Integer),
+            error: 'Test error',
+            error_class: 'StandardError'
+          )
+        )
+
+        expect {
+          Otto::LoggingHelpers.log_timed_operation(:info, 'Operation completed', env) do
+            raise StandardError, 'Test error'
+          end
+        }.to raise_error(StandardError, 'Test error')
+      end
+    end
+
+
+
+    describe '#log_backtrace' do
+      let(:test_error) { StandardError.new('Test error message') }
+      let(:backtrace) { Array.new(20) { |i| "/path/to/file.rb:#{i + 1}:in `method_#{i}'" } }
+      let(:env) do
+        {
+          'REQUEST_METHOD' => 'GET',
+          'PATH_INFO' => '/test',
+          'REMOTE_ADDR' => '127.0.0.1'
+        }
+      end
+
+      before do
+        test_error.set_backtrace(backtrace)
+      end
+
+      it 'only logs when Otto.debug is true' do
+        Otto.debug = true
+
+        expect(Otto).to receive(:structured_log).with(:debug, 'Exception backtrace', hash_including(
+          backtrace: kind_of(Array),
+          handler: 'TestHandler'
+        ))
+
+        Otto::LoggingHelpers.log_backtrace(test_error,
+          Otto::LoggingHelpers.request_context(env).merge(handler: 'TestHandler')
+        )
+      end
+
+      it 'does not log when Otto.debug is false' do
+        Otto.debug = false
+
+        expect(Otto).not_to receive(:structured_log)
+
+        Otto::LoggingHelpers.log_backtrace(test_error,
+          Otto::LoggingHelpers.request_context(env).merge(handler: 'TestHandler')
+        )
+      end
+
+      it 'limits backtrace to first 10 lines' do
+        Otto.debug = true
+
+        expect(Otto).to receive(:structured_log) do |_level, _message, metadata|
+          expect(metadata[:backtrace].length).to eq(10)
+          expect(metadata[:backtrace].first).to eq('/path/to/file.rb:1:in `method_0\'')
+          expect(metadata[:backtrace].last).to eq('/path/to/file.rb:10:in `method_9\'')
+        end
+
+        Otto::LoggingHelpers.log_backtrace(test_error,
+          Otto::LoggingHelpers.request_context(env).merge(handler: 'TestHandler')
+        )
+      end
+
+      it 'handles errors with nil backtrace' do
+        Otto.debug = true
+        error_without_backtrace = StandardError.new('No backtrace')
+
+        expect(Otto).to receive(:structured_log) do |_level, _message, metadata|
+          expect(metadata[:backtrace]).to eq([])
+        end
+
+        Otto::LoggingHelpers.log_backtrace(error_without_backtrace,
+          Otto::LoggingHelpers.request_context(env).merge(handler: 'TestHandler')
+        )
+      end
+
+      it 'includes request context in log' do
+        Otto.debug = true
+
+        expect(Otto).to receive(:structured_log) do |_level, _message, metadata|
+          expect(metadata[:method]).to eq('GET')
+          expect(metadata[:path]).to eq('/test')
+          expect(metadata[:ip]).to eq('127.0.0.1')
+          expect(metadata[:handler]).to eq('TestHandler')
+          expect(metadata[:backtrace]).to be_a(Array)
+        end
+
+        Otto::LoggingHelpers.log_backtrace(test_error,
+          Otto::LoggingHelpers.request_context(env).merge(handler: 'TestHandler')
+        )
+      end
+
+      it 'does not duplicate error fields from context' do
+        Otto.debug = true
+
+        context_with_error = Otto::LoggingHelpers.request_context(env).merge(
+          error: 'Already logged',
+          error_class: 'AlreadyLogged',
+          error_id: 'test123'
+        )
+
+        expect(Otto).to receive(:structured_log).with(
+          :debug,
+          'Exception backtrace',
+          hash_including(
+            error_id: 'test123',
+            backtrace: kind_of(Array)
+          )
+        ).and_wrap_original do |method, *args|
+          # Verify we only have ONE error field (from context), not duplicated
+          expect(args[2].keys.count { |k| k == :error }).to eq(1)
+          expect(args[2][:error]).to eq('Already logged')  # Original context value preserved
+          method.call(*args)
+        end
+
+        Otto::LoggingHelpers.log_backtrace(StandardError.new('New error'), context_with_error)
+      end
+
+      it 'works with empty context' do
+        Otto.debug = true
+
+        expect(Otto).to receive(:structured_log).with(:debug, 'Exception backtrace', hash_including(
+          backtrace: kind_of(Array)
+        ))
+
+        Otto::LoggingHelpers.log_backtrace(test_error, {})
+      end
+    end
+  end
 end

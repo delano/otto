@@ -36,13 +36,28 @@ class Otto
           route.otto                              = self
           path_clean                              = path.gsub(%r{/$}, '')
           @route_definitions[route.definition]    = route
-          Otto.logger.debug "route: #{route.pattern}" if Otto.debug
+          Otto.structured_log(:debug, "Route loaded",
+            {
+              pattern: route.pattern.source,
+              verb: route.verb,
+              definition: route.definition,
+              type: 'pattern'
+            }
+          ) if Otto.debug
           @routes[route.verb] ||= []
           @routes[route.verb] << route
           @routes_literal[route.verb]           ||= {}
           @routes_literal[route.verb][path_clean] = route
         rescue StandardError => e
-          Otto.logger.error "Error for route #{path}: #{e.message}"
+          Otto.structured_log(:error, "Route load failed",
+            {
+              path: path,
+              verb: verb,
+              definition: definition,
+              error: e.message,
+              error_class: e.class.name
+            }
+          )
           Otto.logger.debug e.backtrace.join("\n") if Otto.debug
         end
         self

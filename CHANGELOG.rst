@@ -7,6 +7,39 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.0.0.pre5:
+
+2.0.0.pre5 — 2025-10-21
+=======================
+
+Added
+-----
+
+- Added ``Otto::LoggingHelpers.log_timed_operation`` for automatic timing and error handling of operations
+- Added ``Otto::LoggingHelpers.log_backtrace`` for consistent backtrace logging with correlation fields
+- Added microsecond-precision timing to configuration freeze process
+- Added unique error ID generation for nested error handler failures (links via ``original_error_id``)
+
+Changed
+-------
+
+- Timing precision standardization: All timing calculations now use microsecond precision instead of milliseconds. This affects authentication duration tracking and request lifecycle timing. Duration values are now reported in microseconds as integers (e.g., ``15200`` instead of ``15.2``).
+- Request completion hooks API improvement: ``Otto.on_request_complete`` callbacks now receive a ``Rack::Response`` object instead of the raw ``[status, headers, body]`` tuple. This provides a more developer-friendly API consistent with ``Rack::Request``, allowing clean access via ``res.status``, ``res.headers``, and ``res.body`` instead of array indexing.
+- All timing now uses microseconds (``Otto::Utils.now_in_μs``) for consistency
+- Configuration freeze process now logs detailed timing metrics
+
+Documentation
+-------------
+
+- Added example application demonstrating three new logging patterns (``examples/logging_improvements.rb``)
+- Documented base context pattern for downstream projects to inject custom correlation fields
+- Added output examples for both structured and standard loggers
+
+AI Assistance
+-------------
+
+- This enhancement was developed with assistance from Claude Code (Opus 4.1)
+
    .. _changelog-2.0.0.pre4:
 
 

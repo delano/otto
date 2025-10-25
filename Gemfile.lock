@@ -136,12 +136,12 @@ GEM
       rspec-core (~> 3.13.0)
       rspec-expectations (~> 3.13.0)
       rspec-mocks (~> 3.13.0)
-    rspec-core (3.13.5)
+    rspec-core (3.13.6)
       rspec-support (~> 3.13.0)
     rspec-expectations (3.13.5)
       diff-lcs (>= 1.2.0, < 2.0)
       rspec-support (~> 3.13.0)
-    rspec-mocks (3.13.5)
+    rspec-mocks (3.13.6)
       diff-lcs (>= 1.2.0, < 2.0)
       rspec-support (~> 3.13.0)
     rspec-support (3.13.6)
@@ -180,8 +180,8 @@ GEM
     stringio (3.1.7)
     syntax_tree (6.3.0)
       prettier_print (>= 1.2.0)
-    tryouts (3.6.1)
-      concurrent-ruby (~> 1.0)
+    tryouts (3.7.1)
+      concurrent-ruby (~> 1.0, < 2)
       irb
       minitest (~> 5.0)
       pastel (~> 0.8)
@@ -225,7 +225,7 @@ DEPENDENCIES
   ruby-lsp
   stackprof
   syntax_tree
-  tryouts (~> 3.6.1)
+  tryouts (~> 3.7.1)
 
 BUNDLED WITH
    2.7.1

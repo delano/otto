@@ -27,7 +27,7 @@ end
 group :development do
   gem 'benchmark'
   gem 'debug'
-  gem 'rubocop', '~> 1.81.1', require: false
+  gem 'rubocop', '~> 1.81.6', require: false
   gem 'rubocop-performance', require: false
   gem 'rubocop-rspec', require: false
   gem 'rubocop-thread_safety', require: false

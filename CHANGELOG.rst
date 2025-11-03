@@ -7,6 +7,28 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.0.0.pre6:
+
+2.0.0.pre6 — TBD
+================
+
+Changed
+-------
+
+- **BREAKING**: ``Otto.on_request_complete`` is now an instance method instead of a class method. This fixes duplicate callback invocations in multi-app architectures (e.g., Rack::URLMap with multiple Otto instances). Each Otto instance now maintains its own isolated set of callbacks that only fire for requests processed by that specific instance.
+
+  **Migration**: Change ``Otto.on_request_complete { |req, res, dur| ... }`` to ``otto.on_request_complete { |req, res, dur| ... }``
+
+Fixed
+-----
+
+- Fixed issue #84 where ``on_request_complete`` callbacks would fire N times per request in multi-app architectures, causing duplicate logging and metrics
+
+AI Assistance
+-------------
+
+- This enhancement was developed with assistance from Claude Code (Opus 4.1)
+
 .. _changelog-2.0.0.pre5:
 
 2.0.0.pre5 — 2025-10-21

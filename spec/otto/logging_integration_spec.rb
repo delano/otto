@@ -51,11 +51,13 @@ RSpec.describe 'Otto Logging Integration' do
     let(:response) { [200, {}, ['OK']] }
     let(:callback_called) { [] }
 
-    before do
+    before do |example|
+      next if example.metadata[:skip_before]
+
       allow(Rack::Request).to receive(:new).and_return(request_double)
       allow(otto.instance_variable_get(:@app)).to receive(:call).and_return(response)
 
-      Otto.on_request_complete do |req, res, duration|
+      otto.on_request_complete do |req, res, duration|
         callback_called << {
           method: req.request_method,
           path: req.path_info,
@@ -63,11 +65,6 @@ RSpec.describe 'Otto Logging Integration' do
           duration: duration.is_a?(Numeric)
         }
       end
-    end
-
-    after do
-      # Clear callbacks
-      Otto.instance_variable_set(:@request_complete_callbacks, [])
     end
 
     it 'executes request completion hooks with timing' do
@@ -84,7 +81,7 @@ RSpec.describe 'Otto Logging Integration' do
 
     it 'handles multiple callbacks' do
       second_callback_called = false
-      Otto.on_request_complete { |_req, _res, _duration| second_callback_called = true }
+      otto.on_request_complete { |_req, _res, _duration| second_callback_called = true }
 
       env = { 'REQUEST_METHOD' => 'GET', 'PATH_INFO' => '/test' }
       otto.call(env)
@@ -94,7 +91,7 @@ RSpec.describe 'Otto Logging Integration' do
     end
 
     it 'handles callback errors gracefully' do
-      Otto.on_request_complete { |_req, _res, _duration| raise 'Callback error' }
+      otto.on_request_complete { |_req, _res, _duration| raise 'Callback error' }
 
       expect(logger_double).to receive(:error).with(/Request completion hook error/)
       expect(logger_double).to receive(:debug).with(/Hook error backtrace/)
@@ -105,7 +102,7 @@ RSpec.describe 'Otto Logging Integration' do
 
     it 'provides Rack::Response object with developer-friendly API' do
       response_object = nil
-      Otto.on_request_complete do |_req, res, _duration|
+      otto.on_request_complete do |_req, res, _duration|
         response_object = res
       end
 
@@ -122,6 +119,58 @@ RSpec.describe 'Otto Logging Integration' do
       tuple = response_object.finish
       expect(tuple).to be_a(Array)
       expect(tuple[0]).to eq(200)
+    end
+
+    it 'isolates callbacks between multiple Otto instances', :skip_before do
+      # Create three separate Otto instances simulating multi-app architecture
+      core_app = Otto.new
+      api_app = Otto.new
+      auth_app = Otto.new
+
+      core_callbacks = []
+      api_callbacks = []
+      auth_callbacks = []
+
+      # Register instance-specific callbacks
+      core_app.on_request_complete do |req, _res, _duration|
+        core_callbacks << { app: 'core', path: req.path }
+      end
+
+      api_app.on_request_complete do |req, _res, _duration|
+        api_callbacks << { app: 'api', path: req.path }
+      end
+
+      auth_app.on_request_complete do |req, _res, _duration|
+        auth_callbacks << { app: 'auth', path: req.path }
+      end
+
+      # Mock the app calls for each instance
+      allow(core_app.instance_variable_get(:@app)).to receive(:call).and_return([200, {}, ['OK']])
+      allow(api_app.instance_variable_get(:@app)).to receive(:call).and_return([200, {}, ['OK']])
+      allow(auth_app.instance_variable_get(:@app)).to receive(:call).and_return([200, {}, ['OK']])
+
+      # Simulate requests to different apps
+      core_app.call({ 'REQUEST_METHOD' => 'GET', 'PATH_INFO' => '/dashboard' })
+      api_app.call({ 'REQUEST_METHOD' => 'POST', 'PATH_INFO' => '/api/v2/secret' })
+      auth_app.call({ 'REQUEST_METHOD' => 'GET', 'PATH_INFO' => '/auth/login' })
+
+      # Verify each instance only received its own callbacks
+      expect(core_callbacks.length).to eq(1)
+      expect(core_callbacks.first).to eq({ app: 'core', path: '/dashboard' })
+
+      expect(api_callbacks.length).to eq(1)
+      expect(api_callbacks.first).to eq({ app: 'api', path: '/api/v2/secret' })
+
+      expect(auth_callbacks.length).to eq(1)
+      expect(auth_callbacks.first).to eq({ app: 'auth', path: '/auth/login' })
+
+      # Verify no cross-contamination
+      expect(core_callbacks).not_to include(hash_including(app: 'api'))
+      expect(core_callbacks).not_to include(hash_including(app: 'auth'))
+      expect(api_callbacks).not_to include(hash_including(app: 'core'))
+      expect(api_callbacks).not_to include(hash_including(app: 'auth'))
+      expect(auth_callbacks).not_to include(hash_including(app: 'core'))
+      expect(auth_callbacks).not_to include(hash_including(app: 'api'))
     end
   end
 

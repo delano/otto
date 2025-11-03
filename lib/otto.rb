@@ -119,13 +119,13 @@ class Otto
       response_raw = handle_error(e, env)
     ensure
       # Execute request completion hooks if any are registered
-      unless self.class.request_complete_callbacks.empty?
+      unless @request_complete_callbacks.empty?
         begin
           duration = Otto::Utils.now_in_μs - start_time
           # Wrap response tuple in Rack::Response for developer-friendly API
           # Otto's hook API should provide nice abstractions like Rack::Request/Response
           response = Rack::Response.new(response_raw[2], response_raw[0], response_raw[1])
-          self.class.request_complete_callbacks.each do |callback|
+          @request_complete_callbacks.each do |callback|
             callback.call(request, response, duration)
           end
         rescue StandardError => hook_error
@@ -384,6 +384,58 @@ class Otto
     @security_config.ip_privacy_config.mask_private_ips = true
   end
 
+  # Register a callback to be executed after each request completes
+  #
+  # Instance-level request completion callbacks allow each Otto instance
+  # to have its own isolated set of callbacks, preventing duplicate
+  # invocations in multi-app architectures (e.g., Rack::URLMap).
+  #
+  # The callback receives three arguments:
+  # - request: Rack::Request object
+  # - response: Rack::Response object (wrapping the response tuple)
+  # - duration: Request processing duration in microseconds
+  #
+  # @example Basic usage
+  #   otto = Otto.new(routes_file)
+  #   otto.on_request_complete do |req, res, duration|
+  #     logger.info "Request completed", path: req.path, duration: duration
+  #   end
+  #
+  # @example Multi-app architecture
+  #   # App 1: Core Web Application
+  #   core_router = Otto.new
+  #   core_router.on_request_complete do |req, res, duration|
+  #     logger.info "Core app request", path: req.path
+  #   end
+  #
+  #   # App 2: API Application
+  #   api_router = Otto.new
+  #   api_router.on_request_complete do |req, res, duration|
+  #     logger.info "API request", path: req.path
+  #   end
+  #
+  #   # Each callback only fires for its respective Otto instance
+  #
+  # @yield [request, response, duration] Block to execute after each request
+  # @yieldparam request [Rack::Request] The request object
+  # @yieldparam response [Rack::Response] The response object
+  # @yieldparam duration [Integer] Duration in microseconds
+  # @return [self] Returns self for method chaining
+  # @raise [FrozenError] if called after configuration is frozen
+  def on_request_complete(&block)
+    ensure_not_frozen!
+    @request_complete_callbacks << block if block_given?
+    self
+  end
+
+  # Get registered request completion callbacks (for internal use)
+  #
+  # @api private
+  # @return [Array<Proc>] Array of registered callback blocks
+  def request_complete_callbacks
+    @request_complete_callbacks
+  end
+
   # Configure IP privacy settings
   #
   # Privacy is enabled by default. Use this method to customize privacy
@@ -454,6 +506,7 @@ class Otto
     @auth_config       = { auth_strategies: {}, default_auth_strategy: 'noauth' }
     @security          = Otto::Security::Configurator.new(@security_config, @middleware, @auth_config)
     @app               = nil  # Pre-built middleware app (built after initialization)
+    @request_complete_callbacks = []  # Instance-level request completion callbacks
 
     # Add IP Privacy middleware first in stack (privacy by default for public IPs)
     # Private/localhost IPs are automatically exempted from masking
@@ -487,17 +540,6 @@ class Otto
 
   class << self
     attr_accessor :debug, :logger # rubocop:disable ThreadSafety/ClassAndModuleAttributes
-
-    # Request lifecycle callback registry
-    def on_request_complete(&block)
-      @request_complete_callbacks ||= []
-      @request_complete_callbacks << block if block_given?
-    end
-
-    # Get registered callbacks (for internal use)
-    def request_complete_callbacks
-      @request_complete_callbacks ||= []
-    end
 
     # Helper method for structured logging that works with both standard Logger and structured loggers
     def structured_log(level, message, data = {})

@@ -73,23 +73,10 @@ class Otto
           # In integrated context, let Otto's centralized error handler manage the response
           # In direct testing context, handle errors locally for unit testing
           if otto_instance
-            # Base context pattern: create once, reuse for correlation
-            base_context = Otto::LoggingHelpers.request_context(env)
+            # Store handler context in env for centralized error handler
             handler_name = "#{target_class}#call"
-
-            # Log error for handler-specific context but let Otto's centralized error handler manage the response
-            Otto.structured_log(:error, "Handler execution failed",
-              base_context.merge(
-                handler: handler_name,
-                error: e.message,
-                error_class: e.class.name,
-                duration: Otto::Utils.now_in_μs - start_time
-              )
-            )
-
-            Otto::LoggingHelpers.log_backtrace(e,
-              base_context.merge(handler: handler_name)
-            )
+            env['otto.handler'] = handler_name
+            env['otto.handler_duration'] = Otto::Utils.now_in_μs - start_time
 
             raise e # Re-raise to let Otto's centralized error handler manage the response
           else

@@ -26,33 +26,21 @@ class Otto
 
           # Only handle response if response_type is not default
           if route_definition.response_type != 'default'
-            handle_response(result, res, {
-                              class: target_class,
+            handle_response(result, res,
+            {
+                class: target_class,
               request: req,
-                            })
+            })
           end
         rescue StandardError => e
           # Check if we're being called through Otto's integrated context (vs direct handler testing)
           # In integrated context, let Otto's centralized error handler manage the response
           # In direct testing context, handle errors locally for unit testing
           if otto_instance
-            # Base context pattern: create once, reuse for correlation
-            base_context = Otto::LoggingHelpers.request_context(env)
+            # Store handler context in env for centralized error handler
             handler_name = "#{target_class.name}##{route_definition.method_name}"
-
-            # Log error for handler-specific context but let Otto's centralized error handler manage the response
-            Otto.structured_log(:error, "Handler execution failed",
-              base_context.merge(
-                handler: handler_name,
-                error: e.message,
-                error_class: e.class.name,
-                duration: Otto::Utils.now_in_μs - start_time
-              )
-            )
-
-            Otto::LoggingHelpers.log_backtrace(e,
-              base_context.merge(handler: handler_name)
-            )
+            env['otto.handler'] = handler_name
+            env['otto.handler_duration'] = Otto::Utils.now_in_μs - start_time
 
             raise e # Re-raise to let Otto's centralized error handler manage the response
           else
@@ -67,26 +55,15 @@ class Otto
             accept_header = env['HTTP_ACCEPT'].to_s
             if accept_header.include?('application/json')
               res.headers['content-type'] = 'application/json'
-              error_data                  = if Otto.env?(:dev, :development)
-                                              {
-                                                error: 'Internal Server Error',
-                                                message: 'Server error occurred. Check logs for details.',
-                                                error_id: error_id,
-                                              }
-                                            else
-                                              {
-                                                error: 'Internal Server Error',
-                                                message: 'An error occurred. Please try again later.',
-                                              }
-                                            end
+              error_data                  = {
+                   error: 'Internal Server Error',
+                 message: 'Server error occurred. Check logs for details.',
+                error_id: error_id,
+              }
               res.write JSON.generate(error_data)
             else
               res.headers['content-type'] = 'text/plain'
-              if Otto.env?(:dev, :development)
-                res.write "Server error (ID: #{error_id}). Check logs for details."
-              else
-                res.write 'An error occurred. Please try again later.'
-              end
+              res.write "Server error (ID: #{error_id}). Check logs for details."
             end
 
             # Add security headers if available

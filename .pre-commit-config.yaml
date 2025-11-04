@@ -96,7 +96,7 @@ repos:
 
   # Commit message issue tracking integration
   - repo: https://github.com/avilaton/add-msg-issue-prefix-hook
-    rev: v0.0.12
+    rev: v0.0.13
     hooks:
       - id: add-msg-issue-prefix
         stages: [prepare-commit-msg]

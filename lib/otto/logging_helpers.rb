@@ -74,11 +74,11 @@ class Otto
     # @note User agents are truncated to 100 chars to prevent log bloat
     def self.request_context(env)
       {
-        method: env['REQUEST_METHOD'],
-        path: env['PATH_INFO'],
-        ip: env['REMOTE_ADDR'],  # Already masked by IPPrivacyMiddleware for public IPs
-        country: env['otto.geo_country'],
-        user_agent: env['HTTP_USER_AGENT']&.slice(0, 100)  # Already anonymized by IPPrivacyMiddleware
+            method: env['REQUEST_METHOD'],
+              path: env['PATH_INFO'],
+                ip: env['REMOTE_ADDR'], # Already masked by IPPrivacyMiddleware for public IPs
+           country: env['otto.geo_country'],
+        user_agent: env['HTTP_USER_AGENT']&.slice(0, 100), # Already anonymized by IPPrivacyMiddleware
       }.compact
     end
 
@@ -98,25 +98,23 @@ class Otto
     #     compile_template(template)
     #   end
     #
-    def self.log_timed_operation(level, message, env, **metadata, &block)
+    def self.log_timed_operation(level, message, env, **metadata)
       start_time = Otto::Utils.now_in_μs
       result = yield
       duration = Otto::Utils.now_in_μs - start_time
 
       Otto.structured_log(level, message,
-        request_context(env).merge(metadata).merge(duration: duration)
-      )
+        request_context(env).merge(metadata).merge(duration: duration))
 
       result
-    rescue StandardError => ex
+    rescue StandardError => e
       duration = Otto::Utils.now_in_μs - start_time
       Otto.structured_log(:error, "#{message} failed",
         request_context(env).merge(metadata).merge(
           duration: duration,
-          error: ex.message,
-          error_class: ex.class.name
-        )
-      )
+          error: e.message,
+          error_class: e.class.name
+        ))
       raise
     end
 
@@ -146,10 +144,8 @@ class Otto
       return unless Otto.debug
 
       backtrace = error.backtrace&.first(10) || []
-      Otto.structured_log(:debug, "Exception backtrace",
-        context.merge(backtrace: backtrace)
-      )
+      Otto.structured_log(:debug, 'Exception backtrace',
+        context.merge(backtrace: backtrace))
     end
-
   end
 end

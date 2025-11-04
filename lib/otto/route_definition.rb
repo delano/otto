@@ -111,16 +111,16 @@ class Otto
     # @return [Hash]
     def to_h
       {
-        verb: @verb,
-        path: @path,
-        definition: @definition,
-        target: @target,
-        klass_name: @klass_name,
+               verb: @verb,
+               path: @path,
+         definition: @definition,
+             target: @target,
+         klass_name: @klass_name,
         method_name: @method_name,
-        kind: @kind,
-        options: @options,
-        pattern: @pattern,
-        keys: @keys,
+               kind: @kind,
+            options: @options,
+            pattern: @pattern,
+               keys: @keys,
       }
     end
 
@@ -166,11 +166,11 @@ class Otto
       case target
       when /^(.+)\.(.+)$/
         # Class.method - call class method directly
-        { klass_name: $1, method_name: $2, kind: :class }
+        { klass_name: ::Regexp.last_match(1), method_name: ::Regexp.last_match(2), kind: :class }
 
       when /^(.+)#(.+)$/
         # Class#method - instantiate then call instance method
-        { klass_name: $1, method_name: $2, kind: :instance }
+        { klass_name: ::Regexp.last_match(1), method_name: ::Regexp.last_match(2), kind: :instance }
 
       when /^[A-Z][A-Za-z0-9_]*(?:::[A-Z][A-Za-z0-9_]*)*$/
         # Bare class name - instantiate the class

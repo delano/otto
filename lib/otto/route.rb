@@ -158,8 +158,8 @@ class Otto
         if response_type != 'default'
           context = {
             logic_instance: (kind == :instance ? inst : nil),
-            status_code: nil,
-            redirect_path: nil,
+               status_code: nil,
+             redirect_path: nil,
           }
 
           Otto::ResponseHandlers::HandlerFactory.handle_response(result, res, response_type, context)

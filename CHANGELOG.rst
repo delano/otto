@@ -19,10 +19,13 @@ Changed
 
   **Migration**: Change ``Otto.on_request_complete { |req, res, dur| ... }`` to ``otto.on_request_complete { |req, res, dur| ... }``
 
+- **Logging**: Eliminated duplicate error logging in route handlers. Previously, errors produced two log lines ("Handler execution failed" + "Unhandled error in request"). Now produces a single comprehensive error log with all context (handler, duration, error_id). Lambda handlers now use centralized error handling for consistency. #86
+
 Fixed
 -----
 
 - Fixed issue #84 where ``on_request_complete`` callbacks would fire N times per request in multi-app architectures, causing duplicate logging and metrics
+- Fixed ``Otto.structured_log`` to respect ``Otto.debug`` flag - debug logs are now properly skipped when ``Otto.debug = false``
 
 AI Assistance
 -------------

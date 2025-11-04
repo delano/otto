@@ -14,6 +14,7 @@ class Otto
     # Configuration module providing locale and application configuration methods
     module Configuration
       include Otto::Core::Freezable
+
       def configure_locale(opts)
         # Check if we have any locale configuration
         has_direct_options = opts[:available_locales] || opts[:default_locale]
@@ -68,9 +69,7 @@ class Otto
         @auth_config[:auth_strategies] = opts[:auth_strategies] if opts[:auth_strategies]
         @auth_config[:default_auth_strategy] = opts[:default_auth_strategy] if opts[:default_auth_strategy]
 
-        # Enable authentication middleware if strategies are configured
-        return unless opts[:auth_strategies] && !opts[:auth_strategies].empty?
-
+        # No-op: authentication strategies are configured via @auth_config above
       end
 
       def configure_mcp(opts)
@@ -143,7 +142,6 @@ class Otto
         # Update existing @auth_config rather than creating a new one
         @auth_config[:auth_strategies] = strategies
         @auth_config[:default_auth_strategy] = default_strategy
-
       end
 
       # Freeze the application configuration to prevent runtime modifications.
@@ -157,7 +155,7 @@ class Otto
       # @return [self]
       def freeze_configuration!
         if frozen_configuration?
-          Otto.structured_log(:debug, "Configuration already frozen", { status: 'skipped' }) if Otto.debug
+          Otto.structured_log(:debug, 'Configuration already frozen', { status: 'skipped' }) if Otto.debug
           return self
         end
 
@@ -181,12 +179,12 @@ class Otto
         @configuration_frozen = true
 
         duration = Otto::Utils.now_in_μs - start_time
-        Otto.structured_log(:info, "Configuration freeze completed",
+        frozen_objects = %w[security_config locale_config middleware auth_config option routes]
+        Otto.structured_log(:info, 'Freezing completed',
           {
-            duration: duration,
-            frozen_objects: %w[security_config locale_config middleware auth_config option routes].join(',')
-          }
-        )
+                  duration: duration,
+            frozen_objects: frozen_objects.join(','),
+          })
 
         self
       end
@@ -205,10 +203,9 @@ class Otto
         raise FrozenError, 'Cannot modify frozen configuration' if frozen_configuration?
       end
 
-
       def middleware_enabled?(middleware_class)
         # Only check the new middleware stack as the single source of truth
-        @middleware && @middleware.includes?(middleware_class)
+        @middleware&.includes?(middleware_class)
       end
     end
   end

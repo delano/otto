@@ -250,7 +250,8 @@ RSpec.describe Otto::RouteHandlers do
         status, _, body = handler.call(env)
 
         expect(status).to eq(500)
-        expect(body.first).to include('An error occurred. Please try again later.')
+        expect(body.first).to include('Server error')
+        expect(body.first).to include('Check logs for details')
       end
     end
   end

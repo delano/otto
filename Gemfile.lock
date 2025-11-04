@@ -106,7 +106,7 @@ GEM
       date
       stringio
     racc (1.8.1)
-    rack (3.2.3)
+    rack (3.2.4)
     rack-attack (6.8.0)
       rack (>= 1.0, < 4)
     rack-parser (0.7.0)

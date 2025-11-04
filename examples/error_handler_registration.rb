@@ -83,6 +83,7 @@ env = {
 
 status, headers, body = otto.call(env)
 puts "Status: #{status}"
+puts "Content-Type: #{headers['content-type']}"
 puts "Body: #{body.first}"
 puts "Log level: INFO (not ERROR)"
 
@@ -91,6 +92,7 @@ env['PATH_INFO'] = '/resource/expired'
 
 status, headers, body = otto.call(env)
 puts "Status: #{status}"
+puts "Content-Type: #{headers['content-type']}"
 puts "Body: #{body.first}"
 puts "Log level: INFO (not ERROR)"
 
@@ -104,6 +106,7 @@ env = {
 
 status, headers, body = otto.call(env)
 puts "Status: #{status}"
+puts "Content-Type: #{headers['content-type']}"
 puts "Body: #{body.first}"
 puts "Log level: WARN (not ERROR)"
 puts "Custom fields: retry_after included"
@@ -118,6 +121,7 @@ env = {
 
 status, headers, body = otto.call(env)
 puts "Status: #{status}"
+puts "Content-Type: #{headers['content-type']}"
 puts "Body: #{body.first}"
 
 puts "\n=== Benefits ==="

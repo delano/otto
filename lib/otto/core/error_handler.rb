@@ -17,17 +17,19 @@ class Otto
         # Base context pattern: create once, reuse for correlation
         base_context = Otto::LoggingHelpers.request_context(env)
 
-        Otto.structured_log(:error, "Unhandled error in request",
-          base_context.merge(
-            error: error.message,
-            error_class: error.class.name,
-            error_id: error_id
-          )
+        # Include handler context if available (set by route handlers)
+        log_context = base_context.merge(
+          error: error.message,
+          error_class: error.class.name,
+          error_id: error_id
         )
+        log_context[:handler] = env['otto.handler'] if env['otto.handler']
+        log_context[:duration] = env['otto.handler_duration'] if env['otto.handler_duration']
+
+        Otto.structured_log(:error, 'Unhandled error in request', log_context)
 
         Otto::LoggingHelpers.log_backtrace(error,
-          base_context.merge(error_id: error_id)
-        )
+          base_context.merge(error_id: error_id))
 
         # Parse request for content negotiation
         begin
@@ -48,18 +50,16 @@ class Otto
             custom_handler_error_id = SecureRandom.hex(8)
             base_context = Otto::LoggingHelpers.request_context(env)
 
-            Otto.structured_log(:error, "Error in custom error handler",
+            Otto.structured_log(:error, 'Error in custom error handler',
               base_context.merge(
                 error: e.message,
                 error_class: e.class.name,
                 error_id: custom_handler_error_id,
-                original_error_id: error_id  # Link to original error
-              )
-            )
+                original_error_id: error_id # Link to original error
+              ))
 
             Otto::LoggingHelpers.log_backtrace(e,
-              base_context.merge(error_id: custom_handler_error_id, original_error_id: error_id)
-            )
+              base_context.merge(error_id: custom_handler_error_id, original_error_id: error_id))
           end
         end
 
@@ -91,13 +91,13 @@ class Otto
       def json_error_response(error_id)
         error_data = if Otto.env?(:dev, :development)
                        {
-                         error: 'Internal Server Error',
-                         message: 'Server error occurred. Check logs for details.',
+                            error: 'Internal Server Error',
+                          message: 'Server error occurred. Check logs for details.',
                          error_id: error_id,
                        }
                      else
                        {
-                         error: 'Internal Server Error',
+                           error: 'Internal Server Error',
                          message: 'An error occurred. Please try again later.',
                        }
                      end

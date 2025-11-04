@@ -128,9 +128,9 @@ class Otto
           @request_complete_callbacks.each do |callback|
             callback.call(request, response, duration)
           end
-        rescue StandardError => hook_error
-          Otto.logger.error "[Otto] Request completion hook error: #{hook_error.message}"
-          Otto.logger.debug "[Otto] Hook error backtrace: #{hook_error.backtrace.join("\n")}" if Otto.debug
+        rescue StandardError => e
+          Otto.logger.error "[Otto] Request completion hook error: #{e.message}"
+          Otto.logger.debug "[Otto] Hook error backtrace: #{e.backtrace.join("\n")}" if Otto.debug
         end
       end
     end
@@ -169,7 +169,7 @@ class Otto
     # middleware_stack=), the @app instance variable could be swapped
     # mid-request in a multi-threaded environment.
 
-    build_app! if @app  # Rebuild app if already initialized
+    build_app! if @app # Rebuild app if already initialized
   end
 
   # Compatibility method for existing tests
@@ -181,7 +181,7 @@ class Otto
   def middleware_stack=(stack)
     @middleware.clear!
     Array(stack).each { |middleware| @middleware.add(middleware) }
-    build_app! if @app  # Rebuild app if already initialized
+    build_app! if @app # Rebuild app if already initialized
   end
 
   # Compatibility method for middleware detection
@@ -326,26 +326,26 @@ class Otto
   # @example
   #   otto.add_auth_strategy('custom', MyCustomStrategy.new)
   # Add an authentication strategy with a registered name
-      #
-      # This is the primary public API for registering authentication strategies.
-      # The name you provide here will be available as `strategy_result.strategy_name`
-      # in your application code, making it easy to identify which strategy authenticated
-      # the current request.
-      #
-      # Also available via Otto::Security::Configurator for consolidated security config.
-      #
-      # @param name [String, Symbol] Strategy name (e.g., 'session', 'api_key', 'jwt')
-      # @param strategy [AuthStrategy] Strategy instance
-      # @example
-      #   otto.add_auth_strategy('session', SessionStrategy.new(session_key: 'user_id'))
-      #   otto.add_auth_strategy('api_key', APIKeyStrategy.new)
-      def add_auth_strategy(name, strategy)
-        ensure_not_frozen!
-        # Ensure auth_config is initialized (handles edge case where it might be nil)
-        @auth_config = { auth_strategies: {}, default_auth_strategy: 'noauth' } if @auth_config.nil?
+  #
+  # This is the primary public API for registering authentication strategies.
+  # The name you provide here will be available as `strategy_result.strategy_name`
+  # in your application code, making it easy to identify which strategy authenticated
+  # the current request.
+  #
+  # Also available via Otto::Security::Configurator for consolidated security config.
+  #
+  # @param name [String, Symbol] Strategy name (e.g., 'session', 'api_key', 'jwt')
+  # @param strategy [AuthStrategy] Strategy instance
+  # @example
+  #   otto.add_auth_strategy('session', SessionStrategy.new(session_key: 'user_id'))
+  #   otto.add_auth_strategy('api_key', APIKeyStrategy.new)
+  def add_auth_strategy(name, strategy)
+    ensure_not_frozen!
+    # Ensure auth_config is initialized (handles edge case where it might be nil)
+    @auth_config = { auth_strategies: {}, default_auth_strategy: 'noauth' } if @auth_config.nil?
 
-        @auth_config[:auth_strategies][name] = strategy
-      end
+    @auth_config[:auth_strategies][name] = strategy
+  end
 
   # Disable IP privacy to access original IP addresses
   #
@@ -364,7 +364,6 @@ class Otto
     ensure_not_frozen!
     @security_config.ip_privacy_config.disable!
   end
-
 
   # Enable full IP privacy (mask ALL IPs including private/localhost)
   #
@@ -432,9 +431,7 @@ class Otto
   #
   # @api private
   # @return [Array<Proc>] Array of registered callback blocks
-  def request_complete_callbacks
-    @request_complete_callbacks
-  end
+  attr_reader :request_complete_callbacks
 
   # Configure IP privacy settings
   #
@@ -505,8 +502,8 @@ class Otto
     # Initialize @auth_config first so it can be shared with the configurator
     @auth_config       = { auth_strategies: {}, default_auth_strategy: 'noauth' }
     @security          = Otto::Security::Configurator.new(@security_config, @middleware, @auth_config)
-    @app               = nil  # Pre-built middleware app (built after initialization)
-    @request_complete_callbacks = []  # Instance-level request completion callbacks
+    @app               = nil # Pre-built middleware app (built after initialization)
+    @request_complete_callbacks = [] # Instance-level request completion callbacks
 
     # Add IP Privacy middleware first in stack (privacy by default for public IPs)
     # Private/localhost IPs are automatically exempted from masking
@@ -545,27 +542,16 @@ class Otto
     def structured_log(level, message, data = {})
       return unless logger
 
-      case level
-      when :debug
-        return unless debug
-        log_method = :debug
-      when :info
-        log_method = :info
-      when :warn
-        log_method = :warn
-      when :error
-        log_method = :error
-      else
-        raise ArgumentError, "Unsupported log level: #{level.inspect}. Valid levels: :debug, :info, :warn, :error"
-      end
+      # Skip debug logging when Otto.debug is false
+      return if level == :debug && !debug
 
       # Try structured logging first (SemanticLogger, etc.)
-      if logger.respond_to?(log_method) && logger.method(log_method).arity > 1
-        logger.send(log_method, message, data)
+      if logger.respond_to?(level) && logger.method(level).arity > 1
+        logger.send(level, message, data)
       else
         # Fallback to standard logger with formatted string
-        formatted_data = data.empty? ? "" : " -- #{data.inspect}"
-        logger.send(log_method, "[Otto] #{message}#{formatted_data}")
+        formatted_data = data.empty? ? '' : " -- #{data.inspect}"
+        logger.send(level, "[Otto] #{message}#{formatted_data}")
       end
     end
   end
@@ -590,7 +576,7 @@ class Otto
     end
 
     def env? *guesses
-      !guesses.flatten.select { |n| ENV['RACK_ENV'].to_s == n.to_s }.empty?
+      guesses.flatten.any? { |n| ENV['RACK_ENV'].to_s == n.to_s }
     end
 
     # Test-only method to unfreeze Otto configuration
@@ -607,9 +593,7 @@ class Otto
     # @raise [RuntimeError] if RSpec is not defined (not in test environment)
     # @api private
     def unfreeze_for_testing(otto)
-      unless defined?(RSpec)
-        raise 'Otto.unfreeze_for_testing is only available in RSpec test environment'
-      end
+      raise 'Otto.unfreeze_for_testing is only available in RSpec test environment' unless defined?(RSpec)
 
       otto.instance_variable_set(:@configuration_frozen, false)
       otto

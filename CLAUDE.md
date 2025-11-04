@@ -2,6 +2,100 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Error Handler Registration
+
+**IMPORTANT**: Otto supports registering handlers for expected business logic errors to avoid logging them as unhandled 500 errors.
+
+### Basic Usage
+
+Register error handlers during Otto initialization (before first request):
+
+```ruby
+otto = Otto.new('routes.txt')
+
+# Register expected errors with status codes and log levels
+otto.register_error_handler(Onetime::MissingSecret, status: 404, log_level: :info)
+otto.register_error_handler(Onetime::SecretExpired, status: 410, log_level: :info)
+otto.register_error_handler(Onetime::RateLimited, status: 429, log_level: :warn)
+```
+
+### Custom Response Handlers
+
+For more control over the error response, provide a block:
+
+```ruby
+otto.register_error_handler(Onetime::RateLimited, status: 429, log_level: :warn) do |error, req|
+  {
+    error: 'Rate limit exceeded',
+    retry_after: error.retry_after,
+    message: error.message,
+    client_id: req.params[:client_id]
+  }
+end
+```
+
+### How It Works
+
+When a registered error is raised:
+1. **Status Code**: Returns the configured HTTP status (not 500)
+2. **Log Level**: Logs at configured level (:info, :warn) instead of :error
+3. **No Backtrace**: Expected errors don't generate backtraces
+4. **Content Negotiation**: Automatically returns JSON or plain text based on Accept header
+5. **Error ID**: Still generates correlation ID for debugging (shown in dev mode only)
+
+### Log Output Comparison
+
+**Unregistered error (logged as 500)**:
+```
+E [54845] Otto -- Unhandled error in request -- {error: "Secret not found", error_class: "Onetime::MissingSecret", error_id: "abc123"}
+E [54845] Otto -- Exception backtrace -- {error_id: "abc123", backtrace: [...]}
+```
+
+**Registered error (logged at info level)**:
+```
+I [54845] Otto -- Expected error in request -- {error: "Secret not found", error_class: "Onetime::MissingSecret", error_id: "abc123", expected: true}
+```
+
+### Use Cases
+
+**Common expected errors:**
+- `MissingResource` → 404 Not Found
+- `ExpiredResource` → 410 Gone
+- `RateLimited` → 429 Too Many Requests
+- `Unauthorized` → 401 Unauthorized
+- `ValidationFailed` → 422 Unprocessable Entity
+
+**Integration with Logic Classes:**
+
+Since Logic classes use `raise_concerns` for validation, register handlers for those concerns:
+
+```ruby
+otto.register_error_handler(YourApp::InvalidInput, status: 422, log_level: :warn)
+otto.register_error_handler(YourApp::PermissionDenied, status: 403, log_level: :warn)
+```
+
+### String Class Names (Lazy Loading)
+
+For errors that may not be loaded yet:
+
+```ruby
+otto.register_error_handler('SomeModule::SomeError', status: 422, log_level: :warn)
+```
+
+### Configuration Freezing
+
+Error handlers must be registered before the first request (before configuration freezing):
+
+```ruby
+otto = Otto.new('routes.txt')
+otto.register_error_handler(MyError, status: 404)  # ✓ OK
+
+# First request triggers freezing
+otto.call(env)
+
+otto.register_error_handler(AnotherError, status: 404)  # ✗ FrozenError!
+```
+
 ## Authentication Architecture
 
 **IMPORTANT**: Authentication in Otto is handled by `RouteAuthWrapper` at the handler level, NOT by middleware.

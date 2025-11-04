@@ -23,38 +23,40 @@ RSpec.describe Otto, 'Error Handling' do
       test_app.send(:handle_error, error, env)
 
       # Extract error IDs from fallback format (Ruby 3.2: {error_id: "..."}, Ruby 3.3+: {:error_id=>"..."})
+      # Each handle_error call generates 2 error logs (main error + backtrace), so 2 calls = 4 logs
       error_ids = logged_messages.join(' ').scan(/error_id[: =>]+\"([a-f0-9]{16})\"/).flatten
-      expect(error_ids.length).to be >= 2
-      expect(error_ids.uniq.length).to eq(error_ids.length)
+      expect(error_ids.length).to be >= 4  # 2 calls × 2 logs each
+      # All error IDs should be the same within each call (main error and backtrace share ID)
+      # but different between calls
+      expect(error_ids.uniq.length).to eq(2)  # 2 unique error IDs (one per handle_error call)
     end
 
     it 'logs error details with error ID' do
+      # Expect two :error logs: main error + backtrace
       expect(Otto.logger).to receive(:error).with(
         /\[Otto\] Unhandled error in request -- .*error[: =>]+"Test error message".*error_class[: =>]+"StandardError".*error_id[: =>]+"[a-f0-9]{16}"/
+      )
+      expect(Otto.logger).to receive(:error).with(
+        /\[Otto\] Exception backtrace -- .*error_id[: =>]+"[a-f0-9]{16}"/
       )
       allow(Otto.logger).to receive(:debug)
 
       test_app.send(:handle_error, error, env)
     end
 
-    it 'logs backtrace when debug is enabled' do
-      original_debug = Otto.debug
-      Otto.debug = true
-
-      # Allow initialization debug messages and focus on backtrace logging
+    it 'always logs backtrace at error level with sanitized paths' do
+      # Allow debug messages
       allow(Otto.logger).to receive(:debug)
       expect(Otto.logger).to receive(:error).with(
         /\[Otto\] Unhandled error in request/
       )
-      # Updated: backtrace log no longer includes error/error_class (no duplication)
-      # It only includes correlation fields (error_id, method, path, etc) and backtrace
-      expect(Otto.logger).to receive(:debug).with(
+      # Backtrace now logs at :error level with sanitized paths
+      # It includes correlation fields (error_id, method, path, etc) and sanitized backtrace
+      expect(Otto.logger).to receive(:error).with(
         /\[Otto\] Exception backtrace -- .*error_id[: =>]+".*".*backtrace[: =>]+/
       ).at_least(:once)
 
       test_app.send(:handle_error, error, env)
-
-      Otto.debug = original_debug
     end
 
     it 'handles malformed request environment gracefully' do
@@ -271,10 +273,11 @@ RSpec.describe Otto, 'Error Handling' do
       end
 
       # Extract error IDs from fallback format (Ruby 3.2: {error_id: "..."}, Ruby 3.3+: {:error_id=>"..."})
+      # Each handle_error call generates 2 error logs (main error + backtrace), so 5 calls = 10 logs
       error_ids = logged_messages.join(' ').scan(/error_id[: =>]+\"([a-f0-9]{16})\"/).flatten
 
-      expect(error_ids.length).to eq(5)
-      expect(error_ids.uniq.length).to eq(5)
+      expect(error_ids.length).to eq(10)  # 5 calls × 2 logs each
+      expect(error_ids.uniq.length).to eq(5)  # 5 unique error IDs (one per handle_error call)
       error_ids.each { |id| expect(id).to match(/^[a-f0-9]{16}$/) }
     end
   end

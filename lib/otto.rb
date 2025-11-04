@@ -66,7 +66,8 @@ class Otto
 
   attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option,
               :static_route, :security_config, :locale_config, :auth_config,
-              :route_handler_factory, :mcp_server, :security, :middleware
+              :route_handler_factory, :mcp_server, :security, :middleware,
+              :error_handlers
   attr_accessor :not_found, :server_error
 
   def initialize(path = nil, opts = {})
@@ -347,6 +348,45 @@ class Otto
     @auth_config[:auth_strategies][name] = strategy
   end
 
+  # Register an error handler for expected business logic errors
+  #
+  # This allows you to handle known error conditions (like missing resources,
+  # expired data, rate limits) without logging them as unhandled 500 errors.
+  #
+  # @param error_class [Class, String] The exception class or class name to handle
+  # @param status [Integer] HTTP status code to return (default: 500)
+  # @param log_level [Symbol] Log level for expected errors (:info, :warn, :error)
+  # @param handler [Proc] Optional block to customize error response
+  #
+  # @example Basic usage with status code
+  #   otto.register_error_handler(Onetime::MissingSecret, status: 404, log_level: :info)
+  #   otto.register_error_handler(Onetime::SecretExpired, status: 410, log_level: :info)
+  #
+  # @example With custom response handler
+  #   otto.register_error_handler(Onetime::RateLimited, status: 429, log_level: :warn) do |error, req|
+  #     {
+  #       error: 'Rate limit exceeded',
+  #       retry_after: error.retry_after,
+  #       message: error.message
+  #     }
+  #   end
+  #
+  # @example Using string class names (for lazy loading)
+  #   otto.register_error_handler('Onetime::MissingSecret', status: 404, log_level: :info)
+  #
+  def register_error_handler(error_class, status: 500, log_level: :info, &handler)
+    ensure_not_frozen!
+
+    # Normalize error class to string for consistent lookup
+    error_class_name = error_class.is_a?(String) ? error_class : error_class.name
+
+    @error_handlers[error_class_name] = {
+      status: status,
+      log_level: log_level,
+      handler: handler
+    }
+  end
+
   # Disable IP privacy to access original IP addresses
   #
   # IMPORTANT: By default, Otto masks public IP addresses for privacy.
@@ -504,6 +544,7 @@ class Otto
     @security          = Otto::Security::Configurator.new(@security_config, @middleware, @auth_config)
     @app               = nil # Pre-built middleware app (built after initialization)
     @request_complete_callbacks = [] # Instance-level request completion callbacks
+    @error_handlers    = {} # Registered error handlers for expected errors
 
     # Add IP Privacy middleware first in stack (privacy by default for public IPs)
     # Private/localhost IPs are automatically exempted from masking

@@ -32,41 +32,12 @@ class Otto
             request: req,
                           })
         rescue StandardError => e
-          error_id = SecureRandom.hex(8)
-
-          # Base context pattern: create once, reuse for correlation
-          base_context = Otto::LoggingHelpers.request_context(env)
+          # Store handler context in env for centralized error handler
           handler_name = "Lambda[#{route_definition.klass_name}]"
+          env['otto.handler'] = handler_name
+          env['otto.handler_duration'] = Otto::Utils.now_in_μs - start_time
 
-          Otto.structured_log(:error, "Handler execution failed",
-            base_context.merge(
-              handler: handler_name,
-              error: e.message,
-              error_class: e.class.name,
-              error_id: error_id,
-              duration: Otto::Utils.now_in_μs - start_time
-            )
-          )
-
-          Otto::LoggingHelpers.log_backtrace(e,
-            base_context.merge(handler: handler_name, error_id: error_id)
-          )
-
-          res.status                  = 500
-          res.headers['content-type'] = 'text/plain'
-
-          if Otto.env?(:dev, :development)
-            res.write "Lambda handler error (ID: #{error_id}). Check logs for details."
-          else
-            res.write 'An error occurred. Please try again later.'
-          end
-
-          # Add security headers if available
-          if otto_instance.respond_to?(:security_config) && otto_instance.security_config
-            otto_instance.security_config.security_headers.each do |header, value|
-              res.headers[header] = value
-            end
-          end
+          raise e # Re-raise to let Otto's centralized error handler manage the response
         end
 
         res.finish

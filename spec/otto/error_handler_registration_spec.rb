@@ -168,8 +168,40 @@ RSpec.describe Otto, 'Error Handler Registration' do
       end
 
       error = TestMissingResourceError.new('Resource not found')
-      allow(Otto.logger).to receive(:info)
-      expect(Otto.logger).to receive(:warn).with(/Error in custom error handler/)
+
+      # Allow the expected error log
+      allow(Otto).to receive(:structured_log).with(:info, 'Expected error in request', anything)
+
+      # Expect the warning about handler failure
+      expect(Otto).to receive(:structured_log).with(:warn, 'Error in custom error handler', hash_including(
+        error: 'Handler failed',
+        error_class: 'StandardError',
+        original_error_class: 'TestMissingResourceError'
+      ))
+
+      response = test_app.send(:handle_error, error, env)
+      body = JSON.parse(response[2].first)
+
+      expect(response[0]).to eq(404)
+      expect(body['error']).to eq('TestMissingResourceError')
+      expect(body['message']).to eq('Resource not found')
+    end
+
+    it 'falls back to default response if custom handler returns non-Hash' do
+      test_app.register_error_handler(TestMissingResourceError, status: 404) do |_error, _req|
+        'This is a string, not a Hash'  # Invalid return value
+      end
+
+      error = TestMissingResourceError.new('Resource not found')
+
+      # Allow the expected error log
+      allow(Otto).to receive(:structured_log).with(:info, 'Expected error in request', anything)
+
+      # Expect the warning about non-hash return
+      expect(Otto).to receive(:structured_log).with(:warn, 'Custom error handler returned non-hash value', hash_including(
+        error_class: 'TestMissingResourceError',
+        handler_result_class: 'String'
+      ))
 
       response = test_app.send(:handle_error, error, env)
       body = JSON.parse(response[2].first)

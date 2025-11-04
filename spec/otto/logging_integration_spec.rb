@@ -463,6 +463,31 @@ RSpec.describe 'Otto Logging Integration' do
 
         Otto::LoggingHelpers.log_backtrace(error_with_project_paths, {})
       end
+
+      it 'handles malformed paths gracefully (DoS prevention)' do
+        # Create error with malformed path containing null byte (would raise ArgumentError in File.expand_path)
+        error_with_malformed_path = StandardError.new('Malformed path error')
+        error_with_malformed_path.set_backtrace([
+          "/path/with\x00null/byte.rb:100:in `call'",
+          "normal_file.rb:50:in `method'"
+        ])
+
+        expect(Otto).to receive(:structured_log) do |level, _message, metadata|
+          expect(level).to eq(:error)
+          backtrace = metadata[:backtrace]
+
+          # Malformed path: should be caught and handled as EXTERNAL
+          # The path contains a null byte which causes File.expand_path and File.basename to raise ArgumentError
+          # We use split('/').last to safely extract the basename
+          expect(backtrace[0]).to start_with('[EXTERNAL] ')
+          expect(backtrace[0]).to include(':100:in `call\'')
+
+          # Normal path: should work as expected
+          expect(backtrace[1]).to include('normal_file.rb:50:in `method\'')
+        end
+
+        Otto::LoggingHelpers.log_backtrace(error_with_malformed_path, env)
+      end
     end
   end
 end

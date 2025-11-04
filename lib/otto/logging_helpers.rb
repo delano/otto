@@ -160,7 +160,14 @@ class Otto
         file_path = ::Regexp.last_match(1)
         suffix = line[file_path.length..]
 
-        expanded_path = File.expand_path(file_path)
+        begin
+          expanded_path = File.expand_path(file_path)
+        rescue ArgumentError
+          # Handle malformed paths (e.g., containing null bytes)
+          # File.basename also raises ArgumentError for null bytes, so use simple string manipulation
+          basename = file_path.split('/').last || file_path
+          return "[EXTERNAL] #{basename}#{suffix}"
+        end
 
         # Try project-relative path first
         if expanded_path.start_with?(expanded_root + File::SEPARATOR)

@@ -110,10 +110,31 @@ class Otto
                           # Use custom handler block if provided
                           begin
                             req = Rack::Request.new(env)
-                            handler_config[:handler].call(error, req)
+                            result = handler_config[:handler].call(error, req)
+
+                            # Validate that custom handler returned a Hash
+                            unless result.is_a?(Hash)
+                              base_context = Otto::LoggingHelpers.request_context(env)
+                              Otto.structured_log(:warn, 'Custom error handler returned non-hash value',
+                                base_context.merge(
+                                  error_class: error.class.name,
+                                  handler_result_class: result.class.name,
+                                  error_id: error_id
+                                ))
+                              result = { error: error.class.name.split('::').last, message: error.message }
+                            end
+
+                            result
                           rescue StandardError => e
                             # If custom handler fails, fall back to default
-                            Otto.logger.warn "Error in custom error handler: #{e.message}"
+                            base_context = Otto::LoggingHelpers.request_context(env)
+                            Otto.structured_log(:warn, 'Error in custom error handler',
+                              base_context.merge(
+                                error: e.message,
+                                error_class: e.class.name,
+                                original_error_class: error.class.name,
+                                error_id: error_id
+                              ))
                             { error: error.class.name.split('::').last, message: error.message }
                           end
                         else

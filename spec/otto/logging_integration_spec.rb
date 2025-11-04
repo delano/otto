@@ -344,10 +344,10 @@ RSpec.describe 'Otto Logging Integration' do
         test_error.set_backtrace(backtrace)
       end
 
-      it 'only logs when Otto.debug is true' do
-        Otto.debug = true
+      it 'always logs at error level regardless of Otto.debug setting' do
+        Otto.debug = false  # Even with debug disabled
 
-        expect(Otto).to receive(:structured_log).with(:debug, 'Exception backtrace', hash_including(
+        expect(Otto).to receive(:structured_log).with(:error, 'Exception backtrace', hash_including(
           backtrace: kind_of(Array),
           handler: 'TestHandler'
         ))
@@ -357,23 +357,13 @@ RSpec.describe 'Otto Logging Integration' do
         )
       end
 
-      it 'does not log when Otto.debug is false' do
-        Otto.debug = false
-
-        expect(Otto).not_to receive(:structured_log)
-
-        Otto::LoggingHelpers.log_backtrace(test_error,
-          Otto::LoggingHelpers.request_context(env).merge(handler: 'TestHandler')
-        )
-      end
-
-      it 'limits backtrace to first 10 lines' do
-        Otto.debug = true
-
-        expect(Otto).to receive(:structured_log) do |_level, _message, metadata|
-          expect(metadata[:backtrace].length).to eq(10)
-          expect(metadata[:backtrace].first).to eq('/path/to/file.rb:1:in `method_0\'')
-          expect(metadata[:backtrace].last).to eq('/path/to/file.rb:10:in `method_9\'')
+      it 'limits backtrace to first 20 lines' do
+        expect(Otto).to receive(:structured_log) do |level, _message, metadata|
+          expect(level).to eq(:error)
+          expect(metadata[:backtrace].length).to eq(20)
+          # Paths are sanitized - no absolute paths
+          expect(metadata[:backtrace].first).not_to start_with('/path/to/')
+          expect(metadata[:backtrace].last).not_to start_with('/path/to/')
         end
 
         Otto::LoggingHelpers.log_backtrace(test_error,
@@ -382,10 +372,10 @@ RSpec.describe 'Otto Logging Integration' do
       end
 
       it 'handles errors with nil backtrace' do
-        Otto.debug = true
         error_without_backtrace = StandardError.new('No backtrace')
 
-        expect(Otto).to receive(:structured_log) do |_level, _message, metadata|
+        expect(Otto).to receive(:structured_log) do |level, _message, metadata|
+          expect(level).to eq(:error)
           expect(metadata[:backtrace]).to eq([])
         end
 
@@ -395,9 +385,8 @@ RSpec.describe 'Otto Logging Integration' do
       end
 
       it 'includes request context in log' do
-        Otto.debug = true
-
-        expect(Otto).to receive(:structured_log) do |_level, _message, metadata|
+        expect(Otto).to receive(:structured_log) do |level, _message, metadata|
+          expect(level).to eq(:error)
           expect(metadata[:method]).to eq('GET')
           expect(metadata[:path]).to eq('/test')
           expect(metadata[:ip]).to eq('127.0.0.1')
@@ -411,8 +400,6 @@ RSpec.describe 'Otto Logging Integration' do
       end
 
       it 'does not duplicate error fields from context' do
-        Otto.debug = true
-
         context_with_error = Otto::LoggingHelpers.request_context(env).merge(
           error: 'Already logged',
           error_class: 'AlreadyLogged',
@@ -420,7 +407,7 @@ RSpec.describe 'Otto Logging Integration' do
         )
 
         expect(Otto).to receive(:structured_log).with(
-          :debug,
+          :error,
           'Exception backtrace',
           hash_including(
             error_id: 'test123',
@@ -437,13 +424,44 @@ RSpec.describe 'Otto Logging Integration' do
       end
 
       it 'works with empty context' do
-        Otto.debug = true
-
-        expect(Otto).to receive(:structured_log).with(:debug, 'Exception backtrace', hash_including(
+        expect(Otto).to receive(:structured_log).with(:error, 'Exception backtrace', hash_including(
           backtrace: kind_of(Array)
         ))
 
         Otto::LoggingHelpers.log_backtrace(test_error, {})
+      end
+
+      it 'sanitizes absolute paths to relative paths' do
+        # Create error with real project paths
+        project_root = Dir.pwd
+        error_with_project_paths = StandardError.new('Project error')
+        error_with_project_paths.set_backtrace([
+          "#{project_root}/lib/otto.rb:100:in `call'",
+          "#{project_root}/lib/otto/core/router.rb:50:in `route'",
+          "/usr/local/bundle/gems/rack-3.1.8/lib/rack/request.rb:42:in `initialize'",
+          "/usr/lib/ruby/3.4.0/logger.rb:384:in `log'",
+          "/some/unknown/path/file.rb:10:in `unknown'"
+        ])
+
+        expect(Otto).to receive(:structured_log) do |level, _message, metadata|
+          expect(level).to eq(:error)
+          backtrace = metadata[:backtrace]
+
+          # Project files: relative paths
+          expect(backtrace[0]).to eq("lib/otto.rb:100:in `call'")
+          expect(backtrace[1]).to eq("lib/otto/core/router.rb:50:in `route'")
+
+          # Gem files: categorized
+          expect(backtrace[2]).to start_with('[GEM] rack-3.1.8/')
+
+          # Ruby stdlib: categorized
+          expect(backtrace[3]).to start_with('[RUBY] ')
+
+          # Unknown: categorized with filename only
+          expect(backtrace[4]).to start_with('[EXTERNAL] ')
+        end
+
+        Otto::LoggingHelpers.log_backtrace(error_with_project_paths, {})
       end
     end
   end

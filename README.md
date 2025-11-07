@@ -2,7 +2,7 @@
 
 **Define your rack-apps in plain-text with built-in security.**
 
-> **v2.0.0-pre1 Available**: This pre-release includes major improvements to middleware management and test coverage. See [changelog](CHANGELOG.rst) and [migration guide](docs/migrating/v2.0.0-pre1.md) for upgraders.
+> **v2.0.0-pre6 Available**: This pre-release includes major improvements to middleware management, logging, and request callback handling. See [changelog](CHANGELOG.rst) for details and upgrade notes.
 
 ![Otto mascot](public/img/otto.jpg "Otto - All Rack, no Pinion")
 
@@ -12,6 +12,14 @@ Otto apps have three files: a rackup file, a Ruby class, and a routes file. The 
 $ cd myapp && ls
 config.ru app.rb routes
 ```
+
+## Why Otto?
+
+- **Security by Default**: Automatic IP masking for public addresses, user agent anonymization, CSRF protection, and input validation
+- **Privacy First**: Masks public IPs, strips user agent versions, provides country-level geo-location only—no external APIs needed
+- **Simple Routing**: Define routes in plain-text files with zero configuration overhead
+- **Built-in Authentication**: Multiple strategies including API keys, tokens, role-based access, and custom implementations
+- **Developer Friendly**: Works with any Rack server, minimal dependencies, easy testing and debugging
 
 ## Routes File
 ```

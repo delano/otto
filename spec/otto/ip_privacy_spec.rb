@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# spec/otto/ip_privacy_spec.rb
 
 require 'spec_helper'
 

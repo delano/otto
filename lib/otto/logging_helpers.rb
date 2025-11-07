@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# lib/otto/logging_helpers.rb
 
 # lib/otto/logging_helpers.rb
 

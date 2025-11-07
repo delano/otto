@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# lib/otto/helpers/validation.rb
 
 # lib/otto/helpers/validation.rb
 

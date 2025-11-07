@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# examples/advanced_routes/app/logic/v2/logic/processor.rb
 
 module V2
   module Logic

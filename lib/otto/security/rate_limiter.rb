@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# lib/otto/security/rate_limiter.rb
 
 # lib/otto/security/rate_limiter.rb
 

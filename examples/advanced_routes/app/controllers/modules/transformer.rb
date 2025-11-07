@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# examples/advanced_routes/app/controllers/modules/transformer.rb
 
 module Modules
   class Transformer

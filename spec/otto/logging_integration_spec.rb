@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# spec/otto/logging_integration_spec.rb
 
 require_relative '../spec_helper'
 

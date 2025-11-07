@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# examples/advanced_routes/app/controllers/handlers/dynamic.rb
 
 module Handlers
   class Dynamic

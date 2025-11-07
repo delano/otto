@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# examples/advanced_routes/app/logic/data_processor.rb
 
 class DataProcessor
   attr_reader :context, :params, :locale

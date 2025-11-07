@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# lib/otto/mcp/protocol.rb
 
 # lib/otto/mcp/protocol.rb
 

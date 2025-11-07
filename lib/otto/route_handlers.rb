@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# lib/otto/route_handlers.rb
 
 # lib/otto/route_handlers.rb
 

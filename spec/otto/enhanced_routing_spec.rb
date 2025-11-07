@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# spec/otto/enhanced_routing_spec.rb
 
 # spec/otto/enhanced_routing_spec.rb
 

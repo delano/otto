@@ -1,4 +1,5 @@
-# frozen_string_literal: true
+# spec/security_csrf_spec.rb
+
 # spec/security_csrf_spec.rb
 
 require 'spec_helper'

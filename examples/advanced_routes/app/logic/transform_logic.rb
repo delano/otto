@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# examples/advanced_routes/app/logic/transform_logic.rb
 
 class TransformLogic
   attr_reader :context, :params, :locale

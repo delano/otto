@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# examples/advanced_routes/config.rb
 
 require 'rack'
 require_relative '../../lib/otto'

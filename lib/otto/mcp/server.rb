@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# lib/otto/mcp/server.rb
 
 # lib/otto/mcp/server.rb
 

@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# lib/otto/security/middleware/validation_middleware.rb
 
 require_relative '../config'
 require_relative '../../helpers/validation'

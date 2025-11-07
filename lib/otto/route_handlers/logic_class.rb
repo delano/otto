@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# lib/otto/route_handlers/logic_class.rb
 
 # lib/otto/route_handlers/logic_class.rb
 require 'json'

@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# lib/otto/mcp/route_parser.rb
 
 # lib/otto/mcp/route_parser.rb
 

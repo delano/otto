@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# lib/otto/design_system.rb
 
 # lib/otto/design_system.rb
 

@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# lib/otto/core/error_handler.rb
 
 # lib/otto/core/error_handler.rb
 

@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# lib/otto/privacy.rb
 
 require_relative 'privacy/config'
 require_relative 'privacy/ip_privacy'

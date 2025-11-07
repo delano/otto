@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# lib/otto/version.rb
 
 # lib/otto/version.rb
 

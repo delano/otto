@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# examples/advanced_routes/app/logic/system/config/manager.rb
 
 module System
   module Config

@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# lib/otto/core/file_safety.rb
 
 # lib/otto/core/file_safety.rb
 

@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# lib/otto/security/authentication/route_auth_wrapper.rb
 
 # lib/otto/security/authentication/route_auth_wrapper.rb
 

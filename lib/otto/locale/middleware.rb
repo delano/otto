@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# lib/otto/locale/middleware.rb
 
 class Otto
   module Locale

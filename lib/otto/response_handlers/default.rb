@@ -1,4 +1,4 @@
-# frozen_string_literal: true
+# lib/otto/response_handlers/default.rb
 
 require_relative 'base'
 

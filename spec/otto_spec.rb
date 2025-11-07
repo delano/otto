@@ -1,4 +1,5 @@
-# frozen_string_literal: true
+# spec/otto_spec.rb
+
 # spec/otto_spec.rb
 
 require 'spec_helper'

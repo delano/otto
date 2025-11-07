@@ -84,6 +84,22 @@ app = Otto.new("./routes", {
 
 Security features include CSRF protection, input validation, security headers, and trusted proxy configuration.
 
+## Privacy by Default
+
+Otto automatically masks public IP addresses and anonymizes user agents to comply with GDPR, CCPA, and other privacy regulations:
+
+```ruby
+# Public IPs are automatically masked (203.0.113.9 → 203.0.113.0)
+# Private IPs are never masked (127.0.0.1, 192.168.x.x, 10.x.x.x)
+app = Otto.new("./routes")
+
+# User agents: versions stripped for privacy
+# Geo-location: country-level only, no external APIs or databases
+# IP hashing: daily-rotating hashes enable analytics without tracking
+```
+
+Private and localhost IPs are exempted for development convenience. Geolocation uses CDN headers (Cloudflare, AWS, etc.) with fallback to IP ranges—no external services required. See [CLAUDE.md](CLAUDE.md) for detailed configuration options.
+
 ## Internationalization Support
 
 Otto provides built-in locale detection and management:

@@ -219,11 +219,7 @@ To add your own authentication:
 
 - Explore [Security Features](../security_features/) for CSRF, input validation, file uploads
 - Review [Advanced Routes](../advanced_routes/) for response types and logic classes
-- Check [Best Practices](../../docs/best-practices.md) for authentication patterns
 
 ## Further Reading
 
-- [Architecture Guide](../../docs/architecture.md) - How authentication works
-- [Best Practices](../../docs/best-practices.md) - Multi-strategy patterns
 - [CLAUDE.md](../../CLAUDE.md#authentication-architecture) - Detailed auth documentation
-- [Troubleshooting](../../docs/troubleshooting.md) - Auth debugging

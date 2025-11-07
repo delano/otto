@@ -147,7 +147,4 @@ The `routes` file is extensively commented to explain each feature:
 
 ## Further Reading
 
-- [Architecture Guide](../../docs/architecture.md) - How routing and response handling work
-- [Best Practices](../../docs/best-practices.md) - Production patterns
-- [Troubleshooting](../../docs/troubleshooting.md) - Common routing issues
-- [Quickstart Guide](../../docs/quickstart.md) - Getting started tutorial
+- [CLAUDE.md](../../CLAUDE.md) - Comprehensive developer guidance

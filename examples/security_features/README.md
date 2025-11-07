@@ -257,13 +257,9 @@ curl -X POST http://localhost:10770/feedback \
 ## Next Steps
 
 - Review the application code to see implementation details
-- Explore [Best Practices](../../docs/best-practices.md) for security patterns
-- Check [Troubleshooting](../../docs/troubleshooting.md) for common issues
-- Read [Architecture Guide](../../docs/architecture.md) for security middleware details
+- Explore other examples for different features
 
 ## Further Reading
 
 - [CLAUDE.md](../../CLAUDE.md#security-features) - Security configuration reference
-- [Best Practices](../../docs/best-practices.md#security) - Security best practices
 - [IP Privacy](../../CLAUDE.md#ip-privacy-privacy-by-default) - Privacy configuration
-- [Troubleshooting](../../docs/troubleshooting.md#security-and-csrf) - Security troubleshooting

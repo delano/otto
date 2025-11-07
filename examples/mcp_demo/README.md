@@ -244,7 +244,4 @@ MCP route paths are converted to method names:
 
 ## Further Reading
 
-- [Architecture Guide](../../docs/architecture.md) - How routing works
-- [Best Practices](../../docs/best-practices.md) - MCP patterns and security
-- [Troubleshooting](../../docs/troubleshooting.md) - Common MCP issues
 - [CLAUDE.md](../../CLAUDE.md#mcp) - Detailed MCP documentation (if available)

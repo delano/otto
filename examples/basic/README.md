@@ -71,13 +71,10 @@ Then visit `http://localhost:10770` and submit feedback to see it in action.
 
 ## Next Steps
 
-- Read the [Quickstart Guide](../../docs/quickstart.md) for step-by-step tutorial
 - Explore [Advanced Routes](../advanced_routes/) to learn about response type negotiation
 - Check out [Authentication](../authentication_strategies/) for protecting routes
 - See [Security Features](../security_features/) for CSRF, input validation, and more
 
 ## Further Reading
 
-- [Architecture Guide](../../docs/architecture.md) - How Otto works internally
-- [Best Practices](../../docs/best-practices.md) - Production patterns
-- [Troubleshooting](../../docs/troubleshooting.md) - Common issues and solutions
+- [CLAUDE.md](../../CLAUDE.md) - Developer guidance and patterns

@@ -90,7 +90,7 @@ Otto automatically masks public IP addresses and anonymizes user agents to compl
 
 ```ruby
 # Public IPs are automatically masked (203.0.113.9 → 203.0.113.0)
-# Private IPs are never masked (127.0.0.1, 192.168.x.x, 10.x.x.x)
+# Private IPs are NOT masked by default (127.0.0.1, 192.168.x.x, 10.x.x.x)
 app = Otto.new("./routes")
 
 # User agents: versions stripped for privacy
@@ -98,7 +98,7 @@ app = Otto.new("./routes")
 # IP hashing: daily-rotating hashes enable analytics without tracking
 ```
 
-Private and localhost IPs are exempted for development convenience. Geolocation uses CDN headers (Cloudflare, AWS, etc.) with fallback to IP ranges—no external services required. See [CLAUDE.md](CLAUDE.md) for detailed configuration options.
+Private and localhost IPs are exempted by default for development convenience, but this behavior can be customized via `configure_ip_privacy()` method. Geolocation uses CDN headers (Cloudflare, AWS, etc.) with fallback to IP ranges—no external services required. See [CLAUDE.md](CLAUDE.md) for detailed configuration options.
 
 ## Internationalization Support
 

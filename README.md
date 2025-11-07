@@ -156,6 +156,24 @@ end
 
 The locale helper checks multiple sources in order of precedence and validates against your configured locales.
 
+## Examples
+
+Otto includes comprehensive examples demonstrating different features:
+
+- **[Basic Example](examples/basic/)** - Get your first Otto app running in minutes
+- **[Advanced Routes](examples/advanced_routes/)** - Response types, CSRF exemption, logic classes, and namespaced routing
+- **[Authentication Strategies](examples/authentication_strategies/)** - Token, API key, and role-based authentication
+- **[Security Features](examples/security_features/)** - CSRF protection, input validation, file uploads, and security headers
+- **[MCP Demo](examples/mcp_demo/)** - JSON-RPC 2.0 endpoints for CLI automation and integrations
+
+### Standalone Tutorials
+
+- **[Error Handler Registration](examples/error_handler_registration.rb)** - Prevent 500 errors for expected business exceptions
+- **[Logging Improvements](examples/logging_improvements.rb)** - Structured logging with automatic timing
+- **[Geo-location Extension](examples/simple_geo_resolver.rb)** - Extending geo-location with custom resolvers
+
+See the [examples/](examples/) directory for more.
+
 ## Requirements
 
 - Ruby 3.2+

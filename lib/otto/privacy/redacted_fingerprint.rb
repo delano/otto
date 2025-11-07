@@ -88,19 +88,26 @@ class Otto
 
       private
 
-      # Anonymize user agent string by removing version numbers
+      # Anonymize user agent string by removing version numbers and build identifiers
       #
-      # Removes specific version numbers (*.*.* pattern) to reduce
-      # fingerprinting granularity while maintaining browser/OS info.
+      # Removes specific version numbers (*.*.* pattern) and build identifiers
+      # (e.g., Build/MRA58N) to reduce fingerprinting granularity while maintaining
+      # browser/OS info.
       #
       # @param ua [String, nil] User agent string
       # @return [String, nil] Anonymized user agent or nil
       def anonymize_user_agent(ua)
         return nil if ua.nil? || ua.empty?
 
+        # Remove build identifiers (e.g., Build/MRA58N, Build/MPJ24.139-64)
+        # This must run BEFORE version stripping to avoid partial matches.
+        # If we strip versions first, Build/MPJ24.139-64 becomes Build/MPJ*.*-64,
+        # and the regex won't match properly (asterisks not in [\w.-] class).
+        anonymized = ua.gsub(/Build\/[\w.-]+/, 'Build/*')
+
         # Remove version patterns (*.*.*.*, *.*.*, *.*)
         # Support both dot and underscore separators (e.g., 10.15.7 and 10_15_7)
-        anonymized = ua
+        anonymized = anonymized
                      .gsub(/\d+[._]\d+[._]\d+[._]\d+/, '*.*.*.*')
                      .gsub(/\d+[._]\d+[._]\d+/, '*.*.*')
                      .gsub(/\d+[._]\d+/, '*.*')

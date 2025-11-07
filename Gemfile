@@ -14,6 +14,7 @@ gem 'rackup'
 group :test do
   gem 'rack-test'
   gem 'rspec', '~> 3.13'
+  gem 'user_agent_parser', '~> 2.18' # Validate anonymized UAs preserve semantic info
 end
 
 # bundle config set with 'optional'

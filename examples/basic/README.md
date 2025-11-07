@@ -2,28 +2,82 @@
 
 This example demonstrates a basic Otto application with a single route that accepts both GET and POST requests.
 
+## What You'll Learn
+
+- How to define routes in plain-text format
+- Creating a basic request handler class
+- Working with Rack request and response objects
+- Running an Otto application with different servers
+- Simple form handling and redirects
+
 ## How to Run
 
-1.  Make sure you have `bundler` and `thin` installed:
+### Using rackup (recommended)
+
 ```sh
-  gem install bundler thin
+cd examples/basic
+rackup config.ru -p 10770
 ```
 
-2.  Install the dependencies from the root of the project:
+### Using thin
+
 ```sh
-  bundle install
+cd examples/basic
+thin -e dev -R config.ru -p 10770 start
 ```
 
-3.  Start the server from this directory (`examples/basic`):
+### Using puma
+
 ```sh
-  thin -e dev -R config.ru -p 10770 start
+cd examples/basic
+puma config.ru -p 10770
 ```
 
-4.  Open your browser and navigate to `http://localhost:10770`.
+Open your browser and navigate to `http://localhost:10770`.
+
+## Expected Output
+
+```
+Puma starting in single threaded mode...
+* Version 3.12.0 (ruby 3.2.0-p0), codename: Llama Litter Box
+* Min threads: 0, max threads: 32
+* Environment: development
+* Listening on tcp://127.0.0.1:10770
+
+[GET request to /]
+GET /  200 OK
+
+[Submitting feedback form]
+POST /feedback  302 Found
+Location: http://localhost:10770/
+```
+
+Then visit `http://localhost:10770` and submit feedback to see it in action.
 
 ## File Structure
 
 * `README.md`: This file.
-* `app.rb`: Contains the application logic. It has two methods: `index` to display the main page and `receive_feedback` to handle form submissions.
-* `config.ru`: The Rack configuration file that loads the Otto framework and the application.
-* `routes`: Defines the URL routes and maps them to methods in the `App` class.
+* `app.rb`: Contains the application logic with two methods:
+  - `index`: Displays the main page with a feedback form
+  - `receive_feedback`: Handles form submissions and redirects back home
+* `config.ru`: The Rack configuration file that loads Otto and the application.
+* `routes`: Defines the URL routes mapping to methods in the `App` class.
+
+## Trying It Out
+
+1. **View the home page**: Open `http://localhost:10770` in your browser
+2. **Submit feedback**: Enter text in the feedback form and click Submit
+3. **Check the redirect**: You should be redirected back to the home page
+
+## Next Steps
+
+- Read the [Quickstart Guide](../../docs/quickstart.md) for step-by-step tutorial
+- Explore [Advanced Routes](../advanced_routes/) to learn about response type negotiation
+- Check out [Authentication](../authentication_strategies/) for protecting routes
+- See [Security Features](../security_features/) for CSRF, input validation, and more
+
+## Further Reading
+
+- [Architecture Guide](../../docs/architecture.md) - How Otto works internally
+- [Best Practices](../../docs/best-practices.md) - Production patterns
+- [Troubleshooting](../../docs/troubleshooting.md) - Common issues and solutions

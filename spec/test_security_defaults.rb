@@ -1,4 +1,6 @@
 # spec/test_security_defaults.rb
+#
+# frozen_string_literal: true
 # Test script to verify Otto's safe security defaults
 #
 # This script verifies that dangerous security headers are not enabled

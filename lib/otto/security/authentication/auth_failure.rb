@@ -1,6 +1,6 @@
+# lib/otto/security/authentication/auth_failure.rb
+#
 # frozen_string_literal: true
-
-# lib/otto/security/authentication/failure_result.rb
 
 class Otto
   module Security

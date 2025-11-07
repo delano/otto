@@ -1,6 +1,6 @@
-# frozen_string_literal: true
-
 # lib/otto/security/validator.rb
+#
+# frozen_string_literal: true
 #
 # Index file for validation middleware
 # Provides backward compatibility for existing validation usage

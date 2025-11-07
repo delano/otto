@@ -1,6 +1,6 @@
-# frozen_string_literal: true
-
 # lib/otto/core/configuration.rb
+#
+# frozen_string_literal: true
 
 require_relative '../security/csrf'
 require_relative '../security/validator'

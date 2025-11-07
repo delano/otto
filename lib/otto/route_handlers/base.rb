@@ -1,4 +1,6 @@
 # lib/otto/route_handlers/base.rb
+#
+# frozen_string_literal: true
 
 require 'json'
 

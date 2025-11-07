@@ -1,4 +1,6 @@
 # lib/otto/security.rb
+#
+# frozen_string_literal: true
 
 require_relative 'security/authentication/strategy_result'
 require_relative 'security/config'

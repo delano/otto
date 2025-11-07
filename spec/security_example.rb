@@ -1,4 +1,6 @@
 # spec/security_example.rb
+#
+# frozen_string_literal: true
 # Security Configuration Example for Otto
 #
 # This example demonstrates how to configure Otto's security features safely.

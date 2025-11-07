@@ -1,6 +1,6 @@
-# frozen_string_literal: true
-
 # lib/otto/security/rate_limiting.rb
+#
+# frozen_string_literal: true
 #
 # Index file for rate limiting components
 # Provides backward compatibility for existing rate limiting usage

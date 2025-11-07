@@ -1,6 +1,6 @@
-# frozen_string_literal: true
-
 # lib/otto/logging_helpers.rb
+#
+# frozen_string_literal: true
 
 class Otto
   # LoggingHelpers provides utility methods for consistent structured logging

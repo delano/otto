@@ -1,6 +1,6 @@
-# frozen_string_literal: true
-
 # lib/otto/security/rate_limiter.rb
+#
+# frozen_string_literal: true
 
 require 'json'
 

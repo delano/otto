@@ -1,3 +1,5 @@
+# lib/otto/security/middleware/csrf_middleware.rb
+#
 # frozen_string_literal: true
 
 require_relative '../config'

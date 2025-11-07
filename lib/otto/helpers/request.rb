@@ -1,4 +1,6 @@
 # lib/otto/helpers/request.rb
+#
+# frozen_string_literal: true
 
 require_relative 'base'
 

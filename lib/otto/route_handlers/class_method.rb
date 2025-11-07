@@ -1,6 +1,6 @@
-# frozen_string_literal: true
-
 # lib/otto/route_handlers/class_method.rb
+#
+# frozen_string_literal: true
 
 require 'json'
 require 'securerandom'

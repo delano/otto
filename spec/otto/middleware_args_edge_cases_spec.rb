@@ -1,4 +1,6 @@
 # spec/otto/middleware_args_edge_cases_spec.rb
+#
+# frozen_string_literal: true
 
 require 'spec_helper'
 

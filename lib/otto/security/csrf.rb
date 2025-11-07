@@ -1,6 +1,6 @@
-# frozen_string_literal: true
-
 # lib/otto/security/csrf.rb
+#
+# frozen_string_literal: true
 #
 # Index file for CSRF protection components
 # Provides backward compatibility for existing CSRF usage

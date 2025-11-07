@@ -1,5 +1,7 @@
 # lib/otto/env_keys.rb
 #
+# frozen_string_literal: true
+#
 # Central registry of all env['otto.*'] keys used throughout Otto framework.
 # This documentation helps prevent key conflicts and aids multi-app integration.
 #

@@ -1,4 +1,6 @@
 # lib/otto/privacy/geo_resolver.rb
+#
+# frozen_string_literal: true
 
 require 'ipaddr'
 

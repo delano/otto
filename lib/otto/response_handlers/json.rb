@@ -1,3 +1,5 @@
+# lib/otto/response_handlers/json.rb
+#
 # frozen_string_literal: true
 
 require_relative 'base'

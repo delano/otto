@@ -1,6 +1,6 @@
-# frozen_string_literal: true
-
 # spec/otto/security/route_auth_wrapper_spec.rb
+#
+# frozen_string_literal: true
 
 require 'spec_helper'
 

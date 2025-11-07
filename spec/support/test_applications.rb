@@ -1,5 +1,6 @@
-# frozen_string_literal: true
 # spec/support/test_applications.rb
+#
+# frozen_string_literal: true
 
 # Mock application classes for testing routes
 class TestApp

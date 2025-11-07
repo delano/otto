@@ -1,5 +1,6 @@
-# frozen_string_literal: true
 # spec/otto/error_handler_registration_spec.rb
+#
+# frozen_string_literal: true
 
 require 'spec_helper'
 

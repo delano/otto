@@ -1,4 +1,6 @@
 # lib/otto/utils.rb
+#
+# frozen_string_literal: true
 
 class Otto
   # Utility methods for common operations and helpers

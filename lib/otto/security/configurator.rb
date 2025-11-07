@@ -1,6 +1,6 @@
-# frozen_string_literal: true
-
 # lib/otto/security/configurator.rb
+#
+# frozen_string_literal: true
 
 require_relative 'middleware/csrf_middleware'
 require_relative 'middleware/validation_middleware'

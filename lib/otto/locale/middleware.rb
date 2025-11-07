@@ -1,3 +1,5 @@
+# lib/otto/locale/middleware.rb
+#
 # frozen_string_literal: true
 
 class Otto

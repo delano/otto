@@ -69,7 +69,7 @@ Automatic privacy features:
 - Public IP masking (203.0.113.50 → 203.0.113.0)
 - User agent anonymization (versions stripped)
 - Country-level geo-location only
-- Private/localhost IPs never masked
+- Private/localhost IPs NOT masked by default (configurable via `configure_ip_privacy()`)
 
 ## How to Run
 

@@ -185,6 +185,12 @@ See the [examples/](examples/) directory for more.
 gem install otto
 ```
 
+## Documentation
+
+- **[CLAUDE.md](CLAUDE.md)** - Comprehensive developer guidance covering authentication architecture, configuration freezing, IP privacy, structured logging, and multi-app patterns
+- **[docs/](docs/)** - Technical guides including IP address encoding quirks, architecture patterns, and migration guides
+- **[CHANGELOG.rst](CHANGELOG.rst)** - Version history, breaking changes, and upgrade notes
+
 ## AI Development Assistance
 
 Version 1.2.0's security features were developed with AI assistance:

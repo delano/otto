@@ -573,6 +573,181 @@ RSpec.describe 'IP Privacy Features' do
           expect(env['HTTP_REFERER']).to be_nil
           expect(env).not_to have_key('otto.original_referer')
         end
+
+        context 'Build number and device identifier removal' do
+          it 'removes Android build numbers (simple format)' do
+            env = {
+              'REMOTE_ADDR' => '9.9.9.9',
+              'HTTP_USER_AGENT' => 'Mozilla/5.0 (Linux; U; Android 2.2.2; en-gb; HTC Desire Build/FRG83G) AppleWebKit/533.1'
+            }
+            middleware.call(env)
+
+            # Version numbers and build ID both stripped
+            expect(env['HTTP_USER_AGENT']).to include('Build/*')
+            expect(env['HTTP_USER_AGENT']).not_to include('Build/FRG83G')
+            expect(env['HTTP_USER_AGENT']).not_to include('2.2.2')
+            expect(env['HTTP_USER_AGENT']).not_to include('533.1')
+          end
+
+          it 'removes Android build numbers (complex format with dots and hyphens)' do
+            env = {
+              'REMOTE_ADDR' => '9.9.9.9',
+              'HTTP_USER_AGENT' => 'Mozilla/5.0 (Linux; Android 6.0.1; Moto G (4) Build/MPJ24.139-64) AppleWebKit/537.36'
+            }
+            middleware.call(env)
+
+            # Build ID with dots and hyphens stripped
+            expect(env['HTTP_USER_AGENT']).to include('Build/*')
+            expect(env['HTTP_USER_AGENT']).not_to include('Build/MPJ24.139-64')
+            expect(env['HTTP_USER_AGENT']).not_to include('6.0.1')
+            expect(env['HTTP_USER_AGENT']).not_to include('537.36')
+          end
+
+          it 'removes build numbers from Nexus 5 user agent (reported issue)' do
+            env = {
+              'REMOTE_ADDR' => '9.9.9.9',
+              'HTTP_USER_AGENT' => 'Mozilla/5.0 (Linux; Android 5.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0'
+            }
+            middleware.call(env)
+
+            # Build ID removed, version numbers stripped
+            expect(env['HTTP_USER_AGENT']).to include('Build/*')
+            expect(env['HTTP_USER_AGENT']).not_to include('Build/MRA58N')
+            expect(env['HTTP_USER_AGENT']).not_to include('5.0')
+            expect(env['HTTP_USER_AGENT']).not_to include('141.0.0.0')
+            expect(env['HTTP_USER_AGENT']).not_to include('537.36')
+          end
+
+          it 'removes build numbers from Kindle Fire user agent' do
+            env = {
+              'REMOTE_ADDR' => '9.9.9.9',
+              'HTTP_USER_AGENT' => 'Mozilla/5.0 (Linux; U; Android 4.0.3; en-us; KFTT Build/IML74K) AppleWebKit/534.30'
+            }
+            middleware.call(env)
+
+            # Build ID removed
+            expect(env['HTTP_USER_AGENT']).to include('Build/*')
+            expect(env['HTTP_USER_AGENT']).not_to include('Build/IML74K')
+            expect(env['HTTP_USER_AGENT']).not_to include('4.0.3')
+            expect(env['HTTP_USER_AGENT']).not_to include('534.30')
+          end
+        end
+
+        context 'Comprehensive user agent patterns from uap-core database' do
+          it 'anonymizes iOS user agents (iPhone)' do
+            env = {
+              'REMOTE_ADDR' => '9.9.9.9',
+              'HTTP_USER_AGENT' => 'Mozilla/5.0 (iPhone; CPU iPhone OS 12_4 like Mac OS X) AppleWebKit/605.1.15'
+            }
+            middleware.call(env)
+
+            # Version numbers stripped, OS version with underscores handled
+            expect(env['HTTP_USER_AGENT']).not_to include('12_4')
+            expect(env['HTTP_USER_AGENT']).not_to include('605.1.15')
+            expect(env['HTTP_USER_AGENT']).to include('*.*')
+          end
+
+          it 'anonymizes iOS user agents (iPad)' do
+            env = {
+              'REMOTE_ADDR' => '9.9.9.9',
+              'HTTP_USER_AGENT' => 'Mozilla/5.0 (iPad; CPU OS 3_2 like Mac OS X; en-us) AppleWebKit/531.21.10'
+            }
+            middleware.call(env)
+
+            # Version numbers stripped
+            expect(env['HTTP_USER_AGENT']).not_to include('3_2')
+            expect(env['HTTP_USER_AGENT']).not_to include('531.21.10')
+            expect(env['HTTP_USER_AGENT']).to include('*.*')
+          end
+
+          it 'anonymizes iOS user agents (iPod)' do
+            env = {
+              'REMOTE_ADDR' => '9.9.9.9',
+              'HTTP_USER_AGENT' => 'Mozilla/5.0 (iPod; U; CPU iPhone OS 4_3_2 like Mac OS X; en-us) AppleWebKit/533.17.9'
+            }
+            middleware.call(env)
+
+            # Version numbers stripped
+            expect(env['HTTP_USER_AGENT']).not_to include('4_3_2')
+            expect(env['HTTP_USER_AGENT']).not_to include('533.17.9')
+            expect(env['HTTP_USER_AGENT']).to include('*.*')
+          end
+
+          it 'anonymizes macOS Safari user agents' do
+            env = {
+              'REMOTE_ADDR' => '9.9.9.9',
+              'HTTP_USER_AGENT' => 'Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_6_5; en-us) AppleWebKit/533.18.1'
+            }
+            middleware.call(env)
+
+            # macOS version with underscores stripped
+            expect(env['HTTP_USER_AGENT']).not_to include('10_6_5')
+            expect(env['HTTP_USER_AGENT']).not_to include('533.18.1')
+            expect(env['HTTP_USER_AGENT']).to include('*.*')
+          end
+
+          it 'anonymizes Windows Chrome user agents' do
+            env = {
+              'REMOTE_ADDR' => '9.9.9.9',
+              'HTTP_USER_AGENT' => 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/28.0.1500.95'
+            }
+            middleware.call(env)
+
+            # All version numbers stripped
+            expect(env['HTTP_USER_AGENT']).not_to include('6.1')
+            expect(env['HTTP_USER_AGENT']).not_to include('537.36')
+            expect(env['HTTP_USER_AGENT']).not_to include('28.0.1500.95')
+            expect(env['HTTP_USER_AGENT']).to include('*.*')
+          end
+
+          it 'anonymizes Linux Firefox user agents' do
+            env = {
+              'REMOTE_ADDR' => '9.9.9.9',
+              'HTTP_USER_AGENT' => 'Mozilla/5.0 (X11; Linux x86_64; rv:2.0) Gecko/20110408 conkeror/0.9.3'
+            }
+            middleware.call(env)
+
+            # Version numbers stripped
+            expect(env['HTTP_USER_AGENT']).not_to include('2.0')
+            expect(env['HTTP_USER_AGENT']).not_to include('0.9.3')
+            expect(env['HTTP_USER_AGENT']).to include('*.*')
+          end
+
+          it 'handles edge case: multiple build numbers in one UA string' do
+            env = {
+              'REMOTE_ADDR' => '9.9.9.9',
+              'HTTP_USER_AGENT' => 'CustomBrowser/1.0 Build/ABC123 (Linux; Build/XYZ789) Chrome/100.0.0.0'
+            }
+            middleware.call(env)
+
+            # All build numbers and versions stripped
+            expect(env['HTTP_USER_AGENT']).not_to include('Build/ABC123')
+            expect(env['HTTP_USER_AGENT']).not_to include('Build/XYZ789')
+            expect(env['HTTP_USER_AGENT']).to include('Build/*')
+            expect(env['HTTP_USER_AGENT']).not_to include('1.0')
+            expect(env['HTTP_USER_AGENT']).not_to include('100.0.0.0')
+          end
+
+          it 'preserves non-version text while stripping sensitive data' do
+            env = {
+              'REMOTE_ADDR' => '9.9.9.9',
+              'HTTP_USER_AGENT' => 'Mozilla/5.0 (Linux; Android 11.0; Pixel 3 Build/QQ3A.200805.001) Mobile Safari'
+            }
+            middleware.call(env)
+
+            # Sensitive data removed
+            expect(env['HTTP_USER_AGENT']).not_to include('Build/QQ3A.200805.001')
+            expect(env['HTTP_USER_AGENT']).to include('Build/*')
+            expect(env['HTTP_USER_AGENT']).not_to include('11.0')
+
+            # Non-version text preserved
+            expect(env['HTTP_USER_AGENT']).to include('Mozilla')
+            expect(env['HTTP_USER_AGENT']).to include('Linux')
+            expect(env['HTTP_USER_AGENT']).to include('Android')
+            expect(env['HTTP_USER_AGENT']).to include('Mobile')
+            expect(env['HTTP_USER_AGENT']).to include('Safari')
+          end
+        end
       end
 
       context 'encoding of masked IPs' do

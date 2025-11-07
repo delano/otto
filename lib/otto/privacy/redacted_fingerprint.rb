@@ -88,10 +88,11 @@ class Otto
 
       private
 
-      # Anonymize user agent string by removing version numbers
+      # Anonymize user agent string by removing version numbers and build identifiers
       #
-      # Removes specific version numbers (*.*.* pattern) to reduce
-      # fingerprinting granularity while maintaining browser/OS info.
+      # Removes specific version numbers (*.*.* pattern) and build identifiers
+      # (e.g., Build/MRA58N) to reduce fingerprinting granularity while maintaining
+      # browser/OS info.
       #
       # @param ua [String, nil] User agent string
       # @return [String, nil] Anonymized user agent or nil
@@ -104,6 +105,10 @@ class Otto
                      .gsub(/\d+[._]\d+[._]\d+[._]\d+/, '*.*.*.*')
                      .gsub(/\d+[._]\d+[._]\d+/, '*.*.*')
                      .gsub(/\d+[._]\d+/, '*.*')
+
+        # Remove build identifiers (e.g., Build/MRA58N, Build/MPJ24.139-64)
+        # Pattern matches: Build/ followed by alphanumeric, dots, hyphens, underscores
+        anonymized = anonymized.gsub(/Build\/[\w.-]+/, 'Build/*')
 
         # Truncate if too long (prevent DoS via huge UA strings)
         anonymized.length > 500 ? anonymized[0..499] : anonymized

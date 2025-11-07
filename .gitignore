@@ -11,6 +11,9 @@
 .*.json
 !LICENSE.txt
 !spec/fixtures/*.txt
+!examples/**/*.md
+!README.md
+!CLAUDE.md
 .ruby-version
 appendonlydir
 data/

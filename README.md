@@ -2,7 +2,7 @@
 
 **Define your rack-apps in plain-text with built-in security.**
 
-> **v2.0.0-pre1 Available**: This pre-release includes major improvements to middleware management and test coverage. See [changelog](CHANGELOG.rst) and [migration guide](docs/migrating/v2.0.0-pre1.md) for upgraders.
+> **v2.0.0-pre6 Available**: This pre-release includes major improvements to middleware management, logging, and request callback handling. See [changelog](CHANGELOG.rst) for details and upgrade notes.
 
 ![Otto mascot](public/img/otto.jpg "Otto - All Rack, no Pinion")
 
@@ -12,6 +12,14 @@ Otto apps have three files: a rackup file, a Ruby class, and a routes file. The 
 $ cd myapp && ls
 config.ru app.rb routes
 ```
+
+## Why Otto?
+
+- **Security by Default**: Automatic IP masking for public addresses, user agent anonymization, CSRF protection, and input validation
+- **Privacy First**: Masks public IPs, strips user agent versions, provides country-level geo-location only—no external APIs needed
+- **Simple Routing**: Define routes in plain-text files with zero configuration overhead
+- **Built-in Authentication**: Multiple strategies including API keys, tokens, role-based access, and custom implementations
+- **Developer Friendly**: Works with any Rack server, minimal dependencies, easy testing and debugging
 
 ## Routes File
 ```
@@ -76,6 +84,22 @@ app = Otto.new("./routes", {
 
 Security features include CSRF protection, input validation, security headers, and trusted proxy configuration.
 
+## Privacy by Default
+
+Otto automatically masks public IP addresses and anonymizes user agents to comply with GDPR, CCPA, and other privacy regulations:
+
+```ruby
+# Public IPs are automatically masked (203.0.113.9 → 203.0.113.0)
+# Private IPs are NOT masked by default (127.0.0.1, 192.168.x.x, 10.x.x.x)
+app = Otto.new("./routes")
+
+# User agents: versions stripped for privacy
+# Geo-location: country-level only, no external APIs or databases
+# IP hashing: daily-rotating hashes enable analytics without tracking
+```
+
+Private and localhost IPs are exempted by default for development convenience, but this behavior can be customized via `configure_ip_privacy()` method. Geolocation uses CDN headers (Cloudflare, AWS, etc.) with fallback to IP ranges—no external services required. See [CLAUDE.md](CLAUDE.md) for detailed configuration options.
+
 ## Internationalization Support
 
 Otto provides built-in locale detection and management:
@@ -132,6 +156,24 @@ end
 
 The locale helper checks multiple sources in order of precedence and validates against your configured locales.
 
+## Examples
+
+Otto includes comprehensive examples demonstrating different features:
+
+- **[Basic Example](examples/basic/)** - Get your first Otto app running in minutes
+- **[Advanced Routes](examples/advanced_routes/)** - Response types, CSRF exemption, logic classes, and namespaced routing
+- **[Authentication Strategies](examples/authentication_strategies/)** - Token, API key, and role-based authentication
+- **[Security Features](examples/security_features/)** - CSRF protection, input validation, file uploads, and security headers
+- **[MCP Demo](examples/mcp_demo/)** - JSON-RPC 2.0 endpoints for CLI automation and integrations
+
+### Standalone Tutorials
+
+- **[Error Handler Registration](examples/error_handler_registration.rb)** - Prevent 500 errors for expected business exceptions
+- **[Logging Improvements](examples/logging_improvements.rb)** - Structured logging with automatic timing
+- **[Geo-location Extension](examples/simple_geo_resolver.rb)** - Extending geo-location with custom resolvers
+
+See the [examples/](examples/) directory for more.
+
 ## Requirements
 
 - Ruby 3.2+
@@ -142,6 +184,12 @@ The locale helper checks multiple sources in order of precedence and validates a
 ```bash
 gem install otto
 ```
+
+## Documentation
+
+- **[CLAUDE.md](CLAUDE.md)** - Comprehensive developer guidance covering authentication architecture, configuration freezing, IP privacy, structured logging, and multi-app patterns
+- **[docs/](docs/)** - Technical guides and migration guides
+- **[CHANGELOG.rst](CHANGELOG.rst)** - Version history, breaking changes, and upgrade notes
 
 ## AI Development Assistance
 

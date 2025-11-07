@@ -1,4 +1,4 @@
-# lib/otto/security/csrf.rb
+# frozen_string_literal: true
 
 # lib/otto/security/csrf.rb
 #

@@ -1,4 +1,4 @@
-# lib/otto/security/authentication/strategies/session_strategy.rb
+# frozen_string_literal: true
 
 require_relative '../auth_strategy'
 

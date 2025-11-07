@@ -1,5 +1,4 @@
-# spec/otto/routing_spec.rb
-
+# frozen_string_literal: true
 # spec/otto/routing_spec.rb
 
 require 'spec_helper'

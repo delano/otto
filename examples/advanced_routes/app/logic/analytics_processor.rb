@@ -1,4 +1,4 @@
-# examples/advanced_routes/app/logic/analytics_processor.rb
+# frozen_string_literal: true
 
 module Analytics
   class Processor

@@ -1,4 +1,4 @@
-# lib/otto/response_handlers/factory.rb
+# frozen_string_literal: true
 
 require_relative 'json'
 require_relative 'redirect'

@@ -1,4 +1,4 @@
-# examples/advanced_routes/app/logic/complex/business/handler.rb
+# frozen_string_literal: true
 
 module Complex
   module Business

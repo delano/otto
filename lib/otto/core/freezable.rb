@@ -1,4 +1,4 @@
-# lib/otto/core/freezable.rb
+# frozen_string_literal: true
 
 # lib/otto/core/freezable.rb
 

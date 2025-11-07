@@ -1,4 +1,4 @@
-# lib/otto/core/uri_generator.rb
+# frozen_string_literal: true
 
 # lib/otto/core/uri_generator.rb
 

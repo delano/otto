@@ -1,4 +1,4 @@
-# examples/authentication_strategies/app/auth.rb
+# frozen_string_literal: true
 
 # Authentication result data class to contain the session, user and anything
 # else we want to make available to the route handlers/controllers/logic classes.

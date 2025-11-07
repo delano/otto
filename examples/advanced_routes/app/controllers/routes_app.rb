@@ -1,4 +1,4 @@
-# examples/advanced_routes/app/controllers/routes_app.rb
+# frozen_string_literal: true
 
 require 'json'
 require 'time'

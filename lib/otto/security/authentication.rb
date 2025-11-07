@@ -1,4 +1,4 @@
-# lib/otto/security/authentication.rb
+# frozen_string_literal: true
 
 # lib/otto/security/authentication.rb
 #

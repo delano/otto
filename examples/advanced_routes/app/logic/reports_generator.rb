@@ -1,4 +1,4 @@
-# examples/advanced_routes/app/logic/reports_generator.rb
+# frozen_string_literal: true
 
 module Reports
   class Generator

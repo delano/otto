@@ -1,4 +1,4 @@
-# lib/otto/core/middleware_stack.rb
+# frozen_string_literal: true
 
 # lib/otto/core/middleware_stack.rb
 

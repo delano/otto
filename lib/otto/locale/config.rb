@@ -1,4 +1,4 @@
-# lib/otto/locale/config.rb
+# frozen_string_literal: true
 
 # lib/otto/locale/config.rb
 

@@ -1,4 +1,4 @@
-# examples/advanced_routes/app/logic/test_logic.rb
+# frozen_string_literal: true
 
 class TestLogic
   attr_reader :context, :params, :locale

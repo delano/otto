@@ -1,4 +1,4 @@
-# lib/otto/mcp/schema_validation.rb
+# frozen_string_literal: true
 
 # lib/otto/mcp/schema_validation.rb
 

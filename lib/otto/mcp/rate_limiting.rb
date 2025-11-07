@@ -1,4 +1,4 @@
-# lib/otto/mcp/rate_limiting.rb
+# frozen_string_literal: true
 
 # lib/otto/mcp/rate_limiting.rb
 

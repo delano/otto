@@ -1,5 +1,4 @@
-# spec/otto/mcp_route_parsing_spec.rb
-
+# frozen_string_literal: true
 # spec/otto/mcp_route_parsing_spec.rb
 
 require 'spec_helper'

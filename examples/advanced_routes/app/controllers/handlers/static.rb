@@ -1,4 +1,4 @@
-# examples/advanced_routes/app/controllers/handlers/static.rb
+# frozen_string_literal: true
 
 module Handlers
   class Static

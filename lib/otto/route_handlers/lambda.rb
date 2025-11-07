@@ -1,4 +1,4 @@
-# lib/otto/route_handlers/lambda.rb
+# frozen_string_literal: true
 
 # lib/otto/route_handlers/lambda.rb
 require 'securerandom'

@@ -1,4 +1,4 @@
-# examples/advanced_routes/app/logic/nested/feature/logic.rb
+# frozen_string_literal: true
 
 module Nested
   module Feature

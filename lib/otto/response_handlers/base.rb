@@ -1,4 +1,4 @@
-# lib/otto/response_handlers/base.rb
+# frozen_string_literal: true
 
 class Otto
   module ResponseHandlers

@@ -1,4 +1,4 @@
-# examples/advanced_routes/app/controllers/modules/auth.rb
+# frozen_string_literal: true
 
 module Modules
   class Auth

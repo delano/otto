@@ -1,4 +1,4 @@
-# examples/advanced_routes/app/logic/data_logic.rb
+# frozen_string_literal: true
 
 class DataLogic
   attr_reader :context, :params, :locale

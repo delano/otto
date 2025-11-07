@@ -1,4 +1,4 @@
-# spec/otto/user_agent_anonymization_comprehensive_spec.rb
+# frozen_string_literal: true
 
 require 'spec_helper'
 require 'net/http'

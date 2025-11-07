@@ -1,4 +1,4 @@
-# lib/otto/security/middleware/rate_limit_middleware.rb
+# frozen_string_literal: true
 
 require_relative '../rate_limiter'
 

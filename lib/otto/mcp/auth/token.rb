@@ -1,4 +1,4 @@
-# lib/otto/mcp/auth/token.rb
+# frozen_string_literal: true
 
 # lib/otto/mcp/auth/token.rb
 

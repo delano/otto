@@ -1,4 +1,4 @@
-# examples/advanced_routes/app/logic/simple_logic.rb
+# frozen_string_literal: true
 
 class SimpleLogic
   attr_reader :context, :params, :locale

@@ -1,4 +1,4 @@
-# examples/advanced_routes/app.rb
+# frozen_string_literal: true
 
 # Application Loader
 

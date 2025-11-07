@@ -1,4 +1,4 @@
-# examples/advanced_routes/app/logic/upload_logic.rb
+# frozen_string_literal: true
 
 class UploadLogic
   attr_reader :context, :params, :locale

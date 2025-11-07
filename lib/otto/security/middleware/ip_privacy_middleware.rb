@@ -1,4 +1,4 @@
-# lib/otto/security/middleware/ip_privacy_middleware.rb
+# frozen_string_literal: true
 
 class Otto
   module Security

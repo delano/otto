@@ -1,4 +1,4 @@
-# examples/advanced_routes/app/controllers/modules/validator.rb
+# frozen_string_literal: true
 
 module Modules
   class Validator

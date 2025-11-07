@@ -1,4 +1,4 @@
-# examples/advanced_routes/app/logic/admin/panel.rb
+# frozen_string_literal: true
 
 module Admin
   class Panel

@@ -1,4 +1,4 @@
-# lib/otto/response_handlers.rb
+# frozen_string_literal: true
 
 # lib/otto/response_handlers.rb
 

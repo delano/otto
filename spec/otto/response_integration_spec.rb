@@ -1,5 +1,4 @@
-# spec/otto/response_integration_spec.rb
-
+# frozen_string_literal: true
 # spec/otto/response_integration_spec.rb
 
 require 'spec_helper'

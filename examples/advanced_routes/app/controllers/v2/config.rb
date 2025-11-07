@@ -1,4 +1,4 @@
-# examples/advanced_routes/app/controllers/v2/config.rb
+# frozen_string_literal: true
 
 module V2
   class Config

@@ -1,5 +1,4 @@
-# spec/security_validation_spec.rb
-
+# frozen_string_literal: true
 # spec/security_validation_spec.rb
 
 require 'spec_helper'

@@ -1,4 +1,4 @@
-# examples/advanced_routes/app/logic/input_validator.rb
+# frozen_string_literal: true
 
 class InputValidator
   attr_reader :context, :params, :locale

@@ -1,4 +1,4 @@
-# lib/otto/core/router.rb
+# frozen_string_literal: true
 
 # lib/otto/core/router.rb
 

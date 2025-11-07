@@ -99,16 +99,18 @@ class Otto
       def anonymize_user_agent(ua)
         return nil if ua.nil? || ua.empty?
 
+        # Remove build identifiers (e.g., Build/MRA58N, Build/MPJ24.139-64)
+        # This must run BEFORE version stripping to avoid partial matches.
+        # If we strip versions first, Build/MPJ24.139-64 becomes Build/MPJ*.*-64,
+        # and the regex won't match properly (asterisks not in [\w.-] class).
+        anonymized = ua.gsub(/Build\/[\w.-]+/, 'Build/*')
+
         # Remove version patterns (*.*.*.*, *.*.*, *.*)
         # Support both dot and underscore separators (e.g., 10.15.7 and 10_15_7)
-        anonymized = ua
+        anonymized = anonymized
                      .gsub(/\d+[._]\d+[._]\d+[._]\d+/, '*.*.*.*')
                      .gsub(/\d+[._]\d+[._]\d+/, '*.*.*')
                      .gsub(/\d+[._]\d+/, '*.*')
-
-        # Remove build identifiers (e.g., Build/MRA58N, Build/MPJ24.139-64)
-        # Pattern matches: Build/ followed by alphanumeric, dots, hyphens, underscores
-        anonymized = anonymized.gsub(/Build\/[\w.-]+/, 'Build/*')
 
         # Truncate if too long (prevent DoS via huge UA strings)
         anonymized.length > 500 ? anonymized[0..499] : anonymized

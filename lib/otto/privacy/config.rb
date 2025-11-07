@@ -1,4 +1,6 @@
 # lib/otto/privacy/config.rb
+#
+# frozen_string_literal: true
 
 require 'ipaddr'
 require 'securerandom'

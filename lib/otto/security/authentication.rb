@@ -1,6 +1,6 @@
-# frozen_string_literal: true
-
 # lib/otto/security/authentication.rb
+#
+# frozen_string_literal: true
 #
 # Index file for Otto authentication module
 # Requires all authentication-related components for backward compatibility

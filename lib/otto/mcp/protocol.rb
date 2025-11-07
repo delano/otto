@@ -1,6 +1,6 @@
-# frozen_string_literal: true
-
 # lib/otto/mcp/protocol.rb
+#
+# frozen_string_literal: true
 
 require 'json'
 require_relative 'registry'

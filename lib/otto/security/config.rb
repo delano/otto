@@ -1,6 +1,6 @@
-# frozen_string_literal: true
-
 # lib/otto/security/config.rb
+#
+# frozen_string_literal: true
 
 require 'securerandom'
 require 'digest'

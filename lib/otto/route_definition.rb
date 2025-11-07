@@ -1,6 +1,6 @@
-# frozen_string_literal: true
-
 # lib/otto/route_definition.rb
+#
+# frozen_string_literal: true
 
 class Otto
   # Immutable data class representing a complete route definition

@@ -1,6 +1,6 @@
-# frozen_string_literal: true
-
 # lib/otto/security/authentication/auth_strategy.rb
+#
+# frozen_string_literal: true
 #
 # Base class for all authentication strategies in Otto framework
 # Provides pluggable authentication patterns that can be customized per application

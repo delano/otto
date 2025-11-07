@@ -1,6 +1,6 @@
-# frozen_string_literal: true
-
 # lib/otto/design_system.rb
+#
+# frozen_string_literal: true
 
 class Otto
   # Shared design system for Otto framework examples

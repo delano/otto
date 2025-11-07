@@ -1,6 +1,6 @@
-# frozen_string_literal: true
-
 # lib/otto/route_handlers/factory.rb
+#
+# frozen_string_literal: true
 
 require_relative 'base'
 require_relative '../security/authentication/route_auth_wrapper'

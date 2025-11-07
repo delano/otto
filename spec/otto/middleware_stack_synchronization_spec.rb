@@ -1,4 +1,6 @@
 # spec/otto/middleware_stack_synchronization_spec.rb
+#
+# frozen_string_literal: true
 
 require 'spec_helper'
 

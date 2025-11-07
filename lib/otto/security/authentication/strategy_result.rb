@@ -1,6 +1,6 @@
-# frozen_string_literal: true
-
 # lib/otto/security/authentication/strategy_result.rb
+#
+# frozen_string_literal: true
 
 # StrategyResult is an immutable data structure that holds the result of an
 # authentication strategy. It contains session, user, and metadata needed by

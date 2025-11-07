@@ -1,6 +1,6 @@
-# frozen_string_literal: true
-
 # lib/otto/mcp/server.rb
+#
+# frozen_string_literal: true
 
 require_relative 'protocol'
 require_relative 'registry'

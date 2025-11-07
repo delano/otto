@@ -1,6 +1,6 @@
-# frozen_string_literal: true
-
 # lib/otto/route_handlers.rb
+#
+# frozen_string_literal: true
 
 class Otto
   # Pluggable Route Handler Factory

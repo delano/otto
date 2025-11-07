@@ -1,4 +1,6 @@
 # lib/otto/privacy/ip_privacy.rb
+#
+# frozen_string_literal: true
 
 require 'ipaddr'
 require 'digest'

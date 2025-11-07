@@ -1,4 +1,6 @@
 # lib/otto/privacy/redacted_fingerprint.rb
+#
+# frozen_string_literal: true
 
 require 'securerandom'
 require 'time'

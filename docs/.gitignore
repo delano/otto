@@ -4,3 +4,4 @@
 !migrating/*.md
 !ipaddr-encoding-quirk.md
 !modern-authentication-authorization-landscape.md
+!multi-strategy-authentication-design.md

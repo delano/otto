@@ -3,5 +3,5 @@
 # frozen_string_literal: true
 
 class Otto
-  VERSION = '2.0.0.pre6'
+  VERSION = '2.0.0.pre7'
 end

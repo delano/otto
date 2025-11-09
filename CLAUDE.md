@@ -100,23 +100,194 @@ otto.register_error_handler(AnotherError, status: 404)  # ✗ FrozenError!
 
 **IMPORTANT**: Authentication in Otto is handled by `RouteAuthWrapper` at the handler level, NOT by middleware.
 
+### Basic Configuration
+
 - Authentication strategies are configured via `otto.add_auth_strategy(name, strategy)`
 - RouteAuthWrapper automatically wraps routes that have `auth` requirements
+- Strategy names must be unique (duplicate registration raises ArgumentError)
 - When a route has an auth requirement, RouteAuthWrapper:
   1. Looks up the appropriate strategy from `auth_config[:auth_strategies]`
   2. Executes `strategy.authenticate(env, requirement)`
   3. Returns 401/302 if authentication fails (FailureResult)
-  4. Sets `env['rack.session']`, `env['otto.strategy_result']`, `env['otto.user']` on success
+  4. Sets `env['rack.session']`, `env['otto.strategy_result']` on success
   5. Calls the wrapped handler
 
-- Strategy pattern matching supports:
-  - Exact match: `'authenticated'` → looks up `auth_config[:auth_strategies]['authenticated']`
-  - Prefix match: `'role:admin'` → looks up `'role'` strategy
-  - Fallback: `'role:*'` → creates default RoleStrategy
-  - Results are cached per wrapper instance
+### Multi-Strategy Authentication (OR Logic)
+
+**Routes can specify multiple authentication strategies with comma-separated syntax:**
+
+```ruby
+# Routes file:
+GET /api/data  DataLogic#show  auth=session,apikey,oauth
+```
+
+**Execution Flow:**
+1. Strategies execute left-to-right in order
+2. **First success wins** - remaining strategies are not executed
+3. Returns 401 only if **all** strategies fail
+4. Unknown strategies cause immediate 401 (strict mode)
+
+**Example:**
+```ruby
+# Configure strategies
+otto.add_auth_strategy('session', SessionStrategy.new)
+otto.add_auth_strategy('apikey', APIKeyStrategy.new)
+otto.add_auth_strategy('oauth', OAuthStrategy.new)
+
+# Route with multi-strategy
+# GET /api/data  DataLogic#show  auth=session,apikey,oauth
+#
+# Execution:
+# 1. Tries 'session' strategy
+# 2. If session succeeds → call handler (apikey/oauth not executed)
+# 3. If session fails → try 'apikey' strategy
+# 4. If apikey succeeds → call handler (oauth not executed)
+# 5. If apikey fails → try 'oauth' strategy
+# 6. If oauth succeeds → call handler
+# 7. If all fail → return 401
+```
+
+**Performance:** Put fastest/most-common strategies first (e.g., `auth=session,apikey` instead of `auth=apikey,session`)
+
+### Strategy Pattern Matching
+
+- **Exact match**: `'authenticated'` → looks up `auth_config[:auth_strategies]['authenticated']`
+- **Prefix match**: `'custom:value'` → looks up `'custom'` strategy and passes full requirement
+- **Results are cached** per wrapper instance
+
+**Note:** `auth=role:admin` syntax has been removed in favor of separate `role=` option for authorization (see Authorization section below)
+
+### Two-Layer Authorization Pattern
+
+Otto implements industry-standard separation between authentication and authorization:
+
+**Layer 1: Route-Level (Authentication + Basic Authorization)**
+- Handled by `RouteAuthWrapper` before handler execution
+- Use `auth=` for authentication strategies
+- Use `role=` for role-based route access
+- Fast execution (no database queries)
+- Returns 401 (Unauthorized) for authentication failures
+- Returns 403 (Forbidden) for authorization failures
+
+**Layer 2: Resource-Level (Authorization)**
+- Handled by Logic classes in `raise_concerns` method
+- Checks ownership, relationships, resource attributes
+- Requires database queries to load resources
+- Raises `Otto::Security::AuthorizationError` for 403 response
+
+### Layer 1: Role-Based Authorization
+
+**Basic Role Authorization:**
+```ruby
+# Routes file - requires admin role
+GET /admin/users  AdminUserLogic  auth=session role=admin
+```
+
+**Multiple Roles (OR logic):**
+```ruby
+# Routes file - requires admin OR editor role
+GET /content/edit  ContentEditLogic  auth=session role=admin,editor
+
+# User with admin role: ✓ allowed
+# User with editor role: ✓ allowed
+# User with both roles: ✓ allowed
+# User with neither role: ✗ 403 Forbidden
+```
+
+**Role Extraction:**
+
+RouteAuthWrapper extracts roles from authentication results in this order:
+1. `result.user_roles` (direct accessor)
+2. `result.user[:roles]` (user hash with symbol key)
+3. `result.user['roles']` (user hash with string key)
+4. `result.metadata[:user_roles]` (metadata)
+
+**Example Strategy with Roles:**
+```ruby
+class SessionStrategy
+  def authenticate(env, _requirement)
+    session = env['rack.session']
+    return failure('No session') unless session
+
+    user_id = session['user_id']
+    return failure('Not authenticated') unless user_id
+
+    # Include roles in the user data
+    StrategyResult.success(
+      user: {
+        id: user_id,
+        roles: session['user_roles'] || []  # Roles accessible as user[:roles]
+      },
+      session: session
+    )
+  end
+end
+```
+
+**Complete Example:**
+```ruby
+# Routes file
+GET /admin/dashboard  AdminDashboardLogic  auth=session role=admin
+GET /content/edit/:id ContentEditLogic     auth=session role=admin,editor
+GET /profile          ProfileLogic         auth=session
+
+# Admin user can access all routes
+# Editor user can access /content/edit/:id and /profile
+# Regular user can only access /profile
+```
+
+### Layer 2: Resource-Level Authorization
+
+**Example: Resource Ownership**
+```ruby
+# Route: GET /posts/:id/edit  PostEditLogic  auth=session
+class PostEditLogic
+  def raise_concerns
+    @post = Post.find(params[:id])
+
+    # Resource-level authorization
+    unless @post.user_id == @context.user_id
+      raise Otto::Security::AuthorizationError, "Cannot edit another user's post"
+    end
+  end
+
+  def process
+    # Edit post logic
+  end
+end
+```
+
+**Example: Multi-Condition Authorization**
+```ruby
+class OrganizationDeleteLogic
+  def raise_concerns
+    @org = Organization.find(params[:id])
+
+    # Complex authorization: admin role OR ownership
+    has_permission = @context.user_roles.include?('admin') ||
+                     @org.owner_id == @context.user_id
+
+    unless has_permission
+      raise Otto::Security::AuthorizationError,
+        "Requires admin role or organization ownership",
+        resource: 'Organization',
+        action: 'delete',
+        user_id: @context.user_id
+    end
+  end
+end
+```
+
+**AuthorizationError Features:**
+- Auto-registered during Otto initialization (returns 403)
+- Logged at WARN level (not ERROR)
+- Optional context: `resource`, `action`, `user_id` for debugging
+- Supports structured logging via `to_log_data`
+
+### Compatibility Notes
 
 - `enable_authentication!` is a no-op kept for API compatibility
-- AuthenticationMiddleware was removed (it was architecturally broken)
+- AuthenticationMiddleware was removed (architecturally broken - ran before routing)
 
 ## Configuration Freezing
 

@@ -167,12 +167,21 @@ RSpec.describe Otto::Security::Configurator do
 
   describe '#add_auth_strategy' do
     let(:test_strategy) { double('TestStrategy') }
+    let(:another_strategy) { double('AnotherStrategy') }
 
     it 'adds authentication strategy to auth_config' do
       configurator.add_auth_strategy('test', test_strategy)
 
       expect(configurator.auth_config[:auth_strategies]['test']).to eq(test_strategy)
       # Note: Authentication is now handled by RouteAuthWrapper, not middleware
+    end
+
+    it 'raises ArgumentError when adding duplicate strategy name' do
+      configurator.add_auth_strategy('test', test_strategy)
+
+      expect do
+        configurator.add_auth_strategy('test', another_strategy)
+      end.to raise_error(ArgumentError, /Authentication strategy 'test' is already registered/)
     end
   end
 

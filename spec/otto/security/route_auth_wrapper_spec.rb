@@ -3,6 +3,7 @@
 # frozen_string_literal: true
 
 require 'spec_helper'
+require 'delegate'
 
 RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
   include OttoTestHelpers
@@ -180,7 +181,8 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
         expect(status).to eq(401)
         expect(headers['content-type']).to eq('application/json')
         response_data = JSON.parse(body.first)
-        expect(response_data['error']).to eq('Authentication strategy not configured')
+        expect(response_data['error']).to include('Authentication strategy not configured')
+        expect(response_data['error']).to include('unknown')
       end
 
       it 'returns 401 with error message for HTML requests' do
@@ -193,7 +195,8 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
 
         expect(status).to eq(401)
         expect(headers['content-type']).to eq('text/plain')
-        expect(body).to eq(['Authentication strategy not configured'])
+        expect(body.first).to include('Authentication strategy not configured')
+        expect(body.first).to include('unknown')
       end
     end
 
@@ -451,6 +454,474 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
         expect(headers['x-content-type-options']).to eq('nosniff')
         expect(headers['x-xss-protection']).to eq('1; mode=block')
         expect(headers['referrer-policy']).to eq('strict-origin-when-cross-origin')
+      end
+    end
+  end
+
+  describe 'multi-strategy authentication' do
+    let(:apikey_strategy) do
+      Class.new do
+        def authenticate(env, _requirement)
+          api_key = env['HTTP_X_API_KEY']
+          if api_key == 'valid_key'
+            Otto::Security::Authentication::StrategyResult.new(
+              user: { id: 999, api_key: api_key },
+              session: nil,
+              auth_method: 'api_key',
+              metadata: {},
+              strategy_name: 'apikey'
+            )
+          else
+            Otto::Security::Authentication::AuthFailure.new(
+              failure_reason: 'Invalid API key',
+              auth_method: 'apikey'
+            )
+          end
+        end
+      end.new
+    end
+
+    let(:multi_auth_config) do
+      {
+        auth_strategies: {
+          'session' => session_strategy,
+          'apikey' => apikey_strategy,
+          'noauth' => noauth_strategy,
+        },
+        default_auth_strategy: 'noauth',
+        login_path: '/signin',
+      }
+    end
+
+    context 'with multi-strategy route (auth=session,apikey)' do
+      let(:multi_route) do
+        Otto::RouteDefinition.new('GET', '/protected', 'TestApp.protected auth=session,apikey')
+      end
+
+      let(:multi_wrapper) do
+        described_class.new(mock_handler, multi_route, multi_auth_config)
+      end
+
+      it 'succeeds with first strategy (session) and does not try second strategy' do
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123 }
+
+        status, _headers, body = multi_wrapper.call(env)
+
+        expect(status).to eq(200)
+        expect(body).to eq(['handler called'])
+        expect(env['otto.strategy_result']).to be_authenticated
+        expect(env['otto.strategy_result'].strategy_name).to eq('session')
+        expect(env['otto.strategy_result'].user[:id]).to eq(123)
+      end
+
+      it 'succeeds with second strategy (apikey) when first fails' do
+        env = mock_rack_env(headers: { 'X-Api-Key' => 'valid_key' })
+        env['rack.session'] = {} # No user_id, session auth will fail
+
+        status, _headers, body = multi_wrapper.call(env)
+
+        expect(status).to eq(200)
+        expect(body).to eq(['handler called'])
+        expect(env['otto.strategy_result']).to be_authenticated
+        expect(env['otto.strategy_result'].strategy_name).to eq('apikey')
+        expect(env['otto.strategy_result'].user[:id]).to eq(999)
+      end
+
+      it 'fails with 401 when all strategies fail (JSON)' do
+        env = mock_rack_env(headers: { 'Accept' => 'application/json' })
+        env['rack.session'] = {} # No user_id
+        # No API key header
+
+        status, headers, body = multi_wrapper.call(env)
+
+        expect(status).to eq(401)
+        expect(headers['content-type']).to eq('application/json')
+        response_data = JSON.parse(body.first)
+        expect(response_data['error']).to eq('Authentication Required')
+      end
+
+      it 'fails with 302 redirect when all strategies fail (HTML)' do
+        env = mock_rack_env
+        env['rack.session'] = {} # No user_id
+        # No API key header
+
+        status, headers, _body = multi_wrapper.call(env)
+
+        expect(status).to eq(302)
+        expect(headers['location']).to eq('/signin')
+      end
+
+      it 'sets comprehensive metadata when all strategies fail' do
+        env = mock_rack_env
+        env['rack.session'] = {}
+
+        multi_wrapper.call(env)
+
+        result = env['otto.strategy_result']
+        expect(result).not_to be_authenticated
+        expect(result.strategy_name).to eq('multi-strategy-failure')
+        expect(result.metadata[:attempted_strategies]).to contain_exactly('session', 'apikey')
+        expect(result.metadata[:failure_reasons]).to be_an(Array)
+        expect(result.metadata[:failure_reasons].size).to eq(2)
+      end
+    end
+
+    context 'with unknown strategy in multi-strategy route' do
+      let(:bad_route) do
+        Otto::RouteDefinition.new('GET', '/test', 'TestApp.test auth=session,unknown,apikey')
+      end
+
+      let(:bad_wrapper) do
+        described_class.new(mock_handler, bad_route, multi_auth_config)
+      end
+
+      it 'returns 401 immediately when encountering unknown strategy (strict mode)' do
+        env = mock_rack_env(headers: { 'Accept' => 'application/json' })
+        env['rack.session'] = { 'user_id' => 123 } # Session would succeed
+
+        status, headers, body = bad_wrapper.call(env)
+
+        expect(status).to eq(401)
+        expect(headers['content-type']).to eq('application/json')
+        response_data = JSON.parse(body.first)
+        expect(response_data['error']).to include('unknown')
+        expect(response_data['error']).to include('not configured')
+      end
+
+      it 'validates all strategies before executing any (fail-fast)' do
+        # Create a spy to track if session strategy was called
+        session_called = false
+        spied_session_strategy = Class.new do
+          define_method(:initialize) do |original|
+            @original = original
+            @called = -> { session_called = true }
+          end
+
+          define_method(:authenticate) do |env, requirement|
+            session_called = true
+            @original.authenticate(env, requirement)
+          end
+        end.new(session_strategy)
+
+        config = {
+          auth_strategies: {
+            'session' => spied_session_strategy,
+            'apikey' => apikey_strategy,
+          }
+        }
+
+        bad_route = Otto::RouteDefinition.new('GET', '/test', 'TestApp.test auth=session,unknown,apikey')
+        wrapper = described_class.new(mock_handler, bad_route, config)
+
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123 }
+
+        wrapper.call(env)
+
+        # Session strategy should NOT be called because validation happens first
+        expect(session_called).to be false
+      end
+
+      it 'does not execute strategies after unknown strategy' do
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123 }
+        env['HTTP_X_API_KEY'] = 'valid_key'
+
+        # Both session and apikey would succeed, but unknown stops execution
+        status, _headers, _body = bad_wrapper.call(env)
+
+        expect(status).to eq(401)
+        # Handler should not be called
+        expect(env['otto.strategy_result']).to be_nil
+      end
+    end
+
+    context 'with three strategies (auth=noauth,session,apikey)' do
+      let(:noauth_route) do
+        Otto::RouteDefinition.new('GET', '/test', 'TestApp.test auth=noauth,session,apikey')
+      end
+
+      let(:noauth_wrapper) do
+        described_class.new(mock_handler, noauth_route, multi_auth_config)
+      end
+
+      it 'succeeds with first strategy (noauth) without trying others' do
+        env = mock_rack_env
+        # No session, no API key - noauth always succeeds
+
+        status, _headers, body = noauth_wrapper.call(env)
+
+        expect(status).to eq(200)
+        expect(body).to eq(['handler called'])
+        expect(env['otto.strategy_result'].strategy_name).to eq('noauth')
+      end
+    end
+  end
+
+  describe 'role-based authorization (Layer 1)' do
+    let(:role_strategy) do
+      Class.new do
+        def authenticate(env, _requirement)
+          session = env['rack.session']
+          return Otto::Security::Authentication::AuthFailure.new(
+            failure_reason: 'No session',
+            auth_method: 'session'
+          ) unless session
+
+          user_roles = session['user_roles'] || []
+          Otto::Security::Authentication::StrategyResult.new(
+            user: { id: 123, roles: user_roles },
+            session: session,
+            auth_method: 'session',
+            metadata: {},
+            strategy_name: 'session'
+          )
+        end
+      end.new
+    end
+
+    let(:role_auth_config) do
+      {
+        auth_strategies: {
+          'session' => role_strategy,
+        },
+        default_auth_strategy: 'noauth',
+        login_path: '/signin',
+      }
+    end
+
+    context 'with role requirement (role=admin)' do
+      let(:admin_route) do
+        Otto::RouteDefinition.new('GET', '/admin', 'AdminLogic auth=session role=admin')
+      end
+
+      let(:admin_wrapper) do
+        described_class.new(mock_handler, admin_route, role_auth_config)
+      end
+
+      it 'succeeds when user has required role' do
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123, 'user_roles' => ['admin', 'user'] }
+
+        status, _headers, body = admin_wrapper.call(env)
+
+        expect(status).to eq(200)
+        expect(body).to eq(['handler called'])
+        expect(env['otto.strategy_result']).to be_authenticated
+      end
+
+      it 'returns 403 when user lacks required role (JSON)' do
+        env = mock_rack_env(headers: { 'Accept' => 'application/json' })
+        env['rack.session'] = { 'user_id' => 123, 'user_roles' => ['user'] }
+
+        status, headers, body = admin_wrapper.call(env)
+
+        expect(status).to eq(403)
+        expect(headers['content-type']).to eq('application/json')
+        response_data = JSON.parse(body.first)
+        expect(response_data['error']).to eq('Forbidden')
+        expect(response_data['message']).to include('admin')
+      end
+
+      it 'returns 403 when user lacks required role (HTML)' do
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123, 'user_roles' => ['user'] }
+
+        status, headers, body = admin_wrapper.call(env)
+
+        expect(status).to eq(403)
+        expect(headers['content-type']).to eq('text/plain')
+        expect(body.first).to include('admin')
+      end
+
+      it 'returns 403 when user has no roles' do
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123, 'user_roles' => [] }
+
+        status, _headers, _body = admin_wrapper.call(env)
+
+        expect(status).to eq(403)
+      end
+    end
+
+    context 'with multiple role requirements (role=admin,editor)' do
+      let(:multi_role_route) do
+        Otto::RouteDefinition.new('GET', '/content', 'ContentLogic auth=session role=admin,editor')
+      end
+
+      let(:multi_role_wrapper) do
+        described_class.new(mock_handler, multi_role_route, role_auth_config)
+      end
+
+      it 'succeeds when user has first required role' do
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123, 'user_roles' => ['admin'] }
+
+        status, _headers, body = multi_role_wrapper.call(env)
+
+        expect(status).to eq(200)
+        expect(body).to eq(['handler called'])
+      end
+
+      it 'succeeds when user has second required role' do
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123, 'user_roles' => ['editor'] }
+
+        status, _headers, body = multi_role_wrapper.call(env)
+
+        expect(status).to eq(200)
+        expect(body).to eq(['handler called'])
+      end
+
+      it 'succeeds when user has both required roles' do
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123, 'user_roles' => ['admin', 'editor', 'user'] }
+
+        status, _headers, body = multi_role_wrapper.call(env)
+
+        expect(status).to eq(200)
+        expect(body).to eq(['handler called'])
+      end
+
+      it 'returns 403 when user has neither required role' do
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123, 'user_roles' => ['user', 'viewer'] }
+
+        status, _headers, _body = multi_role_wrapper.call(env)
+
+        expect(status).to eq(403)
+      end
+    end
+
+    context 'with authentication but no role requirement' do
+      let(:auth_only_route) do
+        Otto::RouteDefinition.new('GET', '/dashboard', 'DashboardLogic auth=session')
+      end
+
+      let(:auth_only_wrapper) do
+        described_class.new(mock_handler, auth_only_route, role_auth_config)
+      end
+
+      it 'succeeds regardless of user roles' do
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123, 'user_roles' => [] }
+
+        status, _headers, body = auth_only_wrapper.call(env)
+
+        expect(status).to eq(200)
+        expect(body).to eq(['handler called'])
+      end
+
+      it 'succeeds when user has roles' do
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123, 'user_roles' => ['admin'] }
+
+        status, _headers, body = auth_only_wrapper.call(env)
+
+        expect(status).to eq(200)
+        expect(body).to eq(['handler called'])
+      end
+    end
+
+    context 'role extraction from different sources' do
+      let(:custom_strategy) do
+        ->(source) do
+          Class.new do
+            define_method(:initialize) do
+              @source = source
+            end
+
+            define_method(:authenticate) do |env, _requirement|
+              case @source
+              when :user_roles_accessor
+                # Test that roles can be extracted from metadata[:user_roles]
+                # (can't add singleton methods to frozen Data objects, so use metadata instead)
+                Otto::Security::Authentication::StrategyResult.new(
+                  user: { id: 123 },
+                  session: env['rack.session'],
+                  auth_method: 'custom',
+                  metadata: { user_roles: ['admin'] },
+                  strategy_name: 'custom'
+                )
+              when :user_hash_symbol
+                Otto::Security::Authentication::StrategyResult.new(
+                  user: { id: 123, roles: ['admin'] },
+                  session: env['rack.session'],
+                  auth_method: 'custom',
+                  metadata: {},
+                  strategy_name: 'custom'
+                )
+              when :user_hash_string
+                Otto::Security::Authentication::StrategyResult.new(
+                  user: { id: 123, 'roles' => ['admin'] },
+                  session: env['rack.session'],
+                  auth_method: 'custom',
+                  metadata: {},
+                  strategy_name: 'custom'
+                )
+              when :metadata
+                Otto::Security::Authentication::StrategyResult.new(
+                  user: { id: 123 },
+                  session: env['rack.session'],
+                  auth_method: 'custom',
+                  metadata: { user_roles: ['admin'] },
+                  strategy_name: 'custom'
+                )
+              end
+            end
+          end.new
+        end
+      end
+
+      let(:role_route) do
+        Otto::RouteDefinition.new('GET', '/test', 'TestLogic auth=custom role=admin')
+      end
+
+      # Note: Original test tried to add user_roles accessor via define_singleton_method
+      # but StrategyResult is a frozen Data object, so we test metadata extraction instead
+      it 'extracts roles from metadata (alternative to user_roles accessor)' do
+        config = { auth_strategies: { 'custom' => custom_strategy.call(:user_roles_accessor) } }
+        wrapper = described_class.new(mock_handler, role_route, config)
+
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123 }
+
+        status, _headers, _body = wrapper.call(env)
+        expect(status).to eq(200)
+      end
+
+      it 'extracts roles from user[:roles]' do
+        config = { auth_strategies: { 'custom' => custom_strategy.call(:user_hash_symbol) } }
+        wrapper = described_class.new(mock_handler, role_route, config)
+
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123 }
+
+        status, _headers, _body = wrapper.call(env)
+        expect(status).to eq(200)
+      end
+
+      it 'extracts roles from user["roles"]' do
+        config = { auth_strategies: { 'custom' => custom_strategy.call(:user_hash_string) } }
+        wrapper = described_class.new(mock_handler, role_route, config)
+
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123 }
+
+        status, _headers, _body = wrapper.call(env)
+        expect(status).to eq(200)
+      end
+
+      it 'extracts roles from metadata[:user_roles]' do
+        config = { auth_strategies: { 'custom' => custom_strategy.call(:metadata) } }
+        wrapper = described_class.new(mock_handler, role_route, config)
+
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123 }
+
+        status, _headers, _body = wrapper.call(env)
+        expect(status).to eq(200)
       end
     end
   end

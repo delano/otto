@@ -936,9 +936,13 @@ end
 - Show gem installation paths and Ruby versions
 - Leak system architecture details
 
-**How Sanitization Works:**
+**Automatic Sanitization in Otto.structured_log:**
 
-Otto's `LoggingHelpers.log_backtrace` automatically sanitizes all paths using these rules:
+Otto automatically sanitizes backtraces in `Otto.structured_log` when a `:backtrace` key contains an Array.
+
+**Sanitization Rules:**
+
+Both `Otto.structured_log` and `LoggingHelpers.log_backtrace` use the same sanitization rules:
 
 ```ruby
 # Project files → relative paths only

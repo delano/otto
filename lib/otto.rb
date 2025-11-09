@@ -586,6 +586,12 @@ class Otto
       # Skip debug logging when Otto.debug is false
       return if level == :debug && !debug
 
+      # Sanitize backtrace if present
+      if data.is_a?(Hash) && data[:backtrace].is_a?(Array)
+        data = data.dup
+        data[:backtrace] = Otto::LoggingHelpers.sanitize_backtrace(data[:backtrace])
+      end
+
       # Try structured logging first (SemanticLogger, etc.)
       if logger.respond_to?(level) && logger.method(level).arity > 1
         logger.send(level, message, data)

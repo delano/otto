@@ -453,8 +453,8 @@ RSpec.describe 'Otto Logging Integration' do
           expect(backtrace[0]).to eq("lib/otto.rb:100:in `call'")
           expect(backtrace[1]).to eq("lib/otto/core/router.rb:50:in `route'")
 
-          # Gem files: categorized
-          expect(backtrace[2]).to start_with('[GEM] rack-3.1.8/')
+          # Gem files: categorized with version stripped
+          expect(backtrace[2]).to eq('[GEM] rack/lib/rack/request.rb:42:in `initialize\'')
 
           # Ruby stdlib: categorized
           expect(backtrace[3]).to start_with('[RUBY] ')

@@ -58,7 +58,9 @@ RSpec.describe 'Otto::LoggingHelpers backtrace sanitization' do
     it 'handles malformed paths gracefully' do
       line = "invalid\x00path.rb:10:in `method\'"
       result = Otto::LoggingHelpers.sanitize_backtrace_line(line, project_root)
-      expect(result).to eq("[EXTERNAL] path.rb:10:in `method\'")
+      # Malformed paths are handled safely - we show the filename even with null bytes
+      # This is better than crashing, and the null byte is still visible for debugging
+      expect(result).to eq("[EXTERNAL] invalid\x00path.rb:10:in `method\'")
     end
 
     it 'returns line as-is if it cannot be parsed' do

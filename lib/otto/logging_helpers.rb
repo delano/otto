@@ -181,7 +181,7 @@ class Otto
           gem_name = ::Regexp.last_match(1)
           gem_relative = ::Regexp.last_match(2)
           # Strip git hash suffix for cleaner output (otto-abc123def456 → otto)
-          gem_name = gem_name.split('-').first if gem_name =~ /^[a-z_-]+-[a-f0-9]{7,}$/i
+          gem_name = gem_name.sub(/-[a-f0-9]{7,}$/, '') if gem_name =~ /-[a-f0-9]{7,}$/i
           return "[GEM] #{gem_name}/#{gem_relative}#{suffix}"
         end
 

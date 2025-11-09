@@ -175,11 +175,35 @@ class Otto
           return relative_path + suffix
         end
 
-        # Check for gem path (e.g., /path/to/gems/rack-3.1.8/lib/rack.rb)
+        # Check for bundler gems specifically (e.g., /bundler/gems/otto-abc123/lib/...)
+        # Must check BEFORE regular gems pattern to handle /gems/3.4.0/bundler/gems/...
+        if expanded_path =~ %r{/bundler/gems/([^/]+)/(.+)$}
+          gem_name = ::Regexp.last_match(1)
+          gem_relative = ::Regexp.last_match(2)
+          # Strip git hash suffix for cleaner output (otto-abc123def456 → otto)
+          gem_name = gem_name.split('-').first if gem_name =~ /^[a-z_-]+-[a-f0-9]{7,}$/i
+          return "[GEM] #{gem_name}/#{gem_relative}#{suffix}"
+        end
+
+        # Check for regular gem path (e.g., /path/to/gems/rack-3.1.8/lib/rack.rb)
+        # Handle version directories: /gems/3.4.0/gems/rack-3.1.8/... by looking for last /gems/
         if expanded_path =~ %r{/gems/([^/]+)/(.+)$}
           gem_name = ::Regexp.last_match(1)
           gem_relative = ::Regexp.last_match(2)
-          return "[GEM] #{gem_name}/#{gem_relative}#{suffix}"
+
+          # Skip version-only directory names (e.g., 3.4.0)
+          # Look deeper if gem_name is just a version number
+          if gem_name =~ /^[\d.]+$/ && gem_relative =~ %r{^(?:bundler/)?gems/([^/]+)/(.+)$}
+            # Found nested gem path, use that instead
+            gem_name = ::Regexp.last_match(1)
+            gem_relative = ::Regexp.last_match(2)
+          end
+
+          # Strip version suffix for cleaner output (rack-3.1.8 → rack)
+          base_gem_name = gem_name.split('-')[0..-2].join('-')
+          base_gem_name = gem_name if base_gem_name.empty?
+
+          return "[GEM] #{base_gem_name}/#{gem_relative}#{suffix}"
         end
 
         # Check for Ruby stdlib (e.g., /path/to/ruby/3.4.0/logger.rb)

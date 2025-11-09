@@ -463,10 +463,12 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
         def authenticate(env, _requirement)
           api_key = env['HTTP_X_API_KEY']
           if api_key == 'valid_key'
-            Otto::Security::Authentication::StrategyResult.success(
+            Otto::Security::Authentication::StrategyResult.new(
               user: { id: 999, api_key: api_key },
               session: nil,
-              metadata: { auth_method: 'api_key' }
+              auth_method: 'api_key',
+              metadata: {},
+              strategy_name: 'apikey'
             )
           else
             Otto::Security::Authentication::AuthFailure.new(
@@ -483,6 +485,7 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
         auth_strategies: {
           'session' => session_strategy,
           'apikey' => apikey_strategy,
+          'noauth' => noauth_strategy,
         },
         default_auth_strategy: 'noauth',
         login_path: '/signin',
@@ -666,10 +669,12 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
           ) unless session
 
           user_roles = session['user_roles'] || []
-          Otto::Security::Authentication::StrategyResult.success(
+          Otto::Security::Authentication::StrategyResult.new(
             user: { id: 123, roles: user_roles },
             session: session,
-            metadata: { auth_method: 'session' }
+            auth_method: 'session',
+            metadata: {},
+            strategy_name: 'session'
           )
         end
       end.new
@@ -829,30 +834,38 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
             define_method(:authenticate) do |env, _requirement|
               case @source
               when :user_roles_accessor
-                result = Otto::Security::Authentication::StrategyResult.success(
+                result = Otto::Security::Authentication::StrategyResult.new(
                   user: { id: 123 },
                   session: env['rack.session'],
-                  metadata: {}
+                  auth_method: 'custom',
+                  metadata: {},
+                  strategy_name: 'custom'
                 )
                 result.define_singleton_method(:user_roles) { ['admin'] }
                 result
               when :user_hash_symbol
-                Otto::Security::Authentication::StrategyResult.success(
+                Otto::Security::Authentication::StrategyResult.new(
                   user: { id: 123, roles: ['admin'] },
                   session: env['rack.session'],
-                  metadata: {}
+                  auth_method: 'custom',
+                  metadata: {},
+                  strategy_name: 'custom'
                 )
               when :user_hash_string
-                Otto::Security::Authentication::StrategyResult.success(
+                Otto::Security::Authentication::StrategyResult.new(
                   user: { id: 123, 'roles' => ['admin'] },
                   session: env['rack.session'],
-                  metadata: {}
+                  auth_method: 'custom',
+                  metadata: {},
+                  strategy_name: 'custom'
                 )
               when :metadata
-                Otto::Security::Authentication::StrategyResult.success(
+                Otto::Security::Authentication::StrategyResult.new(
                   user: { id: 123 },
                   session: env['rack.session'],
-                  metadata: { user_roles: ['admin'] }
+                  auth_method: 'custom',
+                  metadata: { user_roles: ['admin'] },
+                  strategy_name: 'custom'
                 )
               end
             end

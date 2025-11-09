@@ -198,9 +198,17 @@ class Otto
           }
           metadata[:country] = env['otto.privacy.geo_country'] if env['otto.privacy.geo_country']
 
+          # Use 'multi-strategy-failure' only for actual multi-strategy failures
+          # For single-strategy failures, use the actual strategy name
+          failure_strategy_name = if auth_requirements.size > 1
+            'multi-strategy-failure'
+          else
+            failed_strategies.first[:strategy]
+          end
+
           env['otto.strategy_result'] = StrategyResult.anonymous(
             metadata: metadata,
-            strategy_name: 'multi-strategy-failure'
+            strategy_name: failure_strategy_name
           )
 
           auth_failure_response(env, last_failure || AuthFailure.new(failure_reason: "Authentication required"))

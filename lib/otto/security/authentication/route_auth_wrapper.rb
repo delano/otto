@@ -97,8 +97,8 @@ class Otto
               result = result.with(strategy_name: strategy_name)
             end
 
-            # Handle authentication success - return immediately
-            if result.is_a?(StrategyResult) && result.authenticated?
+            # Handle authentication success (both authenticated and anonymous results) - return immediately
+            if result.is_a?(StrategyResult) && (result.authenticated? || result.anonymous?)
               total_duration = Otto::Utils.now_in_μs - total_start_time
 
               # Log authentication success
@@ -202,8 +202,10 @@ class Otto
           # For single-strategy failures, use the actual strategy name
           failure_strategy_name = if auth_requirements.size > 1
             'multi-strategy-failure'
-          else
+          elsif failed_strategies.any?
             failed_strategies.first[:strategy]
+          else
+            auth_requirements.first
           end
 
           env['otto.strategy_result'] = StrategyResult.anonymous(
@@ -211,7 +213,10 @@ class Otto
             strategy_name: failure_strategy_name
           )
 
-          auth_failure_response(env, last_failure || AuthFailure.new(failure_reason: "Authentication required"))
+          auth_failure_response(env, last_failure || AuthFailure.new(
+            failure_reason: "Authentication required",
+            auth_method: failure_strategy_name
+          ))
         end
 
         private

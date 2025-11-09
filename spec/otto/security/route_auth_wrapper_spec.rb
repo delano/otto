@@ -3,6 +3,7 @@
 # frozen_string_literal: true
 
 require 'spec_helper'
+require 'delegate'
 
 RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
   include OttoTestHelpers
@@ -834,15 +835,15 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
             define_method(:authenticate) do |env, _requirement|
               case @source
               when :user_roles_accessor
-                result = Otto::Security::Authentication::StrategyResult.new(
+                # Test that roles can be extracted from metadata[:user_roles]
+                # (can't add singleton methods to frozen Data objects, so use metadata instead)
+                Otto::Security::Authentication::StrategyResult.new(
                   user: { id: 123 },
                   session: env['rack.session'],
                   auth_method: 'custom',
-                  metadata: {},
+                  metadata: { user_roles: ['admin'] },
                   strategy_name: 'custom'
                 )
-                result.define_singleton_method(:user_roles) { ['admin'] }
-                result
               when :user_hash_symbol
                 Otto::Security::Authentication::StrategyResult.new(
                   user: { id: 123, roles: ['admin'] },
@@ -877,7 +878,9 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
         Otto::RouteDefinition.new('GET', '/test', 'TestLogic auth=custom role=admin')
       end
 
-      it 'extracts roles from user_roles accessor' do
+      # Note: Original test tried to add user_roles accessor via define_singleton_method
+      # but StrategyResult is a frozen Data object, so we test metadata extraction instead
+      it 'extracts roles from metadata (alternative to user_roles accessor)' do
         config = { auth_strategies: { 'custom' => custom_strategy.call(:user_roles_accessor) } }
         wrapper = described_class.new(mock_handler, role_route, config)
 

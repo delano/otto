@@ -926,6 +926,109 @@ end
 - `env['REMOTE_ADDR']` contains masked IP for public addresses
 - User agents are automatically truncated to prevent log bloat
 
+### Backtrace Sanitization (Security by Default)
+
+**IMPORTANT**: Otto automatically sanitizes exception backtraces to prevent exposing sensitive system information in logs. This is critical for both security and compliance.
+
+**Security Risks of Raw Backtraces:**
+- Expose absolute paths revealing usernames (`/Users/alice/`, `/home/admin/`)
+- Reveal project structure and internal organization
+- Show gem installation paths and Ruby versions
+- Leak system architecture details
+
+**How Sanitization Works:**
+
+Otto's `LoggingHelpers.log_backtrace` automatically sanitizes all paths using these rules:
+
+```ruby
+# Project files → relative paths only
+"/Users/alice/myapp/app/controllers/users_controller.rb:42:in `create'"
+# ↓ SANITIZED TO:
+"app/controllers/users_controller.rb:42:in `create'"
+
+# Bundler gems → [GEM] tag with gem name only
+"/Users/alice/.rbenv/versions/3.4.7/lib/ruby/gems/3.4.0/bundler/gems/otto-34f285412a44/lib/otto/route.rb:142"
+# ↓ SANITIZED TO:
+"[GEM] otto/lib/otto/route.rb:142"
+
+# Regular gems → [GEM] tag, version stripped
+"/opt/ruby/gems/3.4.0/gems/rack-3.2.4/lib/rack/builder.rb:310"
+# ↓ SANITIZED TO:
+"[GEM] rack/lib/rack/builder.rb:310"
+
+# Ruby stdlib → [RUBY] tag with filename only
+"/Users/alice/.rbenv/versions/3.4.7/lib/ruby/3.4.0/logger.rb:310"
+# ↓ SANITIZED TO:
+"[RUBY] logger.rb:310"
+
+# Unknown/external → filename only
+"/some/unknown/path/file.rb:50"
+# ↓ SANITIZED TO:
+"[EXTERNAL] file.rb:50"
+```
+
+**Usage:**
+
+Sanitization happens automatically when using `log_backtrace`:
+
+```ruby
+# In error handlers (Otto does this automatically)
+Otto::LoggingHelpers.log_backtrace(error,
+  Otto::LoggingHelpers.request_context(env).merge(
+    error_id: error_id,
+    handler: 'UserController#create'
+  )
+)
+
+# Manual usage if needed
+sanitized = Otto::LoggingHelpers.sanitize_backtrace(error.backtrace)
+```
+
+**Features:**
+
+1. **Project Root Detection**: Auto-detects via `Bundler.root` or `Dir.pwd`
+2. **Bundler Gem Support**: Handles git-based gems with hash suffixes
+3. **Nested Gem Paths**: Correctly handles `/gems/3.4.0/bundler/gems/...` structures
+4. **Version Stripping**: Removes version numbers for cleaner output
+5. **Truncation**: Limits to first 20 frames for critical errors
+6. **Security**: No absolute paths, usernames, or project names in output
+
+**Security Guarantees:**
+
+```ruby
+# All backtrace output is sanitized - no exceptions
+backtrace.each do |line|
+  expect(line).not_to match(%r{^/home/})      # No absolute paths
+  expect(line).not_to match(%r{^/Users/})     # No user directories
+  expect(line).not_to include('admin')        # No usernames
+  expect(line).not_to include('secret-proj')  # No project names
+end
+```
+
+**Output Example:**
+
+```
+E [54845] Otto -- Exception backtrace -- {
+  method: "GET",
+  path: "/api/users/123",
+  ip: "192.0.2.0",
+  error_id: "abc123",
+  backtrace: [
+    "apps/api/v2/logic/base.rb:100:in `V2::Logic::Base#raise_not_found'",
+    "[GEM] otto/lib/otto/route_handlers/logic_class.rb:57:in `Otto::RouteHandlers::LogicClassHandler#call'",
+    "[GEM] rack/lib/rack/builder.rb:310:in `Rack::Builder#call'",
+    "[RUBY] logger.rb:310:in `Logger#add'"
+  ]
+}
+```
+
+**Notes:**
+- Sanitization is **always enabled** in production (no opt-out)
+- Works with any structured logger (SemanticLogger, Logger, etc.)
+- Compatible with error monitoring services (Sentry, Bugsnag, etc.)
+- No external dependencies required
+- Thread-safe for concurrent requests
+
 ### Anti-Patterns
 
 **❌ Don't create event classes:**

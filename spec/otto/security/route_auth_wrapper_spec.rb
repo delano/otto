@@ -551,6 +551,7 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
 
         result = env['otto.strategy_result']
         expect(result).not_to be_authenticated
+        expect(result.strategy_name).to eq('multi-strategy-failure')
         expect(result.metadata[:attempted_strategies]).to contain_exactly('session', 'apikey')
         expect(result.metadata[:failure_reasons]).to be_an(Array)
         expect(result.metadata[:failure_reasons].size).to eq(2)
@@ -577,6 +578,40 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
         response_data = JSON.parse(body.first)
         expect(response_data['error']).to include('unknown')
         expect(response_data['error']).to include('not configured')
+      end
+
+      it 'validates all strategies before executing any (fail-fast)' do
+        # Create a spy to track if session strategy was called
+        session_called = false
+        spied_session_strategy = Class.new do
+          define_method(:initialize) do |original|
+            @original = original
+            @called = -> { session_called = true }
+          end
+
+          define_method(:authenticate) do |env, requirement|
+            session_called = true
+            @original.authenticate(env, requirement)
+          end
+        end.new(session_strategy)
+
+        config = {
+          auth_strategies: {
+            'session' => spied_session_strategy,
+            'apikey' => apikey_strategy,
+          }
+        }
+
+        bad_route = Otto::RouteDefinition.new('GET', '/test', 'TestApp.test auth=session,unknown,apikey')
+        wrapper = described_class.new(mock_handler, bad_route, config)
+
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123 }
+
+        wrapper.call(env)
+
+        # Session strategy should NOT be called because validation happens first
+        expect(session_called).to be false
       end
 
       it 'does not execute strategies after unknown strategy' do

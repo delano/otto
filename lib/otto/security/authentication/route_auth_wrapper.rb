@@ -59,19 +59,23 @@ class Otto
           end
 
           # Routes WITH auth requirements: Try each strategy in order (first success wins)
+
+          # Validate all strategies exist before executing any (fail-fast)
+          auth_requirements.each do |requirement|
+            strategy, _strategy_name = get_strategy(requirement)
+            unless strategy
+              error_msg = "Authentication strategy not configured: '#{requirement}'"
+              Otto.logger.error "[RouteAuthWrapper] #{error_msg}"
+              return unauthorized_response(env, error_msg)
+            end
+          end
+
           last_failure = nil
           failed_strategies = []
           total_start_time = Otto::Utils.now_in_μs
 
           auth_requirements.each do |requirement|
             strategy, strategy_name = get_strategy(requirement)
-
-            # Strict mode: Unknown strategy is an error
-            unless strategy
-              error_msg = "Authentication strategy not configured: '#{requirement}'"
-              Otto.logger.error "[RouteAuthWrapper] #{error_msg}"
-              return unauthorized_response(env, error_msg)
-            end
 
             # Log strategy execution start
             Otto.structured_log(:debug, "Auth strategy executing",
@@ -196,7 +200,7 @@ class Otto
 
           env['otto.strategy_result'] = StrategyResult.anonymous(
             metadata: metadata,
-            strategy_name: failed_strategies.last[:strategy]
+            strategy_name: 'multi-strategy-failure'
           )
 
           auth_failure_response(env, last_failure || AuthFailure.new(failure_reason: "Authentication required"))

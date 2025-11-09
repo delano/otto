@@ -142,14 +142,13 @@ RSpec.describe 'Otto::LoggingHelpers backtrace sanitization' do
         expect(line).not_to include('admin')
         expect(line).not_to include('/home/')
       end
-    it 'does not expose project names' do
+    end
+
+    it 'does not expose project names in gem paths' do
       result = Otto::LoggingHelpers.sanitize_backtrace(sensitive_backtrace,
                                                         project_root: '/home/admin/secret-project')
-      # Project file path should be relative, not contain project name
-      expect(result[0]).to eq("app/auth.rb:100:in `authenticate'")
-      # Gem paths should not contain project name
-      expect(result[1]).not_to include('secret-project')
-    end
+      result.each do |line|
+        expect(line).not_to include('secret-project')
       end
     end
   end

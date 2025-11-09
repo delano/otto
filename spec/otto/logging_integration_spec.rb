@@ -203,6 +203,49 @@ RSpec.describe 'Otto Logging Integration' do
         fallback_to: 'default_not_found'
       })
     end
+
+    it 'automatically sanitizes backtraces in structured_log' do
+      # Test that Otto.structured_log automatically sanitizes backtrace arrays
+      project_root = '/Users/admin/myapp'
+      allow(Otto::LoggingHelpers).to receive(:detect_project_root).and_return(project_root)
+
+      raw_backtrace = [
+        '/Users/admin/myapp/app/controllers/users_controller.rb:42:in `create\'',
+        '/usr/local/gems/rack-3.1.8/lib/rack/builder.rb:310:in `call\'',
+        '/Users/admin/.rbenv/versions/3.4.7/lib/ruby/3.4.0/logger.rb:310:in `add\''
+      ]
+
+      expected_sanitized = [
+        'app/controllers/users_controller.rb:42:in `create\'',
+        '[GEM] rack/lib/rack/builder.rb:310:in `call\'',
+        '[RUBY] logger.rb:310:in `add\''
+      ]
+
+      expect(logger_double).to receive(:error).with('Exception backtrace', hash_including(
+        backtrace: expected_sanitized,
+        error_id: 'test123'
+      ))
+
+      Otto.structured_log(:error, 'Exception backtrace', {
+        backtrace: raw_backtrace,
+        error_id: 'test123'
+      })
+    end
+
+    it 'leaves non-backtrace data unchanged in structured_log' do
+      # Test that other data is not affected by backtrace sanitization
+      expect(logger_double).to receive(:info).with('Regular log message', hash_including(
+        method: 'GET',
+        path: '/test',
+        other_array: ['item1', 'item2']
+      ))
+
+      Otto.structured_log(:info, 'Regular log message', {
+        method: 'GET',
+        path: '/test',
+        other_array: ['item1', 'item2']
+      })
+    end
   end
 
   describe 'LoggingHelpers.request_context' do

@@ -164,15 +164,79 @@ Otto implements industry-standard separation between authentication and authoriz
 **Layer 1: Route-Level (Authentication + Basic Authorization)**
 - Handled by `RouteAuthWrapper` before handler execution
 - Use `auth=` for authentication strategies
-- Use `role=` for role-based route access (not yet implemented - use custom strategies for now)
+- Use `role=` for role-based route access
 - Fast execution (no database queries)
-- Returns 401 (Unauthorized) or 403 (Forbidden) before reaching Logic class
+- Returns 401 (Unauthorized) for authentication failures
+- Returns 403 (Forbidden) for authorization failures
 
 **Layer 2: Resource-Level (Authorization)**
 - Handled by Logic classes in `raise_concerns` method
 - Checks ownership, relationships, resource attributes
 - Requires database queries to load resources
 - Raises `Otto::Security::AuthorizationError` for 403 response
+
+### Layer 1: Role-Based Authorization
+
+**Basic Role Authorization:**
+```ruby
+# Routes file - requires admin role
+GET /admin/users  AdminUserLogic  auth=session role=admin
+```
+
+**Multiple Roles (OR logic):**
+```ruby
+# Routes file - requires admin OR editor role
+GET /content/edit  ContentEditLogic  auth=session role=admin,editor
+
+# User with admin role: ✓ allowed
+# User with editor role: ✓ allowed
+# User with both roles: ✓ allowed
+# User with neither role: ✗ 403 Forbidden
+```
+
+**Role Extraction:**
+
+RouteAuthWrapper extracts roles from authentication results in this order:
+1. `result.user_roles` (direct accessor)
+2. `result.user[:roles]` (user hash with symbol key)
+3. `result.user['roles']` (user hash with string key)
+4. `result.metadata[:user_roles]` (metadata)
+
+**Example Strategy with Roles:**
+```ruby
+class SessionStrategy
+  def authenticate(env, _requirement)
+    session = env['rack.session']
+    return failure('No session') unless session
+
+    user_id = session['user_id']
+    return failure('Not authenticated') unless user_id
+
+    # Include roles in the user data
+    StrategyResult.success(
+      user: {
+        id: user_id,
+        roles: session['user_roles'] || []  # Roles accessible as user[:roles]
+      },
+      session: session
+    )
+  end
+end
+```
+
+**Complete Example:**
+```ruby
+# Routes file
+GET /admin/dashboard  AdminDashboardLogic  auth=session role=admin
+GET /content/edit/:id ContentEditLogic     auth=session role=admin,editor
+GET /profile          ProfileLogic         auth=session
+
+# Admin user can access all routes
+# Editor user can access /content/edit/:id and /profile
+# Regular user can only access /profile
+```
+
+### Layer 2: Resource-Level Authorization
 
 **Example: Resource Ownership**
 ```ruby

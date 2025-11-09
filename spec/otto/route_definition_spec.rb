@@ -155,6 +155,58 @@ RSpec.describe Otto::RouteDefinition do
     end
   end
 
+  describe '#role_requirement' do
+    it 'returns nil when role option is not present' do
+      route = described_class.new('GET', '/public', 'TestApp.public')
+
+      expect(route.role_requirement).to be_nil
+    end
+
+    it 'returns single role requirement' do
+      route = described_class.new('GET', '/admin', 'AdminLogic auth=session role=admin')
+
+      expect(route.role_requirement).to eq('admin')
+    end
+
+    it 'returns comma-separated role requirements as string' do
+      route = described_class.new('GET', '/content', 'ContentLogic auth=session role=admin,editor')
+
+      expect(route.role_requirement).to eq('admin,editor')
+    end
+  end
+
+  describe '#role_requirements' do
+    it 'returns empty array when role option is not present' do
+      route = described_class.new('GET', '/public', 'TestApp.public')
+
+      expect(route.role_requirements).to eq([])
+    end
+
+    it 'returns single-element array for single role requirement' do
+      route = described_class.new('GET', '/admin', 'AdminLogic auth=session role=admin')
+
+      expect(route.role_requirements).to eq(['admin'])
+    end
+
+    it 'returns multiple elements for comma-separated role requirements' do
+      route = described_class.new('GET', '/content', 'ContentLogic auth=session role=admin,editor,moderator')
+
+      expect(route.role_requirements).to eq(['admin', 'editor', 'moderator'])
+    end
+
+    it 'strips whitespace from role requirements' do
+      route = described_class.new('GET', '/content', 'ContentLogic auth=session role=admin, editor , moderator')
+
+      expect(route.role_requirements).to eq(['admin', 'editor', 'moderator'])
+    end
+
+    it 'removes empty elements from role requirements' do
+      route = described_class.new('GET', '/content', 'ContentLogic auth=session role=admin,,editor')
+
+      expect(route.role_requirements).to eq(['admin', 'editor'])
+    end
+  end
+
   describe 'immutability' do
     it 'freezes the route definition instance' do
       route = described_class.new('GET', '/test', 'TestApp.test')

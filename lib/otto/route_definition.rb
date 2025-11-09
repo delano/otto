@@ -89,6 +89,23 @@ class Otto
       auth.split(',').map(&:strip).reject(&:empty?)
     end
 
+    # Get role requirement for route-level authorization
+    # Supports single role or comma-separated roles (OR logic): role=admin,editor
+    # @return [String, nil] The role requirement or nil
+    def role_requirement
+      option(:role)
+    end
+
+    # Get all role requirements as an array
+    # Supports multiple roles with OR logic: role=admin,editor
+    # @return [Array<String>] Array of role requirement strings
+    def role_requirements
+      role = option(:role)
+      return [] unless role
+
+      role.split(',').map(&:strip).reject(&:empty?)
+    end
+
     # Get response type
     # @return [String] The response type (defaults to 'default')
     def response_type

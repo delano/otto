@@ -122,7 +122,35 @@ class Otto
               # Using merge! instead would break this - the objects must be identical.
               env['rack.session'] = result.session if result.is_a?(StrategyResult) && result.session
 
-              # Authentication succeeded - call wrapped handler
+              # Layer 1 Authorization: Check role requirements (route-level)
+              role_requirements = route_definition.role_requirements
+              unless role_requirements.empty?
+                user_roles = extract_user_roles(result)
+
+                # OR logic: user needs ANY of the required roles
+                unless (user_roles & role_requirements).any?
+                  Otto.structured_log(:warn, "Role authorization failed",
+                    Otto::LoggingHelpers.request_context(env).merge(
+                      required_roles: role_requirements,
+                      user_roles: user_roles,
+                      user_id: result.user_id
+                    )
+                  )
+
+                  return forbidden_response(env,
+                    "Access denied: requires one of roles: #{role_requirements.join(', ')}")
+                end
+
+                Otto.structured_log(:debug, "Role authorization succeeded",
+                  Otto::LoggingHelpers.request_context(env).merge(
+                    required_roles: role_requirements,
+                    user_roles: user_roles,
+                    matched_roles: user_roles & role_requirements
+                  )
+                )
+              end
+
+              # Authentication and authorization succeeded - call wrapped handler
               return wrapped_handler.call(env, extra_params)
             end
 
@@ -298,6 +326,59 @@ class Otto
             merge_security_headers!(headers)
             [401, headers, [message]]
           end
+        end
+
+        # Generate 403 Forbidden response for role authorization failure
+        #
+        # @param env [Hash] Rack environment
+        # @param message [String] Error message
+        # @return [Array] Rack response array
+        def forbidden_response(env, message)
+          accept_header = env['HTTP_ACCEPT'] || ''
+          wants_json = accept_header.include?('application/json')
+
+          if wants_json
+            body = { error: 'Forbidden', message: message }.to_json
+            headers = {
+              'content-type' => 'application/json',
+              'content-length' => body.bytesize.to_s
+            }
+            merge_security_headers!(headers)
+            [403, headers, [body]]
+          else
+            headers = { 'content-type' => 'text/plain' }
+            merge_security_headers!(headers)
+            [403, headers, [message]]
+          end
+        end
+
+        # Extract user roles from authentication result
+        #
+        # Supports multiple role sources in order of precedence:
+        # 1. result.user_roles (Array)
+        # 2. result.user[:roles] (Array)
+        # 3. result.user['roles'] (Array)
+        # 4. result.metadata[:user_roles] (Array)
+        #
+        # @param result [StrategyResult] Authentication result
+        # @return [Array<String>] Array of role strings
+        def extract_user_roles(result)
+          # Try direct user_roles accessor (e.g., from RoleStrategy)
+          return Array(result.user_roles) if result.respond_to?(:user_roles) && result.user_roles
+
+          # Try user hash/object with roles
+          if result.user
+            roles = result.user[:roles] || result.user['roles']
+            return Array(roles) if roles
+          end
+
+          # Try metadata
+          if result.metadata && result.metadata[:user_roles]
+            return Array(result.metadata[:user_roles])
+          end
+
+          # No roles found
+          []
         end
 
         # Merge security headers into response headers

@@ -79,6 +79,10 @@ class Otto
     load(path) unless path.nil?
     super()
 
+    # Auto-register AuthorizationError for 403 Forbidden responses
+    # This allows Logic classes to raise AuthorizationError for resource-level access control
+    register_error_handler(Otto::Security::AuthorizationError, status: 403, log_level: :warn)
+
     # Build the middleware app once after all initialization is complete
     build_app!
 
@@ -340,10 +344,16 @@ class Otto
   # @example
   #   otto.add_auth_strategy('session', SessionStrategy.new(session_key: 'user_id'))
   #   otto.add_auth_strategy('api_key', APIKeyStrategy.new)
+  # @raise [ArgumentError] if strategy name already registered
   def add_auth_strategy(name, strategy)
     ensure_not_frozen!
     # Ensure auth_config is initialized (handles edge case where it might be nil)
     @auth_config = { auth_strategies: {}, default_auth_strategy: 'noauth' } if @auth_config.nil?
+
+    # Strict mode: Detect strategy name collisions
+    if @auth_config[:auth_strategies].key?(name)
+      raise ArgumentError, "Authentication strategy '#{name}' is already registered"
+    end
 
     @auth_config[:auth_strategies][name] = strategy
   end

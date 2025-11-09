@@ -39,15 +39,16 @@ class Otto
         #
         # For routes WITHOUT auth requirement: Sets anonymous StrategyResult
         # For routes WITH auth requirement: Enforces authentication
+        # Supports multi-strategy with OR logic: auth=session,apikey,oauth
         #
         # @param env [Hash] Rack environment
         # @param extra_params [Hash] Additional parameters
         # @return [Array] Rack response array
         def call(env, extra_params = {})
-          auth_requirement = route_definition.auth_requirement
+          auth_requirements = route_definition.auth_requirements
 
           # Routes without auth requirement get anonymous StrategyResult
-          unless auth_requirement
+          if auth_requirements.empty?
             # Note: env['REMOTE_ADDR'] is masked by IPPrivacyMiddleware by default
             metadata = { ip: env['REMOTE_ADDR'] }
             metadata[:country] = env['otto.privacy.geo_country'] if env['otto.privacy.geo_country']
@@ -57,101 +58,177 @@ class Otto
             return wrapped_handler.call(env, extra_params)
           end
 
-          # Routes WITH auth requirement: Execute authentication strategy
-          strategy, strategy_name = get_strategy(auth_requirement)
+          # Routes WITH auth requirements: Try each strategy in order (first success wins)
 
-          unless strategy
-            Otto.logger.error "[RouteAuthWrapper] No strategy found for requirement: #{auth_requirement}"
-            return unauthorized_response(env, "Authentication strategy not configured")
+          # Validate all strategies exist before executing any (fail-fast)
+          auth_requirements.each do |requirement|
+            strategy, _strategy_name = get_strategy(requirement)
+            unless strategy
+              error_msg = "Authentication strategy not configured: '#{requirement}'"
+              Otto.logger.error "[RouteAuthWrapper] #{error_msg}"
+              return unauthorized_response(env, error_msg)
+            end
           end
 
-          # Log strategy execution start
-          Otto.structured_log(:debug, "Auth strategy executing",
-            Otto::LoggingHelpers.request_context(env).merge(
-              strategy: strategy_name,
-              requirement: auth_requirement
-            )
-          )
+          last_failure = nil
+          failed_strategies = []
+          total_start_time = Otto::Utils.now_in_μs
 
-          # Execute the strategy
-          start_time = Otto::Utils.now_in_μs
-          result = strategy.authenticate(env, auth_requirement)
-          duration = Otto::Utils.now_in_μs - start_time
+          auth_requirements.each do |requirement|
+            strategy, strategy_name = get_strategy(requirement)
 
-          # Inject strategy_name into result (Data.define objects are immutable, use #with for updates)
-          if result.is_a?(StrategyResult)
-            result = result.with(strategy_name: strategy_name)
-          end
-
-          # Handle authentication failure
-          if result.is_a?(AuthFailure)
-            # Log authentication failure
-            Otto.structured_log(:info, "Auth strategy result",
+            # Log strategy execution start
+            Otto.structured_log(:debug, "Auth strategy executing",
               Otto::LoggingHelpers.request_context(env).merge(
                 strategy: strategy_name,
-                success: false,
-                failure_reason: result.failure_reason,
-                duration: duration
+                requirement: requirement,
+                strategy_position: auth_requirements.index(requirement) + 1,
+                total_strategies: auth_requirements.size
               )
             )
 
-            # Create anonymous result with failure info for logging/auditing
-            # Note: env['REMOTE_ADDR'] is masked by IPPrivacyMiddleware by default
-            metadata = {
-              ip: env['REMOTE_ADDR'],
-              auth_failure: result.failure_reason,
-              attempted_strategy: auth_requirement
-            }
-            metadata[:country] = env['otto.privacy.geo_country'] if env['otto.privacy.geo_country']
+            # Execute the strategy
+            start_time = Otto::Utils.now_in_μs
+            result = strategy.authenticate(env, requirement)
+            duration = Otto::Utils.now_in_μs - start_time
 
-            env['otto.strategy_result'] = StrategyResult.anonymous(
-              metadata: metadata,
-              strategy_name: strategy_name
-            )
-            return auth_failure_response(env, result)
+            # Inject strategy_name into result (Data.define objects are immutable, use #with for updates)
+            if result.is_a?(StrategyResult)
+              result = result.with(strategy_name: strategy_name)
+            end
+
+            # Handle authentication success - return immediately
+            if result.is_a?(StrategyResult) && result.authenticated?
+              total_duration = Otto::Utils.now_in_μs - total_start_time
+
+              # Log authentication success
+              Otto.structured_log(:info, "Auth strategy result",
+                Otto::LoggingHelpers.request_context(env).merge(
+                  strategy: strategy_name,
+                  success: true,
+                  user_id: result.user_id,
+                  duration: duration,
+                  total_duration: total_duration,
+                  strategies_attempted: failed_strategies.size + 1
+                )
+              )
+
+              # Set environment variables for controllers/logic on success
+              env['otto.strategy_result'] = result
+
+              # SESSION PERSISTENCE: This assignment is INTENTIONAL, not a merge operation.
+              # We must ensure env['rack.session'] and strategy_result.session reference
+              # the SAME object so that:
+              #   1. Logic classes write to strategy_result.session
+              #   2. Rack's session middleware persists env['rack.session']
+              #   3. Changes from (1) are included in (2)
+              #
+              # Using merge! instead would break this - the objects must be identical.
+              env['rack.session'] = result.session if result.is_a?(StrategyResult) && result.session
+
+              # Layer 1 Authorization: Check role requirements (route-level)
+              role_requirements = route_definition.role_requirements
+              unless role_requirements.empty?
+                user_roles = extract_user_roles(result)
+
+                # OR logic: user needs ANY of the required roles
+                unless (user_roles & role_requirements).any?
+                  Otto.structured_log(:warn, "Role authorization failed",
+                    Otto::LoggingHelpers.request_context(env).merge(
+                      required_roles: role_requirements,
+                      user_roles: user_roles,
+                      user_id: result.user_id
+                    )
+                  )
+
+                  return forbidden_response(env,
+                    "Access denied: requires one of roles: #{role_requirements.join(', ')}")
+                end
+
+                Otto.structured_log(:debug, "Role authorization succeeded",
+                  Otto::LoggingHelpers.request_context(env).merge(
+                    required_roles: role_requirements,
+                    user_roles: user_roles,
+                    matched_roles: user_roles & role_requirements
+                  )
+                )
+              end
+
+              # Authentication and authorization succeeded - call wrapped handler
+              return wrapped_handler.call(env, extra_params)
+            end
+
+            # Handle authentication failure - continue to next strategy
+            if result.is_a?(AuthFailure)
+              # Log authentication failure
+              Otto.structured_log(:info, "Auth strategy result",
+                Otto::LoggingHelpers.request_context(env).merge(
+                  strategy: strategy_name,
+                  success: false,
+                  failure_reason: result.failure_reason,
+                  duration: duration,
+                  remaining_strategies: auth_requirements.size - auth_requirements.index(requirement) - 1
+                )
+              )
+
+              failed_strategies << { strategy: strategy_name, reason: result.failure_reason }
+              last_failure = result
+            end
           end
 
-          # Log authentication success
-          Otto.structured_log(:info, "Auth strategy result",
+          # All strategies failed - return 401
+          total_duration = Otto::Utils.now_in_μs - total_start_time
+
+          # Log comprehensive failure
+          Otto.structured_log(:warn, "All auth strategies failed",
             Otto::LoggingHelpers.request_context(env).merge(
-              strategy: strategy_name,
-              success: true,
-              user_id: result.user_id,
-              duration: duration
+              strategies_attempted: failed_strategies.map { |f| f[:strategy] },
+              total_duration: total_duration,
+              failure_count: failed_strategies.size
             )
           )
 
-          # Set environment variables for controllers/logic on success
-          env['otto.strategy_result'] = result
+          # Create anonymous result with comprehensive failure info
+          # Note: env['REMOTE_ADDR'] is masked by IPPrivacyMiddleware by default
+          metadata = {
+            ip: env['REMOTE_ADDR'],
+            auth_failure: "All authentication strategies failed",
+            attempted_strategies: failed_strategies.map { |f| f[:strategy] },
+            failure_reasons: failed_strategies.map { |f| f[:reason] }
+          }
+          metadata[:country] = env['otto.privacy.geo_country'] if env['otto.privacy.geo_country']
 
-          # SESSION PERSISTENCE: This assignment is INTENTIONAL, not a merge operation.
-          # We must ensure env['rack.session'] and strategy_result.session reference
-          # the SAME object so that:
-          #   1. Logic classes write to strategy_result.session
-          #   2. Rack's session middleware persists env['rack.session']
-          #   3. Changes from (1) are included in (2)
-          #
-          # Using merge! instead would break this - the objects must be identical.
-          env['rack.session'] = result.session if result.is_a?(StrategyResult) && result.session
+          # Use 'multi-strategy-failure' only for actual multi-strategy failures
+          # For single-strategy failures, use the actual strategy name
+          failure_strategy_name = if auth_requirements.size > 1
+            'multi-strategy-failure'
+          else
+            failed_strategies.first[:strategy]
+          end
 
-          # Authentication succeeded - call wrapped handler
-          wrapped_handler.call(env, extra_params)
+          env['otto.strategy_result'] = StrategyResult.anonymous(
+            metadata: metadata,
+            strategy_name: failure_strategy_name
+          )
+
+          auth_failure_response(env, last_failure || AuthFailure.new(failure_reason: "Authentication required"))
         end
 
         private
 
-        # Get strategy from auth_config hash with sophisticated pattern matching
+        # Get strategy from auth_config hash with pattern matching
         #
         # Supports:
         # - Exact match: 'authenticated' → looks up auth_config[:auth_strategies]['authenticated']
-        # - Prefix match: 'role:admin' → looks up 'role' strategy
-        # - Fallback: 'role:*' → creates default RoleStrategy
-        # - Fallback: 'permission:*' → creates default PermissionStrategy
+        # - Prefix match: 'custom:value' → looks up 'custom' strategy
         #
         # Results are cached to avoid repeated lookups for the same requirement.
         #
+        # NOTE: Role-based authorization should use route option `role=admin` instead of `auth=role:admin`
+        # to properly separate authentication from authorization concerns.
+        #
         # @param requirement [String] Auth requirement from route
-        # @return [AuthStrategy, nil] Strategy instance or nil
+        # @return [Array<AuthStrategy, String>, Array<nil, nil>] Tuple of [strategy, name] or [nil, nil]
         def get_strategy(requirement)
           return [nil, nil] unless auth_config && auth_config[:auth_strategies]
 
@@ -166,7 +243,7 @@ class Otto
             return result
           end
 
-          # For colon-separated requirements like "role:admin", try prefix match
+          # For colon-separated requirements like "custom:value", try prefix match
           if requirement.include?(':')
             prefix = requirement.split(':', 2).first
 
@@ -174,27 +251,6 @@ class Otto
             prefix_strategy = auth_config[:auth_strategies][prefix]
             if prefix_strategy
               result = [prefix_strategy, prefix]
-              @strategy_cache[requirement] = result
-              return result
-            end
-
-            # Try fallback patterns for role: and permission: requirements
-            if requirement.start_with?('role:')
-              # Cache the fallback strategy under 'role:' key to create it only once
-              fallback_key = 'role:'
-              result = @strategy_cache[fallback_key] ||= begin
-                strategy = auth_config[:auth_strategies]['role'] || Strategies::RoleStrategy.new([])
-                [strategy, 'role']
-              end
-              @strategy_cache[requirement] = result
-              return result
-            elsif requirement.start_with?('permission:')
-              # Cache the fallback strategy under 'permission:' key
-              fallback_key = 'permission:'
-              result = @strategy_cache[fallback_key] ||= begin
-                strategy = auth_config[:auth_strategies]['permission'] || Strategies::PermissionStrategy.new([])
-                [strategy, 'permission']
-              end
               @strategy_cache[requirement] = result
               return result
             end
@@ -282,6 +338,59 @@ class Otto
             merge_security_headers!(headers)
             [401, headers, [message]]
           end
+        end
+
+        # Generate 403 Forbidden response for role authorization failure
+        #
+        # @param env [Hash] Rack environment
+        # @param message [String] Error message
+        # @return [Array] Rack response array
+        def forbidden_response(env, message)
+          accept_header = env['HTTP_ACCEPT'] || ''
+          wants_json = accept_header.include?('application/json')
+
+          if wants_json
+            body = { error: 'Forbidden', message: message }.to_json
+            headers = {
+              'content-type' => 'application/json',
+              'content-length' => body.bytesize.to_s
+            }
+            merge_security_headers!(headers)
+            [403, headers, [body]]
+          else
+            headers = { 'content-type' => 'text/plain' }
+            merge_security_headers!(headers)
+            [403, headers, [message]]
+          end
+        end
+
+        # Extract user roles from authentication result
+        #
+        # Supports multiple role sources in order of precedence:
+        # 1. result.user_roles (Array)
+        # 2. result.user[:roles] (Array)
+        # 3. result.user['roles'] (Array)
+        # 4. result.metadata[:user_roles] (Array)
+        #
+        # @param result [StrategyResult] Authentication result
+        # @return [Array<String>] Array of role strings
+        def extract_user_roles(result)
+          # Try direct user_roles accessor (e.g., from RoleStrategy)
+          return Array(result.user_roles) if result.respond_to?(:user_roles) && result.user_roles
+
+          # Try user hash/object with roles
+          if result.user
+            roles = result.user[:roles] || result.user['roles']
+            return Array(roles) if roles
+          end
+
+          # Try metadata
+          if result.metadata && result.metadata[:user_roles]
+            return Array(result.metadata[:user_roles])
+          end
+
+          # No roles found
+          []
         end
 
         # Merge security headers into response headers

@@ -185,14 +185,12 @@ RSpec.describe 'Auth Config Sharing' do
       expect(otto.security.auth_config[:auth_strategies]).to have_key('strategy2')
     end
 
-    it 'overwrites existing strategies with same name' do
-      new_strategy = double('NewStrategy')
-
+    it 'raises ArgumentError when adding duplicate strategy name (strict mode)' do
       otto.add_auth_strategy('test', test_strategy)
-      otto.add_auth_strategy('test', new_strategy)
 
-      expect(otto.auth_config[:auth_strategies]['test']).to eq(new_strategy)
-      expect(otto.security.auth_config[:auth_strategies]['test']).to eq(new_strategy)
+      expect do
+        otto.add_auth_strategy('test', double('NewStrategy'))
+      end.to raise_error(ArgumentError, /Authentication strategy 'test' is already registered/)
     end
   end
 end

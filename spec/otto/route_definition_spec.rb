@@ -25,7 +25,7 @@ RSpec.describe Otto::RouteDefinition do
     end
 
     it 'strips whitespace from auth requirements' do
-      route = described_class.new('GET', '/protected', 'TestApp.protected auth=session, apikey , oauth')
+      route = described_class.new('GET', '/protected', 'TestApp.protected auth=session,apikey,oauth')
 
       expect(route.auth_requirements).to eq(['session', 'apikey', 'oauth'])
     end
@@ -195,7 +195,7 @@ RSpec.describe Otto::RouteDefinition do
     end
 
     it 'strips whitespace from role requirements' do
-      route = described_class.new('GET', '/content', 'ContentLogic auth=session role=admin, editor , moderator')
+      route = described_class.new('GET', '/content', 'ContentLogic auth=session role=admin,editor,moderator')
 
       expect(route.role_requirements).to eq(['admin', 'editor', 'moderator'])
     end

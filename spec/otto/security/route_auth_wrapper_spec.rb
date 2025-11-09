@@ -180,7 +180,8 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
         expect(status).to eq(401)
         expect(headers['content-type']).to eq('application/json')
         response_data = JSON.parse(body.first)
-        expect(response_data['error']).to eq('Authentication strategy not configured')
+        expect(response_data['error']).to include('Authentication strategy not configured')
+        expect(response_data['error']).to include('unknown')
       end
 
       it 'returns 401 with error message for HTML requests' do
@@ -193,7 +194,8 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
 
         expect(status).to eq(401)
         expect(headers['content-type']).to eq('text/plain')
-        expect(body).to eq(['Authentication strategy not configured'])
+        expect(body.first).to include('Authentication strategy not configured')
+        expect(body.first).to include('unknown')
       end
     end
 
@@ -467,7 +469,10 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
               metadata: { auth_method: 'api_key' }
             )
           else
-            Otto::Security::Authentication::AuthFailure.new(failure_reason: 'Invalid API key')
+            Otto::Security::Authentication::AuthFailure.new(
+              failure_reason: 'Invalid API key',
+              auth_method: 'apikey'
+            )
           end
         end
       end.new
@@ -655,7 +660,10 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
       Class.new do
         def authenticate(env, _requirement)
           session = env['rack.session']
-          return Otto::Security::Authentication::AuthFailure.new(failure_reason: 'No session') unless session
+          return Otto::Security::Authentication::AuthFailure.new(
+            failure_reason: 'No session',
+            auth_method: 'session'
+          ) unless session
 
           user_roles = session['user_roles'] || []
           Otto::Security::Authentication::StrategyResult.success(

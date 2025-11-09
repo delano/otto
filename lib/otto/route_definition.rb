@@ -73,10 +73,20 @@ class Otto
       @options.fetch(key.to_sym, default)
     end
 
-    # Get authentication requirement
+    # Get authentication requirement (backward compatibility - returns first requirement)
     # @return [String, nil] The auth requirement or nil
     def auth_requirement
-      option(:auth)
+      auth_requirements.first
+    end
+
+    # Get all authentication requirements as an array
+    # Supports multiple strategies: auth=session,apikey,oauth
+    # @return [Array<String>] Array of auth requirement strings
+    def auth_requirements
+      auth = option(:auth)
+      return [] unless auth
+
+      auth.split(',').map(&:strip).reject(&:empty?)
     end
 
     # Get response type

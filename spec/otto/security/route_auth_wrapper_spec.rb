@@ -454,4 +454,164 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
       end
     end
   end
+
+  describe 'multi-strategy authentication' do
+    let(:apikey_strategy) do
+      Class.new do
+        def authenticate(env, _requirement)
+          api_key = env['HTTP_X_API_KEY']
+          if api_key == 'valid_key'
+            Otto::Security::Authentication::StrategyResult.success(
+              user: { id: 999, api_key: api_key },
+              session: nil,
+              metadata: { auth_method: 'api_key' }
+            )
+          else
+            Otto::Security::Authentication::AuthFailure.new(failure_reason: 'Invalid API key')
+          end
+        end
+      end.new
+    end
+
+    let(:multi_auth_config) do
+      {
+        auth_strategies: {
+          'session' => session_strategy,
+          'apikey' => apikey_strategy,
+        },
+        default_auth_strategy: 'noauth',
+        login_path: '/signin',
+      }
+    end
+
+    context 'with multi-strategy route (auth=session,apikey)' do
+      let(:multi_route) do
+        Otto::RouteDefinition.new('GET', '/protected', 'TestApp.protected auth=session,apikey')
+      end
+
+      let(:multi_wrapper) do
+        described_class.new(mock_handler, multi_route, multi_auth_config)
+      end
+
+      it 'succeeds with first strategy (session) and does not try second strategy' do
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123 }
+
+        status, _headers, body = multi_wrapper.call(env)
+
+        expect(status).to eq(200)
+        expect(body).to eq(['handler called'])
+        expect(env['otto.strategy_result']).to be_authenticated
+        expect(env['otto.strategy_result'].strategy_name).to eq('session')
+        expect(env['otto.strategy_result'].user[:id]).to eq(123)
+      end
+
+      it 'succeeds with second strategy (apikey) when first fails' do
+        env = mock_rack_env(headers: { 'X-Api-Key' => 'valid_key' })
+        env['rack.session'] = {} # No user_id, session auth will fail
+
+        status, _headers, body = multi_wrapper.call(env)
+
+        expect(status).to eq(200)
+        expect(body).to eq(['handler called'])
+        expect(env['otto.strategy_result']).to be_authenticated
+        expect(env['otto.strategy_result'].strategy_name).to eq('apikey')
+        expect(env['otto.strategy_result'].user[:id]).to eq(999)
+      end
+
+      it 'fails with 401 when all strategies fail (JSON)' do
+        env = mock_rack_env(headers: { 'Accept' => 'application/json' })
+        env['rack.session'] = {} # No user_id
+        # No API key header
+
+        status, headers, body = multi_wrapper.call(env)
+
+        expect(status).to eq(401)
+        expect(headers['content-type']).to eq('application/json')
+        response_data = JSON.parse(body.first)
+        expect(response_data['error']).to eq('Authentication Required')
+      end
+
+      it 'fails with 302 redirect when all strategies fail (HTML)' do
+        env = mock_rack_env
+        env['rack.session'] = {} # No user_id
+        # No API key header
+
+        status, headers, _body = multi_wrapper.call(env)
+
+        expect(status).to eq(302)
+        expect(headers['location']).to eq('/signin')
+      end
+
+      it 'sets comprehensive metadata when all strategies fail' do
+        env = mock_rack_env
+        env['rack.session'] = {}
+
+        multi_wrapper.call(env)
+
+        result = env['otto.strategy_result']
+        expect(result).not_to be_authenticated
+        expect(result.metadata[:attempted_strategies]).to contain_exactly('session', 'apikey')
+        expect(result.metadata[:failure_reasons]).to be_an(Array)
+        expect(result.metadata[:failure_reasons].size).to eq(2)
+      end
+    end
+
+    context 'with unknown strategy in multi-strategy route' do
+      let(:bad_route) do
+        Otto::RouteDefinition.new('GET', '/test', 'TestApp.test auth=session,unknown,apikey')
+      end
+
+      let(:bad_wrapper) do
+        described_class.new(mock_handler, bad_route, multi_auth_config)
+      end
+
+      it 'returns 401 immediately when encountering unknown strategy (strict mode)' do
+        env = mock_rack_env(headers: { 'Accept' => 'application/json' })
+        env['rack.session'] = { 'user_id' => 123 } # Session would succeed
+
+        status, headers, body = bad_wrapper.call(env)
+
+        expect(status).to eq(401)
+        expect(headers['content-type']).to eq('application/json')
+        response_data = JSON.parse(body.first)
+        expect(response_data['error']).to include('unknown')
+        expect(response_data['error']).to include('not configured')
+      end
+
+      it 'does not execute strategies after unknown strategy' do
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123 }
+        env['HTTP_X_API_KEY'] = 'valid_key'
+
+        # Both session and apikey would succeed, but unknown stops execution
+        status, _headers, _body = bad_wrapper.call(env)
+
+        expect(status).to eq(401)
+        # Handler should not be called
+        expect(env['otto.strategy_result']).to be_nil
+      end
+    end
+
+    context 'with three strategies (auth=noauth,session,apikey)' do
+      let(:noauth_route) do
+        Otto::RouteDefinition.new('GET', '/test', 'TestApp.test auth=noauth,session,apikey')
+      end
+
+      let(:noauth_wrapper) do
+        described_class.new(mock_handler, noauth_route, multi_auth_config)
+      end
+
+      it 'succeeds with first strategy (noauth) without trying others' do
+        env = mock_rack_env
+        # No session, no API key - noauth always succeeds
+
+        status, _headers, body = noauth_wrapper.call(env)
+
+        expect(status).to eq(200)
+        expect(body).to eq(['handler called'])
+        expect(env['otto.strategy_result'].strategy_name).to eq('noauth')
+      end
+    end
+  end
 end

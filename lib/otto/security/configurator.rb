@@ -181,7 +181,13 @@ class Otto
       # @param strategy [Otto::Security::Authentication::AuthStrategy] Strategy instance
       # @example
       #   otto.security.add_auth_strategy('session', SessionStrategy.new)
+      # @raise [ArgumentError] if strategy name already registered
       def add_auth_strategy(name, strategy)
+        # Strict mode: Detect strategy name collisions
+        if @auth_config[:auth_strategies].key?(name)
+          raise ArgumentError, "Authentication strategy '#{name}' is already registered"
+        end
+
         @auth_config[:auth_strategies][name] = strategy
       end
 

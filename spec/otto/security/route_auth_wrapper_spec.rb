@@ -219,29 +219,31 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
     end
   end
 
-  describe '#get_strategy' do
+  describe 'StrategyResolver' do
+    let(:resolver) { Otto::Security::Authentication::RouteAuthWrapperComponents::StrategyResolver.new(auth_config) }
+
     it 'returns strategy and name for valid requirement' do
-      strategy, name = wrapper.send(:get_strategy, 'authenticated')
+      strategy, name = resolver.resolve('authenticated')
       expect(strategy).to eq(session_strategy)
       expect(name).to eq('authenticated')
     end
 
     it 'returns nil tuple for unknown requirement' do
-      strategy, name = wrapper.send(:get_strategy, 'unknown')
+      strategy, name = resolver.resolve('unknown')
       expect(strategy).to be_nil
       expect(name).to be_nil
     end
 
     it 'returns nil tuple when auth_config is nil' do
-      wrapper_no_config = described_class.new(mock_handler, route_definition, nil)
-      strategy, name = wrapper_no_config.send(:get_strategy, 'authenticated')
+      resolver_no_config = Otto::Security::Authentication::RouteAuthWrapperComponents::StrategyResolver.new(nil)
+      strategy, name = resolver_no_config.resolve('authenticated')
       expect(strategy).to be_nil
       expect(name).to be_nil
     end
 
     it 'returns nil tuple when auth_strategies is missing' do
-      wrapper_no_strategies = described_class.new(mock_handler, route_definition, {})
-      strategy, name = wrapper_no_strategies.send(:get_strategy, 'authenticated')
+      resolver_no_strategies = Otto::Security::Authentication::RouteAuthWrapperComponents::StrategyResolver.new({})
+      strategy, name = resolver_no_strategies.resolve('authenticated')
       expect(strategy).to be_nil
       expect(name).to be_nil
     end

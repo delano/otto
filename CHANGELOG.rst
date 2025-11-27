@@ -7,10 +7,76 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.0.0.pre8:
+
+2.0.0.pre8 — 2025-11-27
+=======================
+
+Fixed
+-----
+
+- Routes declaring ``response=json`` now return 401 JSON errors instead of 302 redirects when authentication fails, regardless of Accept header. The route's explicit configuration takes precedence over content negotiation.
+
+.. _changelog-2.0.0.pre7:
+
+2.0.0.pre7 — 2025-11-24
+=======================
+
+Added
+-----
+
+- Error handler registration system for expected business logic errors. Register handlers with ``otto.register_error_handler(ErrorClass, status: 404, log_level: :info)`` to return proper HTTP status codes and avoid logging expected errors as 500s with backtraces. Supports custom response handlers via blocks for complete control over error responses.
+
+Changed
+-------
+
+- Backtrace logging now always logs at ERROR level (was DEBUG) with sanitized file paths for security. Backtraces for unhandled 500 errors are always logged regardless of ``OTTO_DEBUG`` setting, with paths sanitized to prevent exposing system information (project files show relative paths, gems show ``[GEM] name-version/path``, Ruby stdlib shows ``[RUBY] filename``).
+- Increased backtrace limit from 10 to 20 lines for critical errors to provide better debugging context.
+
+AI Assistance
+-------------
+
+- Implemented error handler registration architecture with comprehensive test coverage (17 test cases) using sequential thinking to work through security implications and design decisions. AI assisted with path sanitization strategy, error classification patterns, and ensuring backward compatibility with existing error handling.
+
+Improved backtrace sanitization security and readability
+--------------------------------------------------------
+
+**Security Enhancements:**
+
+- Fixed bundler gem path detection to correctly sanitize git-based gems
+- Now properly handles nested gem paths like ``/gems/3.4.0/bundler/gems/otto-abc123/``
+- Strips git hash suffixes from bundler gems (``otto-abc123def456`` → ``otto``)
+- Removes version numbers from regular gems (``rack-3.2.4`` → ``rack``)
+- Prevents exposure of absolute paths, usernames, and project names in logs
+
+**Improvements:**
+
+- Bundler gems now show as ``[GEM] otto/lib/otto/route.rb:142`` instead of ``[GEM] 3.4.0/bundler/gems/...``
+- Regular gems show cleaner output: ``[GEM] rack/lib/rack.rb:20`` instead of ``[GEM] rack-3.2.4/lib/rack.rb:20``
+- Multi-hyphenated gem names handled correctly (``active-record-import-1.5.0`` → ``active-record-import``)
+- Better handling of version-only directory names in gem paths
+
+**Documentation:**
+
+- Added comprehensive backtrace sanitization section to CLAUDE.md
+- Documented security guarantees and sanitization rules
+- Added examples showing before/after path transformations
+- Created comprehensive test suite for backtrace sanitization
+
+**Rationale:**
+
+Raw backtraces expose sensitive information:
+- Usernames (``/Users/alice/``, ``/home/admin/``)
+- Project structure and internal organization
+- Gem installation paths and Ruby versions
+- System architecture details
+
+This improvement ensures all backtraces are sanitized automatically, preventing accidental leakage of sensitive system information while maintaining readability for debugging.
+
 .. _changelog-2.0.0.pre6:
 
-2.0.0.pre6 — TBD
-================
+2.0.0.pre6
+==========
 
 Changed
 -------

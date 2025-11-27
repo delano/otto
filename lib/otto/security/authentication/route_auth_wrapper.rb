@@ -258,21 +258,27 @@ class Otto
           [nil, nil]
         end
 
+        # Determine if response should be JSON based on route config and Accept header
+        #
+        # Route's declared response type takes precedence over Accept header.
+        # This ensures API routes (response=json) always get JSON errors.
+        #
+        # @param env [Hash] Rack environment
+        # @return [Boolean] true if response should be JSON
+        def wants_json_response?(env)
+          return true if route_definition.response_type == 'json'
+
+          accept_header = env['HTTP_ACCEPT'] || ''
+          accept_header.include?('application/json')
+        end
+
         # Generate 401 response for authentication failure
         #
         # @param env [Hash] Rack environment
         # @param result [AuthFailure] Failure result from strategy
         # @return [Array] Rack response array
         def auth_failure_response(env, result)
-          # Route's declared response type takes precedence over Accept header
-          if route_definition.response_type == 'json'
-            json_auth_error(result)
-          else
-            # Fall back to content negotiation for non-JSON routes
-            accept_header = env['HTTP_ACCEPT'] || ''
-            wants_json = accept_header.include?('application/json')
-            wants_json ? json_auth_error(result) : html_auth_error(result)
-          end
+          wants_json_response?(env) ? json_auth_error(result) : html_auth_error(result)
         end
 
         # Generate JSON 401 response
@@ -319,10 +325,7 @@ class Otto
         # @param message [String] Error message
         # @return [Array] Rack response array
         def unauthorized_response(env, message)
-          accept_header = env['HTTP_ACCEPT'] || ''
-          wants_json = accept_header.include?('application/json')
-
-          if wants_json
+          if wants_json_response?(env)
             body = { error: message }.to_json
             headers = {
               'content-type' => 'application/json',
@@ -343,10 +346,7 @@ class Otto
         # @param message [String] Error message
         # @return [Array] Rack response array
         def forbidden_response(env, message)
-          accept_header = env['HTTP_ACCEPT'] || ''
-          wants_json = accept_header.include?('application/json')
-
-          if wants_json
+          if wants_json_response?(env)
             body = { error: 'Forbidden', message: message }.to_json
             headers = {
               'content-type' => 'application/json',

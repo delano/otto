@@ -289,6 +289,310 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
     end
   end
 
+  describe 'route response_type precedence' do
+    # Tests for the core fix: routes with response=json should return JSON errors
+    # regardless of Accept header, ensuring API contracts are respected.
+
+    let(:json_route) do
+      Otto::RouteDefinition.new('GET', '/api/data', 'ApiLogic#show auth=authenticated response=json')
+    end
+
+    let(:json_wrapper) do
+      described_class.new(mock_handler, json_route, auth_config)
+    end
+
+    context 'with response=json route' do
+      context 'authentication failure (auth_failure_response)' do
+        it 'returns JSON 401 even with text/html Accept header' do
+          env = mock_rack_env(headers: { 'Accept' => 'text/html' })
+          env['rack.session'] = {}
+
+          status, headers, body = json_wrapper.call(env)
+
+          expect(status).to eq(401)
+          expect(headers['content-type']).to eq('application/json')
+          response_data = JSON.parse(body.first)
+          expect(response_data['error']).to eq('Authentication Required')
+        end
+
+        it 'returns JSON 401 with no Accept header' do
+          env = mock_rack_env
+          env['rack.session'] = {}
+
+          status, headers, body = json_wrapper.call(env)
+
+          expect(status).to eq(401)
+          expect(headers['content-type']).to eq('application/json')
+          response_data = JSON.parse(body.first)
+          expect(response_data['error']).to eq('Authentication Required')
+        end
+
+        it 'returns JSON 401 with Accept: */*' do
+          env = mock_rack_env(headers: { 'Accept' => '*/*' })
+          env['rack.session'] = {}
+
+          status, headers, _body = json_wrapper.call(env)
+
+          expect(status).to eq(401)
+          expect(headers['content-type']).to eq('application/json')
+        end
+      end
+
+      context 'strategy configuration error (unauthorized_response)' do
+        let(:json_unknown_route) do
+          Otto::RouteDefinition.new('GET', '/api/data', 'ApiLogic#show auth=unknown response=json')
+        end
+
+        let(:json_unknown_wrapper) do
+          described_class.new(mock_handler, json_unknown_route, auth_config)
+        end
+
+        it 'returns JSON 401 for missing strategy even with HTML Accept header' do
+          env = mock_rack_env(headers: { 'Accept' => 'text/html' })
+
+          status, headers, body = json_unknown_wrapper.call(env)
+
+          expect(status).to eq(401)
+          expect(headers['content-type']).to eq('application/json')
+          response_data = JSON.parse(body.first)
+          expect(response_data['error']).to include('not configured')
+        end
+
+        it 'returns JSON 401 for missing strategy with no Accept header' do
+          env = mock_rack_env
+
+          status, headers, body = json_unknown_wrapper.call(env)
+
+          expect(status).to eq(401)
+          expect(headers['content-type']).to eq('application/json')
+          response_data = JSON.parse(body.first)
+          expect(response_data['error']).to include('unknown')
+        end
+      end
+
+      context 'role authorization failure (forbidden_response)' do
+        let(:role_strategy) do
+          Class.new do
+            def authenticate(env, _requirement)
+              session = env['rack.session']
+              return Otto::Security::Authentication::AuthFailure.new(
+                failure_reason: 'No session',
+                auth_method: 'session'
+              ) unless session&.key?('user_id')
+
+              Otto::Security::Authentication::StrategyResult.new(
+                user: { id: session['user_id'], roles: session['user_roles'] || [] },
+                session: session,
+                auth_method: 'session',
+                metadata: {},
+                strategy_name: 'session'
+              )
+            end
+          end.new
+        end
+
+        let(:json_admin_route) do
+          Otto::RouteDefinition.new('GET', '/api/admin', 'AdminApi#index auth=session role=admin response=json')
+        end
+
+        let(:json_admin_config) do
+          {
+            auth_strategies: { 'session' => role_strategy },
+            login_path: '/signin',
+          }
+        end
+
+        let(:json_admin_wrapper) do
+          described_class.new(mock_handler, json_admin_route, json_admin_config)
+        end
+
+        it 'returns JSON 403 for role failure even with HTML Accept header' do
+          env = mock_rack_env(headers: { 'Accept' => 'text/html' })
+          env['rack.session'] = { 'user_id' => 123, 'user_roles' => ['user'] }
+
+          status, headers, body = json_admin_wrapper.call(env)
+
+          expect(status).to eq(403)
+          expect(headers['content-type']).to eq('application/json')
+          response_data = JSON.parse(body.first)
+          expect(response_data['error']).to eq('Forbidden')
+          expect(response_data['message']).to include('admin')
+        end
+
+        it 'returns JSON 403 for role failure with no Accept header' do
+          env = mock_rack_env
+          env['rack.session'] = { 'user_id' => 123, 'user_roles' => [] }
+
+          status, headers, body = json_admin_wrapper.call(env)
+
+          expect(status).to eq(403)
+          expect(headers['content-type']).to eq('application/json')
+          response_data = JSON.parse(body.first)
+          expect(response_data['error']).to eq('Forbidden')
+        end
+
+        it 'returns JSON 403 for role failure with Accept: text/plain' do
+          env = mock_rack_env(headers: { 'Accept' => 'text/plain' })
+          env['rack.session'] = { 'user_id' => 456, 'user_roles' => ['viewer'] }
+
+          status, headers, _body = json_admin_wrapper.call(env)
+
+          expect(status).to eq(403)
+          expect(headers['content-type']).to eq('application/json')
+        end
+      end
+    end
+
+    context 'without response=json (regression tests)' do
+      # Ensure Accept header content negotiation still works for non-JSON routes
+
+      context 'authentication failure' do
+        it 'returns HTML redirect with text/html Accept header' do
+          env = mock_rack_env(headers: { 'Accept' => 'text/html' })
+          env['rack.session'] = {}
+
+          status, headers, _body = wrapper.call(env)
+
+          expect(status).to eq(302)
+          expect(headers['location']).to eq('/signin')
+        end
+
+        it 'returns JSON 401 with application/json Accept header' do
+          env = mock_rack_env(headers: { 'Accept' => 'application/json' })
+          env['rack.session'] = {}
+
+          status, headers, _body = wrapper.call(env)
+
+          expect(status).to eq(401)
+          expect(headers['content-type']).to eq('application/json')
+        end
+      end
+
+      context 'strategy configuration error' do
+        let(:unknown_route) do
+          Otto::RouteDefinition.new('GET', '/test', 'TestApp.test auth=unknown')
+        end
+
+        let(:unknown_wrapper) do
+          described_class.new(mock_handler, unknown_route, auth_config)
+        end
+
+        it 'returns text/plain 401 with text/html Accept header' do
+          env = mock_rack_env(headers: { 'Accept' => 'text/html' })
+
+          status, headers, body = unknown_wrapper.call(env)
+
+          expect(status).to eq(401)
+          expect(headers['content-type']).to eq('text/plain')
+          expect(body.first).to include('not configured')
+        end
+
+        it 'returns JSON 401 with application/json Accept header' do
+          env = mock_rack_env(headers: { 'Accept' => 'application/json' })
+
+          status, headers, body = unknown_wrapper.call(env)
+
+          expect(status).to eq(401)
+          expect(headers['content-type']).to eq('application/json')
+          response_data = JSON.parse(body.first)
+          expect(response_data['error']).to include('not configured')
+        end
+      end
+
+      context 'role authorization failure' do
+        let(:role_strategy) do
+          Class.new do
+            def authenticate(env, _requirement)
+              session = env['rack.session']
+              return Otto::Security::Authentication::AuthFailure.new(
+                failure_reason: 'No session',
+                auth_method: 'session'
+              ) unless session&.key?('user_id')
+
+              Otto::Security::Authentication::StrategyResult.new(
+                user: { id: session['user_id'], roles: session['user_roles'] || [] },
+                session: session,
+                auth_method: 'session',
+                metadata: {},
+                strategy_name: 'session'
+              )
+            end
+          end.new
+        end
+
+        let(:admin_route) do
+          Otto::RouteDefinition.new('GET', '/admin', 'AdminLogic auth=session role=admin')
+        end
+
+        let(:admin_config) do
+          {
+            auth_strategies: { 'session' => role_strategy },
+            login_path: '/signin',
+          }
+        end
+
+        let(:admin_wrapper) do
+          described_class.new(mock_handler, admin_route, admin_config)
+        end
+
+        it 'returns text/plain 403 with text/html Accept header' do
+          env = mock_rack_env(headers: { 'Accept' => 'text/html' })
+          env['rack.session'] = { 'user_id' => 123, 'user_roles' => ['user'] }
+
+          status, headers, body = admin_wrapper.call(env)
+
+          expect(status).to eq(403)
+          expect(headers['content-type']).to eq('text/plain')
+          expect(body.first).to include('admin')
+        end
+
+        it 'returns JSON 403 with application/json Accept header' do
+          env = mock_rack_env(headers: { 'Accept' => 'application/json' })
+          env['rack.session'] = { 'user_id' => 123, 'user_roles' => ['user'] }
+
+          status, headers, body = admin_wrapper.call(env)
+
+          expect(status).to eq(403)
+          expect(headers['content-type']).to eq('application/json')
+          response_data = JSON.parse(body.first)
+          expect(response_data['error']).to eq('Forbidden')
+        end
+      end
+    end
+
+    context 'edge cases' do
+      let(:json_route_with_accept) do
+        Otto::RouteDefinition.new('GET', '/api/data', 'ApiLogic#show auth=authenticated response=json')
+      end
+
+      let(:json_wrapper_edge) do
+        described_class.new(mock_handler, json_route_with_accept, auth_config)
+      end
+
+      it 'route response_type takes precedence over conflicting Accept header' do
+        # Client says HTML but route says JSON - route wins
+        env = mock_rack_env(headers: { 'Accept' => 'text/html, text/plain, application/xhtml+xml' })
+        env['rack.session'] = {}
+
+        status, headers, _body = json_wrapper_edge.call(env)
+
+        expect(status).to eq(401)
+        expect(headers['content-type']).to eq('application/json')
+      end
+
+      it 'handles missing Accept header gracefully for JSON routes' do
+        env = mock_rack_env
+        env.delete('HTTP_ACCEPT')
+        env['rack.session'] = {}
+
+        status, headers, _body = json_wrapper_edge.call(env)
+
+        expect(status).to eq(401)
+        expect(headers['content-type']).to eq('application/json')
+      end
+    end
+  end
+
   describe 'session object identity' do
     it 'ensures env[rack.session] and strategy_result.session are the same object' do
       env = mock_rack_env

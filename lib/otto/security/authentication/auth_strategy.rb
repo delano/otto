@@ -13,7 +13,9 @@ class Otto
         # Check if the request meets the authentication requirements
         # @param env [Hash] Rack environment
         # @param requirement [String] Authentication requirement string
-        # @return [Otto::Security::Authentication::StrategyResult, Otto::Security::Authentication::AuthFailure] StrategyResult for success, AuthFailure for failure
+        # @return [Otto::Security::Authentication::StrategyResult,
+        #          Otto::Security::Authentication::AuthFailure]
+        #          StrategyResult for success, AuthFailure for failure
         def authenticate(env, requirement)
           raise NotImplementedError, 'Subclasses must implement #authenticate'
         end

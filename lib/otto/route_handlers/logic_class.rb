@@ -9,8 +9,16 @@ require_relative 'base'
 class Otto
   module RouteHandlers
     # Handler for Logic classes (new in Otto Framework Enhancement)
-    # Handles Logic class routes with the modern RequestContext pattern
-    # Logic classes use signature: initialize(context, params, locale)
+    #
+    # Logic classes use a constrained signature: initialize(context, params, locale)
+    # - context: The authentication strategy result (user info, session data)
+    # - params: Merged request parameters (URL params + body + extra_params)
+    # - locale: The locale string from env['otto.locale']
+    #
+    # IMPORTANT: Logic classes do NOT receive the Rack request or env hash.
+    # This is intentional - Logic classes work with clean, authenticated contexts.
+    # For endpoints requiring direct request access (sessions, cookies, headers,
+    # or logout flows), use controller handlers (Controller#action or Controller.action).
     class LogicClassHandler < BaseHandler
       def call(env, extra_params = {})
         start_time = Otto::Utils.now_in_μs

@@ -10,7 +10,14 @@ require_relative 'base'
 class Otto
   module RouteHandlers
     # Handler for class methods (existing Otto pattern)
-    # Maintains backward compatibility for Controller.action patterns
+    # Route syntax: Controller.action
+    #
+    # Class methods receive full Rack request/response access:
+    # - Method signature: def self.action(request, response)
+    # - Direct access to sessions, cookies, headers, and the raw env
+    #
+    # Use this handler for endpoints requiring request-level control (logout,
+    # session management, cookie manipulation, custom header handling).
     class ClassMethodHandler < BaseHandler
       def call(env, extra_params = {})
         start_time = Otto::Utils.now_in_μs

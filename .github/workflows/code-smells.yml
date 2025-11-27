@@ -27,15 +27,12 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: 3.4
-          bundler-cache: true
 
-      - name: Configure Bundler for secure gem installation
+      - name: Install dependencies with optional groups
         run: |
           bundle config set --local path 'vendor/bundle'
-          bundle config set --local deployment 'false'
-
-      - name: Install dependencies
-        run: bundle install --jobs 4 --retry 3
+          bundle config set --local with 'development test'
+          bundle install --jobs 4 --retry 3
 
       - name: Run Reek analysis
         run: |

@@ -7,6 +7,48 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.0.0.pre9:
+
+2.0.0.pre9 — 2025-12-06
+=======================
+
+Added
+-----
+
+- Base HTTP error classes (``Otto::NotFoundError``, ``Otto::BadRequestError``, ``Otto::ForbiddenError``, ``Otto::UnauthorizedError``, ``Otto::PayloadTooLargeError``) that implementing projects can subclass for consistent error handling
+- Auto-registration of all framework error classes during ``Otto#initialize`` - framework errors now automatically return correct HTTP status codes without manual registration
+
+Changed
+-------
+
+- Framework error classes now inherit from new base classes: ``Otto::Security::AuthorizationError`` < ``Otto::ForbiddenError``, ``Otto::Security::CSRFError`` < ``Otto::ForbiddenError``, ``Otto::Security::RequestTooLargeError`` < ``Otto::PayloadTooLargeError``, ``Otto::Security::ValidationError`` < ``Otto::BadRequestError``, ``Otto::MCP::ValidationError`` < ``Otto::BadRequestError``
+- ``Otto::Security::RequestTooLargeError`` now returns HTTP 413 (Payload Too Large) instead of 500, semantically correct per RFC 7231
+
+- Consolidated route handler implementation using Template Method pattern, reducing duplication by ~120 lines while improving maintainability
+
+Fixed
+-----
+
+- Error handlers now respect route's ``response=json`` parameter for content
+  negotiation, ensuring API routes always return JSON error responses regardless
+  of the Accept header.
+
+- Rate limiters now respect route ``response=json`` declarations when returning
+  throttled responses, matching the error handler fix for consistent content
+  negotiation across all error paths.
+
+- ClassMethodHandler direct testing context now respects route ``response_type``
+  when generating error responses.
+
+- Unified error handling across ClassMethodHandler and InstanceMethodHandler to consistently support JSON content negotiation
+
+AI Assistance
+-------------
+
+- Implementation design and architecture developed with AI pair programming
+- Comprehensive test coverage (31 new base class tests, 12 auto-registration tests) developed with AI assistance
+- Error class hierarchy and inheritance patterns refined through AI-guided architectural discussion
+
 .. _changelog-2.0.0.pre8:
 
 2.0.0.pre8 — 2025-11-27

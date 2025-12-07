@@ -1,6 +1,7 @@
 # lib/otto/route_handlers/logic_class.rb
 #
 # frozen_string_literal: true
+
 require 'json'
 
 require_relative 'base'
@@ -39,20 +40,18 @@ class Otto
               logic_params = logic_params.merge(json_data) if json_data.is_a?(Hash)
             rescue JSON::ParserError => e
               # Base context pattern: create once, reuse for correlation
-              base_context = Otto::LoggingHelpers.request_context(env)
+              log_context = Otto::LoggingHelpers.request_context(env)
 
-              Otto.structured_log(:error, "JSON parsing error",
-                base_context.merge(
+              Otto.structured_log(:error, 'JSON parsing error',
+                log_context.merge(
                   handler: "#{target_class}#call",
                   error: e.message,
                   error_class: e.class.name,
                   duration: Otto::Utils.now_in_μs - start_time
-                )
-              )
+                ))
 
               Otto::LoggingHelpers.log_backtrace(e,
-                base_context.merge(handler: "#{target_class}#call")
-              )
+                log_context.merge(handler: "#{target_class}#call"))
             end
           end
 
@@ -69,12 +68,14 @@ class Otto
                      logic.call || logic
                    end
 
+          context = {
+            logic_instance: logic,
+                   request: req,
+               status_code: logic.respond_to?(:status_code) ? logic.status_code : nil,
+          }
+
           # Handle response with Logic instance context
-          handle_response(result, res, {
-                            logic_instance: logic,
-            request: req,
-            status_code: logic.respond_to?(:status_code) ? logic.status_code : nil,
-                          })
+          handle_response(result, res, context)
         rescue StandardError => e
           handle_execution_error(e, env, req, res, start_time)
         end

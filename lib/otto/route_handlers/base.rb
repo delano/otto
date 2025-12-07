@@ -30,9 +30,7 @@ class Otto
           setup_request_response(req, res, env, extra_params)
           result, context = invoke_target(req, res)
 
-          if route_definition.response_type != 'default'
-            handle_response(result, res, context)
-          end
+          handle_response(result, res, context) if route_definition.response_type != 'default'
         rescue StandardError => e
           handle_execution_error(e, env, req, res, start_time)
         end

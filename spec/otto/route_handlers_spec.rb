@@ -145,11 +145,19 @@ RSpec.describe Otto::RouteHandlers do
         strategy_result = AuthResultData.new(session: { user_id: 456 }, user: { name: 'Test' })
         env['otto.strategy_result'] = strategy_result
 
+        logic_instance = nil
+        allow(TestLogic).to receive(:new) do |context, params, locale|
+          logic_instance = TestLogic.allocate
+          logic_instance.instance_variable_set(:@context, context)
+          logic_instance.instance_variable_set(:@params, params)
+          logic_instance.instance_variable_set(:@locale, locale)
+          logic_instance
+        end
+        allow_any_instance_of(TestLogic).to receive(:process).and_return({ result: 'ok' })
+
         handler.call(env)
 
-        # TestLogic validates context is not nil in initialize
-        # If we get here without error, context was passed correctly
-        expect(true).to be true
+        expect(logic_instance.instance_variable_get(:@context)).to eq(strategy_result)
       end
 
       it 'passes locale from env to Logic class' do

@@ -69,11 +69,7 @@ class Otto
         end
 
         # Content negotiation for built-in error response
-        # Route's response_type takes precedence over Accept header
-        route_definition = env['otto.route_definition']
-        wants_json = (route_definition&.response_type == 'json') ||
-                     env['HTTP_ACCEPT'].to_s.include?('application/json')
-        return json_error_response(error_id) if wants_json
+        return json_error_response(error_id) if wants_json_response?(env)
 
         # Fallback to built-in error response
         @server_error || secure_error_response(error_id)
@@ -149,13 +145,9 @@ class Otto
         response_body[:error_id] = error_id if Otto.env?(:dev, :development)
 
         # Content negotiation
-        # Route's response_type takes precedence over Accept header
-        route_definition = env['otto.route_definition']
-        wants_json = (route_definition&.response_type == 'json') ||
-                     env['HTTP_ACCEPT'].to_s.include?('application/json')
         status = handler_config[:status] || 500
 
-        if wants_json
+        if wants_json_response?(env)
           body = JSON.generate(response_body)
           headers = {
             'content-type' => 'application/json',
@@ -216,6 +208,19 @@ class Otto
         }.merge(@security_config.security_headers)
 
         [500, headers, [body]]
+      end
+
+      private
+
+      # Determine if the client wants a JSON response
+      # Route's response_type declaration takes precedence over Accept header
+      #
+      # @param env [Hash] Rack environment
+      # @return [Boolean] true if JSON response is preferred
+      def wants_json_response?(env)
+        route_definition = env['otto.route_definition']
+        (route_definition&.response_type == 'json') ||
+          env['HTTP_ACCEPT'].to_s.include?('application/json')
       end
     end
   end

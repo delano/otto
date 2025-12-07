@@ -245,6 +245,68 @@ RSpec.describe Otto, 'Error Handler Registration' do
 
       test_app.send(:handle_error, error, env)
     end
+
+    context 'route response_type precedence' do
+      it 'returns JSON when route declares response=json regardless of Accept header' do
+        json_route = Otto::RouteDefinition.new('POST', '/api/data', 'ApiLogic response=json')
+        html_env = mock_rack_env(method: 'POST', path: '/api/data', headers: { 'Accept' => 'text/html' })
+        html_env['otto.route_definition'] = json_route
+
+        error = TestMissingResourceError.new('Resource not found')
+        allow(Otto.logger).to receive(:info)
+
+        response = test_app.send(:handle_error, error, html_env)
+
+        expect(response[0]).to eq(404)
+        expect(response[1]['content-type']).to eq('application/json')
+        body = JSON.parse(response[2].first)
+        expect(body['error']).to eq('TestMissingResourceError')
+        expect(body['message']).to eq('Resource not found')
+      end
+
+      it 'returns JSON when route declares response=json with no Accept header' do
+        json_route = Otto::RouteDefinition.new('POST', '/api/data', 'ApiLogic response=json')
+        env_no_accept = mock_rack_env(method: 'POST', path: '/api/data')
+        env_no_accept.delete('HTTP_ACCEPT')
+        env_no_accept['otto.route_definition'] = json_route
+
+        error = TestMissingResourceError.new('Resource not found')
+        allow(Otto.logger).to receive(:info)
+
+        response = test_app.send(:handle_error, error, env_no_accept)
+
+        expect(response[0]).to eq(404)
+        expect(response[1]['content-type']).to eq('application/json')
+      end
+
+      it 'falls back to Accept header when route has no response_type' do
+        default_route = Otto::RouteDefinition.new('GET', '/page', 'PageLogic')
+        json_env = mock_rack_env(headers: { 'Accept' => 'application/json' })
+        json_env['otto.route_definition'] = default_route
+
+        error = TestMissingResourceError.new('Resource not found')
+        allow(Otto.logger).to receive(:info)
+
+        response = test_app.send(:handle_error, error, json_env)
+
+        expect(response[0]).to eq(404)
+        expect(response[1]['content-type']).to eq('application/json')
+      end
+
+      it 'returns text/plain when route has no response_type and Accept is text/html' do
+        default_route = Otto::RouteDefinition.new('GET', '/page', 'PageLogic')
+        html_env = mock_rack_env(headers: { 'Accept' => 'text/html' })
+        html_env['otto.route_definition'] = default_route
+
+        error = TestMissingResourceError.new('Resource not found')
+        allow(Otto.logger).to receive(:info)
+
+        response = test_app.send(:handle_error, error, html_env)
+
+        expect(response[0]).to eq(404)
+        expect(response[1]['content-type']).to eq('text/plain')
+      end
+    end
   end
 
   describe 'unregistered errors fallback to default behavior' do

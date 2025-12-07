@@ -69,8 +69,11 @@ class Otto
         end
 
         # Content negotiation for built-in error response
-        accept_header = env['HTTP_ACCEPT'].to_s
-        return json_error_response(error_id) if accept_header.include?('application/json')
+        # Route's response_type takes precedence over Accept header
+        route_definition = env['otto.route_definition']
+        wants_json = (route_definition&.response_type == 'json') ||
+                     env['HTTP_ACCEPT'].to_s.include?('application/json')
+        return json_error_response(error_id) if wants_json
 
         # Fallback to built-in error response
         @server_error || secure_error_response(error_id)
@@ -146,10 +149,13 @@ class Otto
         response_body[:error_id] = error_id if Otto.env?(:dev, :development)
 
         # Content negotiation
-        accept_header = env['HTTP_ACCEPT'].to_s
+        # Route's response_type takes precedence over Accept header
+        route_definition = env['otto.route_definition']
+        wants_json = (route_definition&.response_type == 'json') ||
+                     env['HTTP_ACCEPT'].to_s.include?('application/json')
         status = handler_config[:status] || 500
 
-        if accept_header.include?('application/json')
+        if wants_json
           body = JSON.generate(response_body)
           headers = {
             'content-type' => 'application/json',

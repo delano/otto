@@ -84,6 +84,26 @@ app = Otto.new("./routes", {
 
 Security features include CSRF protection, input validation, security headers, and trusted proxy configuration.
 
+## Error Handling
+
+Otto provides base error classes that automatically return correct HTTP status codes:
+
+```ruby
+# Use built-in error classes directly
+raise Otto::NotFoundError, "Product not found"           # Returns 404
+raise Otto::BadRequestError, "Invalid parameter"         # Returns 400
+raise Otto::UnauthorizedError, "Login required"          # Returns 401
+raise Otto::ForbiddenError, "Access denied"              # Returns 403
+
+# Or subclass them for your application
+class MyApp::ResourceNotFound < Otto::NotFoundError; end
+
+# Optionally customize status or logging (overrides auto-registration)
+app.register_error_handler(MyApp::ResourceNotFound, status: 410, log_level: :warn)
+```
+
+All framework errors are auto-registered during initialization. No manual registration required unless you want custom behavior.
+
 ## Privacy by Default
 
 Otto automatically masks public IP addresses and anonymizes user agents to comply with GDPR, CCPA, and other privacy regulations:

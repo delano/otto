@@ -40,7 +40,7 @@ class Otto
     #     end
     #   end
     #
-    class AuthorizationError < StandardError
+    class AuthorizationError < Otto::ForbiddenError
       # Optional additional context for logging/debugging
       attr_reader :resource, :action, :user_id
 

@@ -1,8 +1,6 @@
 # lib/otto/route_handlers/logic_class.rb
 #
 # frozen_string_literal: true
-require 'json'
-require 'securerandom'
 
 require_relative 'base'
 
@@ -20,98 +18,95 @@ class Otto
     # For endpoints requiring direct request access (sessions, cookies, headers,
     # or logout flows), use controller handlers (Controller#action or Controller.action).
     class LogicClassHandler < BaseHandler
-      def call(env, extra_params = {})
-        start_time = Otto::Utils.now_in_μs
-        req = Rack::Request.new(env)
-        res = Rack::Response.new
+      protected
 
-        begin
-          # Get strategy result (guaranteed to exist from RouteAuthWrapper)
-          strategy_result = env['otto.strategy_result']
+      # Invoke Logic class with constrained signature
+      # @param req [Rack::Request] Request object
+      # @param res [Rack::Response] Response object
+      # @return [Array] [result, context] for handle_response
+      def invoke_target(req, _res)
+        env = req.env
 
-          # Initialize Logic class with new signature: context, params, locale
-          logic_params = req.params.merge(extra_params)
+        # Get strategy result (guaranteed to exist from RouteAuthWrapper)
+        strategy_result = env['otto.strategy_result']
 
-          # Handle JSON request bodies
-          if req.content_type&.include?('application/json') && req.body.size.positive?
-            begin
-              req.body.rewind
-              json_data = JSON.parse(req.body.read)
-              logic_params = logic_params.merge(json_data) if json_data.is_a?(Hash)
-            rescue JSON::ParserError => e
-              # Base context pattern: create once, reuse for correlation
-              base_context = Otto::LoggingHelpers.request_context(env)
+        # Extract params including JSON body parsing
+        logic_params = extract_logic_params(req, env)
 
-              Otto.structured_log(:error, "JSON parsing error",
-                base_context.merge(
-                  handler: "#{target_class}#call",
-                  error: e.message,
-                  error_class: e.class.name,
-                  duration: Otto::Utils.now_in_μs - start_time
-                )
-              )
+        # Get locale
+        locale = env['otto.locale'] || 'en'
 
-              Otto::LoggingHelpers.log_backtrace(e,
-                base_context.merge(handler: "#{target_class}#call")
-              )
-            end
-          end
+        # Instantiate Logic class
+        logic = target_class.new(strategy_result, logic_params, locale)
 
-          locale = env['otto.locale'] || 'en'
+        # Execute standard Logic class lifecycle
+        logic.raise_concerns if logic.respond_to?(:raise_concerns)
 
-          logic = target_class.new(strategy_result, logic_params, locale)
+        result = if logic.respond_to?(:process)
+                   logic.process
+                 else
+                   logic.call || logic
+                 end
 
-          # Execute standard Logic class lifecycle
-          logic.raise_concerns if logic.respond_to?(:raise_concerns)
+        context = {
+          logic_instance: logic,
+                 request: req,
+             status_code: logic.respond_to?(:status_code) ? logic.status_code : nil,
+        }
 
-          result = if logic.respond_to?(:process)
-                     logic.process
-                   else
-                     logic.call || logic
-                   end
+        [result, context]
+      end
 
-          # Handle response with Logic instance context
-          handle_response(result, res, {
-                            logic_instance: logic,
-            request: req,
-            status_code: logic.respond_to?(:status_code) ? logic.status_code : nil,
-                          })
-        rescue StandardError => e
-          # Check if we're being called through Otto's integrated context (vs direct handler testing)
-          # In integrated context, let Otto's centralized error handler manage the response
-          # In direct testing context, handle errors locally for unit testing
-          if otto_instance
-            # Store handler context in env for centralized error handler
-            handler_name = "#{target_class}#call"
-            env['otto.handler'] = handler_name
-            env['otto.handler_duration'] = Otto::Utils.now_in_μs - start_time
+      # Extract logic parameters including JSON body parsing
+      # @param req [Rack::Request] Request object
+      # @param env [Hash] Rack environment
+      # @return [Hash] Parameters for Logic class
+      def extract_logic_params(req, env)
+        # req.params already has extra_params merged and indifferent_params applied
+        # by setup_request_response in BaseHandler
+        logic_params = req.params.dup
 
-            raise e # Re-raise to let Otto's centralized error handler manage the response
-          else
-            # Direct handler testing context - handle errors locally with security improvements
-            error_id = SecureRandom.hex(8)
-            Otto.logger.error "[#{error_id}] #{e.class}: #{e.message}"
-            Otto.logger.debug "[#{error_id}] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
-
-            res.status                  = 500
-            res.headers['content-type'] = 'text/plain'
-
-            if Otto.env?(:dev, :development)
-              res.write "Server error (ID: #{error_id}). Check logs for details."
-            else
-              res.write 'An error occurred. Please try again later.'
-            end
-
-            # Add security headers if available
-            if otto_instance.respond_to?(:security_config) && otto_instance.security_config
-              otto_instance.security_config.security_headers.each do |header, value|
-                res.headers[header] = value
-              end
-            end
-          end
+        # Handle JSON request bodies
+        if req.content_type&.include?('application/json') && req.body.size.positive?
+          logic_params = parse_json_body(req, env, logic_params)
         end
 
-        res.finish
+        logic_params
+      end
+
+      # Parse JSON request body with error handling
+      # @param req [Rack::Request] Request object
+      # @param env [Hash] Rack environment
+      # @param logic_params [Hash] Current parameters
+      # @return [Hash] Parameters with JSON merged (or original if parsing fails)
+      def parse_json_body(req, env, logic_params)
+        begin
+          req.body.rewind
+          json_data = JSON.parse(req.body.read)
+          logic_params = logic_params.merge(json_data) if json_data.is_a?(Hash)
+        rescue JSON::ParserError => e
+          # Base context pattern: create once, reuse for correlation
+          log_context = Otto::LoggingHelpers.request_context(env)
+
+          Otto.structured_log(:error, 'JSON parsing error',
+            log_context.merge(
+              handler: handler_name,
+              error: e.message,
+              error_class: e.class.name,
+              duration: Otto::Utils.now_in_μs - @start_time
+            ))
+
+          Otto::LoggingHelpers.log_backtrace(e,
+            log_context.merge(handler: handler_name))
+        end
+
+        logic_params
+      end
+
+      # Format handler name for Logic routes
+      # @return [String] Handler name in format "ClassName#call"
+      def handler_name
+        "#{target_class.name}#call"
       end
     end
   end

@@ -2,8 +2,6 @@
 #
 # frozen_string_literal: true
 
-require 'set'
-
 class Otto
   module Core
     # Provides deep freezing capability for configuration objects

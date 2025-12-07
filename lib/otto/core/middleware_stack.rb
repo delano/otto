@@ -73,7 +73,7 @@ class Otto
         when :last
           @stack << entry
         else
-          @stack << entry  # Default append
+          @stack << entry # Default append
         end
 
         @middleware_set.add(middleware_class)
@@ -114,15 +114,21 @@ class Otto
 
         # Check optimal order: rate_limit < auth < validation
         if rate_limit_pos && auth_pos && rate_limit_pos > auth_pos
-          warnings << '[MCP Middleware] RateLimitMiddleware should come before TokenMiddleware for optimal performance'
+          warnings << <<~MSG.chomp
+            [MCP Middleware] RateLimitMiddleware should come before TokenMiddleware
+          MSG
         end
 
         if auth_pos && validation_pos && auth_pos > validation_pos
-          warnings << '[MCP Middleware] TokenMiddleware should come before SchemaValidationMiddleware for optimal performance'
+          warnings << <<~MSG.chomp
+            [MCP Middleware] TokenMiddleware should come before SchemaValidationMiddleware
+          MSG
         end
 
         if rate_limit_pos && validation_pos && rate_limit_pos > validation_pos
-          warnings << '[MCP Middleware] RateLimitMiddleware should come before SchemaValidationMiddleware for optimal performance'
+          warnings << <<~MSG.chomp
+            [MCP Middleware] RateLimitMiddleware should come before SchemaValidationMiddleware
+          MSG
         end
 
         warnings
@@ -198,8 +204,8 @@ class Otto
         @stack.map do |entry|
           {
             middleware: entry[:middleware],
-            args: entry[:args],
-            options: entry[:options],
+                  args: entry[:args],
+               options: entry[:options],
           }
         end
       end
@@ -224,8 +230,6 @@ class Otto
       def reverse_each(&)
         @stack.reverse_each(&)
       end
-
-
 
       private
 

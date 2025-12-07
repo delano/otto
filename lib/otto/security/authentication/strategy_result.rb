@@ -320,16 +320,16 @@ class Otto
         # @return [Hash] Hash representation of the context
         def to_h
           {
-            session: session,
-            user: user,
-            auth_method: auth_method,
-            metadata: metadata,
-            authenticated: authenticated?,
+                           session: session,
+                              user: user,
+                       auth_method: auth_method,
+                          metadata: metadata,
+                     authenticated: authenticated?,
             auth_attempt_succeeded: auth_attempt_succeeded?,
-            user_id: user_id,
-            user_name: user_name,
-            roles: roles,
-            permissions: permissions
+                           user_id: user_id,
+                         user_name: user_name,
+                             roles: roles,
+                       permissions: permissions,
           }
         end
       end

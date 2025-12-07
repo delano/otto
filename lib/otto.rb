@@ -17,6 +17,7 @@ require_relative 'otto/static'
 require_relative 'otto/helpers'
 require_relative 'otto/response_handlers'
 require_relative 'otto/route_handlers'
+require_relative 'otto/errors'
 require_relative 'otto/locale'
 require_relative 'otto/mcp'
 require_relative 'otto/core'
@@ -79,9 +80,10 @@ class Otto
     load(path) unless path.nil?
     super()
 
-    # Auto-register AuthorizationError for 403 Forbidden responses
-    # This allows Logic classes to raise AuthorizationError for resource-level access control
-    register_error_handler(Otto::Security::AuthorizationError, status: 403, log_level: :warn)
+    # Auto-register all Otto framework error classes
+    # This allows Logic classes and framework code to raise appropriate errors
+    # without requiring manual registration in implementing projects
+    register_framework_errors
 
     # Build the middleware app once after all initialization is complete
     build_app!
@@ -584,6 +586,48 @@ class Otto
 
     # Initialize MCP server
     configure_mcp(opts)
+  end
+
+  # Register all Otto framework error classes with appropriate status codes
+  #
+  # This method auto-registers base HTTP error classes and all framework-specific
+  # error classes (Security, MCP) so that raising them automatically returns the
+  # correct HTTP status code instead of 500.
+  #
+  # Users can override these registrations by calling register_error_handler
+  # after Otto.new with custom status codes or log levels.
+  #
+  # @return [void]
+  # @api private
+  def register_framework_errors
+    # Base HTTP errors (for direct use or subclassing by implementing projects)
+    register_error_from_class(Otto::NotFoundError)
+    register_error_from_class(Otto::BadRequestError)
+    register_error_from_class(Otto::UnauthorizedError)
+    register_error_from_class(Otto::ForbiddenError)
+    register_error_from_class(Otto::PayloadTooLargeError)
+
+    # Security module errors
+    register_error_from_class(Otto::Security::AuthorizationError)
+    register_error_from_class(Otto::Security::CSRFError)
+    register_error_from_class(Otto::Security::RequestTooLargeError)
+    register_error_from_class(Otto::Security::ValidationError)
+
+    # MCP module errors
+    register_error_from_class(Otto::MCP::ValidationError)
+  end
+
+  # Register an error handler using the error class as the single source of truth
+  #
+  # @param error_class [Class] Error class that responds to default_status and default_log_level
+  # @return [void]
+  # @api private
+  def register_error_from_class(error_class)
+    register_error_handler(
+      error_class,
+      status: error_class.default_status,
+      log_level: error_class.default_log_level
+    )
   end
 
   class << self

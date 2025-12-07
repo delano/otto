@@ -26,7 +26,7 @@ class Otto
         log_context = base_context.merge(
           error: error.message,
           error_class: error.class.name,
-          error_id: error_id
+          error_id: error_id,
         )
         log_context[:handler] = env['otto.handler'] if env['otto.handler']
         log_context[:duration] = env['otto.handler_duration'] if env['otto.handler_duration']
@@ -69,8 +69,7 @@ class Otto
         end
 
         # Content negotiation for built-in error response
-        accept_header = env['HTTP_ACCEPT'].to_s
-        return json_error_response(error_id) if accept_header.include?('application/json')
+        return json_error_response(error_id) if wants_json_response?(env)
 
         # Fallback to built-in error response
         @server_error || secure_error_response(error_id)
@@ -96,7 +95,7 @@ class Otto
           error: error.message,
           error_class: error.class.name,
           error_id: error_id,
-          expected: true  # Mark as expected error
+          expected: true # Mark as expected error
         )
         log_context[:handler] = env['otto.handler'] if env['otto.handler']
         log_context[:duration] = env['otto.handler_duration'] if env['otto.handler_duration']
@@ -146,14 +145,13 @@ class Otto
         response_body[:error_id] = error_id if Otto.env?(:dev, :development)
 
         # Content negotiation
-        accept_header = env['HTTP_ACCEPT'].to_s
         status = handler_config[:status] || 500
 
-        if accept_header.include?('application/json')
+        if wants_json_response?(env)
           body = JSON.generate(response_body)
           headers = {
             'content-type' => 'application/json',
-            'content-length' => body.bytesize.to_s
+            'content-length' => body.bytesize.to_s,
           }.merge(@security_config.security_headers)
 
           [status, headers, [body]]
@@ -167,7 +165,7 @@ class Otto
 
           headers = {
             'content-type' => 'text/plain',
-            'content-length' => body.bytesize.to_s
+            'content-length' => body.bytesize.to_s,
           }.merge(@security_config.security_headers)
 
           [status, headers, [body]]
@@ -210,6 +208,19 @@ class Otto
         }.merge(@security_config.security_headers)
 
         [500, headers, [body]]
+      end
+
+      private
+
+      # Determine if the client wants a JSON response
+      # Route's response_type declaration takes precedence over Accept header
+      #
+      # @param env [Hash] Rack environment
+      # @return [Boolean] true if JSON response is preferred
+      def wants_json_response?(env)
+        route_definition = env['otto.route_definition']
+        (route_definition&.response_type == 'json') ||
+          env['HTTP_ACCEPT'].to_s.include?('application/json')
       end
     end
   end

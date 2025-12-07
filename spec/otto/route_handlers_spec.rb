@@ -75,7 +75,7 @@ RSpec.describe Otto::RouteHandlers do
 
         expect do
           handler.call(env)
-        end.to raise_error(NotImplementedError, /Subclasses must implement #call/)
+        end.to raise_error(NotImplementedError, /Subclasses must implement #invoke_target/)
       end
     end
   end
@@ -247,6 +247,7 @@ RSpec.describe Otto::RouteHandlers do
       end
 
       it 'handles errors gracefully' do
+        allow(Otto).to receive(:env?).with(:dev, :development).and_return(true)
         allow(TestClassController).to receive(:index).and_raise(StandardError, 'Class method error')
 
         status, _, body = handler.call(env)
@@ -324,6 +325,7 @@ RSpec.describe Otto::RouteHandlers do
         end
 
         it 'returns text/plain when route has no response_type and Accept is text/html' do
+          allow(Otto).to receive(:env?).with(:dev, :development).and_return(true)
           allow(TestClassController).to receive(:index).and_raise(StandardError, 'API error')
 
           html_accept_env = env.merge('HTTP_ACCEPT' => 'text/html')

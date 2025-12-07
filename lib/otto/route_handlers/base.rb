@@ -3,6 +3,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'securerandom'
 
 class Otto
   module RouteHandlers
@@ -21,7 +22,22 @@ class Otto
       # @param extra_params [Hash] Additional parameters
       # @return [Array] Rack response array
       def call(env, extra_params = {})
-        raise NotImplementedError, 'Subclasses must implement #call'
+        start_time = Otto::Utils.now_in_μs
+        req = Rack::Request.new(env)
+        res = Rack::Response.new
+
+        begin
+          setup_request_response(req, res, env, extra_params)
+          result, context = invoke_target(req, res)
+
+          if route_definition.response_type != 'default'
+            handle_response(result, res, context)
+          end
+        rescue StandardError => e
+          handle_execution_error(e, env, req, res, start_time)
+        end
+
+        finalize_response(res)
       end
 
       protected
@@ -30,6 +46,80 @@ class Otto
       # @return [Class] The target class
       def target_class
         @target_class ||= safe_const_get(route_definition.klass_name)
+      end
+
+      # Template method for subclasses to implement their invocation logic
+      # @param req [Rack::Request] Request object
+      # @param res [Rack::Response] Response object
+      # @return [Array] [result, context] where context is a hash for handle_response
+      def invoke_target(req, res)
+        raise NotImplementedError, 'Subclasses must implement #invoke_target'
+      end
+
+      # Handle errors during route execution
+      # @param error [StandardError] The error that occurred
+      # @param env [Hash] Rack environment
+      # @param req [Rack::Request] Request object
+      # @param res [Rack::Response] Response object
+      # @param start_time [Integer] Start time in microseconds
+      def handle_execution_error(error, env, req, res, start_time)
+        if otto_instance
+          # Integrated context - let centralized error handler manage
+          env['otto.handler'] = handler_name
+          env['otto.handler_duration'] = Otto::Utils.now_in_μs - start_time
+          raise error
+        else
+          # Direct testing context - handle locally
+          handle_local_error(error, env, res)
+        end
+      end
+
+      # Handle errors locally for testing context
+      # @param error [StandardError] The error that occurred
+      # @param env [Hash] Rack environment
+      # @param res [Rack::Response] Response object
+      def handle_local_error(error, env, res)
+        error_id = SecureRandom.hex(8)
+        Otto.logger.error "[#{error_id}] #{error.class}: #{error.message}"
+        Otto.logger.debug "[#{error_id}] Backtrace: #{error.backtrace.join("\n")}" if Otto.debug
+
+        res.status = 500
+
+        # Content negotiation for error response
+        # Route's response_type takes precedence over Accept header
+        route_def = env['otto.route_definition']
+        wants_json = (route_def&.response_type == 'json') ||
+                     env['HTTP_ACCEPT'].to_s.include?('application/json')
+
+        if wants_json
+          res.headers['content-type'] = 'application/json'
+          error_data = {
+            error: 'Internal Server Error',
+            message: 'Server error occurred. Check logs for details.',
+            error_id: error_id,
+          }
+          res.write JSON.generate(error_data)
+        else
+          res.headers['content-type'] = 'text/plain'
+          if Otto.env?(:dev, :development)
+            res.write "Server error (ID: #{error_id}). Check logs for details."
+          else
+            res.write 'An error occurred. Please try again later.'
+          end
+        end
+
+        # Add security headers if available
+        if otto_instance.respond_to?(:security_config) && otto_instance.security_config
+          otto_instance.security_config.security_headers.each do |header, value|
+            res.headers[header] = value
+          end
+        end
+      end
+
+      # Format the handler name for logging
+      # @return [String] Handler name in format "ClassName#method_name"
+      def handler_name
+        "#{target_class.name}##{route_definition.method_name}"
       end
 
       # Setup request and response with the same extensions and processing as Route#call

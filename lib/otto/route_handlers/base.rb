@@ -106,12 +106,9 @@ class Otto
           end
         end
 
-        # Add security headers if available
-        return unless otto_instance.respond_to?(:security_config) && otto_instance.security_config
-
-        otto_instance.security_config.security_headers.each do |header, value|
-          res.headers[header] = value
-        end
+        # Security headers are not available without an otto_instance
+        # (testing/local context). The RouteAuthWrapper handles security
+        # headers when otto_instance is present.
       end
 
       # Format the handler name for logging

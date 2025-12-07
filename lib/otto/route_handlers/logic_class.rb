@@ -18,12 +18,6 @@ class Otto
     # For endpoints requiring direct request access (sessions, cookies, headers,
     # or logout flows), use controller handlers (Controller#action or Controller.action).
     class LogicClassHandler < BaseHandler
-      # Override call to store start_time for JSON parsing error logging
-      def call(env, extra_params = {})
-        @start_time = Otto::Utils.now_in_μs
-        super
-      end
-
       protected
 
       # Invoke Logic class with constrained signature

@@ -22,7 +22,7 @@ class Otto
       # @param extra_params [Hash] Additional parameters
       # @return [Array] Rack response array
       def call(env, extra_params = {})
-        start_time = Otto::Utils.now_in_μs
+        @start_time = Otto::Utils.now_in_μs
         req = Rack::Request.new(env)
         res = Rack::Response.new
 
@@ -32,7 +32,7 @@ class Otto
 
           handle_response(result, res, context) if route_definition.response_type != 'default'
         rescue StandardError => e
-          handle_execution_error(e, env, req, res, start_time)
+          handle_execution_error(e, env, req, res, @start_time)
         end
 
         finalize_response(res)

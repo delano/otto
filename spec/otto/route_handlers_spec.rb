@@ -255,6 +255,86 @@ RSpec.describe Otto::RouteHandlers do
         expect(body.first).to include('Server error')
         expect(body.first).to include('Check logs for details')
       end
+
+      context 'route response_type precedence in error handling' do
+        # These tests verify that when a route declares response=json,
+        # errors should return JSON regardless of the Accept header.
+        # This is the same fix pattern applied to Otto::Core::ErrorHandler.
+
+        let(:json_route_definition) do
+          Otto::RouteDefinition.new('POST', '/api/data', 'TestClassController.index response=json')
+        end
+
+        let(:json_handler) { Otto::RouteHandlers::ClassMethodHandler.new(json_route_definition) }
+
+        before do
+          stub_const('TestClassController', TestClassController)
+        end
+
+        it 'returns JSON error when route declares response=json regardless of Accept header' do
+          allow(TestClassController).to receive(:index).and_raise(StandardError, 'API error')
+
+          html_env = {
+            'REQUEST_METHOD' => 'POST',
+            'PATH_INFO' => '/api/data',
+            'QUERY_STRING' => '',
+            'rack.input' => StringIO.new,
+            'HTTP_ACCEPT' => 'text/html',
+            'otto.route_definition' => json_route_definition,
+          }
+
+          status, headers, body = json_handler.call(html_env)
+
+          expect(status).to eq(500)
+          expect(headers['content-type']).to eq('application/json')
+          response_body = JSON.parse(body.first)
+          expect(response_body['error']).to eq('Internal Server Error')
+        end
+
+        it 'returns JSON error when route declares response=json with no Accept header' do
+          allow(TestClassController).to receive(:index).and_raise(StandardError, 'API error')
+
+          no_accept_env = {
+            'REQUEST_METHOD' => 'POST',
+            'PATH_INFO' => '/api/data',
+            'QUERY_STRING' => '',
+            'rack.input' => StringIO.new,
+            'otto.route_definition' => json_route_definition,
+          }
+
+          status, headers, body = json_handler.call(no_accept_env)
+
+          expect(status).to eq(500)
+          expect(headers['content-type']).to eq('application/json')
+          response_body = JSON.parse(body.first)
+          expect(response_body['error']).to eq('Internal Server Error')
+        end
+
+        it 'falls back to Accept header when route has no response_type' do
+          allow(TestClassController).to receive(:index).and_raise(StandardError, 'API error')
+
+          json_accept_env = env.merge('HTTP_ACCEPT' => 'application/json')
+
+          status, headers, body = handler.call(json_accept_env)
+
+          expect(status).to eq(500)
+          expect(headers['content-type']).to eq('application/json')
+          response_body = JSON.parse(body.first)
+          expect(response_body['error']).to eq('Internal Server Error')
+        end
+
+        it 'returns text/plain when route has no response_type and Accept is text/html' do
+          allow(TestClassController).to receive(:index).and_raise(StandardError, 'API error')
+
+          html_accept_env = env.merge('HTTP_ACCEPT' => 'text/html')
+
+          status, headers, body = handler.call(html_accept_env)
+
+          expect(status).to eq(500)
+          expect(headers['content-type']).to eq('text/plain')
+          expect(body.first).to include('Server error')
+        end
+      end
     end
   end
 

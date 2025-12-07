@@ -179,4 +179,109 @@ RSpec.describe Otto, 'rate limiting features' do
       expect(body).to eq(['OK'])
     end
   end
+
+  describe 'throttled_responder route response_type precedence' do
+    # These tests verify that when a route declares response=json,
+    # rate limit errors should return JSON regardless of the Accept header.
+    # This mirrors the fix applied to Otto::Core::ErrorHandler.
+
+    before do
+      if defined?(Rack::Attack)
+        if Rack::Attack.respond_to?(:clear_configuration)
+          Rack::Attack.clear_configuration
+        else
+          Rack::Attack.clear!
+        end
+      end
+
+      # Configure rate limiting to set up the throttled_responder
+      Otto::Security::RateLimiting.configure_rack_attack!({})
+    end
+
+    let(:match_data) do
+      { limit: 100, period: 60, epoch_time: Time.now.to_i }
+    end
+
+    it 'returns JSON when route declares response=json regardless of Accept header' do
+      json_route = Otto::RouteDefinition.new('POST', '/api/data', 'ApiLogic response=json')
+
+      request = instance_double(
+        'Rack::Request',
+        env: {
+          'HTTP_ACCEPT' => 'text/html',
+          'rack.attack.match_data' => match_data,
+          'otto.route_definition' => json_route,
+        },
+        path: '/api/data'
+      )
+
+      status, headers, body = Rack::Attack.throttled_responder.call(request)
+
+      expect(status).to eq(429)
+      expect(headers['content-type']).to eq('application/json')
+      response_body = JSON.parse(body.first)
+      expect(response_body['error']).to eq('Rate limit exceeded')
+    end
+
+    it 'returns JSON when route declares response=json with no Accept header' do
+      json_route = Otto::RouteDefinition.new('POST', '/api/data', 'ApiLogic response=json')
+
+      request = instance_double(
+        'Rack::Request',
+        env: {
+          'rack.attack.match_data' => match_data,
+          'otto.route_definition' => json_route,
+        },
+        path: '/api/data'
+      )
+
+      status, headers, body = Rack::Attack.throttled_responder.call(request)
+
+      expect(status).to eq(429)
+      expect(headers['content-type']).to eq('application/json')
+      response_body = JSON.parse(body.first)
+      expect(response_body['error']).to eq('Rate limit exceeded')
+    end
+
+    it 'falls back to Accept header when route has no response_type' do
+      default_route = Otto::RouteDefinition.new('GET', '/page', 'PageLogic')
+
+      request = instance_double(
+        'Rack::Request',
+        env: {
+          'HTTP_ACCEPT' => 'application/json',
+          'rack.attack.match_data' => match_data,
+          'otto.route_definition' => default_route,
+        },
+        path: '/page'
+      )
+
+      status, headers, body = Rack::Attack.throttled_responder.call(request)
+
+      expect(status).to eq(429)
+      expect(headers['content-type']).to eq('application/json')
+      response_body = JSON.parse(body.first)
+      expect(response_body['error']).to eq('Rate limit exceeded')
+    end
+
+    it 'returns text/plain when route has no response_type and Accept is text/html' do
+      default_route = Otto::RouteDefinition.new('GET', '/page', 'PageLogic')
+
+      request = instance_double(
+        'Rack::Request',
+        env: {
+          'HTTP_ACCEPT' => 'text/html',
+          'rack.attack.match_data' => match_data,
+          'otto.route_definition' => default_route,
+        },
+        path: '/page'
+      )
+
+      status, headers, body = Rack::Attack.throttled_responder.call(request)
+
+      expect(status).to eq(429)
+      expect(headers['content-type']).to eq('text/plain')
+      expect(body.first).to include('Rate limit exceeded')
+    end
+  end
 end

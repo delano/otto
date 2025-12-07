@@ -147,4 +147,115 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
       expect(response['error']['code']).to eq(-32_000)
     end
   end
+
+  describe 'non-MCP throttled_responder route response_type precedence' do
+    # These tests verify that when a non-MCP route declares response=json,
+    # rate limit errors should return JSON regardless of the Accept header.
+    # This mirrors the fix applied to Otto::Core::ErrorHandler.
+
+    before do
+      if defined?(Rack::Attack)
+        if Rack::Attack.respond_to?(:clear_configuration)
+          Rack::Attack.clear_configuration
+        else
+          Rack::Attack.clear!
+        end
+      end
+
+      # Configure MCP rate limiting (which overrides throttled_responder)
+      Otto::MCP::RateLimiter.configure_rack_attack!({})
+    end
+
+    let(:match_data) do
+      { limit: 100, period: 60, epoch_time: Time.now.to_i }
+    end
+
+    it 'returns JSON when non-MCP route declares response=json regardless of Accept header' do
+      json_route = Otto::RouteDefinition.new('POST', '/api/data', 'ApiLogic response=json')
+
+      request = instance_double(
+        'Rack::Request',
+        env: {
+          'HTTP_ACCEPT' => 'text/html',
+          'rack.attack.match_data' => match_data,
+          'otto.route_definition' => json_route,
+          'otto.mcp_http_endpoint' => '/_mcp',
+        },
+        path: '/api/data'  # Non-MCP path
+      )
+
+      status, headers, body = Rack::Attack.throttled_responder.call(request)
+
+      expect(status).to eq(429)
+      expect(headers['content-type']).to eq('application/json')
+      response_body = JSON.parse(body.first)
+      expect(response_body['error']).to eq('Rate limit exceeded')
+      # Should NOT be JSON-RPC format (that's for MCP only)
+      expect(response_body).not_to have_key('jsonrpc')
+    end
+
+    it 'returns JSON when non-MCP route declares response=json with no Accept header' do
+      json_route = Otto::RouteDefinition.new('POST', '/api/data', 'ApiLogic response=json')
+
+      request = instance_double(
+        'Rack::Request',
+        env: {
+          'rack.attack.match_data' => match_data,
+          'otto.route_definition' => json_route,
+          'otto.mcp_http_endpoint' => '/_mcp',
+        },
+        path: '/api/data'  # Non-MCP path
+      )
+
+      status, headers, body = Rack::Attack.throttled_responder.call(request)
+
+      expect(status).to eq(429)
+      expect(headers['content-type']).to eq('application/json')
+      response_body = JSON.parse(body.first)
+      expect(response_body['error']).to eq('Rate limit exceeded')
+    end
+
+    it 'falls back to Accept header when non-MCP route has no response_type' do
+      default_route = Otto::RouteDefinition.new('GET', '/page', 'PageLogic')
+
+      request = instance_double(
+        'Rack::Request',
+        env: {
+          'HTTP_ACCEPT' => 'application/json',
+          'rack.attack.match_data' => match_data,
+          'otto.route_definition' => default_route,
+          'otto.mcp_http_endpoint' => '/_mcp',
+        },
+        path: '/page'  # Non-MCP path
+      )
+
+      status, headers, body = Rack::Attack.throttled_responder.call(request)
+
+      expect(status).to eq(429)
+      expect(headers['content-type']).to eq('application/json')
+      response_body = JSON.parse(body.first)
+      expect(response_body['error']).to eq('Rate limit exceeded')
+    end
+
+    it 'returns text/plain when non-MCP route has no response_type and Accept is text/html' do
+      default_route = Otto::RouteDefinition.new('GET', '/page', 'PageLogic')
+
+      request = instance_double(
+        'Rack::Request',
+        env: {
+          'HTTP_ACCEPT' => 'text/html',
+          'rack.attack.match_data' => match_data,
+          'otto.route_definition' => default_route,
+          'otto.mcp_http_endpoint' => '/_mcp',
+        },
+        path: '/page'  # Non-MCP path
+      )
+
+      status, headers, body = Rack::Attack.throttled_responder.call(request)
+
+      expect(status).to eq(429)
+      expect(headers['content-type']).to eq('text/plain')
+      expect(body.first).to include('Rate limit exceeded')
+    end
+  end
 end

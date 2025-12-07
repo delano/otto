@@ -2,7 +2,6 @@
 #
 # frozen_string_literal: true
 require 'json'
-require 'securerandom'
 
 require_relative 'base'
 
@@ -77,38 +76,7 @@ class Otto
             status_code: logic.respond_to?(:status_code) ? logic.status_code : nil,
                           })
         rescue StandardError => e
-          # Check if we're being called through Otto's integrated context (vs direct handler testing)
-          # In integrated context, let Otto's centralized error handler manage the response
-          # In direct testing context, handle errors locally for unit testing
-          if otto_instance
-            # Store handler context in env for centralized error handler
-            handler_name = "#{target_class}#call"
-            env['otto.handler'] = handler_name
-            env['otto.handler_duration'] = Otto::Utils.now_in_μs - start_time
-
-            raise e # Re-raise to let Otto's centralized error handler manage the response
-          else
-            # Direct handler testing context - handle errors locally with security improvements
-            error_id = SecureRandom.hex(8)
-            Otto.logger.error "[#{error_id}] #{e.class}: #{e.message}"
-            Otto.logger.debug "[#{error_id}] Backtrace: #{e.backtrace.join("\n")}" if Otto.debug
-
-            res.status                  = 500
-            res.headers['content-type'] = 'text/plain'
-
-            if Otto.env?(:dev, :development)
-              res.write "Server error (ID: #{error_id}). Check logs for details."
-            else
-              res.write 'An error occurred. Please try again later.'
-            end
-
-            # Add security headers if available
-            if otto_instance.respond_to?(:security_config) && otto_instance.security_config
-              otto_instance.security_config.security_headers.each do |header, value|
-                res.headers[header] = value
-              end
-            end
-          end
+          handle_execution_error(e, env, req, res, start_time)
         end
 
         res.finish

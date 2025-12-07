@@ -59,8 +59,12 @@ class Otto
             res.status = 500
 
             # Content negotiation for error response
-            accept_header = env['HTTP_ACCEPT'].to_s
-            if accept_header.include?('application/json')
+            # Route's response_type takes precedence over Accept header
+            route_def = env['otto.route_definition']
+            wants_json = (route_def&.response_type == 'json') ||
+                         env['HTTP_ACCEPT'].to_s.include?('application/json')
+
+            if wants_json
               res.headers['content-type'] = 'application/json'
               error_data                  = {
                    error: 'Internal Server Error',

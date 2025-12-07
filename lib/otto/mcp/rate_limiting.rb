@@ -87,8 +87,12 @@ class Otto
             [429, headers, [JSON.generate(error_response)]]
           else
             # Use the general rate limiting response for non-MCP requests
-            accept_header = request.env['HTTP_ACCEPT'].to_s
-            if accept_header.include?('application/json')
+            # Route's response_type takes precedence over Accept header
+            route_def = request.env['otto.route_definition']
+            wants_json = (route_def&.response_type == 'json') ||
+                         request.env['HTTP_ACCEPT'].to_s.include?('application/json')
+
+            if wants_json
               error_response = {
                 error: 'Rate limit exceeded',
                 message: 'Too many requests',

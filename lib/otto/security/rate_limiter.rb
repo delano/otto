@@ -55,9 +55,13 @@ class Otto
             'retry-after' => (match_data[:period] - (now % match_data[:period])).to_s,
           }
 
-          # Check if request expects JSON
-          accept_header = request.env['HTTP_ACCEPT'].to_s
-          if accept_header.include?('application/json')
+          # Content negotiation for rate limit response
+          # Route's response_type takes precedence over Accept header
+          route_def = request.env['otto.route_definition']
+          wants_json = (route_def&.response_type == 'json') ||
+                       request.env['HTTP_ACCEPT'].to_s.include?('application/json')
+
+          if wants_json
             error_response = {
               error: 'Rate limit exceeded',
               message: 'Too many requests',

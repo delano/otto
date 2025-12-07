@@ -9,7 +9,7 @@ class Otto
     # Handler for view/template responses
     class ViewHandler < BaseHandler
       def self.handle(result, response, context = {})
-        if context[:logic_instance]&.respond_to?(:view)
+        if context[:logic_instance].respond_to?(:view)
           response.body = [context[:logic_instance].view.render]
           response['Content-Type'] = 'text/html' unless response['Content-Type']
         elsif result.respond_to?(:to_s)

@@ -26,7 +26,7 @@ class Otto
         log_context = base_context.merge(
           error: error.message,
           error_class: error.class.name,
-          error_id: error_id
+          error_id: error_id,
         )
         log_context[:handler] = env['otto.handler'] if env['otto.handler']
         log_context[:duration] = env['otto.handler_duration'] if env['otto.handler_duration']

@@ -60,7 +60,7 @@ class Otto
       # @param req [Rack::Request] Request object
       # @param res [Rack::Response] Response object
       # @param start_time [Integer] Start time in microseconds
-      def handle_execution_error(error, env, req, res, start_time)
+      def handle_execution_error(error, env, _req, res, start_time)
         if otto_instance
           # Integrated context - let centralized error handler manage
           env['otto.handler'] = handler_name
@@ -92,8 +92,8 @@ class Otto
         if wants_json
           res.headers['content-type'] = 'application/json'
           error_data = {
-            error: 'Internal Server Error',
-            message: 'Server error occurred. Check logs for details.',
+               error: 'Internal Server Error',
+             message: 'Server error occurred. Check logs for details.',
             error_id: error_id,
           }
           res.write JSON.generate(error_data)
@@ -107,10 +107,10 @@ class Otto
         end
 
         # Add security headers if available
-        if otto_instance.respond_to?(:security_config) && otto_instance.security_config
-          otto_instance.security_config.security_headers.each do |header, value|
-            res.headers[header] = value
-          end
+        return unless otto_instance.respond_to?(:security_config) && otto_instance.security_config
+
+        otto_instance.security_config.security_headers.each do |header, value|
+          res.headers[header] = value
         end
       end
 

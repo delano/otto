@@ -30,7 +30,7 @@ class Otto
       # @param req [Rack::Request] Request object
       # @param res [Rack::Response] Response object
       # @return [Array] [result, context] for handle_response
-      def invoke_target(req, res)
+      def invoke_target(req, _res)
         env = req.env
 
         # Get strategy result (guaranteed to exist from RouteAuthWrapper)
@@ -56,8 +56,8 @@ class Otto
 
         context = {
           logic_instance: logic,
-          request: req,
-          status_code: logic.respond_to?(:status_code) ? logic.status_code : nil,
+                 request: req,
+             status_code: logic.respond_to?(:status_code) ? logic.status_code : nil,
         }
 
         [result, context]

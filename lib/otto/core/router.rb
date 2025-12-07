@@ -36,28 +36,28 @@ class Otto
           route.otto                              = self
           path_clean                              = path.gsub(%r{/$}, '')
           @route_definitions[route.definition]    = route
-          Otto.structured_log(:debug, "Route loaded",
-            {
-              pattern: route.pattern.source,
-              verb: route.verb,
-              definition: route.definition,
-              type: 'pattern'
-            }
-          ) if Otto.debug
+          if Otto.debug
+            Otto.structured_log(:debug, 'Route loaded',
+              {
+                   pattern: route.pattern.source,
+                verb: route.verb,
+                definition: route.definition,
+                type: 'pattern',
+              })
+          end
           @routes[route.verb] ||= []
           @routes[route.verb] << route
           @routes_literal[route.verb]           ||= {}
           @routes_literal[route.verb][path_clean] = route
         rescue StandardError => e
-          Otto.structured_log(:error, "Route load failed",
+          Otto.structured_log(:error, 'Route load failed',
             {
-              path: path,
+                     path: path,
               verb: verb,
               definition: definition,
               error: e.message,
-              error_class: e.class.name
-            }
-          )
+              error_class: e.class.name,
+            })
           Otto.logger.debug e.backtrace.join("\n") if Otto.debug
         end
         self
@@ -96,30 +96,27 @@ class Otto
         literal_routes.merge! routes_literal[:GET] if http_verb == :HEAD
 
         if static_route && http_verb == :GET && routes_static[:GET].member?(base_path)
-          Otto.structured_log(:debug, "Route matched",
+          Otto.structured_log(:debug, 'Route matched',
             Otto::LoggingHelpers.request_context(env).merge(
               type: 'static_cached',
               base_path: base_path
-            )
-          )
+            ))
           static_route.call(env)
         elsif literal_routes.has_key?(path_info_clean)
           route = literal_routes[path_info_clean]
-          Otto.structured_log(:debug, "Route matched",
+          Otto.structured_log(:debug, 'Route matched',
             Otto::LoggingHelpers.request_context(env).merge(
               type: 'literal',
               handler: route.route_definition.definition,
               auth_strategy: route.route_definition.auth_requirement || 'none'
-            )
-          )
+            ))
           route.call(env)
         elsif static_route && http_verb == :GET && safe_file?(path_info)
-          Otto.structured_log(:debug, "Route matched",
+          Otto.structured_log(:debug, 'Route matched',
             Otto::LoggingHelpers.request_context(env).merge(
               type: 'static_new',
               base_path: base_path
-            )
-          )
+            ))
           routes_static[:GET][base_path] = base_path
           static_route.call(env)
         else
@@ -165,14 +162,13 @@ class Otto
           found_route  = route
 
           # Log successful route match
-          Otto.structured_log(:debug, "Route matched",
+          Otto.structured_log(:debug, 'Route matched',
             Otto::LoggingHelpers.request_context(env).merge(
               pattern: route.pattern.source,
               handler: route.route_definition.definition,
               auth_strategy: route.route_definition.auth_requirement || 'none',
               route_params: extra_params
-            )
-          )
+            ))
           break
         end
 
@@ -180,19 +176,17 @@ class Otto
         if found_route
           # Log 404 route usage if we fell back to it
           if found_route == literal_routes['/404']
-            Otto.structured_log(:info, "Route not found",
+            Otto.structured_log(:info, 'Route not found',
               Otto::LoggingHelpers.request_context(env).merge(
                 fallback_to: '404_route'
-              )
-            )
+              ))
           end
           found_route.call env, extra_params
         else
-          Otto.structured_log(:info, "Route not found",
+          Otto.structured_log(:info, 'Route not found',
             Otto::LoggingHelpers.request_context(env).merge(
               fallback_to: 'default_not_found'
-            )
-          )
+            ))
           @not_found || Otto::Static.not_found
         end
       end

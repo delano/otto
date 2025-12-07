@@ -1,7 +1,7 @@
 # lib/otto/security/authentication/auth_strategy.rb
 #
 # frozen_string_literal: true
-#
+
 # Base class for all authentication strategies in Otto framework
 # Provides pluggable authentication patterns that can be customized per application
 
@@ -33,7 +33,7 @@ class Otto
             user: user,
             auth_method: auth_method || self.class.name.split('::').last,
             metadata: metadata,
-            strategy_name: nil  # Will be set by RouteAuthWrapper
+            strategy_name: nil # Will be set by RouteAuthWrapper
           )
         end
 

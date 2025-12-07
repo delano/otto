@@ -601,20 +601,33 @@ class Otto
   # @api private
   def register_framework_errors
     # Base HTTP errors (for direct use or subclassing by implementing projects)
-    register_error_handler(Otto::NotFoundError, status: 404, log_level: :info)
-    register_error_handler(Otto::BadRequestError, status: 400, log_level: :info)
-    register_error_handler(Otto::UnauthorizedError, status: 401, log_level: :info)
-    register_error_handler(Otto::ForbiddenError, status: 403, log_level: :warn)
-    register_error_handler(Otto::PayloadTooLargeError, status: 413, log_level: :warn)
+    register_error_from_class(Otto::NotFoundError)
+    register_error_from_class(Otto::BadRequestError)
+    register_error_from_class(Otto::UnauthorizedError)
+    register_error_from_class(Otto::ForbiddenError)
+    register_error_from_class(Otto::PayloadTooLargeError)
 
     # Security module errors
-    register_error_handler(Otto::Security::AuthorizationError, status: 403, log_level: :warn)
-    register_error_handler(Otto::Security::CSRFError, status: 403, log_level: :warn)
-    register_error_handler(Otto::Security::RequestTooLargeError, status: 413, log_level: :warn)
-    register_error_handler(Otto::Security::ValidationError, status: 400, log_level: :info)
+    register_error_from_class(Otto::Security::AuthorizationError)
+    register_error_from_class(Otto::Security::CSRFError)
+    register_error_from_class(Otto::Security::RequestTooLargeError)
+    register_error_from_class(Otto::Security::ValidationError)
 
     # MCP module errors
-    register_error_handler(Otto::MCP::ValidationError, status: 400, log_level: :info)
+    register_error_from_class(Otto::MCP::ValidationError)
+  end
+
+  # Register an error handler using the error class as the single source of truth
+  #
+  # @param error_class [Class] Error class that responds to default_status and default_log_level
+  # @return [void]
+  # @api private
+  def register_error_from_class(error_class)
+    register_error_handler(
+      error_class,
+      status: error_class.default_status,
+      log_level: error_class.default_log_level
+    )
   end
 
   class << self

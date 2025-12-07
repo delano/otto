@@ -333,4 +333,106 @@ RSpec.describe Otto, 'Error Handler Registration' do
       test_app.send(:handle_error, error, env)
     end
   end
+
+  describe 'auto-registered framework errors' do
+    it 'auto-registers all base error classes on initialization' do
+      base_errors = %w[NotFoundError BadRequestError ForbiddenError UnauthorizedError PayloadTooLargeError]
+
+      base_errors.each do |error_name|
+        expect(test_app.error_handlers["Otto::#{error_name}"]).not_to be_nil
+        expect(test_app.error_handlers["Otto::#{error_name}"][:handler]).to be_nil
+      end
+    end
+
+    it 'auto-registers base errors with correct status codes' do
+      expect(test_app.error_handlers['Otto::NotFoundError'][:status]).to eq(404)
+      expect(test_app.error_handlers['Otto::BadRequestError'][:status]).to eq(400)
+      expect(test_app.error_handlers['Otto::UnauthorizedError'][:status]).to eq(401)
+      expect(test_app.error_handlers['Otto::ForbiddenError'][:status]).to eq(403)
+      expect(test_app.error_handlers['Otto::PayloadTooLargeError'][:status]).to eq(413)
+    end
+
+    it 'auto-registers all security error classes on initialization' do
+      security_errors = %w[AuthorizationError CSRFError RequestTooLargeError ValidationError]
+
+      security_errors.each do |error_name|
+        expect(test_app.error_handlers["Otto::Security::#{error_name}"]).not_to be_nil
+      end
+    end
+
+    it 'auto-registers security errors with correct status codes' do
+      expect(test_app.error_handlers['Otto::Security::AuthorizationError'][:status]).to eq(403)
+      expect(test_app.error_handlers['Otto::Security::CSRFError'][:status]).to eq(403)
+      expect(test_app.error_handlers['Otto::Security::RequestTooLargeError'][:status]).to eq(413)
+      expect(test_app.error_handlers['Otto::Security::ValidationError'][:status]).to eq(400)
+    end
+
+    it 'auto-registers MCP::ValidationError on initialization' do
+      expect(test_app.error_handlers['Otto::MCP::ValidationError']).not_to be_nil
+      expect(test_app.error_handlers['Otto::MCP::ValidationError'][:status]).to eq(400)
+    end
+
+    it 'returns 404 for NotFoundError' do
+      error = Otto::NotFoundError.new('Resource not found')
+      allow(Otto.logger).to receive(:info)
+
+      response = test_app.send(:handle_error, error, env)
+
+      expect(response[0]).to eq(404)
+    end
+
+    it 'returns 401 for UnauthorizedError' do
+      error = Otto::UnauthorizedError.new('Authentication required')
+      allow(Otto.logger).to receive(:info)
+
+      response = test_app.send(:handle_error, error, env)
+
+      expect(response[0]).to eq(401)
+    end
+
+    it 'returns 403 for ForbiddenError' do
+      error = Otto::ForbiddenError.new('Access denied')
+      allow(Otto.logger).to receive(:warn)
+
+      response = test_app.send(:handle_error, error, env)
+
+      expect(response[0]).to eq(403)
+    end
+
+    it 'returns 400 for BadRequestError' do
+      error = Otto::BadRequestError.new('Invalid input')
+      allow(Otto.logger).to receive(:info)
+
+      response = test_app.send(:handle_error, error, env)
+
+      expect(response[0]).to eq(400)
+    end
+
+    it 'returns 413 for PayloadTooLargeError' do
+      error = Otto::PayloadTooLargeError.new('Request too large')
+      allow(Otto.logger).to receive(:warn)
+
+      response = test_app.send(:handle_error, error, env)
+
+      expect(response[0]).to eq(413)
+    end
+
+    it 'returns 403 for Security::AuthorizationError' do
+      error = Otto::Security::AuthorizationError.new('Access denied')
+      allow(Otto.logger).to receive(:warn)
+
+      response = test_app.send(:handle_error, error, env)
+
+      expect(response[0]).to eq(403)
+    end
+
+    it 'returns 400 for Security::ValidationError' do
+      error = Otto::Security::ValidationError.new('Invalid input')
+      allow(Otto.logger).to receive(:info)
+
+      response = test_app.send(:handle_error, error, env)
+
+      expect(response[0]).to eq(400)
+    end
+  end
 end

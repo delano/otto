@@ -436,12 +436,12 @@ class Otto
     end
 
     # Raised when a request exceeds the configured size limit
-    class RequestTooLargeError < StandardError; end
+    class RequestTooLargeError < Otto::PayloadTooLargeError; end
 
     # Raised when CSRF token validation fails
-    class CSRFError < StandardError; end
+    class CSRFError < Otto::ForbiddenError; end
 
     # Raised when input validation fails (XSS, SQL injection, etc.)
-    class ValidationError < StandardError; end
+    class ValidationError < Otto::BadRequestError; end
   end
 end

@@ -12,7 +12,7 @@ end
 
 class Otto
   module MCP
-    class ValidationError < StandardError; end
+    class ValidationError < Otto::BadRequestError; end
 
     # JSON Schema validator for MCP protocol requests
     class Validator

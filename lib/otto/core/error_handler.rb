@@ -99,7 +99,7 @@ class Otto
           error: error.message,
           error_class: error.class.name,
           error_id: error_id,
-          expected: true  # Mark as expected error
+          expected: true # Mark as expected error
         )
         log_context[:handler] = env['otto.handler'] if env['otto.handler']
         log_context[:duration] = env['otto.handler_duration'] if env['otto.handler_duration']
@@ -159,7 +159,7 @@ class Otto
           body = JSON.generate(response_body)
           headers = {
             'content-type' => 'application/json',
-            'content-length' => body.bytesize.to_s
+            'content-length' => body.bytesize.to_s,
           }.merge(@security_config.security_headers)
 
           [status, headers, [body]]
@@ -173,7 +173,7 @@ class Otto
 
           headers = {
             'content-type' => 'text/plain',
-            'content-length' => body.bytesize.to_s
+            'content-length' => body.bytesize.to_s,
           }.merge(@security_config.security_headers)
 
           [status, headers, [body]]

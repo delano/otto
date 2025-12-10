@@ -17,7 +17,7 @@ class Otto
       end
 
       def handle_request(env)
-        request = Rack::Request.new(env)
+        request = Otto::Request.new(env)
 
         unless request.post? && request.content_type&.include?('application/json')
           return error_response(nil, -32_600, 'Invalid Request', 'Only JSON-RPC POST requests supported')

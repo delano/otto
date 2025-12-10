@@ -23,8 +23,8 @@ class Otto
       # @return [Array] Rack response array
       def call(env, extra_params = {})
         @start_time = Otto::Utils.now_in_μs
-        req = Rack::Request.new(env)
-        res = Rack::Response.new
+        req = otto_instance ? otto_instance.request_class.new(env) : Otto::Request.new(env)
+        res = otto_instance ? otto_instance.response_class.new : Otto::Response.new
 
         begin
           setup_request_response(req, res, env, extra_params)
@@ -118,14 +118,12 @@ class Otto
       end
 
       # Setup request and response with the same extensions and processing as Route#call
-      # @param req [Rack::Request] Request object
-      # @param res [Rack::Response] Response object
+      # @param req [Otto::Request] Request object
+      # @param res [Otto::Response] Response object
       # @param env [Hash] Rack environment
       # @param extra_params [Hash] Additional parameters
       def setup_request_response(req, res, env, extra_params)
-        # Apply the same extensions as original Route#call
-        req.extend Otto::RequestHelpers
-        res.extend Otto::ResponseHelpers
+        # Set request reference (helpers are already included in class)
         res.request = req
 
         # Make security config available to response helpers

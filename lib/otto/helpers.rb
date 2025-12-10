@@ -2,5 +2,5 @@
 #
 # frozen_string_literal: true
 
-require_relative 'helpers/request'
-require_relative 'helpers/response'
+# Request and response helpers are now defined directly in Otto::Request and Otto::Response
+# This file is kept for backward compatibility with require statements

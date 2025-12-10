@@ -149,6 +149,16 @@ bundle exec rubocop
 bundle exec rspec
 ```
 
+## Git Commands
+
+Always use `--no-pager` with git commands to avoid interactive pager issues:
+
+```bash
+git --no-pager diff
+git --no-pager log
+git --no-pager show
+```
+
 ## Key Architecture Principles
 
 - **Security by Default**: IP privacy, configuration freezing, backtrace sanitization

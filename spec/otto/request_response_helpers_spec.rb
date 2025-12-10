@@ -143,6 +143,19 @@ RSpec.describe 'Otto Request/Response Helper Registration' do
         otto.register_response_helpers(custom_module)
       }.to raise_error(FrozenError, /after first request/)
     end
+
+    it 'prevents duplicate registration of same module' do
+      custom_module = Module.new do
+        def custom_method; 'value'; end
+      end
+
+      otto = Otto.new(routes_file)
+      otto.register_response_helpers(custom_module)
+      otto.register_response_helpers(custom_module) # Should not error
+
+      # Should only be included once
+      expect(otto.registered_response_helpers.count(custom_module)).to eq(1)
+    end
   end
 
   describe 'custom helpers in routes' do

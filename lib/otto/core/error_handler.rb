@@ -108,7 +108,7 @@ class Otto
         response_body = if handler_config[:handler]
                           # Use custom handler block if provided
                           begin
-                            req = Otto::Request.new(env)
+                            req = @request_class.new(env)
                             result = handler_config[:handler].call(error, req)
 
                             # Validate that custom handler returned a Hash

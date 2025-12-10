@@ -31,7 +31,10 @@ otto.register_request_helpers(YourApp::RequestHelpers)
 otto.register_response_helpers(YourApp::ResponseHelpers)
 ```
 
-Must be registered before first request. Helpers available in routes, middleware, and error handlers.
+Must be registered before first request.
+
+> [!NOTE]
+> **Helper availability by context:** The base `Otto::Request` and `Otto::Response` classes (with Otto's built-in helpers like `masked_ip`, `geo_country`) are available everywhere, including Rack middleware. However, custom helpers registered via `register_request_helpers` and `register_response_helpers` are only available in route handlers, error handlers, and components that have access to the Otto instance's dynamic request/response classes.
 
 ### Reserved Method Names
 

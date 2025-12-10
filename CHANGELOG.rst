@@ -7,6 +7,25 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.0.0.pre10:
+
+2.0.0.pre10 — 2025-12-09
+========================
+
+Added
+-----
+
+- ``Otto::Request`` and ``Otto::Response`` classes extending Rack equivalents
+- ``register_request_helpers`` and ``register_response_helpers`` for application-specific helpers
+- Helper modules included at class level (not per-request extension)
+
+Changed
+-------
+
+- Moved ``lib/otto/helpers/request.rb`` → ``lib/otto/request.rb``
+- Moved ``lib/otto/helpers/response.rb`` → ``lib/otto/response.rb``
+- All internal code now uses ``Otto::Request``/``Otto::Response`` instead of ``Rack::Request``/``Rack::Response``
+
 .. _changelog-2.0.0.pre9:
 
 2.0.0.pre9 — 2025-12-06

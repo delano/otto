@@ -75,6 +75,89 @@ class Otto
         @server_error || secure_error_response(error_id)
       end
 
+      # Register an error handler for expected business logic errors
+      #
+      # This allows you to handle known error conditions (like missing resources,
+      # expired data, rate limits) without logging them as unhandled 500 errors.
+      #
+      # @param error_class [Class, String] The exception class or class name to handle
+      # @param status [Integer] HTTP status code to return (default: 500)
+      # @param log_level [Symbol] Log level for expected errors (:info, :warn, :error)
+      # @param handler [Proc] Optional block to customize error response
+      #
+      # @example Basic usage with status code
+      #   otto.register_error_handler(Onetime::MissingSecret, status: 404, log_level: :info)
+      #   otto.register_error_handler(Onetime::SecretExpired, status: 410, log_level: :info)
+      #
+      # @example With custom response handler
+      #   otto.register_error_handler(Onetime::RateLimited, status: 429, log_level: :warn) do |error, req|
+      #     {
+      #       error: 'Rate limit exceeded',
+      #       retry_after: error.retry_after,
+      #       message: error.message
+      #     }
+      #   end
+      #
+      # @example Using string class names (for lazy loading)
+      #   otto.register_error_handler('Onetime::MissingSecret', status: 404, log_level: :info)
+      #
+      def register_error_handler(error_class, status: 500, log_level: :info, &handler)
+        ensure_not_frozen!
+
+        # Normalize error class to string for consistent lookup
+        error_class_name = error_class.is_a?(String) ? error_class : error_class.name
+
+        @error_handlers[error_class_name] = {
+          status: status,
+          log_level: log_level,
+          handler: handler
+        }
+      end
+
+      private
+
+      # Register all Otto framework error classes with appropriate status codes
+      #
+      # This method auto-registers base HTTP error classes and all framework-specific
+      # error classes (Security, MCP) so that raising them automatically returns the
+      # correct HTTP status code instead of 500.
+      #
+      # Users can override these registrations by calling register_error_handler
+      # after Otto.new with custom status codes or log levels.
+      #
+      # @return [void]
+      # @api private
+      def register_framework_errors
+        # Base HTTP errors (for direct use or subclassing by implementing projects)
+        register_error_from_class(Otto::NotFoundError)
+        register_error_from_class(Otto::BadRequestError)
+        register_error_from_class(Otto::UnauthorizedError)
+        register_error_from_class(Otto::ForbiddenError)
+        register_error_from_class(Otto::PayloadTooLargeError)
+
+        # Security module errors
+        register_error_from_class(Otto::Security::AuthorizationError)
+        register_error_from_class(Otto::Security::CSRFError)
+        register_error_from_class(Otto::Security::RequestTooLargeError)
+        register_error_from_class(Otto::Security::ValidationError)
+
+        # MCP module errors
+        register_error_from_class(Otto::MCP::ValidationError)
+      end
+
+      # Register an error handler using the error class as the single source of truth
+      #
+      # @param error_class [Class] Error class that responds to default_status and default_log_level
+      # @return [void]
+      # @api private
+      def register_error_from_class(error_class)
+        register_error_handler(
+          error_class,
+          status: error_class.default_status,
+          log_level: error_class.default_log_level
+        )
+      end
+
       private
 
       # Handle expected business logic errors with custom status codes and logging

@@ -2,4 +2,5 @@
 #
 # frozen_string_literal: true
 
+require_relative 'mcp/core'
 require_relative 'mcp/server'

@@ -14,6 +14,25 @@ otto.register_error_handler(YourApp::RateLimited, status: 429, log_level: :warn)
 
 Must be registered before first request (before configuration freezing).
 
+## Request/Response Helper Registration
+
+Register application helpers that integrate with Otto features (authentication, privacy, locale):
+
+```ruby
+module YourApp::RequestHelpers
+  def current_customer
+    user = strategy_result&.user
+    user.is_a?(YourApp::Customer) ? user : YourApp::Customer.anonymous
+  end
+end
+
+otto = Otto.new('routes.txt')
+otto.register_request_helpers(YourApp::RequestHelpers)
+otto.register_response_helpers(YourApp::ResponseHelpers)
+```
+
+Must be registered before first request. Helpers available in routes, middleware, and error handlers.
+
 ## Authentication Architecture
 
 Authentication is handled by `RouteAuthWrapper` at the handler level, NOT by middleware.

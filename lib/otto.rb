@@ -11,6 +11,8 @@ require 'rack/request'
 require 'rack/response'
 require 'rack/utils'
 
+require_relative 'otto/request'
+require_relative 'otto/response'
 require_relative 'otto/route_definition'
 require_relative 'otto/route'
 require_relative 'otto/static'
@@ -68,7 +70,7 @@ class Otto
   attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option,
               :static_route, :security_config, :locale_config, :auth_config,
               :route_handler_factory, :mcp_server, :security, :middleware,
-              :error_handlers
+              :error_handlers, :request_class, :response_class
   attr_accessor :not_found, :server_error
 
   def initialize(path = nil, opts = {})
@@ -116,7 +118,7 @@ class Otto
 
     # Track request timing for lifecycle hooks
     start_time = Otto::Utils.now_in_μs
-    request = Rack::Request.new(env)
+    request = @request_class.new(env)
     response_raw = nil
 
     begin
@@ -129,9 +131,9 @@ class Otto
       unless @request_complete_callbacks.empty?
         begin
           duration = Otto::Utils.now_in_μs - start_time
-          # Wrap response tuple in Rack::Response for developer-friendly API
-          # Otto's hook API should provide nice abstractions like Rack::Request/Response
-          response = Rack::Response.new(response_raw[2], response_raw[0], response_raw[1])
+          # Wrap response tuple in Otto::Response for developer-friendly API
+          # Otto's hook API should provide nice abstractions like Otto::Request/Response
+          response = @response_class.new(response_raw[2], response_raw[0], response_raw[1])
           @request_complete_callbacks.each do |callback|
             callback.call(request, response, duration)
           end
@@ -360,6 +362,89 @@ class Otto
     @auth_config[:auth_strategies][name] = strategy
   end
 
+  # Register request helper modules
+  #
+  # Registered modules are included in Otto::Request at the class level,
+  # making custom helpers available alongside Otto's built-in helpers.
+  # Must be called before first request (before configuration freezing).
+  #
+  # This is the official integration point for application-specific helpers
+  # that work with Otto internals (strategy_result, privacy features, etc.).
+  #
+  # @param modules [Module, Array<Module>] Module(s) containing helper methods
+  # @example
+  #   module Onetime::RequestHelpers
+  #     def current_customer
+  #       user.is_a?(Onetime::Customer) ? user : Onetime::Customer.anonymous
+  #     end
+  #
+  #     def organization
+  #       @organization ||= strategy_result&.metadata.dig(:organization_context, :organization)
+  #     end
+  #   end
+  #
+  #   otto.register_request_helpers(Onetime::RequestHelpers)
+  #
+  # @raise [ArgumentError] if module is not a Module
+  # @raise [FrozenError] if called after configuration is frozen
+  def register_request_helpers(*modules)
+    ensure_not_frozen!
+
+    modules.each do |mod|
+      unless mod.is_a?(Module)
+        raise ArgumentError, "Expected Module, got #{mod.class}"
+      end
+      @request_helper_modules << mod unless @request_helper_modules.include?(mod)
+    end
+  end
+
+  # Register response helper modules
+  #
+  # Registered modules are included in Otto::Response at the class level,
+  # making custom helpers available alongside Otto's built-in helpers.
+  # Must be called before first request (before configuration freezing).
+  #
+  # @param modules [Module, Array<Module>] Module(s) containing helper methods
+  # @example
+  #   module Onetime::ResponseHelpers
+  #     def json_success(data, status: 200)
+  #       headers['content-type'] = 'application/json'
+  #       self.status = status
+  #       write JSON.generate({ success: true, data: data })
+  #     end
+  #   end
+  #
+  #   otto.register_response_helpers(Onetime::ResponseHelpers)
+  #
+  # @raise [ArgumentError] if module is not a Module
+  # @raise [FrozenError] if called after configuration is frozen
+  def register_response_helpers(*modules)
+    ensure_not_frozen!
+
+    modules.each do |mod|
+      unless mod.is_a?(Module)
+        raise ArgumentError, "Expected Module, got #{mod.class}"
+      end
+      @response_helper_modules << mod unless @response_helper_modules.include?(mod)
+    end
+  end
+
+  # Get registered request helper modules (for debugging)
+  #
+  # @return [Array<Module>] Array of registered request helper modules
+  # @api private
+  def registered_request_helpers
+    @request_helper_modules.dup
+  end
+
+  # Get registered response helper modules (for debugging)
+  #
+  # @return [Array<Module>] Array of registered response helper modules
+  # @api private
+  def registered_response_helpers
+    @response_helper_modules.dup
+  end
+
   # Register an error handler for expected business logic errors
   #
   # This allows you to handle known error conditions (like missing resources,
@@ -558,12 +643,46 @@ class Otto
     @request_complete_callbacks = [] # Instance-level request completion callbacks
     @error_handlers    = {} # Registered error handlers for expected errors
 
+    # Initialize helper module registries
+    @request_helper_modules = []
+    @response_helper_modules = []
+
+    # Finalize request/response classes with built-in helpers
+    # Custom helpers can be registered via register_request_helpers/register_response_helpers
+    # before first request (before configuration freezing)
+    finalize_request_response_classes
+
     # Add IP Privacy middleware first in stack (privacy by default for public IPs)
     # Private/localhost IPs are automatically exempted from masking
     @middleware.add_with_position(
       Otto::Security::Middleware::IPPrivacyMiddleware,
       position: :first
     )
+  end
+
+  # Finalize request and response classes with framework and custom helpers
+  #
+  # This method creates Otto's request and response classes by:
+  # 1. Subclassing Otto::Request/Response (which have framework helpers built-in)
+  # 2. Including any registered custom helper modules
+  #
+  # Called during initialization and can be called again if helpers are registered
+  # after initialization (before first request).
+  #
+  # @return [void]
+  # @api private
+  def finalize_request_response_classes
+    # Create request class with framework helpers
+    # Otto::Request has all framework helpers as instance methods
+    @request_class = Class.new(Otto::Request)
+
+    # Create response class with framework helpers
+    # Otto::Response has all framework helpers as instance methods
+    @response_class = Class.new(Otto::Response)
+
+    # Apply registered custom helpers (framework helpers always come first)
+    @request_helper_modules&.each { |mod| @request_class.include(mod) }
+    @response_helper_modules&.each { |mod| @response_class.include(mod) }
   end
 
   def initialize_options(_path, opts)

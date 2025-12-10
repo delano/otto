@@ -38,7 +38,7 @@ class Otto
 
         # Parse request for content negotiation
         begin
-          Rack::Request.new(env)
+          Otto::Request.new(env)
         rescue StandardError
           nil
         end
@@ -108,7 +108,7 @@ class Otto
         response_body = if handler_config[:handler]
                           # Use custom handler block if provided
                           begin
-                            req = Rack::Request.new(env)
+                            req = @request_class.new(env)
                             result = handler_config[:handler].call(error, req)
 
                             # Validate that custom handler returned a Hash

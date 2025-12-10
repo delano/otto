@@ -100,10 +100,8 @@ class Otto
     # @return [Array] Rack response array [status, headers, body]
     def call(env, extra_params = {})
       extra_params ||= {}
-      req            = Rack::Request.new(env)
-      res            = Rack::Response.new
-      req.extend Otto::RequestHelpers
-      res.extend Otto::ResponseHelpers
+      req            = otto.request_class.new(env)
+      res            = otto.response_class.new
       res.request = req
 
       # Make security config available to response helpers

@@ -19,7 +19,7 @@ class Otto
         def call(env)
           return @app.call(env) unless @config.csrf_enabled?
 
-          request = Rack::Request.new(env)
+          request = Otto::Request.new(env)
 
           # Skip CSRF protection for safe methods
           if safe_method?(request.request_method)

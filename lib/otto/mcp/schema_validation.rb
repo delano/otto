@@ -78,7 +78,7 @@ class Otto
         # Only validate MCP endpoints
         return @app.call(env) unless mcp_endpoint?(env)
 
-        request = Rack::Request.new(env)
+        request = Otto::Request.new(env)
 
         if request.post? && request.content_type&.include?('application/json')
           begin

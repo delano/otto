@@ -32,7 +32,7 @@ class Otto
         def call(env)
           return @app.call(env) unless @config.input_validation
 
-          request = Rack::Request.new(env)
+          request = Otto::Request.new(env)
 
           begin
             # Validate request size

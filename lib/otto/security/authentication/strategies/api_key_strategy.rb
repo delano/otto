@@ -21,7 +21,7 @@ class Otto
             api_key = env["HTTP_#{@header_name.upcase.tr('-', '_')}"]
 
             if api_key.nil?
-              request = Rack::Request.new(env)
+              request = Otto::Request.new(env)
               api_key = request.params[@param_name]
             end
 

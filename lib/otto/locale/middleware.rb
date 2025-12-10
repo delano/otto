@@ -68,7 +68,7 @@ class Otto
       # @return [String] Resolved locale code
       def detect_locale(env)
         # 1. Check URL parameter
-        req = Rack::Request.new(env)
+        req = Otto::Request.new(env)
         locale = req.params['locale']
         return locale if valid_locale?(locale)
 

@@ -14,6 +14,40 @@ otto.register_error_handler(YourApp::RateLimited, status: 429, log_level: :warn)
 
 Must be registered before first request (before configuration freezing).
 
+## Request/Response Helper Registration
+
+Register application helpers that integrate with Otto features (authentication, privacy, locale):
+
+```ruby
+module YourApp::RequestHelpers
+  def current_customer
+    user = strategy_result&.user
+    user.is_a?(YourApp::Customer) ? user : YourApp::Customer.anonymous
+  end
+end
+
+otto = Otto.new('routes.txt')
+otto.register_request_helpers(YourApp::RequestHelpers)
+otto.register_response_helpers(YourApp::ResponseHelpers)
+```
+
+Must be registered before first request.
+
+> [!NOTE]
+> **Helper availability by context:** The base `Otto::Request` and `Otto::Response` classes (with Otto's built-in helpers like `masked_ip`, `geo_country`) are available everywhere, including Rack middleware. However, custom helpers registered via `register_request_helpers` and `register_response_helpers` are only available in route handlers, error handlers, and components that have access to the Otto instance's dynamic request/response classes.
+
+### Reserved Method Names
+
+Helper modules should avoid overriding these methods inherited from Rack::Request/Rack::Response:
+
+**Request reserved methods**: `env`, `params`, `cookies`, `session`, `path`, `path_info`, `query_string`, `request_method`, `content_type`, `content_length`, `media_type`, `get?`, `post?`, `put?`, `delete?`, `head?`, `options?`, `patch?`, `xhr?`, `referer`, `user_agent`, `base_url`, `url`, `fullpath`, `ip`, `host`, `port`, `ssl?`, `scheme`
+
+**Response reserved methods**: `status`, `headers`, `body`, `finish`, `write`, `close`, `set_cookie`, `delete_cookie`, `redirect`, `content_type`, `content_length`, `location`
+
+**Otto-specific methods**: `request` (on Response), `app_path`, `masked_ip`, `hashed_ip`, `client_ipaddress`, `secure?`, `local?`, `ajax?`
+
+No runtime validation is performed for performance reasons. Overriding these methods will cause undefined behavior.
+
 ## Authentication Architecture
 
 Authentication is handled by `RouteAuthWrapper` at the handler level, NOT by middleware.

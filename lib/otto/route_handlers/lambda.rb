@@ -11,8 +11,8 @@ class Otto
     class LambdaHandler < BaseHandler
       def call(env, extra_params = {})
         start_time = Otto::Utils.now_in_μs
-        req = Rack::Request.new(env)
-        res = Rack::Response.new
+        req = otto_instance ? otto_instance.request_class.new(env) : Otto::Request.new(env)
+        res = otto_instance ? otto_instance.response_class.new : Otto::Response.new
 
         begin
           # Security: Lambda handlers require pre-configured procs from Otto instance

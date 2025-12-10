@@ -1,14 +1,27 @@
-# lib/otto/helpers/response.rb
+# lib/otto/response.rb
 #
 # frozen_string_literal: true
 
-require_relative 'base'
+require 'rack/response'
 
 class Otto
-  # Response helper methods providing HTTP response handling utilities
-  module ResponseHelpers
-    include Otto::BaseHelpers
-
+  # Otto's enhanced Rack::Response class with built-in helpers
+  #
+  # This class extends Rack::Response with Otto's framework helpers for
+  # HTTP response handling, cookie management, CSP headers, and security.
+  # Projects can register additional helpers via Otto#register_response_helpers.
+  #
+  # @example Using Otto's response in route handlers
+  #   def show(req, res)
+  #     res.send_secure_cookie('session_id', token, 3600)
+  #     res.send_csp_headers('text/html', nonce)
+  #     res.no_cache!
+  #   end
+  #
+  # @see Otto#register_response_helpers
+  class Response < Rack::Response
+    # Reference to the request object (needed by some response helpers)
+    # @return [Otto::Request]
     attr_accessor :request
 
     def send_secure_cookie(name, value, ttl, opts = {})

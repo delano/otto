@@ -1,14 +1,25 @@
-# lib/otto/helpers/request.rb
+# lib/otto/request.rb
 #
 # frozen_string_literal: true
 
-require_relative 'base'
+require 'rack/request'
 
 class Otto
-  # Request helper methods providing HTTP request handling utilities
-  module RequestHelpers
-    include Otto::BaseHelpers
-
+  # Otto's enhanced Rack::Request class with built-in helpers
+  #
+  # This class extends Rack::Request with Otto's framework helpers for
+  # HTTP request handling, privacy, security, and locale management.
+  # Projects can register additional helpers via Otto#register_request_helpers.
+  #
+  # @example Using Otto's request in route handlers
+  #   def show(req, res)
+  #     req.masked_ip      # Privacy-safe masked IP
+  #     req.geo_country    # ISO country code
+  #     req.check_locale!  # Set locale for request
+  #   end
+  #
+  # @see Otto#register_request_helpers
+  class Request < Rack::Request
     def user_agent
       env['HTTP_USER_AGENT']
     end

@@ -2,6 +2,7 @@
 #
 # frozen_string_literal: true
 
+require_relative 'security/core'
 require_relative 'security/authentication/strategy_result'
 require_relative 'security/authorization_error'
 require_relative 'security/config'

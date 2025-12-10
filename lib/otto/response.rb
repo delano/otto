@@ -184,7 +184,7 @@ class Otto
     #   # => "/myapp/admin/settings"
     def app_path(*paths)
       paths = paths.flatten.compact
-      paths.unshift(request.env['SCRIPT_NAME']) if request.env['SCRIPT_NAME']
+      paths.unshift(request.env['SCRIPT_NAME']) if request&.env&.[]('SCRIPT_NAME')
       paths.join('/').gsub('//', '/')
     end
   end

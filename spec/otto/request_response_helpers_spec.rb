@@ -79,7 +79,7 @@ RSpec.describe 'Otto Request/Response Helper Registration' do
       custom_module = Module.new { def custom; end }
       expect {
         otto.register_request_helpers(custom_module)
-      }.to raise_error(/frozen/)
+      }.to raise_error(FrozenError, /after first request/)
     end
 
     it 'prevents duplicate registration of same module' do
@@ -141,7 +141,7 @@ RSpec.describe 'Otto Request/Response Helper Registration' do
       custom_module = Module.new { def custom; end }
       expect {
         otto.register_response_helpers(custom_module)
-      }.to raise_error(/frozen/)
+      }.to raise_error(FrozenError, /after first request/)
     end
   end
 

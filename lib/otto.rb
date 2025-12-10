@@ -388,7 +388,11 @@ class Otto
   # @raise [ArgumentError] if module is not a Module
   # @raise [FrozenError] if called after configuration is frozen
   def register_request_helpers(*modules)
-    ensure_not_frozen!
+    begin
+      ensure_not_frozen!
+    rescue FrozenError
+      raise FrozenError, 'Cannot register request helpers after first request'
+    end
 
     modules.each do |mod|
       unless mod.is_a?(Module)
@@ -422,7 +426,11 @@ class Otto
   # @raise [ArgumentError] if module is not a Module
   # @raise [FrozenError] if called after configuration is frozen
   def register_response_helpers(*modules)
-    ensure_not_frozen!
+    begin
+      ensure_not_frozen!
+    rescue FrozenError
+      raise FrozenError, 'Cannot register response helpers after first request'
+    end
 
     modules.each do |mod|
       unless mod.is_a?(Module)

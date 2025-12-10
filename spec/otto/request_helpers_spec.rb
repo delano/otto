@@ -4,15 +4,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Otto::RequestHelpers do
-  let(:app_class) do
-    Class.new(Otto) do
-      def initialize
-        @routes = []
-      end
-    end
-  end
-
+RSpec.describe Otto::Request do
   let(:request_env) do
     {
       'REQUEST_METHOD' => 'GET',
@@ -26,11 +18,7 @@ RSpec.describe Otto::RequestHelpers do
   end
 
   let(:request_object) do
-    env_hash = request_env
-    obj = Object.new
-    obj.extend(Otto::RequestHelpers)
-    obj.define_singleton_method(:env) { env_hash }
-    obj
+    Otto::Request.new(request_env)
   end
 
   describe '#check_locale!' do
@@ -45,7 +33,7 @@ RSpec.describe Otto::RequestHelpers do
                                               })
 
         expect(result).to eq('en')
-        expect(request_env['locale']).to eq('en')
+        expect(request_object.env['locale']).to eq('en')
       end
 
       it 'uses locale parameter when provided' do
@@ -55,11 +43,11 @@ RSpec.describe Otto::RequestHelpers do
                                               })
 
         expect(result).to eq('es')
-        expect(request_env['locale']).to eq('es')
+        expect(request_object.env['locale']).to eq('es')
       end
 
       it 'uses query parameter when no locale parameter provided' do
-        request_env['rack.request.query_hash'] = { 'locale' => 'fr' }
+        request_object.env['rack.request.query_hash'] = { 'locale' => 'fr' }
 
         result = request_object.check_locale!(nil, {
                                                 available_locales: available_locales,
@@ -67,7 +55,7 @@ RSpec.describe Otto::RequestHelpers do
                                               })
 
         expect(result).to eq('fr')
-        expect(request_env['locale']).to eq('fr')
+        expect(request_object.env['locale']).to eq('fr')
       end
 
       it 'uses user locale when no other sources available' do
@@ -78,11 +66,11 @@ RSpec.describe Otto::RequestHelpers do
                                               })
 
         expect(result).to eq('es')
-        expect(request_env['locale']).to eq('es')
+        expect(request_object.env['locale']).to eq('es')
       end
 
       it 'uses rack.locale when no other sources available' do
-        request_env['rack.locale'] = %w[fr en]
+        request_object.env['rack.locale'] = %w[fr en]
 
         result = request_object.check_locale!(nil, {
                                                 available_locales: available_locales,
@@ -90,7 +78,7 @@ RSpec.describe Otto::RequestHelpers do
                                               })
 
         expect(result).to eq('fr')
-        expect(request_env['locale']).to eq('fr')
+        expect(request_object.env['locale']).to eq('fr')
       end
 
       it 'falls back to default when locale is not available' do
@@ -100,12 +88,12 @@ RSpec.describe Otto::RequestHelpers do
                                               })
 
         expect(result).to eq('en')
-        expect(request_env['locale']).to eq('en')
+        expect(request_object.env['locale']).to eq('en')
       end
 
       it 'respects precedence order' do
-        request_env['rack.request.query_hash'] = { 'locale' => 'fr' }
-        request_env['rack.locale'] = ['es']
+        request_object.env['rack.request.query_hash'] = { 'locale' => 'fr' }
+        request_object.env['rack.locale'] = ['es']
 
         result = request_object.check_locale!('en', {
                                                 available_locales: available_locales,
@@ -124,14 +112,14 @@ RSpec.describe Otto::RequestHelpers do
                                               })
 
         expect(result).to eq('es')
-        expect(request_env['custom.locale']).to eq('es')
-        expect(request_env['locale']).to be_nil
+        expect(request_object.env['custom.locale']).to eq('es')
+        expect(request_object.env['locale']).to be_nil
       end
     end
 
     context 'with Otto-level configuration' do
       before do
-        request_env['otto.locale_config'] = {
+        request_object.env['otto.locale_config'] = {
           available_locales: available_locales,
           default_locale: default_locale,
         }
@@ -141,7 +129,7 @@ RSpec.describe Otto::RequestHelpers do
         result = request_object.check_locale!('es')
 
         expect(result).to eq('es')
-        expect(request_env['locale']).to eq('es')
+        expect(request_object.env['locale']).to eq('es')
       end
 
       it 'allows opts to override Otto configuration' do
@@ -151,21 +139,21 @@ RSpec.describe Otto::RequestHelpers do
                                               })
 
         expect(result).to eq('fr')
-        expect(request_env['locale']).to eq('fr')
+        expect(request_object.env['locale']).to eq('fr')
       end
     end
 
     context 'with environment fallback configuration' do
       before do
-        request_env['otto.available_locales'] = available_locales
-        request_env['otto.default_locale'] = default_locale
+        request_object.env['otto.available_locales'] = available_locales
+        request_object.env['otto.default_locale'] = default_locale
       end
 
       it 'uses configuration from environment when opts not provided' do
         result = request_object.check_locale!('es')
 
         expect(result).to eq('es')
-        expect(request_env['locale']).to eq('es')
+        expect(request_object.env['locale']).to eq('es')
       end
     end
 

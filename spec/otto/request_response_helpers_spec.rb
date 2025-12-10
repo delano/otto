@@ -3,15 +3,15 @@
 require 'spec_helper'
 
 RSpec.describe 'Otto Request/Response Helper Registration' do
-  let(:routes_file) { fixture_path('routes_basic.txt') }
+  let(:routes_file) { create_test_routes_file('routes_basic.txt', ['GET / TestApp.index']) }
 
   describe 'Otto::Request' do
-    it 'includes Otto::RequestHelpers by default' do
-      expect(Otto::Request.included_modules).to include(Otto::RequestHelpers)
+    it 'is a subclass of Rack::Request' do
+      expect(Otto::Request.superclass).to eq(Rack::Request)
     end
 
     it 'has access to framework helpers' do
-      env = rack_env('GET', '/')
+      env = mock_rack_env(method: 'GET', path: '/')
       req = Otto::Request.new(env)
       expect(req).to respond_to(:masked_ip)
       expect(req).to respond_to(:geo_country)
@@ -20,8 +20,8 @@ RSpec.describe 'Otto Request/Response Helper Registration' do
   end
 
   describe 'Otto::Response' do
-    it 'includes Otto::ResponseHelpers by default' do
-      expect(Otto::Response.included_modules).to include(Otto::ResponseHelpers)
+    it 'is a subclass of Rack::Response' do
+      expect(Otto::Response.superclass).to eq(Rack::Response)
     end
 
     it 'has access to framework helpers' do
@@ -43,7 +43,7 @@ RSpec.describe 'Otto Request/Response Helper Registration' do
       otto = Otto.new(routes_file)
       otto.register_request_helpers(custom_module)
 
-      env = rack_env('GET', '/')
+      env = mock_rack_env(method: 'GET', path: '/')
       req = otto.request_class.new(env)
       expect(req.custom_method).to eq('custom_value')
     end
@@ -59,7 +59,7 @@ RSpec.describe 'Otto Request/Response Helper Registration' do
       otto = Otto.new(routes_file)
       otto.register_request_helpers(module1, module2)
 
-      env = rack_env('GET', '/')
+      env = mock_rack_env(method: 'GET', path: '/')
       req = otto.request_class.new(env)
       expect(req.method1).to eq('value1')
       expect(req.method2).to eq('value2')
@@ -74,8 +74,7 @@ RSpec.describe 'Otto Request/Response Helper Registration' do
 
     it 'raises FrozenError after configuration is frozen' do
       otto = Otto.new(routes_file)
-      env = rack_env('GET', '/')
-      otto.call(env) # Trigger configuration freeze
+      otto.freeze_configuration! # Manually freeze configuration
 
       custom_module = Module.new { def custom; end }
       expect {
@@ -137,8 +136,7 @@ RSpec.describe 'Otto Request/Response Helper Registration' do
 
     it 'raises FrozenError after configuration is frozen' do
       otto = Otto.new(routes_file)
-      env = rack_env('GET', '/')
-      otto.call(env) # Trigger configuration freeze
+      otto.freeze_configuration! # Manually freeze configuration
 
       custom_module = Module.new { def custom; end }
       expect {
@@ -155,9 +153,6 @@ RSpec.describe 'Otto Request/Response Helper Registration' do
         end
       end
 
-      otto = Otto.new(routes_file)
-      otto.register_request_helpers(custom_module)
-
       # Create a test route that uses the custom helper
       test_class = Class.new do
         def self.show(req, res)
@@ -167,9 +162,11 @@ RSpec.describe 'Otto Request/Response Helper Registration' do
       end
       stub_const('TestLogic', test_class)
 
-      otto.load_routes_from_string("GET /test TestLogic.show")
+      routes_file = create_test_routes_file('test_routes.txt', ['GET /test TestLogic.show'])
+      otto = Otto.new(routes_file)
+      otto.register_request_helpers(custom_module)
 
-      env = rack_env('GET', '/test')
+      env = mock_rack_env(method: 'GET', path: '/test')
       status, _headers, body = otto.call(env)
 
       expect(status).to eq(200)
@@ -184,9 +181,6 @@ RSpec.describe 'Otto Request/Response Helper Registration' do
         end
       end
 
-      otto = Otto.new(routes_file)
-      otto.register_response_helpers(custom_module)
-
       test_class = Class.new do
         def self.show(_req, res)
           res.custom_json({ message: 'success' })
@@ -195,9 +189,11 @@ RSpec.describe 'Otto Request/Response Helper Registration' do
       end
       stub_const('TestLogic', test_class)
 
-      otto.load_routes_from_string("GET /test TestLogic.show")
+      routes_file = create_test_routes_file('test_routes.txt', ['GET /test TestLogic.show'])
+      otto = Otto.new(routes_file)
+      otto.register_response_helpers(custom_module)
 
-      env = rack_env('GET', '/test')
+      env = mock_rack_env(method: 'GET', path: '/test')
       status, headers, body = otto.call(env)
 
       expect(status).to eq(200)
@@ -222,9 +218,6 @@ RSpec.describe 'Otto Request/Response Helper Registration' do
         end
       end
 
-      otto = Otto.new(routes_file)
-      otto.use test_middleware
-
       test_class = Class.new do
         def self.show(_req, res)
           res.write "OK"
@@ -233,9 +226,11 @@ RSpec.describe 'Otto Request/Response Helper Registration' do
       end
       stub_const('TestLogic', test_class)
 
-      otto.load_routes_from_string("GET /test TestLogic.show")
+      routes_file = create_test_routes_file('test_routes.txt', ['GET /test TestLogic.show'])
+      otto = Otto.new(routes_file)
+      otto.use test_middleware
 
-      env = rack_env('GET', '/test')
+      env = mock_rack_env(method: 'GET', path: '/test')
       otto.call(env)
 
       expect(env['test.has_masked_ip']).to be true

@@ -396,6 +396,9 @@ class Otto
       end
       @request_helper_modules << mod unless @request_helper_modules.include?(mod)
     end
+
+    # Re-finalize to include newly registered helpers
+    finalize_request_response_classes
   end
 
   # Register response helper modules
@@ -427,6 +430,9 @@ class Otto
       end
       @response_helper_modules << mod unless @response_helper_modules.include?(mod)
     end
+
+    # Re-finalize to include newly registered helpers
+    finalize_request_response_classes
   end
 
   # Get registered request helper modules (for debugging)

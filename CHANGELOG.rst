@@ -7,6 +7,36 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.0.0:
+
+2.0.0 — 2025-01-20
+==================
+
+This is the stable release of Otto v2, the culmination of 10 pre-releases since September 2025.
+
+Highlights
+----------
+
+- **Modular Architecture**: Core Otto class refactored from 767 to 348 lines using composition pattern with focused modules (Router, FileSafety, Configuration, ErrorHandler, UriGenerator)
+- **Security by Default**: Automatic IP masking, user agent anonymization, CSRF protection, input validation, and backtrace sanitization
+- **Privacy by Default**: Public IP masking, country-level geo-location only (no external APIs), daily-rotating IP hashes for analytics
+- **Handler-Level Authentication**: Authentication moved from middleware to RouteAuthWrapper for better control and session persistence
+- **Configuration Freezing**: All configuration automatically frozen after first request to prevent runtime security bypasses
+- **MCP Support**: JSON-RPC 2.0 endpoints for CLI automation and integrations
+- **Base Error Classes**: Framework error classes (NotFoundError, BadRequestError, ForbiddenError, etc.) with automatic HTTP status codes
+- **Request/Response Helpers**: Extensible Otto::Request and Otto::Response classes with application-specific helper registration
+
+Breaking Changes
+----------------
+
+All breaking changes from v1.x are documented in the pre-release entries below. Key migrations:
+
+- Logic class constructor signature: ``initialize(session, user, params, locale)`` → ``initialize(context, params, locale)``
+- Middleware stack: ``otto.middleware_stack <<`` → ``otto.use()``
+- Request callbacks: ``Otto.on_request_complete`` → ``otto.on_request_complete`` (instance method)
+
+See `docs/migrating/ <docs/migrating/>`__ for detailed upgrade guides.
+
 .. _changelog-2.0.0.pre10:
 
 2.0.0.pre10 — 2025-12-09

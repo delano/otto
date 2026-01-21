@@ -2,7 +2,7 @@
 
 **Define your rack-apps in plain-text with built-in security.**
 
-> **v2.0.0-pre6 Available**: This pre-release includes major improvements to middleware management, logging, and request callback handling. See [changelog](CHANGELOG.rst) for details and upgrade notes.
+> **v2.0.0 Released**: The stable release is now available with modular architecture, security by default, privacy by default, handler-level authentication, and configuration freezing. See [changelog](CHANGELOG.rst) for the full history.
 
 ![Otto mascot](public/img/otto.jpg "Otto - All Rack, no Pinion")
 

@@ -146,6 +146,13 @@ class Otto
         return normalized if valid_locale?(normalized)
         return normalized.downcase if valid_locale?(normalized.downcase)
 
+        # Step 1b: Try BCP 47 canonical form (lowercase language, uppercase region)
+        parts = normalized.split('_', 2)
+        if parts.length == 2
+          canonical = "#{parts[0].downcase}_#{parts[1].upcase}"
+          return canonical if valid_locale?(canonical) && canonical != normalized && canonical != normalized.downcase
+        end
+
         # Step 2: Fallback chain (if configured)
         resolved = resolve_fallback_chain(normalized)
         return resolved if resolved

@@ -222,11 +222,14 @@ RSpec.describe Otto::Locale::Middleware do
         expect(request_with_accept_language('fr-FR')).to eq('fr_FR')
       end
 
-      it 'falls back to default when header case does not match key case' do
-        # FR-FR normalizes to FR_FR, then downcases to fr_fr -- neither matches fr_FR
-        # So resolution falls through to primary code "fr", which is also unavailable,
-        # resulting in the default locale.
-        expect(request_with_accept_language('FR-FR')).to eq('en')
+      it 'matches FR-FR to fr_FR via BCP 47 canonical form' do
+        # FR-FR normalizes to FR_FR (no match), downcases to fr_fr (no match),
+        # then canonical form fr_FR matches.
+        expect(request_with_accept_language('FR-FR')).to eq('fr_FR')
+      end
+
+      it 'matches Fr-fR to fr_FR via BCP 47 canonical form' do
+        expect(request_with_accept_language('Fr-fR')).to eq('fr_FR')
       end
     end
   end

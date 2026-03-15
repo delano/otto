@@ -110,17 +110,17 @@ class Otto
 
         # Parse all language tags with their q-values
         # Format: "en-US,en;q=0.9,fr;q=0.8" → [[en-US, 1.0], [en, 0.9], [fr, 0.8]]
-        languages = header.split(',').map do |tag|
+        languages = header.split(',').each_with_index.map do |tag, idx|
           # Split on semicolon and extract q-value
           parts = tag.strip.split(/\s*;\s*q\s*=\s*/)
           locale_str = parts[0]
           q_value = parts[1] ? parts[1].to_f : 1.0
-          [locale_str, q_value]
+          [locale_str, q_value, idx]
         end
 
-        # Sort by q-value descending (highest preference first)
-        # and resolve each tag against available_locales
-        languages.sort_by { |_, q| -q }.each do |lang_tag, _|
+        # Sort by q-value descending (highest preference first),
+        # using original header position as tiebreaker for stable ordering
+        languages.sort_by { |_, q, i| [-q, i] }.each do |lang_tag, _, _|
           resolved = resolve_locale(lang_tag)
           return resolved if resolved
         end
@@ -144,13 +144,15 @@ class Otto
         # Step 1: Exact match — convert HTTP format to locale format (fr-FR → fr_FR)
         normalized = lang_tag.strip.tr('-', '_')
         return normalized if valid_locale?(normalized)
-        return normalized.downcase if valid_locale?(normalized.downcase)
+
+        downcased = normalized.downcase
+        return downcased if downcased != normalized && valid_locale?(downcased)
 
         # Step 1b: Try BCP 47 canonical form (lowercase language, uppercase region)
         parts = normalized.split('_', 2)
         if parts.length == 2
           canonical = "#{parts[0].downcase}_#{parts[1].upcase}"
-          return canonical if valid_locale?(canonical) && canonical != normalized && canonical != normalized.downcase
+          return canonical if canonical != normalized && canonical != downcased && valid_locale?(canonical)
         end
 
         # Step 2: Fallback chain (if configured)
@@ -172,6 +174,13 @@ class Otto
         return nil unless @fallback_locale
 
         chain = @fallback_locale[normalized] || @fallback_locale[normalized.downcase]
+        if !chain
+          parts = normalized.split('_', 2)
+          if parts.length == 2
+            canonical = "#{parts[0].downcase}_#{parts[1].upcase}"
+            chain = @fallback_locale[canonical]
+          end
+        end
         return nil unless chain
 
         chain.find { |fallback| valid_locale?(fallback) }
@@ -193,6 +202,12 @@ class Otto
         raise ArgumentError, 'available_locales must be a Hash' unless @available_locales.is_a?(Hash)
         raise ArgumentError, 'available_locales cannot be empty' if @available_locales.empty?
         raise ArgumentError, 'default_locale must be in available_locales' unless @available_locales.key?(@default_locale)
+        return unless @fallback_locale
+
+        raise ArgumentError, 'fallback_locale must be a Hash' unless @fallback_locale.is_a?(Hash)
+        @fallback_locale.each do |key, chain|
+          raise ArgumentError, "fallback_locale values must be Arrays, got #{chain.class} for key '#{key}'" unless chain.is_a?(Array)
+        end
       end
 
       # Log debug information about locale detection

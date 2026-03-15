@@ -94,6 +94,16 @@ RSpec.describe Otto::Locale::Middleware do
       end
     end
 
+    context 'when fallback_locale uses canonical key and header is lowercase' do
+      let(:available_locales) { { 'en' => 'English', 'fr_CA' => 'French (Canada)' } }
+      let(:fallback_locale) { { 'fr_FR' => %w[fr_CA fr] } }
+
+      it 'finds the fallback chain via canonical form lookup' do
+        # fr-fr normalizes to fr_fr, canonical form fr_FR matches the chain key
+        expect(request_with_accept_language('fr-fr')).to eq('fr_CA')
+      end
+    end
+
     context 'when fallback chain and primary code both miss' do
       let(:available_locales) { { 'en' => 'English', 'de' => 'German' } }
       let(:fallback_locale) { { 'fr_FR' => %w[fr_CA fr_BE] } }
@@ -200,6 +210,26 @@ RSpec.describe Otto::Locale::Middleware do
             available_locales: { 'en' => 'English' },
             default_locale: 'de')
         end.to raise_error(ArgumentError, /must be in available_locales/)
+      end
+    end
+
+    context 'with invalid fallback_locale type' do
+      it 'raises ArgumentError when fallback_locale is not a Hash' do
+        expect do
+          described_class.new(inner_app,
+            available_locales: { 'en' => 'English' },
+            default_locale: 'en',
+            fallback_locale: 'not_a_hash')
+        end.to raise_error(ArgumentError, /must be a Hash/)
+      end
+
+      it 'raises ArgumentError when fallback_locale values are not Arrays' do
+        expect do
+          described_class.new(inner_app,
+            available_locales: { 'en' => 'English' },
+            default_locale: 'en',
+            fallback_locale: { 'fr_FR' => 'fr' })
+        end.to raise_error(ArgumentError, /must be Arrays/)
       end
     end
 

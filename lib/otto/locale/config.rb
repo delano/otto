@@ -24,15 +24,17 @@ class Otto
     class Config
       include Otto::Core::Freezable
 
-      attr_accessor :available_locales, :default_locale
+      attr_accessor :available_locales, :default_locale, :fallback_locale
 
       # Initialize locale configuration
       #
       # @param available_locales [Hash, nil] Hash of locale codes to names
       # @param default_locale [String, nil] Default locale code
-      def initialize(available_locales: nil, default_locale: nil)
+      # @param fallback_locale [Hash, nil] Hash of locale codes to fallback chains
+      def initialize(available_locales: nil, default_locale: nil, fallback_locale: nil)
         @available_locales = available_locales
         @default_locale = default_locale
+        @fallback_locale = fallback_locale
       end
 
       # Convert to hash for compatibility with existing code
@@ -41,7 +43,8 @@ class Otto
       def to_h
         {
           available_locales: @available_locales,
-          default_locale: @default_locale,
+             default_locale: @default_locale,
+            fallback_locale: @fallback_locale,
         }.compact
       end
 

@@ -37,11 +37,13 @@ class Otto
       # @param app [#call] Rack application
       # @param available_locales [Hash<String, String>] Hash of locale codes to language names
       # @param default_locale [String] Default locale code
+      # @param fallback_locale [Hash, nil] Hash of locale codes to fallback chains
       # @param debug [Boolean] Enable debug logging
-      def initialize(app, available_locales:, default_locale:, debug: false)
+      def initialize(app, available_locales:, default_locale:, fallback_locale: nil, debug: false)
         @app = app
         @available_locales = available_locales
         @default_locale = default_locale
+        @fallback_locale = fallback_locale
         @debug = debug
 
         validate_config!
@@ -90,7 +92,13 @@ class Otto
       # Handles formats like:
       # - "en-US,en;q=0.9,fr;q=0.8" → finds first available from [en, en, fr]
       # - "es,en;q=0.9" → returns "en" if "es" unavailable but "en" is
-      # - "fr-CA" → "fr"
+      # - "fr-FR" → "fr_FR" (exact match with region) or "fr" (fallback)
+      # - "pt-BR,en;q=0.9" → "pt_BR" if available
+      #
+      # Resolution order per tag (via resolve_locale):
+      # 1. Exact match with region (fr-FR → fr_FR)
+      # 2. Fallback chain (if configured)
+      # 3. Primary language code (fr-FR → fr)
       #
       # Respects q-values (quality factors) and returns the highest-priority
       # available locale instead of just the first language tag.
@@ -102,26 +110,80 @@ class Otto
 
         # Parse all language tags with their q-values
         # Format: "en-US,en;q=0.9,fr;q=0.8" → [[en-US, 1.0], [en, 0.9], [fr, 0.8]]
-        languages = header.split(',').map do |tag|
+        languages = header.split(',').each_with_index.map do |tag, idx|
           # Split on semicolon and extract q-value
           parts = tag.strip.split(/\s*;\s*q\s*=\s*/)
           locale_str = parts[0]
           q_value = parts[1] ? parts[1].to_f : 1.0
-          [locale_str, q_value]
+          [locale_str, q_value, idx]
         end
 
-        # Sort by q-value descending (highest preference first)
-        # and find the first locale that matches available_locales
-        languages.sort_by { |_, q| -q }.each do |lang_tag, _|
-          # Extract primary language code: "en-US" → "en", "fr" → "fr"
-          locale_code = lang_tag.split('-').first.downcase
-          return locale_code if valid_locale?(locale_code)
+        # Sort by q-value descending (highest preference first),
+        # using original header position as tiebreaker for stable ordering
+        languages.sort_by { |_, q, i| [-q, i] }.each do |lang_tag, _, _|
+          resolved = resolve_locale(lang_tag)
+          return resolved if resolved
         end
 
         nil # No matching locale found
       rescue StandardError => ex
         Otto.logger&.warn "[Otto::Locale] Failed to parse Accept-Language: #{ex.message}"
         nil
+      end
+
+      # Resolve a single language tag against available locales
+      #
+      # Resolution order:
+      # 1. Exact match with region (fr-FR → fr_FR)
+      # 2. Fallback chain (if configured)
+      # 3. Primary language code (fr-FR → fr)
+      #
+      # @param lang_tag [String] BCP 47 language tag (e.g. "fr-FR", "en")
+      # @return [String, nil] Matched locale code or nil
+      def resolve_locale(lang_tag)
+        # Step 1: Exact match — convert HTTP format to locale format (fr-FR → fr_FR)
+        normalized = lang_tag.strip.tr('-', '_')
+        return normalized if valid_locale?(normalized)
+
+        downcased = normalized.downcase
+        return downcased if downcased != normalized && valid_locale?(downcased)
+
+        # Step 1b: Try BCP 47 canonical form (lowercase language, uppercase region)
+        parts = normalized.split('_', 2)
+        if parts.length == 2
+          canonical = "#{parts[0].downcase}_#{parts[1].upcase}"
+          return canonical if canonical != normalized && canonical != downcased && valid_locale?(canonical)
+        end
+
+        # Step 2: Fallback chain (if configured)
+        resolved = resolve_fallback_chain(normalized)
+        return resolved if resolved
+
+        # Step 3: Primary language code (fr-FR → fr)
+        primary = lang_tag.split('-').first.downcase
+        return primary if valid_locale?(primary)
+
+        nil
+      end
+
+      # Consult fallback chain for a normalized locale tag
+      #
+      # @param normalized [String] Normalized locale tag (e.g. "fr_FR")
+      # @return [String, nil] First matching fallback locale or nil
+      def resolve_fallback_chain(normalized)
+        return nil unless @fallback_locale
+
+        chain = @fallback_locale[normalized] || @fallback_locale[normalized.downcase]
+        if !chain
+          parts = normalized.split('_', 2)
+          if parts.length == 2
+            canonical = "#{parts[0].downcase}_#{parts[1].upcase}"
+            chain = @fallback_locale[canonical]
+          end
+        end
+        return nil unless chain
+
+        chain.find { |fallback| valid_locale?(fallback) }
       end
 
       # Check if locale is valid
@@ -140,6 +202,12 @@ class Otto
         raise ArgumentError, 'available_locales must be a Hash' unless @available_locales.is_a?(Hash)
         raise ArgumentError, 'available_locales cannot be empty' if @available_locales.empty?
         raise ArgumentError, 'default_locale must be in available_locales' unless @available_locales.key?(@default_locale)
+        return unless @fallback_locale
+
+        raise ArgumentError, 'fallback_locale must be a Hash' unless @fallback_locale.is_a?(Hash)
+        @fallback_locale.each do |key, chain|
+          raise ArgumentError, "fallback_locale values must be Arrays, got #{chain.class} for key '#{key}'" unless chain.is_a?(Array)
+        end
       end
 
       # Log debug information about locale detection

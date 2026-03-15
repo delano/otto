@@ -5,7 +5,7 @@ require_relative 'lib/otto/version'
 Gem::Specification.new do |spec|
   spec.name          = 'otto'
   spec.version       = Otto::VERSION.to_s
-  spec.summary       = 'Auto-define your rack-apps in plaintext.'
+  spec.summary       = 'Define your rack-apps in plaintext.'
   spec.description   = "Otto: #{spec.summary}"
   spec.email         = 'gems@solutious.com'
   spec.authors       = ['Delano Mandelbaum']

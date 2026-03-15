@@ -7,6 +7,21 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.0.0:
+
+2.0.0 — 2026-03-14
+==================
+
+Added
+-----
+
+- Optional ``fallback_locale`` configuration for ``Otto::Locale::Middleware`` and ``Locale::Config``, enabling custom locale fallback chains between exact region match and primary code resolution
+
+Fixed
+-----
+
+- Locale middleware now tries exact region match (``fr-FR`` → ``fr_FR``) before falling back to primary language code, fixing locale resolution for region-qualified ``available_locales`` entries (#117)
+
 .. _changelog-2.0.0.pre10:
 
 2.0.0.pre10 — 2025-12-09

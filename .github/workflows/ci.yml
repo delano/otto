@@ -54,8 +54,13 @@ jobs:
 
       - name: Install dependencies
         continue-on-error: ${{ matrix.experimental }}
+        env:
+          EXPERIMENTAL: ${{ matrix.experimental }}
         run: |
           bundle config path vendor/bundle
+          if [ "$EXPERIMENTAL" = "true" ]; then
+            bundle config set --local force_ruby_platform true
+          fi
           bundle install --jobs 4 --retry 3 --with test
 
       - name: Verify setup

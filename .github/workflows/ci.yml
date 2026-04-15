@@ -27,6 +27,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Each Ruby runs twice: once against the committed Gemfile.lock
+        # (floor of the declared version range, reproducible) and once
+        # with the lockfile removed so Bundler resolves fresh inside the
+        # gemspec's pessimistic constraints (ceiling, what a downstream
+        # user will actually hit). The unlocked cells catch upstream
+        # releases that satisfy `~> X.Y` but break Otto at load time -
+        # e.g. facets 3.2.0 shipping a self-referential
+        # `require_relative 'file/write.rb'` against a file deleted in
+        # the same release, the reason 2.0.2 exists.
         include:
           - ruby: "3.3"
             experimental: false

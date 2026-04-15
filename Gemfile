@@ -9,8 +9,6 @@ source 'https://rubygems.org'
 
 gemspec
 
-gem 'rackup'
-
 group :test do
   gem 'rack-test'
   gem 'rspec', '~> 3.13'
@@ -28,6 +26,7 @@ end
 group :development do
   gem 'benchmark'
   gem 'debug'
+  gem 'rackup' # Used to boot examples/ apps; not needed by specs
   gem 'rubocop', '~> 1.81.7', require: false
   gem 'rubocop-performance', require: false
   gem 'rubocop-rspec', require: false

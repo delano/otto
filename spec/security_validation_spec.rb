@@ -742,6 +742,18 @@ RSpec.describe Otto::Security::ValidationHelpers do
       puts "Sanitized: #{result}"
       puts "====================================\n"
     end
+
+    it 'rejects dot-only filenames to prevent path traversal' do
+      expect(mock_response.sanitize_filename('.')).to eq('file')
+      expect(mock_response.sanitize_filename('..')).to eq('file')
+      expect(mock_response.sanitize_filename('...')).to eq('file')
+      expect(mock_response.sanitize_filename('....')).to eq('file')
+      # Exercises the gsub round-trip: trailing whitespace becomes '_',
+      # then underscore-trimming reconstitutes '..' — the guard must fire
+      # after the trim, not before.
+      expect(mock_response.sanitize_filename('.. ')).to eq('file')
+      expect(mock_response.sanitize_filename('_..')).to eq('file')
+    end
   end
 
   describe 'helper integration' do

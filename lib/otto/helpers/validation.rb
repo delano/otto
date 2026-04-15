@@ -57,7 +57,7 @@ class Otto
         else
           clean_name = clean_name.gsub(/_{2,}/, '_')
           clean_name = clean_name.gsub(/^_+|_+$/, '')
-          clean_name = 'file' if clean_name.empty?
+          clean_name = 'file' if clean_name.empty? || clean_name.match?(FILENAME_DOT_ONLY)
         end
 
         clean_name = clean_name[0..99] if clean_name.length > 100

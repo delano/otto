@@ -7,6 +7,26 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.0.2:
+
+2.0.2 — 2026-04-15
+==================
+
+- Load failure under facets 3.2.0. ``Otto::Security::ValidationHelpers`` no
+  longer requires ``facets/file``, whose aggregator in 3.2.0 does
+  ``require_relative 'file/write.rb'`` against a file deleted in the same
+  release. The one function Otto borrowed from facets — ``File.sanitize`` —
+  is now inlined as a private method on the helper module (with credit in
+  the source comment), and the ``facets`` runtime dependency is removed
+  from the gemspec entirely. Applications depending on facets directly are
+  unaffected.
+
+- CI now runs the RSpec suite twice for each Ruby in the matrix: once
+  against the committed ``Gemfile.lock`` and once with the lockfile removed
+  so Bundler resolves fresh inside the gemspec's pessimistic constraints.
+  The unlocked cells catch upstream releases that satisfy ``~> X.Y`` but
+  break Otto at load time.
+
 .. _changelog-2.0.1:
 
 2.0.1 — 2026-04-15

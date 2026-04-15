@@ -1,0 +1,4 @@
+.. Changed
+.. -------
+
+- Allow running with Ruby 4

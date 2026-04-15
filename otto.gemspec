@@ -18,7 +18,7 @@ Gem::Specification.new do |spec|
   spec.homepage      = 'https://github.com/delano/otto'
   spec.require_paths = ['lib']
 
-  spec.required_ruby_version = ['>= 3.2', '< 5.0']
+  spec.required_ruby_version = ['>= 3.2', '< 4.1']
 
   spec.add_dependency 'concurrent-ruby', '~> 1.3', '< 2.0'
   spec.add_dependency 'ipaddr', '~> 1', '< 2.0'

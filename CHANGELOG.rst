@@ -7,6 +7,14 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.0.1:
+
+2.0.1 — 2026-04-15
+==================
+
+- Allow running with Ruby 4
+- Update gems rack, ruby-lsp, rspec, rubocop, loofah, rack-test
+
 .. _changelog-2.0.0:
 
 2.0.0 — 2026-03-14

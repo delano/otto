@@ -22,7 +22,7 @@ jobs:
   test:
     timeout-minutes: 10
     runs-on: ubuntu-24.04
-    name: "RSpec Tests (Ruby ${{ matrix.ruby }})"
+    name: "RSpec Tests (Ruby ${{ matrix.ruby }}, ${{ matrix.lockfile }})"
     continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
@@ -30,12 +30,28 @@ jobs:
         include:
           - ruby: "3.3"
             experimental: false
+            lockfile: "locked"
           - ruby: "3.4"
             experimental: false
+            lockfile: "locked"
           - ruby: "3.5"
             experimental: true
+            lockfile: "locked"
           - ruby: "4.0"
             experimental: true
+            lockfile: "locked"
+          - ruby: "3.3"
+            experimental: false
+            lockfile: "unlocked"
+          - ruby: "3.4"
+            experimental: false
+            lockfile: "unlocked"
+          - ruby: "3.5"
+            experimental: true
+            lockfile: "unlocked"
+          - ruby: "4.0"
+            experimental: true
+            lockfile: "unlocked"
 
     steps:
       - uses: actions/checkout@v6
@@ -44,7 +60,9 @@ jobs:
         continue-on-error: ${{ matrix.experimental }}
         with:
           ruby-version: ${{ matrix.ruby }}
-          bundler-cache: ${{ !matrix.experimental }}
+          # Bundler cache keys off Gemfile.lock, so only enable it on the
+          # locked matrix cells. Unlocked cells need a fresh resolve each run.
+          bundler-cache: ${{ !matrix.experimental && matrix.lockfile == 'locked' }}
 
       - name: Setup tmate session
         uses: mxschmitt/action-tmate@c0afd6f790e3a5564914980036ebf83216678101 # v3
@@ -56,10 +74,17 @@ jobs:
         continue-on-error: ${{ matrix.experimental }}
         env:
           EXPERIMENTAL: ${{ matrix.experimental }}
+          LOCKFILE: ${{ matrix.lockfile }}
         run: |
           bundle config path vendor/bundle
           if [ "$EXPERIMENTAL" = "true" ]; then
             bundle config set --local force_ruby_platform true
+          fi
+          if [ "$LOCKFILE" = "unlocked" ]; then
+            # Drop the committed lockfile so Bundler resolves fresh inside
+            # the gemspec's pessimistic constraints. This surfaces the gap
+            # between "version range we declare" and "version range we test."
+            rm -f Gemfile.lock
           fi
           bundle install --jobs 4 --retry 3 --with test
 

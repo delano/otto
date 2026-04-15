@@ -3,12 +3,20 @@
 # frozen_string_literal: true
 
 require 'loofah'
-require 'facets/file'
 
 class Otto
   module Security
     # Validation helper methods providing input validation and sanitization
     module ValidationHelpers
+      # Replace filesystem-unsafe characters with an underscore. Borrowed
+      # verbatim from facets 3.1.0's `File.sanitize` (lib/core/facets/file/
+      # sanitize.rb, credit: George Moschovitis) and inlined here so Otto
+      # doesn't take a runtime dep on the whole facets grab-bag for one
+      # 12-line function. See commit message for 2.0.2 for context.
+      FILENAME_SANITIZE_PATTERN = /[^a-zA-Z0-9.\-+_]/
+      FILENAME_DOT_ONLY         = /^\.+$/
+      private_constant :FILENAME_SANITIZE_PATTERN, :FILENAME_DOT_ONLY
+
       def validate_input(input, max_length: 1000, allow_html: false)
         return input if input.nil?
 
@@ -42,26 +50,33 @@ class Otto
         return nil if filename.nil?
         return 'file' if filename.empty?
 
-        # Use Facets File.sanitize for basic filesystem-safe filename
-        clean_name = File.sanitize(filename.to_s)
+        clean_name = basic_filename_sanitize(filename.to_s)
 
-        # Handle edge cases and improve on Facets behavior to match test expectations
         if clean_name.nil? || clean_name.empty?
           clean_name = 'file'
         else
-          # Additional cleanup that Facets doesn't do but our tests expect
-          clean_name = clean_name.gsub(/_{2,}/, '_')        # Collapse multiple underscores
-          clean_name = clean_name.gsub(/^_+|_+$/, '')       # Remove leading/trailing underscores
-          clean_name = 'file' if clean_name.empty?          # Handle case where only underscores remain
+          clean_name = clean_name.gsub(/_{2,}/, '_')
+          clean_name = clean_name.gsub(/^_+|_+$/, '')
+          clean_name = 'file' if clean_name.empty?
         end
 
-        # Ensure reasonable length (255 is filesystem limit, leave some padding)
         clean_name = clean_name[0..99] if clean_name.length > 100
 
         clean_name
       end
 
       private
+
+      # Filesystem-safe basename. Port of facets 3.1.0's `File.sanitize`:
+      # strip directory components (handling backslashes for IE-uploaded
+      # paths), replace anything outside [A-Za-z0-9.\-+_] with '_', and
+      # prefix a leading '_' if the whole name is just dots ('.', '..').
+      def basic_filename_sanitize(filename)
+        name = File.basename(filename.gsub('\\', '/'))
+        name = name.gsub(FILENAME_SANITIZE_PATTERN, '_')
+        name = "_#{name}" if name.match?(FILENAME_DOT_ONLY)
+        name
+      end
 
       # Check if content looks like it contains HTML tags or entities
       def contains_html_like_content?(content)

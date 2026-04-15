@@ -86,6 +86,10 @@ jobs:
           LOCKFILE: ${{ matrix.lockfile }}
         run: |
           bundle config path vendor/bundle
+          # Enable the optional :development, :test group (json_schemer,
+          # rack-attack) that specs depend on. `bundle install --with` was
+          # removed in Bundler 2.7, which ships with Ruby 4.0.
+          bundle config set --local with 'development test'
           if [ "$EXPERIMENTAL" = "true" ]; then
             bundle config set --local force_ruby_platform true
           fi
@@ -95,7 +99,7 @@ jobs:
             # between "version range we declare" and "version range we test."
             rm -f Gemfile.lock
           fi
-          bundle install --jobs 4 --retry 3 --with test
+          bundle install --jobs 4 --retry 3
 
       - name: Verify setup
         run: |

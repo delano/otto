@@ -743,7 +743,7 @@ RSpec.describe Otto::Security::ValidationHelpers do
       puts "====================================\n"
     end
 
-    it 'rejects dot-only filenames to prevent path traversal' do
+    it 'coerces dot-only filenames to fallback to prevent path traversal' do
       expect(mock_response.sanitize_filename('.')).to eq('file')
       expect(mock_response.sanitize_filename('..')).to eq('file')
       expect(mock_response.sanitize_filename('...')).to eq('file')

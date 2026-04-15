@@ -31,7 +31,6 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'rexml', '~> 3.4'
 
   # Security dependencies
-  spec.add_dependency 'facets', '~> 3.1'
   spec.add_dependency 'loofah', '~> 2.20'
 
   # Optional MCP dependencies

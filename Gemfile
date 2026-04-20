@@ -27,7 +27,7 @@ group :development do
   gem 'benchmark'
   gem 'debug'
   gem 'rackup' # Used to boot examples/ apps; not needed by specs
-  gem 'rubocop', '~> 1.81.7', require: false
+  gem 'rubocop', '~> 1.86.1', require: false
   gem 'rubocop-performance', require: false
   gem 'rubocop-rspec', require: false
   gem 'rubocop-thread_safety', require: false

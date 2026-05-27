@@ -2,6 +2,9 @@
 #
 # frozen_string_literal: true
 
+require 'fileutils'
+require 'tmpdir'
+
 require_relative '../spec_helper'
 
 RSpec.describe 'Otto Logging Integration' do
@@ -173,6 +176,162 @@ RSpec.describe 'Otto Logging Integration' do
       expect(api_callbacks).not_to include(hash_including(app: 'auth'))
       expect(auth_callbacks).not_to include(hash_including(app: 'core'))
       expect(auth_callbacks).not_to include(hash_including(app: 'api'))
+    end
+  end
+
+  describe 'route matched hooks' do
+    # Use stub_const for the error class so the constant doesn't leak across files.
+    let(:route_blocked_error_class) { stub_const('RouteBlockedError', Class.new(StandardError)) }
+
+    let(:route_lines) do
+      [
+        'GET / TestApp.index',
+        'GET /show/:id TestApp.show',
+        'GET /404 TestApp.index',
+      ]
+    end
+    let(:otto) { create_minimal_otto(route_lines) }
+
+    it 'returns self and supports chaining' do
+      noop = ->(_env, _rd) { :noop }
+
+      result = otto.on_route_matched(&noop)
+      expect(result).to equal(otto)
+
+      chained = otto.on_route_matched(&noop).on_route_matched(&noop)
+      expect(chained).to equal(otto)
+      # Three callbacks registered total (one above plus two on the chained line).
+      expect(otto.route_matched_callbacks.length).to eq(3)
+    end
+
+    it 'fires after match and before handler on literal routes, with the correct RouteDefinition' do
+      order = []
+      captured_definition = nil
+
+      otto.on_route_matched do |_env, route_definition|
+        order << :hook
+        captured_definition = route_definition
+      end
+
+      # Wrap the index handler to record its execution after the hook.
+      allow(TestApp).to receive(:index).and_wrap_original do |original, *args|
+        order << :handler
+        original.call(*args)
+      end
+
+      otto.call(mock_rack_env(method: 'GET', path: '/'))
+
+      expect(order).to eq(%i[hook handler])
+      expect(captured_definition).to be_a(Otto::RouteDefinition)
+      expect(captured_definition.path).to eq('/')
+      expect(captured_definition.definition).to eq('TestApp.index')
+    end
+
+    it 'fires on dynamic routes with the correct RouteDefinition' do
+      captured = []
+      otto.on_route_matched do |env, route_definition|
+        captured << { path: route_definition.path, env_path: env['PATH_INFO'] }
+      end
+
+      otto.call(mock_rack_env(method: 'GET', path: '/show/42'))
+
+      expect(captured.length).to eq(1)
+      expect(captured.first[:path]).to eq('/show/:id')
+      expect(captured.first[:env_path]).to eq('/show/42')
+    end
+
+    it 'routes a raise from the callback through the registered error handler and skips the handler' do
+      otto.register_error_handler(route_blocked_error_class, status: 404, log_level: :info)
+
+      handler_called = false
+      allow(TestApp).to receive(:index).and_wrap_original do |original, *args|
+        handler_called = true
+        original.call(*args)
+      end
+
+      otto.on_route_matched do |_env, _rd|
+        raise route_blocked_error_class, 'blocked'
+      end
+
+      response = otto.call(mock_rack_env(method: 'GET', path: '/'))
+
+      expect(response[0]).to eq(404)
+      expect(handler_called).to be false
+    end
+
+    it 'does not fire on the 404 fallback when an unmatched path is requested' do
+      called = []
+      otto.on_route_matched do |_env, route_definition|
+        called << route_definition.path
+      end
+
+      # /does-not-exist matches no literal and no dynamic pattern; with a /404
+      # literal route present, router falls back to it WITHOUT firing the hook.
+      otto.call(mock_rack_env(method: 'GET', path: '/does-not-exist'))
+
+      expect(called).to be_empty
+    end
+
+    it 'does not fire on static file routes' do
+      static_dir = Dir.mktmpdir('otto_static_spec')
+      static_file = File.join(static_dir, 'safe.txt')
+      File.write(static_file, 'static content')
+
+      # safe_file? requires the file to be owned by the current user or group;
+      # skip if the test environment can't satisfy that constraint.
+      unless File.owned?(static_file) || File.grpowned?(static_file)
+        FileUtils.rm_rf(static_dir)
+        skip 'static file ownership requirement not satisfied in this environment'
+      end
+
+      routes_file = create_test_routes_file('test_routes_static.txt', ['GET / TestApp.index'])
+      static_otto = Otto.new(routes_file, public: static_dir)
+      Otto.unfreeze_for_testing(static_otto)
+
+      called = []
+      static_otto.on_route_matched do |_env, route_definition|
+        called << route_definition.path
+      end
+
+      static_otto.call(mock_rack_env(method: 'GET', path: '/safe.txt'))
+
+      expect(called).to be_empty
+    ensure
+      FileUtils.rm_rf(static_dir) if static_dir && Dir.exist?(static_dir)
+    end
+
+    it 'raises FrozenError when registered after configuration freeze' do
+      frozen_otto = create_minimal_otto(route_lines)
+      frozen_otto.freeze_configuration!
+
+      expect { frozen_otto.on_route_matched { |_env, _rd| :noop } }
+        .to raise_error(FrozenError)
+    end
+
+    it 'isolates callbacks between Otto instances (per-instance state)' do
+      otto_a = create_minimal_otto(route_lines)
+      otto_b = create_minimal_otto(route_lines)
+
+      a_calls = []
+      otto_a.on_route_matched do |_env, route_definition|
+        a_calls << route_definition.path
+      end
+
+      otto_b.call(mock_rack_env(method: 'GET', path: '/'))
+
+      expect(a_calls).to be_empty
+      expect(otto_b.route_matched_callbacks).to be_empty
+    end
+
+    it 'fires multiple registered callbacks in registration order' do
+      order = []
+      otto.on_route_matched { |_env, _rd| order << :first }
+      otto.on_route_matched { |_env, _rd| order << :second }
+      otto.on_route_matched { |_env, _rd| order << :third }
+
+      otto.call(mock_rack_env(method: 'GET', path: '/'))
+
+      expect(order).to eq(%i[first second third])
     end
   end
 

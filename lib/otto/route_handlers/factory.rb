@@ -37,6 +37,23 @@ class Otto
           )
         end
 
+        apply_handler_wrappers(handler, route_definition, otto_instance)
+      end
+
+      # Compose registered wrappers outermost-first. Built innermost-out so
+      # reverse_each yields a final order of: w1(w2(...(RouteAuthWrapper(base)))).
+      def self.apply_handler_wrappers(handler, route_definition, otto_instance)
+        wrappers = otto_instance&.handler_wrappers
+        return handler if wrappers.nil? || wrappers.empty?
+
+        wrappers.reverse_each do |factory|
+          wrapped = factory.call(route_definition, handler)
+          unless wrapped.respond_to?(:call)
+            raise TypeError,
+                  "handler wrapper must return an object responding to :call, got #{wrapped.class}"
+          end
+          handler = wrapped
+        end
         handler
       end
     end

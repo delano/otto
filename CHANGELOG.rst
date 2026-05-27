@@ -7,6 +7,31 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.1.0:
+
+2.1.0 — 2026-05-27
+==================
+
+- Add ``Otto#on_route_matched`` lifecycle hook. Callbacks fire after a
+  route matches but before the handler dispatches, with signature
+  ``(env, route_definition)``. Mirrors ``on_request_complete`` for
+  registration and freezing, but exceptions raised from a callback
+  propagate through ``handle_error`` rather than being swallowed, so
+  consumers can route custom error classes through
+  ``register_error_handler`` for short-circuit gating. Skipped for
+  static file routes and the 404 fallback; fires on both literal and
+  dynamic matches. Per-instance state, zero overhead when no callbacks
+  are registered. (#129)
+
+- Add ``Otto#register_handler_wrapper`` API for per-request handler
+  composition. Registers factory blocks composed around each route
+  handler at request time; wrappers nest outermost-first in
+  registration order, with ``RouteAuthWrapper`` preserved as the
+  innermost wrapper so consumers see ``env['otto.strategy_result']``.
+  ``freeze_configuration!`` now exercises every registered wrapper
+  against every loaded route, surfacing ``TypeError`` and factory bugs
+  at boot rather than on the first matching request. (#130)
+
 .. _changelog-2.0.2:
 
 2.0.2 — 2026-04-15

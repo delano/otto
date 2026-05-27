@@ -170,6 +170,11 @@ class Otto
         deep_freeze_value(@auth_config) if @auth_config
         deep_freeze_value(@option) if @option
 
+        # Validate registered handler-wrapper factories against every loaded
+        # route before locking the config. Surfaces TypeError / factory bugs
+        # at boot instead of on the first request that happens to match.
+        validate_handler_wrappers!
+
         # Deep freeze route structures (prevent modification of nested hashes/arrays)
         deep_freeze_value(@routes) if @routes
         deep_freeze_value(@routes_literal) if @routes_literal
@@ -206,6 +211,35 @@ class Otto
       def middleware_enabled?(middleware_class)
         # Only check the new middleware stack as the single source of truth
         @middleware&.includes?(middleware_class)
+      end
+
+      # Walk every loaded route and exercise the registered handler-wrapper
+      # factories against a sentinel inner handler. Each factory must return a
+      # callable; HandlerFactory.apply_handler_wrappers raises TypeError
+      # otherwise. The constructed chain is discarded — this is a fail-fast
+      # validation pass, not memoization.
+      #
+      # Iterates @routes (covers MCP routes added directly) uniquified by
+      # identity. No-op if no wrappers are registered or no routes are loaded.
+      #
+      # @api private
+      # @return [void]
+      def validate_handler_wrappers!
+        return unless @routes && @route_handler_factory
+        return if @handler_wrappers.nil? || @handler_wrappers.empty?
+
+        sentinel = ->(_env, _extra = {}) { [200, {}, []] }
+        seen = {}.compare_by_identity
+        @routes.each_value do |routes_for_verb|
+          routes_for_verb.each do |route|
+            next if seen[route]
+
+            seen[route] = true
+            Otto::RouteHandlers::HandlerFactory.apply_handler_wrappers(
+              sentinel, route.route_definition, self
+            )
+          end
+        end
       end
     end
   end

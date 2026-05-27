@@ -21,7 +21,14 @@ Gem::Specification.new do |spec|
   spec.required_ruby_version = ['>= 3.2', '< 4.1']
 
   spec.add_dependency 'concurrent-ruby', '~> 1.3', '< 2.0'
-  spec.add_dependency 'ipaddr', '~> 1', '< 2.0'
+
+  # ipaddr is a default gem on every supported Ruby (3.2+), so `require
+  # 'ipaddr'` works without a gemspec dependency. Declaring one collides
+  # with bundler 2.7.x's default-gem handling: the lockfile pins a version
+  # newer than the activated default and bundler refuses to swap, breaking
+  # `bundle exec` (including `rake release`). Drop the declaration and
+  # rely on the runtime default gem until bundler ships default-gem
+  # override support for ipaddr.
 
   # Logger is not part of the default gems as of Ruby 3.5.0
   spec.add_dependency 'logger', '~> 1', '< 2.0'

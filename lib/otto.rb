@@ -171,7 +171,8 @@ class Otto
     @app               = nil # Pre-built middleware app (built after initialization)
     @request_complete_callbacks = [] # Instance-level request completion callbacks
     @route_matched_callbacks    = [] # Instance-level route matched callbacks
-    @error_handlers    = {} # Registered error handlers for expected errors
+    @handler_wrappers           = [] # Instance-level handler wrapper factories
+    @error_handlers             = {} # Registered error handlers for expected errors
 
     # Initialize helper module registries
     @request_helper_modules = []

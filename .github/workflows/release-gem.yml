@@ -1,0 +1,158 @@
+# Release Gem Workflow
+#
+# Automatically builds and publishes the otto gem to RubyGems.org when a
+# GitHub release is published with a semantic version tag (vMAJOR.MINOR.PATCH,
+# e.g. v0.6.1, v1.2.3).
+#
+# Follows the canonical RubyGems Trusted Publishing workflow:
+#   https://guides.rubygems.org/trusted-publishing/
+#
+# ============================================================================
+# SETUP INSTRUCTIONS (one-time)
+# ============================================================================
+#
+# This workflow uses RubyGems Trusted Publishing (OIDC). No long-lived API
+# key needs to be stored in GitHub.
+#
+# ----------------------------------------------------------------------------
+# 1. Configure the trusted publisher on RubyGems.org
+# ----------------------------------------------------------------------------
+#
+#   a. Sign in to https://rubygems.org and enable MFA on your account
+#      (required for trusted publishing).
+#
+#   b. Open the gem's trusted publisher page (works for both existing gems
+#      and the first-ever publish):
+#        Existing gem: https://rubygems.org/gems/otto/trusted_publishers
+#        First publish: https://rubygems.org/profile/oidc/pending_trusted_publishers/new
+#
+#   c. Click "Create" and fill in:
+#        Publisher type:    GitHub Actions
+#        Repository owner:  delano
+#        Repository name:   otto
+#        Workflow filename: release-gem.yml
+#        Environment:       rubygems.org   (must match `environment.name` below)
+#
+#   d. Save. RubyGems will now accept short-lived OIDC tokens issued by this
+#      workflow running in this repository.
+#
+# ----------------------------------------------------------------------------
+# 2. Configure the GitHub environment
+# ----------------------------------------------------------------------------
+#
+#   a. In GitHub: Settings -> Environments -> New environment
+#      Name: `rubygems.org`   (must match `environment.name` below)
+#
+#   b. Under "Deployment branches and tags", restrict to tags matching:
+#        v*.*.*
+#      This prevents the environment (and its OIDC token) from being used
+#      from any branch or non-release tag.
+#
+#   c. Optional but recommended: add required reviewers to gate publishes
+#      behind manual approval.
+#
+#   No GitHub secrets are required - OIDC handles authentication.
+#
+# ----------------------------------------------------------------------------
+# 3. Cutting a release
+# ----------------------------------------------------------------------------
+#
+#   a. Bump Otto::VERSION in lib/otto/version.rb (semver: MAJOR.MINOR.PATCH).
+#   b. Update CHANGELOG.md and commit on main.
+#   c. On GitHub, draft a Release with tag `vX.Y.Z` (matching the constant)
+#      and publish it. This workflow runs automatically: it verifies the tag
+#      matches the gemspec version, builds the gem, and pushes it.
+#
+# ----------------------------------------------------------------------------
+# Fallback: API key (only if Trusted Publishing isn't an option)
+# ----------------------------------------------------------------------------
+#
+#   1. Create an API key at https://rubygems.org/profile/api_keys with scope
+#      "Push rubygem" restricted to the `otto` gem.
+#   2. Store it as a repo secret named `RUBYGEMS_API_KEY`.
+#   3. Drop the `id-token: write` permission and `environment:` block, and
+#      replace the `rubygems/release-gem` step with:
+#
+#        - name: Publish to RubyGems
+#          env:
+#            GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+#          run: gem push otto-*.gem
+#
+# ----------------------------------------------------------------------------
+# Action provenance (SHA pins)
+# ----------------------------------------------------------------------------
+#
+# All third-party actions below are pinned to a full commit SHA, per GitHub's
+# secure-use guidance for release-critical workflows. The accompanying
+# comment records the tag the SHA was resolved from so renovate/dependabot
+# can keep them current.
+#
+#   actions/checkout      - official GitHub action
+#   ruby/setup-ruby       - official Ruby org action (GitHub-verified creator)
+#   rubygems/release-gem  - official RubyGems action for trusted publishing
+#
+# ============================================================================
+
+name: Release Gem
+
+on:
+  release:
+    types: [published]
+
+# Coarse default. Each job re-declares the narrowest permissions it needs.
+permissions:
+  contents: read
+
+# Don't allow two release runs to race - one published tag, one publish.
+concurrency:
+  group: release-gem-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and push gem
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    environment:
+      name: rubygems.org
+      url: https://rubygems.org/gems/otto
+
+    permissions:
+      contents: write   # rubygems/release-gem attaches built .gem to the GitHub release
+      id-token: write   # OIDC token for RubyGems Trusted Publishing
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@afeafc3d1ab54a631816aba4c914a0081c12ff2f # v1.310.0
+        with:
+          bundler-cache: true
+          ruby-version: ruby   # latest stable Ruby installed by setup-ruby
+
+      - name: Verify release tag matches Otto::VERSION
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          case "${RELEASE_TAG}" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *)
+              echo "Release tag '${RELEASE_TAG}' is not a vMAJOR.MINOR.PATCH semver tag." >&2
+              exit 1
+              ;;
+          esac
+          tag_version="${RELEASE_TAG#v}"
+          gem_version="$(ruby -r ./lib/otto/version.rb -e 'print Otto::VERSION')"
+          if [ "${tag_version}" != "${gem_version}" ]; then
+            echo "Release tag ${RELEASE_TAG} (${tag_version}) != Otto::VERSION (${gem_version})." >&2
+            exit 1
+          fi
+          echo "Releasing otto ${gem_version} from tag ${RELEASE_TAG}"
+
+      - name: Build and push gem to RubyGems
+        uses: rubygems/release-gem@6317d8d1f7e28c24d28f6eff169ea854948bd9f7 # v1.2.0

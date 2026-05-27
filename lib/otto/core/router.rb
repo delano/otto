@@ -110,6 +110,10 @@ class Otto
               handler: route.route_definition.definition,
               auth_strategy: route.route_definition.auth_requirement || 'none'
             ))
+          # Fire route matched hooks before dispatch; raises propagate to handle_error
+          unless @route_matched_callbacks.empty?
+            @route_matched_callbacks.each { |cb| cb.call(env, route.route_definition) }
+          end
           route.call(env)
         elsif static_route && http_verb == :GET && safe_file?(path_info)
           Otto.structured_log(:debug, 'Route matched',
@@ -180,6 +184,12 @@ class Otto
               Otto::LoggingHelpers.request_context(env).merge(
                 fallback_to: '404_route'
               ))
+          else
+            # Fire route matched hooks before dispatch; suppressed for 404 fallback.
+            # Raises propagate to handle_error so custom error classes can be registered.
+            unless @route_matched_callbacks.empty?
+              @route_matched_callbacks.each { |cb| cb.call(env, found_route.route_definition) }
+            end
           end
           found_route.call env, extra_params
         else

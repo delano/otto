@@ -170,6 +170,7 @@ class Otto
     @security          = Otto::Security::Configurator.new(@security_config, @middleware, @auth_config)
     @app               = nil # Pre-built middleware app (built after initialization)
     @request_complete_callbacks = [] # Instance-level request completion callbacks
+    @route_matched_callbacks    = [] # Instance-level route matched callbacks
     @error_handlers    = {} # Registered error handlers for expected errors
 
     # Initialize helper module registries

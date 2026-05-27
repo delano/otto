@@ -58,6 +58,42 @@ class Otto
       def request_complete_callbacks
         @request_complete_callbacks
       end
+
+      # Register a callback fired after a route matches but before the handler dispatches.
+      #
+      # The callback receives two arguments:
+      # - env: the Rack environment hash
+      # - route_definition: the matched Otto::RouteDefinition
+      #
+      # Unlike on_request_complete, exceptions raised inside on_route_matched callbacks
+      # are NOT swallowed: they propagate to Otto#handle_error so consumers can route
+      # custom error classes through register_error_handler.
+      #
+      # Does not fire for static-file routes or for the 404 fallback route.
+      #
+      # @example
+      #   otto.on_route_matched do |env, route_definition|
+      #     raise MyApp::Maintenance if maintenance? && route_definition.auth_requirement
+      #   end
+      #
+      # @yield [env, route_definition] Block to execute after route match
+      # @yieldparam env [Hash] The Rack environment
+      # @yieldparam route_definition [Otto::RouteDefinition] The matched route definition
+      # @return [self] Returns self for method chaining
+      # @raise [FrozenError] if called after configuration is frozen
+      def on_route_matched(&block)
+        ensure_not_frozen!
+        @route_matched_callbacks << block if block_given?
+        self
+      end
+
+      # Get registered route matched callbacks (for internal use)
+      #
+      # @api private
+      # @return [Array<Proc>] Array of registered callback blocks
+      def route_matched_callbacks
+        @route_matched_callbacks
+      end
     end
   end
 end

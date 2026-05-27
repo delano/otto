@@ -2,6 +2,9 @@
 #
 # frozen_string_literal: true
 
+require 'fileutils'
+require 'tmpdir'
+
 require_relative '../spec_helper'
 
 RSpec.describe 'Otto Logging Integration' do

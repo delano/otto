@@ -132,7 +132,11 @@ jobs:
         uses: ruby/setup-ruby@afeafc3d1ab54a631816aba4c914a0081c12ff2f # v1.310.0
         with:
           bundler-cache: true
-          ruby-version: ruby   # latest stable Ruby installed by setup-ruby
+          # Pinned to 3.3 (oldest non-experimental Ruby in the CI matrix).
+          # Latest stable (4.0) ships ipaddr 1.2.8 as a default gem, which
+          # bundler 2.7.x cannot override with the lockfile's 1.2.9 - the
+          # same reason Ruby 4.0 is `experimental: true` in ci.yml.
+          ruby-version: "3.3"
 
       - name: Verify release tag matches Otto::VERSION
         env:

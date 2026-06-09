@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides essential guidance to Claude Code when working with Otto.
+This file provides essential guidance to AI agents when working with Otto.
 
 ## Error Handler Registration
 

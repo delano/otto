@@ -7,6 +7,18 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.2.0:
+
+2.2.0 — 2026-06-09
+==================
+
+Added
+-----
+
+- Added ``AuthorizationFailure`` result type for auth strategies to signal 403 Forbidden distinct from 401 Unauthorized. Strategies that perform combined authentication and authorization in one pass can now return ``authorization_failure(reason)`` when a valid credential is denied a permission, allowing ``RouteAuthWrapper`` to map the result to a proper 403 response rather than collapsing it to 401.
+- Added ``#authorization_failure`` helper to ``AuthStrategy`` base class for consistent error signaling across strategy implementations.
+- Extracted ``#strategy_auth_method`` private helper to handle anonymous strategy classes (common in tests) that have a nil ``#name``.
+
 .. _changelog-2.1.0:
 
 2.1.0 — 2026-05-27

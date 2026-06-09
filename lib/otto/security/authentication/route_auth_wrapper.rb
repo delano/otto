@@ -106,11 +106,18 @@ class Otto
                                         duration, total_start_time, failed_strategies)
             end
 
-            # Handle authentication failure - continue to next strategy
-            next unless result.is_a?(AuthFailure)
+            # Handle a failure (authentication OR authorization) - record it and
+            # continue to the next strategy (OR logic; a later success still wins).
+            # AuthorizationFailure (valid credential, denied) is tagged so the
+            # final response is 403 instead of 401. See handle_all_strategies_failed.
+            next unless result.is_a?(AuthFailure) || result.is_a?(AuthorizationFailure)
 
             log_strategy_failure(env, strategy_name, result, duration, auth_requirements, requirement)
-            failed_strategies << { strategy: strategy_name, reason: result.failure_reason }
+            failed_strategies << {
+              strategy: strategy_name,
+              reason: result.failure_reason,
+              authorization: result.is_a?(AuthorizationFailure),
+            }
           end
 
           # All strategies failed
@@ -155,6 +162,14 @@ class Otto
             metadata: metadata,
             strategy_name: failure_strategy_name
           )
+
+          # Authorization denial wins over authentication failure: if any strategy
+          # authenticated the subject but denied authorization (wrong role/missing
+          # permission), respond 403 Forbidden rather than 401 — the subject IS
+          # authenticated, they simply lack access. A bare 401 would (incorrectly)
+          # tell a logged-in client to re-authenticate.
+          authz_denial = failed_strategies.find { |f| f[:authorization] }
+          return @response_builder.forbidden(env, authz_denial[:reason]) if authz_denial
 
           last_failure = if failed_strategies.any?
                            AuthFailure.new(

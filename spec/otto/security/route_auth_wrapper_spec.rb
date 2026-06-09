@@ -1231,4 +1231,141 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
       end
     end
   end
+
+  describe 'strategy-level authorization failure (AuthorizationFailure -> 403)' do
+    # A strategy that performs BOTH authentication and authorization in one pass
+    # (e.g. a token strategy enforcing a permission encoded in the requirement)
+    # cannot use Otto's Layer-1 role check (which only models the `role=` token).
+    # Returning AuthorizationFailure lets it signal 403 directly, distinct from the
+    # 401 it returns for a missing/invalid credential.
+    let(:combined_strategy) do
+      Class.new(Otto::Security::Authentication::AuthStrategy) do
+        # Credential is the header value; "valid:<role>" authenticates as <role>.
+        def authenticate(env, requirement)
+          cred = env['HTTP_X_TOKEN'].to_s
+          return failure('Missing token') if cred.empty?
+
+          md = /\Avalid:(.+)\z/.match(cred)
+          return failure('Invalid token') unless md
+
+          role = md[1]
+          _kind, required = requirement.to_s.split(':', 2)
+          return authorization_failure("Requires role: #{required}") unless role == required
+
+          success(user: { id: 'u1', roles: [role] }, auth_method: 'token')
+        end
+      end.new
+    end
+
+    let(:combined_config) do
+      { auth_strategies: { 'role' => combined_strategy }, login_path: '/signin' }
+    end
+
+    let(:json_route) do
+      Otto::RouteDefinition.new('GET', '/api/admin', 'AdminApi#index auth=role:admin response=json')
+    end
+
+    let(:json_wrapper) do
+      described_class.new(mock_handler, json_route, combined_config)
+    end
+
+    it 'returns 200 when the credential authorizes' do
+      env = mock_rack_env(headers: { 'X-Token' => 'valid:admin', 'Accept' => 'application/json' })
+      status, _headers, body = json_wrapper.call(env)
+
+      expect(status).to eq(200)
+      expect(body).to eq(['handler called'])
+    end
+
+    it 'returns 401 (AuthFailure) for a missing credential, not 403' do
+      env = mock_rack_env(headers: { 'Accept' => 'application/json' })
+      status, headers, body = json_wrapper.call(env)
+
+      expect(status).to eq(401)
+      expect(headers['content-type']).to eq('application/json')
+      expect(JSON.parse(body.first)['error']).to eq('Authentication Required')
+    end
+
+    it 'returns 401 (AuthFailure) for an invalid credential, not 403' do
+      env = mock_rack_env(headers: { 'X-Token' => 'garbage', 'Accept' => 'application/json' })
+      status, _headers, _body = json_wrapper.call(env)
+
+      expect(status).to eq(401)
+    end
+
+    it 'returns 403 (AuthorizationFailure) for a valid credential lacking the role' do
+      env = mock_rack_env(headers: { 'X-Token' => 'valid:user', 'Accept' => 'application/json' })
+      status, headers, body = json_wrapper.call(env)
+
+      expect(status).to eq(403)
+      expect(headers['content-type']).to eq('application/json')
+      data = JSON.parse(body.first)
+      expect(data['error']).to eq('Forbidden')
+      expect(data['message']).to include('admin')
+    end
+
+    it 'returns text/plain 403 for a non-JSON route on authorization denial' do
+      plain_route = Otto::RouteDefinition.new('GET', '/admin', 'AdminApi#index auth=role:admin')
+      plain_wrapper = described_class.new(mock_handler, plain_route, combined_config)
+
+      env = mock_rack_env(headers: { 'X-Token' => 'valid:user', 'Accept' => 'text/html' })
+      status, headers, body = plain_wrapper.call(env)
+
+      # Authorization denial is 403 regardless of content type (NOT a 302 to login —
+      # the subject is authenticated). Authentication failure still 302s (below).
+      expect(status).to eq(403)
+      expect(headers['content-type']).to eq('text/plain')
+      expect(body.first).to include('admin')
+    end
+
+    it 'still 302-redirects a non-JSON route on AUTHENTICATION failure' do
+      plain_route = Otto::RouteDefinition.new('GET', '/admin', 'AdminApi#index auth=role:admin')
+      plain_wrapper = described_class.new(mock_handler, plain_route, combined_config)
+
+      env = mock_rack_env(headers: { 'Accept' => 'text/html' })
+      status, headers, _body = plain_wrapper.call(env)
+
+      expect(status).to eq(302)
+      expect(headers['location']).to eq('/signin')
+    end
+
+    context 'multi-strategy OR semantics' do
+      let(:authn_only) do
+        Class.new(Otto::Security::Authentication::AuthStrategy) do
+          def authenticate(env, _requirement)
+            env['HTTP_X_BACKUP'] == 'ok' ? success(user: { id: 'b', roles: ['admin'] }, auth_method: 'backup') : failure('no backup')
+          end
+        end.new
+      end
+
+      let(:multi_config) do
+        { auth_strategies: { 'role' => combined_strategy, 'backup' => authn_only }, login_path: '/signin' }
+      end
+
+      let(:multi_route) do
+        Otto::RouteDefinition.new('GET', '/api/admin', 'AdminApi#index auth=role:admin,backup response=json')
+      end
+
+      let(:multi_wrapper) { described_class.new(mock_handler, multi_route, multi_config) }
+
+      it 'a later strategy success still wins over an earlier authorization denial' do
+        env = mock_rack_env(headers: { 'X-Token' => 'valid:user', 'X-Backup' => 'ok', 'Accept' => 'application/json' })
+        status, = multi_wrapper.call(env)
+        expect(status).to eq(200)
+      end
+
+      it 'authorization denial wins over a plain authentication failure when all fail' do
+        env = mock_rack_env(headers: { 'X-Token' => 'valid:user', 'Accept' => 'application/json' })
+        status, _headers, body = multi_wrapper.call(env)
+        expect(status).to eq(403)
+        expect(JSON.parse(body.first)['error']).to eq('Forbidden')
+      end
+
+      it 'returns 401 when every strategy is a pure authentication failure' do
+        env = mock_rack_env(headers: { 'Accept' => 'application/json' })
+        status, = multi_wrapper.call(env)
+        expect(status).to eq(401)
+      end
+    end
+  end
 end

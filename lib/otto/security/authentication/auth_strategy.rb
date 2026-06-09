@@ -38,12 +38,39 @@ class Otto
         end
 
         # Helper for authentication failure - return AuthFailure
+        #
+        # Use for a missing, invalid, or expired credential. RouteAuthWrapper maps
+        # this to 401 Unauthorized. For a VALID credential that is not permitted,
+        # use #authorization_failure instead (403 Forbidden).
         def failure(reason = nil)
           Otto.logger.debug "[#{self.class}] Authentication failed: #{reason}" if reason
           Otto::Security::Authentication::AuthFailure.new(
             failure_reason: reason || 'Authentication failed',
-            auth_method: self.class.name.split('::').last
+            auth_method: strategy_auth_method
           )
+        end
+
+        # Helper for authorization failure - return AuthorizationFailure
+        #
+        # Use when the credential is valid but the authenticated subject is not
+        # permitted (wrong role, missing permission). RouteAuthWrapper maps this to
+        # 403 Forbidden, letting clients distinguish "authenticate again" (401) from
+        # "you lack this permission" (403). See AuthorizationFailure.
+        def authorization_failure(reason = nil)
+          Otto.logger.debug "[#{self.class}] Authorization denied: #{reason}" if reason
+          Otto::Security::Authentication::AuthorizationFailure.new(
+            failure_reason: reason || 'Authorization denied',
+            auth_method: strategy_auth_method
+          )
+        end
+
+        private
+
+        # Short auth_method label from the strategy class name. Anonymous strategy
+        # classes (Class.new(...), common in tests) have a nil #name, so fall back
+        # to a generic label rather than raising on nil#split.
+        def strategy_auth_method
+          (self.class.name || 'AuthStrategy').split('::').last
         end
       end
     end

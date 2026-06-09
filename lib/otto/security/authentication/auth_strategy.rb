@@ -31,7 +31,7 @@ class Otto
           Otto::Security::Authentication::StrategyResult.new(
             session: session,
             user: user,
-            auth_method: auth_method || self.class.name.split('::').last,
+            auth_method: auth_method || strategy_auth_method,
             metadata: metadata,
             strategy_name: nil # Will be set by RouteAuthWrapper
           )

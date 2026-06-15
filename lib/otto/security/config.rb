@@ -4,6 +4,7 @@
 
 require 'securerandom'
 require 'digest'
+require 'ipaddr'
 require_relative '../core/freezable'
 
 class Otto
@@ -123,17 +124,25 @@ class Otto
 
       # Check if an IP address is from a trusted proxy
       #
+      # String entries that parse as an IP or CIDR range are matched with
+      # proper IPAddr containment (IPv4 and IPv6). Entries that are not valid
+      # IPs (e.g. a bare prefix like '172.16.') fall back to the legacy
+      # exact/prefix string match for backward compatibility. Regexp entries
+      # are matched against the raw IP string.
+      #
       # @param ip [String] IP address to check
       # @return [Boolean] true if the IP is from a trusted proxy
       def trusted_proxy?(ip)
-        return false if @trusted_proxies.empty?
+        return false if @trusted_proxies.empty? || ip.nil? || ip.empty?
+
+        client = parse_ipaddr(ip)
 
         @trusted_proxies.any? do |proxy|
           case proxy
-          when String
-            ip == proxy || ip.start_with?(proxy)
           when Regexp
             proxy.match?(ip)
+          when String
+            string_proxy_match?(proxy, ip, client)
           else
             false
           end
@@ -322,6 +331,48 @@ class Otto
       end
 
       private
+
+      # Parse a value into an IPAddr, returning nil for invalid / non-IP input.
+      #
+      # @param value [String] candidate IP or CIDR string
+      # @return [IPAddr, nil]
+      def parse_ipaddr(value)
+        IPAddr.new(value)
+      rescue IPAddr::InvalidAddressError, IPAddr::AddressFamilyError
+        nil
+      end
+
+      # Match a single string proxy entry against a client IP.
+      #
+      # Valid IP/CIDR entries use proper IPAddr containment (IPv4 + IPv6).
+      # Non-IP entries (e.g. '172.16.') or an unparseable client fall back to
+      # the legacy exact/prefix string match for backward compatibility.
+      #
+      # @param proxy [String] trusted proxy entry
+      # @param ip [String] raw client IP string
+      # @param client [IPAddr, nil] parsed client IP (nil if it didn't parse)
+      # @return [Boolean]
+      def string_proxy_match?(proxy, ip, client)
+        range = parse_ipaddr(proxy)
+        if range && client
+          ip_in_range?(range, client)
+        else
+          ip == proxy || ip.start_with?(proxy)
+        end
+      end
+
+      # CIDR/host containment that is safe across address families.
+      #
+      # @param range [IPAddr] trusted proxy range or host
+      # @param client [IPAddr] client address
+      # @return [Boolean]
+      def ip_in_range?(range, client)
+        return false unless range.family == client.family
+
+        range.include?(client)
+      rescue IPAddr::InvalidAddressError
+        false
+      end
 
       def extract_existing_session_id(request)
         # Try session first

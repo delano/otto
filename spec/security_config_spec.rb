@@ -204,19 +204,37 @@ RSpec.describe Otto::Security::Config do
         expect(config.trusted_proxy?('192.168.1.2')).to be false
       end
 
-      it 'identifies CIDR range matches using string prefix matching' do
-        # The implementation uses simple string prefix matching, not proper CIDR
-        # '10.0.0.1'.start_with?('10.0.0.0/8') is false since it doesn't literally start with that string
-        expect(config.trusted_proxy?('10.0.0.0/8')).to be true # Exact match with CIDR
-        expect(config.trusted_proxy?('10.0.0.0/8123')).to be true # Starts with CIDR string
-        expect(config.trusted_proxy?('10.0.0.1')).to be false # Different IP that doesn't start with proxy string
+      it 'identifies CIDR range matches using proper IPAddr containment' do
+        # Real CIDR matching: any address inside 10.0.0.0/8 is trusted,
+        # addresses outside it are not.
+        expect(config.trusted_proxy?('10.0.0.1')).to be true
+        expect(config.trusted_proxy?('10.255.255.254')).to be true
         expect(config.trusted_proxy?('11.0.0.1')).to be false
       end
 
-      it 'handles string matching for network ranges' do
+      it 'does not treat unrelated IPs sharing a textual prefix as trusted' do
+        # Regression guard against the old start_with? matcher:
+        # '192.168.1.10' must NOT match the exact host '192.168.1.1'.
+        expect(config.trusted_proxy?('192.168.1.1')).to be true
+        expect(config.trusted_proxy?('192.168.1.10')).to be false
+        expect(config.trusted_proxy?('192.168.1.100')).to be false
+      end
+
+      it 'falls back to string prefix matching for non-IP entries' do
         config.add_trusted_proxy('172.16.')
         expect(config.trusted_proxy?('172.16.1.1')).to be true
         expect(config.trusted_proxy?('172.17.1.1')).to be false
+      end
+
+      it 'matches IPv6 addresses within a CIDR range' do
+        config.add_trusted_proxy('2001:db8::/32')
+        expect(config.trusted_proxy?('2001:db8::1')).to be true
+        expect(config.trusted_proxy?('2001:db9::1')).to be false
+      end
+
+      it 'does not match across address families' do
+        config.add_trusted_proxy('10.0.0.0/8')
+        expect(config.trusted_proxy?('::1')).to be false
       end
     end
   end

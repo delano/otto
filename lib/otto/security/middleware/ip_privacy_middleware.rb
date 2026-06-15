@@ -2,6 +2,8 @@
 #
 # frozen_string_literal: true
 
+require 'ipaddr'
+
 class Otto
   module Security
     module Middleware
@@ -42,6 +44,12 @@ class Otto
         # @param env [Hash] Rack environment
         # @return [Array] Rack response tuple [status, headers, body]
         def call(env)
+          # Idempotency: if a prior IPPrivacyMiddleware pass already resolved the
+          # canonical client IP for this request, do not re-resolve or re-mask.
+          # This makes stacking two instances (e.g. an app-level mount plus
+          # Otto's built-in router mount) order-safe instead of double-masking.
+          return @app.call(env) if env.key?('otto.client_ip')
+
           if @privacy_enabled
             apply_privacy(env)
           else
@@ -63,7 +71,8 @@ class Otto
         #
         # @param env [Hash] Rack environment
         def apply_privacy(env)
-          # Resolve the actual client IP (handling proxies)
+          # Resolve the actual client IP once (handling proxies). This is the
+          # canonical resolution step; masking below operates on this value.
           client_ip = resolve_client_ip(env)
 
           Otto.logger.debug "[IPPrivacyMiddleware] Resolved client IP: #{client_ip}" if Otto.debug
@@ -75,6 +84,8 @@ class Otto
               # Update REMOTE_ADDR to the resolved client IP (even though it's not masked)
               env['REMOTE_ADDR'] = client_ip
               env['otto.original_ip'] = client_ip
+              # Canonical client IP downstream reads (exempt: not masked)
+              env['otto.client_ip'] = client_ip
               # Don't mask forwarded headers for private IPs
               Otto.logger.debug "[IPPrivacyMiddleware] Private/localhost IP exempted: #{client_ip}" if Otto.debug
               return
@@ -98,6 +109,10 @@ class Otto
           # This ensures downstream code (rate limiting, auth, logging, Rack's request.ip)
           # automatically uses the masked values without modification
           env['REMOTE_ADDR'] = fingerprint.masked_ip
+
+          # Canonical client IP downstream reads ("resolve once, read everywhere").
+          # Privacy-safe: holds the masked value, never the original public IP.
+          env['otto.client_ip'] = fingerprint.masked_ip
 
           # Replace User-Agent with anonymized version (consistent with IP masking)
           # CRITICAL: Always replace, even if nil, to clear original sensitive data
@@ -182,24 +197,40 @@ class Otto
           @security_config.trusted_proxy?(ip)
         end
 
-        # Validate and clean IP address
+        # Validate and clean IP address (IPv4 and IPv6)
         #
-        # @param ip [String, nil] IP address to validate
+        # @param ip [String, nil] IP address to validate (optionally with a port)
         # @return [String, nil] Cleaned IP or nil if invalid
         def validate_ip_address(ip)
           return nil if ip.nil? || ip.empty?
 
-          # Remove any port number
-          clean_ip = ip.split(':').first
+          candidate = strip_port(ip.strip)
+          return nil if candidate.nil? || candidate.empty?
 
-          # Basic IPv4 format validation
-          return nil unless clean_ip.match?(/\A\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\z/)
+          # IPAddr validates both IPv4 and IPv6; raises for malformed input
+          IPAddr.new(candidate)
+          candidate
+        rescue IPAddr::InvalidAddressError
+          nil
+        end
 
-          # Validate each octet
-          octets = clean_ip.split('.')
-          return nil unless octets.all? { |octet| (0..255).cover?(octet.to_i) }
+        # Strip an optional port without corrupting IPv6 addresses.
+        #
+        # Handles bracketed IPv6 with a port (`[2001:db8::1]:443`) and IPv4
+        # host:port (`203.0.113.5:443`). A bare IPv6 address (multiple colons,
+        # no brackets) is returned unchanged.
+        #
+        # @param ip [String] candidate address, possibly including a port
+        # @return [String] address with any port removed
+        def strip_port(ip)
+          if ip.start_with?('[')
+            inner = ip[/\A\[([^\]]+)\]/, 1]
+            return inner if inner
+          end
 
-          clean_ip
+          return ip.split(':', 2).first if ip.count(':') == 1
+
+          ip
         end
 
         # Apply no-privacy settings (privacy explicitly disabled)
@@ -209,6 +240,11 @@ class Otto
         #
         # @param env [Hash] Rack environment
         def apply_no_privacy(env)
+          # Resolve the canonical client IP once, even with privacy disabled, so
+          # downstream code can read env['otto.client_ip'] instead of re-deriving
+          # it from REMOTE_ADDR / forwarded headers.
+          env['otto.client_ip'] = resolve_client_ip(env)
+
           # Store original values for explicit access when privacy is disabled
           if env['REMOTE_ADDR']
             env['otto.original_ip'] = env['REMOTE_ADDR'].dup.force_encoding('UTF-8')

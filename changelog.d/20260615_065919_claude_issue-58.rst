@@ -1,0 +1,31 @@
+Changed
+-------
+
+- ``Otto::Security::Config#trusted_proxy?`` now matches string entries with
+  proper ``IPAddr`` CIDR containment for both IPv4 and IPv6, replacing the
+  previous ``==`` / ``start_with?`` text matching. Bare hosts (e.g.
+  ``192.168.1.1``) match only exactly, and CIDR ranges (e.g. ``10.0.0.0/8``)
+  now actually match contained addresses. Non-IP entries (e.g. ``172.16.``)
+  still fall back to the legacy prefix match, and ``Regexp`` entries are
+  unchanged. This is a behavior change: addresses that were previously
+  matched only because they shared a textual prefix are no longer treated as
+  trusted. (otto#58, onetimesecret#3436)
+- ``IPPrivacyMiddleware`` now resolves the client IP once into a canonical
+  ``env['otto.client_ip']`` ("resolve once, read everywhere") and is
+  idempotent: a second pass (e.g. when the middleware is mounted both at the
+  app and router levels) yields instead of re-resolving and double-masking.
+- ``Otto::Request#ip`` and ``#client_ipaddress`` now prefer
+  ``env['otto.client_ip']`` when present, falling back to Rack's native
+  resolution when the middleware has not run. Downstream code no longer
+  depends on ``REMOTE_ADDR`` / ``X-Forwarded-For`` rewriting being
+  load-bearing.
+
+Fixed
+-----
+
+- IPv6 addresses are no longer truncated during proxy resolution.
+  ``validate_ip_address`` previously did ``ip.split(':').first``, collapsing
+  an IPv6 address to its first hextet; it now uses ``IPAddr`` validation with
+  IPv6-safe port stripping (bracketed ``[2001:db8::1]:443`` and IPv4
+  ``host:port``). IPv6 clients behind trusted proxies now resolve and mask
+  correctly. (onetimesecret#3436)

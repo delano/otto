@@ -3,6 +3,7 @@
 # frozen_string_literal: true
 
 require 'rack/request'
+require 'ipaddr'
 
 class Otto
   # Otto's enhanced Rack::Request class with built-in helpers
@@ -24,13 +25,25 @@ class Otto
       env['HTTP_USER_AGENT']
     end
 
-    # NOTE: We do NOT override Rack::Request#ip
+    # Canonical client IP for the request.
     #
-    # IPPrivacyMiddleware masks both REMOTE_ADDR and X-Forwarded-For headers,
-    # so Rack's native ip resolution logic works correctly with masked values.
-    # This allows Rack to handle proxy scenarios (trusted proxies, header parsing)
-    # while still returning privacy-safe masked IPs.
+    # Prefers env['otto.client_ip'] — the value resolved once, early, by
+    # IPPrivacyMiddleware ("resolve once, read everywhere"): the masked IP
+    # when privacy is enabled, or the resolved real IP when privacy is
+    # disabled or the address is exempt. This means downstream code no longer
+    # depends on REMOTE_ADDR / X-Forwarded-For rewriting being load-bearing.
     #
+    # Falls back to Rack's native resolution when the middleware has not run
+    # (e.g. standalone request use without the Otto middleware stack).
+    #
+    # @return [String, nil] Canonical (privacy-applied) client IP
+    def ip
+      canonical = env['otto.client_ip']
+      return canonical if canonical && !canonical.empty?
+
+      super
+    end
+
     # If you need the masked IP explicitly, use:
     #   req.masked_ip  # => '192.168.1.0' or nil if privacy disabled
     #
@@ -108,6 +121,12 @@ class Otto
     end
 
     def client_ipaddress
+      # Prefer the canonical client IP resolved once by IPPrivacyMiddleware
+      # ("resolve once, read everywhere"). Falls back to deriving it directly
+      # for standalone use without the middleware.
+      canonical = env['otto.client_ip']
+      return canonical if canonical && !canonical.empty?
+
       remote_addr = env['REMOTE_ADDR']
 
       # If we don't have a security config or trusted proxies, use direct connection
@@ -229,17 +248,33 @@ class Otto
     def validate_ip_address(ip)
       return nil if ip.nil? || ip.empty?
 
-      # Remove any port number
-      clean_ip = ip.split(':').first
+      candidate = strip_port(ip.strip)
+      return nil if candidate.nil? || candidate.empty?
 
-      # Basic IP format validation
-      return nil unless clean_ip.match?(/\A\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\z/)
+      # IPAddr validates both IPv4 and IPv6; raises for malformed input
+      IPAddr.new(candidate)
+      candidate
+    rescue IPAddr::InvalidAddressError
+      nil
+    end
 
-      # Validate each octet
-      octets = clean_ip.split('.')
-      return nil unless octets.all? { |octet| (0..255).cover?(octet.to_i) }
+    # Strip an optional port without corrupting IPv6 addresses.
+    #
+    # Handles bracketed IPv6 with a port (`[2001:db8::1]:443`) and IPv4
+    # host:port (`203.0.113.5:443`). A bare IPv6 address (multiple colons,
+    # no brackets) is returned unchanged.
+    #
+    # @param ip [String] candidate address, possibly including a port
+    # @return [String] address with any port removed
+    def strip_port(ip)
+      if ip.start_with?('[')
+        inner = ip[/\A\[([^\]]+)\]/, 1]
+        return inner if inner
+      end
 
-      clean_ip
+      return ip.split(':', 2).first if ip.count(':') == 1
+
+      ip
     end
 
     def private_ip?(ip)

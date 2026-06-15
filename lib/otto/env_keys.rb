@@ -103,6 +103,16 @@ class Otto
     # PRIVACY (IP MASKING)
     # =========================================================================
 
+    # Canonical client IP, resolved once early by IPPrivacyMiddleware
+    # ("resolve once, read everywhere"). Downstream code (client_ipaddress,
+    # Request#ip) reads this instead of re-deriving from REMOTE_ADDR / XFF.
+    # Type: String
+    # Set by: IPPrivacyMiddleware (every request, all modes)
+    # Value: masked IP when privacy enabled; resolved real IP when privacy
+    #        disabled or the address is exempt (private/localhost)
+    # Note: presence also acts as the idempotency guard for the middleware
+    CLIENT_IP = 'otto.client_ip'
+
     # Privacy-safe masked IP address
     # Type: String (e.g., '192.168.1.0')
     # Set by: IPPrivacyMiddleware

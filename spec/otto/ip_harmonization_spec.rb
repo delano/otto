@@ -60,6 +60,25 @@ RSpec.describe 'IP resolution harmonization (otto#58 / OTS#3436)' do
       expect(config.trusted_proxy?('172.16.9.9')).to be true
       expect(config.trusted_proxy?('10.0.0.1')).to be false
     end
+
+    it 'parses each string proxy entry once at registration, not per request' do
+      allow(IPAddr).to receive(:new).and_call_original
+
+      config.add_trusted_proxy('10.0.0.0/8')
+      3.times { config.trusted_proxy?('10.1.2.3') }
+
+      # The proxy entry is parsed once (at registration); only the per-request
+      # client IP is parsed on each call.
+      expect(IPAddr).to have_received(:new).with('10.0.0.0/8').once
+    end
+
+    it 'still matches correctly after the config is deep-frozen' do
+      config.add_trusted_proxy('10.0.0.0/8')
+      config.deep_freeze!
+
+      expect(config.trusted_proxy?('10.1.2.3')).to be true
+      expect(config.trusted_proxy?('11.0.0.1')).to be false
+    end
   end
 
   describe Otto::Security::Middleware::IPPrivacyMiddleware do

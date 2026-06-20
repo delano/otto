@@ -48,6 +48,7 @@ class Otto
         @max_param_depth        = 32
         @max_param_keys         = 64
         @trusted_proxies        = []
+        @trusted_proxy_matchers = []
         @require_secure_cookies = false
         @security_headers       = default_security_headers
         @input_validation       = true
@@ -114,10 +115,10 @@ class Otto
 
         case proxy
         when String, Regexp
-          warn_if_legacy_proxy_entry(proxy)
           @trusted_proxies << proxy
+          @trusted_proxy_matchers << register_proxy_matcher(proxy)
         when Array
-          proxy.each { |entry| warn_if_legacy_proxy_entry(entry) }
+          proxy.each { |entry| @trusted_proxy_matchers << register_proxy_matcher(entry) }
           @trusted_proxies.concat(proxy)
         else
           raise ArgumentError, 'Proxy must be a String, Regexp, or Array'
@@ -132,19 +133,25 @@ class Otto
       # exact/prefix string match for backward compatibility. Regexp entries
       # are matched against the raw IP string.
       #
+      # Proxy entries are parsed once at registration (see #add_trusted_proxy)
+      # into @trusted_proxy_matchers, so this never re-parses per request.
+      #
       # @param ip [String] IP address to check
       # @return [Boolean] true if the IP is from a trusted proxy
       def trusted_proxy?(ip)
-        return false if @trusted_proxies.empty? || ip.nil? || ip.empty?
+        return false if @trusted_proxy_matchers.empty? || ip.nil? || ip.empty?
 
         client = parse_ipaddr(ip)
 
-        @trusted_proxies.any? do |proxy|
-          case proxy
-          when Regexp
-            proxy.match?(ip)
-          when String
-            string_proxy_match?(proxy, ip, client)
+        @trusted_proxy_matchers.any? do |entry, range|
+          if range
+            # Pre-parsed IP/CIDR entry -> proper containment
+            client && ip_in_range?(range, client)
+          elsif entry.is_a?(Regexp)
+            entry.match?(ip)
+          elsif entry.is_a?(String)
+            # Legacy non-IP entry (e.g. '172.16.') -> exact/prefix match
+            ip == entry || ip.start_with?(entry)
           else
             false
           end
@@ -344,40 +351,34 @@ class Otto
         nil
       end
 
-      # Warn when a string proxy entry is not a valid IP/CIDR and will fall
-      # back to legacy string-prefix matching. Regexp entries are intentional
-      # and not flagged.
+      # Build a cached matcher tuple for a proxy entry at registration time.
       #
-      # @param entry [String, Regexp] trusted proxy entry being added
-      # @return [void]
-      def warn_if_legacy_proxy_entry(entry)
-        return unless entry.is_a?(String)
-        return if parse_ipaddr(entry) # valid IP/CIDR -> proper matching
+      # String entries are parsed to an IPAddr exactly once here; the result is
+      # reused for both the legacy-entry warning and per-request matching, so
+      # trusted_proxy? never re-parses. Non-IP strings and Regexp/other entries
+      # store a nil range and fall back to prefix/regexp matching.
+      #
+      # @param entry [String, Regexp, Object] trusted proxy entry being added
+      # @return [Array(Object, IPAddr)] [raw_entry, parsed_range_or_nil]
+      def register_proxy_matcher(entry)
+        return [entry, nil] unless entry.is_a?(String)
 
+        range = parse_ipaddr(entry)
+        warn_legacy_proxy_entry(entry) unless range
+        [entry, range]
+      end
+
+      # Warn that a string proxy entry is not a valid IP/CIDR and will use
+      # legacy string-prefix matching.
+      #
+      # @param entry [String] trusted proxy entry
+      # @return [void]
+      def warn_legacy_proxy_entry(entry)
         Otto.logger&.warn(
           "[Otto::Security::Config] trusted proxy #{entry.inspect} is not a " \
           'valid IP or CIDR; using legacy string-prefix matching. Prefer a ' \
           "CIDR range (e.g. '172.16.0.0/12')."
         )
-      end
-
-      # Match a single string proxy entry against a client IP.
-      #
-      # Valid IP/CIDR entries use proper IPAddr containment (IPv4 + IPv6).
-      # Non-IP entries (e.g. '172.16.') or an unparseable client fall back to
-      # the legacy exact/prefix string match for backward compatibility.
-      #
-      # @param proxy [String] trusted proxy entry
-      # @param ip [String] raw client IP string
-      # @param client [IPAddr, nil] parsed client IP (nil if it didn't parse)
-      # @return [Boolean]
-      def string_proxy_match?(proxy, ip, client)
-        range = parse_ipaddr(proxy)
-        if range && client
-          ip_in_range?(range, client)
-        else
-          ip == proxy || ip.start_with?(proxy)
-        end
       end
 
       # CIDR/host containment that is safe across address families.

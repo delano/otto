@@ -30,6 +30,9 @@ Changed
 - IP validation and port-stripping were consolidated into
   ``Otto::Utils.normalize_ip`` / ``strip_ip_port`` (previously duplicated in
   ``IPPrivacyMiddleware`` and ``Otto::Request``).
+- Trusted-proxy string entries are now parsed to ``IPAddr`` once at
+  registration (in ``add_trusted_proxy``) and cached, so ``trusted_proxy?``
+  no longer re-parses each entry on every request.
 
 Security
 --------

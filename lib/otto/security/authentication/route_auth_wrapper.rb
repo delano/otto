@@ -188,7 +188,7 @@ class Otto
 
         # Build metadata for anonymous routes
         def build_anonymous_metadata(env)
-          metadata = { ip: env['REMOTE_ADDR'] }
+          metadata = { ip: env['otto.client_ip'] || env['REMOTE_ADDR'] }
           metadata[:country] = env['otto.privacy.geo_country'] if env['otto.privacy.geo_country']
           metadata
         end
@@ -196,7 +196,7 @@ class Otto
         # Build metadata for failed authentication
         def build_failure_metadata(env, failed_strategies)
           metadata = {
-                          ip: env['REMOTE_ADDR'],
+                          ip: env['otto.client_ip'] || env['REMOTE_ADDR'],
                 auth_failure: 'All authentication strategies failed',
             attempted_strategies: failed_strategies.map { |f| f[:strategy] },
                  failure_reasons: failed_strategies.map { |f| f[:reason] },

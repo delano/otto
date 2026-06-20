@@ -141,7 +141,9 @@ class Otto
       def trusted_proxy?(ip)
         return false if @trusted_proxy_matchers.empty? || ip.nil? || ip.empty?
 
-        client = parse_ipaddr(ip)
+        # Fold IPv4-mapped IPv6 (::ffff:a.b.c.d) to plain IPv4 so a dual-stack
+        # peer presented in mapped form still matches an IPv4 proxy entry.
+        client = parse_ipaddr(ip)&.native
 
         @trusted_proxy_matchers.any? do |entry, range|
           if range

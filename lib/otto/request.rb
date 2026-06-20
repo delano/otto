@@ -121,31 +121,14 @@ class Otto
 
     def client_ipaddress
       # Prefer the canonical client IP resolved once by IPPrivacyMiddleware
-      # ("resolve once, read everywhere"). Falls back to deriving it directly
-      # for standalone use without the middleware.
+      # ("resolve once, read everywhere"). Falls back to the shared resolver
+      # (Otto::Utils.resolve_client_ip) for standalone use without the
+      # middleware, so the with- and without-middleware paths agree on which
+      # forwarded headers to trust and how to walk a proxy chain.
       canonical = env['otto.client_ip']
       return canonical if canonical && !canonical.empty?
 
-      remote_addr = env['REMOTE_ADDR']
-
-      # If we don't have a security config or trusted proxies, use direct connection
-      return validate_ip_address(remote_addr) if !otto_security_config || !trusted_proxy?(remote_addr)
-
-      # Check forwarded headers from trusted proxies
-      forwarded_ips = [
-        env['HTTP_X_FORWARDED_FOR'],
-        env['HTTP_X_REAL_IP'],
-        env['HTTP_CLIENT_IP'],
-      ].compact.map { |header| header.split(/,\s*/) }.flatten
-
-      # Return the first valid IP that's not a private/loopback address
-      forwarded_ips.each do |ip|
-        clean_ip = validate_ip_address(ip.strip)
-        return clean_ip if clean_ip && !private_ip?(clean_ip)
-      end
-
-      # Fallback to remote address
-      validate_ip_address(remote_addr)
+      Otto::Utils.resolve_client_ip(env, otto_security_config)
     end
 
     def request_method
@@ -259,20 +242,15 @@ class Otto
       Otto::Utils.normalize_ip(ip)
     end
 
+    # Whether the given address is non-public (private, loopback, link-local,
+    # multicast or unspecified). IPv4 and IPv6 aware via Otto::Utils.private_ip?
+    # — the previous implementation was an IPv4-only regex that silently
+    # treated every IPv6 address (including ::1 and ULA fc00::/7) as public.
+    #
+    # @param ip [String, IPAddr, nil] address to classify
+    # @return [Boolean]
     def private_ip?(ip)
-      return false unless ip
-
-      # RFC 1918 private ranges and loopback
-      private_ranges = [
-        /\A10\./, # 10.0.0.0/8
-        /\A172\.(1[6-9]|2[0-9]|3[01])\./, # 172.16.0.0/12
-        /\A192\.168\./,              # 192.168.0.0/16
-        /\A169\.254\./,              # 169.254.0.0/16 (link-local)
-        /\A224\./,                   # 224.0.0.0/4 (multicast)
-        /\A0\./, # 0.0.0.0/8
-      ]
-
-      private_ranges.any? { |range| ip.match?(range) }
+      Otto::Utils.private_ip?(ip)
     end
 
     def local_or_private_ip?(ip)

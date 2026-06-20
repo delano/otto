@@ -3,7 +3,6 @@
 # frozen_string_literal: true
 
 require 'rack/request'
-require 'ipaddr'
 
 class Otto
   # Otto's enhanced Rack::Request class with built-in helpers
@@ -246,35 +245,7 @@ class Otto
     end
 
     def validate_ip_address(ip)
-      return nil if ip.nil? || ip.empty?
-
-      candidate = strip_port(ip.strip)
-      return nil if candidate.nil? || candidate.empty?
-
-      # IPAddr validates both IPv4 and IPv6; raises for malformed input
-      IPAddr.new(candidate)
-      candidate
-    rescue IPAddr::InvalidAddressError
-      nil
-    end
-
-    # Strip an optional port without corrupting IPv6 addresses.
-    #
-    # Handles bracketed IPv6 with a port (`[2001:db8::1]:443`) and IPv4
-    # host:port (`203.0.113.5:443`). A bare IPv6 address (multiple colons,
-    # no brackets) is returned unchanged.
-    #
-    # @param ip [String] candidate address, possibly including a port
-    # @return [String] address with any port removed
-    def strip_port(ip)
-      if ip.start_with?('[')
-        inner = ip[/\A\[([^\]]+)\]/, 1]
-        return inner if inner
-      end
-
-      return ip.split(':', 2).first if ip.count(':') == 1
-
-      ip
+      Otto::Utils.normalize_ip(ip)
     end
 
     def private_ip?(ip)

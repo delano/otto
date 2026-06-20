@@ -103,4 +103,50 @@ RSpec.describe Otto::Utils do
       expect(Otto::Utils.yes?(false)).to be false
     end
   end
+
+  describe "#normalize_ip" do
+    it "accepts a bare IPv4 address" do
+      expect(Otto::Utils.normalize_ip("203.0.113.5")).to eq("203.0.113.5")
+    end
+
+    it "accepts a bare IPv6 address without truncating it" do
+      expect(Otto::Utils.normalize_ip("2001:db8::1")).to eq("2001:db8::1")
+    end
+
+    it "strips a port from an IPv4 host:port" do
+      expect(Otto::Utils.normalize_ip("203.0.113.5:8080")).to eq("203.0.113.5")
+    end
+
+    it "strips a port from a bracketed IPv6 address" do
+      expect(Otto::Utils.normalize_ip("[2001:db8::1]:443")).to eq("2001:db8::1")
+    end
+
+    it "trims surrounding whitespace" do
+      expect(Otto::Utils.normalize_ip("  203.0.113.5  ")).to eq("203.0.113.5")
+    end
+
+    it "returns nil for malformed or blank input" do
+      expect(Otto::Utils.normalize_ip("nope")).to be_nil
+      expect(Otto::Utils.normalize_ip("")).to be_nil
+      expect(Otto::Utils.normalize_ip(nil)).to be_nil
+    end
+  end
+
+  describe "#strip_ip_port" do
+    it "removes a port from an IPv4 host:port" do
+      expect(Otto::Utils.strip_ip_port("203.0.113.5:8080")).to eq("203.0.113.5")
+    end
+
+    it "unwraps a bracketed IPv6 literal with a port" do
+      expect(Otto::Utils.strip_ip_port("[2001:db8::1]:443")).to eq("2001:db8::1")
+    end
+
+    it "leaves a bare IPv6 address unchanged" do
+      expect(Otto::Utils.strip_ip_port("2001:db8::1")).to eq("2001:db8::1")
+    end
+
+    it "leaves a bare IPv4 address unchanged" do
+      expect(Otto::Utils.strip_ip_port("203.0.113.5")).to eq("203.0.113.5")
+    end
+  end
 end

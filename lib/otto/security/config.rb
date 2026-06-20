@@ -114,8 +114,10 @@ class Otto
 
         case proxy
         when String, Regexp
+          warn_if_legacy_proxy_entry(proxy)
           @trusted_proxies << proxy
         when Array
+          proxy.each { |entry| warn_if_legacy_proxy_entry(entry) }
           @trusted_proxies.concat(proxy)
         else
           raise ArgumentError, 'Proxy must be a String, Regexp, or Array'
@@ -340,6 +342,23 @@ class Otto
         IPAddr.new(value)
       rescue IPAddr::InvalidAddressError, IPAddr::AddressFamilyError
         nil
+      end
+
+      # Warn when a string proxy entry is not a valid IP/CIDR and will fall
+      # back to legacy string-prefix matching. Regexp entries are intentional
+      # and not flagged.
+      #
+      # @param entry [String, Regexp] trusted proxy entry being added
+      # @return [void]
+      def warn_if_legacy_proxy_entry(entry)
+        return unless entry.is_a?(String)
+        return if parse_ipaddr(entry) # valid IP/CIDR -> proper matching
+
+        Otto.logger&.warn(
+          "[Otto::Security::Config] trusted proxy #{entry.inspect} is not a " \
+          'valid IP or CIDR; using legacy string-prefix matching. Prefer a ' \
+          "CIDR range (e.g. '172.16.0.0/12')."
+        )
       end
 
       # Match a single string proxy entry against a client IP.

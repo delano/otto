@@ -198,16 +198,27 @@ class Otto
       # Check direct HTTPS connection
       return true if env['HTTPS'] == 'on' || env['SERVER_PORT'] == '443'
 
-      remote_addr = env['REMOTE_ADDR']
+      # Only trust forwarded proto headers when the request actually arrived via
+      # a trusted proxy.
+      return false unless forwarded_by_trusted_proxy?
 
-      # Only trust forwarded proto headers from trusted proxies
-      if otto_security_config && trusted_proxy?(remote_addr)
-        # X-Scheme is set by nginx
-        # X-FORWARDED-PROTO is set by elastic load balancer
-        return env['HTTP_X_FORWARDED_PROTO'] == 'https' || env['HTTP_X_SCHEME'] == 'https'
-      end
+      # X-Scheme is set by nginx; X-Forwarded-Proto by elastic load balancer
+      env['HTTP_X_FORWARDED_PROTO'] == 'https' || env['HTTP_X_SCHEME'] == 'https'
+    end
 
-      false
+    # Whether the request arrived through a trusted proxy.
+    #
+    # Prefers the canonical decision recorded once by IPPrivacyMiddleware in
+    # env['otto.via_trusted_proxy'] — evaluated against the original peer before
+    # REMOTE_ADDR is masked, so it stays correct even after masking. Falls back
+    # to evaluating the current REMOTE_ADDR when the middleware has not run
+    # (standalone request use).
+    #
+    # @return [Boolean]
+    def forwarded_by_trusted_proxy?
+      return env['otto.via_trusted_proxy'] if env.key?('otto.via_trusted_proxy')
+
+      otto_security_config ? trusted_proxy?(env['REMOTE_ADDR']) : false
     end
 
     # See: http://stackoverflow.com/questions/10013812/how-to-prevent-jquery-ajax-from-following-a-redirect-after-a-post

@@ -152,6 +152,26 @@ RSpec.describe 'IP resolution harmonization (otto#58 / OTS#3436)' do
         expect(env['REMOTE_ADDR']).to eq('2606:4700:4700::')
       end
     end
+
+    describe "canonical env['otto.via_trusted_proxy']" do
+      before { security_config.add_trusted_proxy('10.0.0.1') }
+
+      it 'is true when the original peer is a trusted proxy (recorded pre-mask)' do
+        env = { 'REMOTE_ADDR' => '10.0.0.1', 'HTTP_X_FORWARDED_FOR' => '203.0.113.50' }
+        middleware.call(env)
+
+        expect(env['otto.via_trusted_proxy']).to be true
+        # REMOTE_ADDR was masked to the client, but the trust flag is preserved
+        expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
+      end
+
+      it 'is false when the connecting peer is not a trusted proxy' do
+        env = { 'REMOTE_ADDR' => '198.51.100.1' }
+        middleware.call(env)
+
+        expect(env['otto.via_trusted_proxy']).to be false
+      end
+    end
   end
 
   describe Otto::Request, 'canonical reads' do
@@ -178,6 +198,47 @@ RSpec.describe 'IP resolution harmonization (otto#58 / OTS#3436)' do
       req.env['otto.client_ip'] = '203.0.113.0'
 
       expect(req.client_ipaddress).to eq('203.0.113.0')
+    end
+
+    describe '#secure?' do
+      it 'is true for a direct HTTPS connection' do
+        expect(request_for('SERVER_PORT' => '443').secure?).to be true
+        expect(request_for('HTTPS' => 'on').secure?).to be true
+      end
+
+      it 'trusts X-Forwarded-Proto when the canonical trust flag is set' do
+        req = request_for('REMOTE_ADDR' => '203.0.113.0', 'HTTP_X_FORWARDED_PROTO' => 'https')
+        req.env['otto.via_trusted_proxy'] = true
+
+        expect(req.secure?).to be true
+      end
+
+      it 'trusts X-Scheme when the canonical trust flag is set' do
+        req = request_for('REMOTE_ADDR' => '203.0.113.0', 'HTTP_X_SCHEME' => 'https')
+        req.env['otto.via_trusted_proxy'] = true
+
+        expect(req.secure?).to be true
+      end
+
+      it 'does not trust forwarded proto when the peer is untrusted' do
+        req = request_for('REMOTE_ADDR' => '203.0.113.0', 'HTTP_X_FORWARDED_PROTO' => 'https')
+        req.env['otto.via_trusted_proxy'] = false
+
+        expect(req.secure?).to be false
+      end
+
+      it 'is not secure when forwarded proto is absent even via a trusted proxy' do
+        req = request_for('REMOTE_ADDR' => '203.0.113.0')
+        req.env['otto.via_trusted_proxy'] = true
+
+        expect(req.secure?).to be false
+      end
+
+      it 'does not trust forwarded proto without the middleware or a security config' do
+        req = request_for('REMOTE_ADDR' => '10.0.0.1', 'HTTP_X_FORWARDED_PROTO' => 'https')
+
+        expect(req.secure?).to be false
+      end
     end
 
     describe '#validate_ip_address (IPv6-safe)' do

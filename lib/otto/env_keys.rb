@@ -61,6 +61,14 @@ class Otto
     # Used by: All security middleware (CSRF, Headers, Validation)
     SECURITY_CONFIG = 'otto.security_config'
 
+    # Whether the request arrived via a trusted proxy.
+    # Type: Boolean
+    # Set by: IPPrivacyMiddleware (every request, evaluated on the original
+    #   peer BEFORE REMOTE_ADDR is masked)
+    # Used by: Otto::Request#secure? to authorize X-Forwarded-Proto / X-Scheme
+    #   without depending on the (masked) REMOTE_ADDR
+    VIA_TRUSTED_PROXY = 'otto.via_trusted_proxy'
+
     # =========================================================================
     # LOCALIZATION (I18N)
     # =========================================================================

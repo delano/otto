@@ -48,6 +48,11 @@ class Otto
           # Otto's built-in router mount) order-safe instead of double-masking.
           return @app.call(env) if env.key?('otto.client_ip')
 
+          # Record the connecting peer's trust decision BEFORE any masking, so
+          # secure? can authorize X-Forwarded-Proto canonically even after
+          # REMOTE_ADDR is rewritten to the masked client IP. Leak-free boolean.
+          env['otto.via_trusted_proxy'] = trusted_proxy?(env['REMOTE_ADDR'])
+
           if @privacy_enabled
             apply_privacy(env)
           else

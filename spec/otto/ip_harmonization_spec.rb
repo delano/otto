@@ -241,6 +241,27 @@ RSpec.describe 'IP resolution harmonization (otto#58 / OTS#3436)' do
       end
     end
 
+    describe 'privacy helpers read the canonical otto.privacy.* keys' do
+      # Regression: these helpers previously read un-namespaced keys
+      # (otto.redacted_fingerprint / otto.geo_country / otto.hashed_ip) that the
+      # middleware never sets, so they always returned nil.
+      def run_privacy(remote_addr)
+        env = { 'REMOTE_ADDR' => remote_addr }
+        Otto::Security::Middleware::IPPrivacyMiddleware
+          .new(app, Otto::Security::Config.new).call(env)
+        described_class.new(env)
+      end
+
+      it 'populates redacted_fingerprint, masked_ip, hashed_ip and geo_country' do
+        req = run_privacy('8.8.8.8') # public IP; geo range -> US
+
+        expect(req.redacted_fingerprint).to be_a(Otto::Privacy::RedactedFingerprint)
+        expect(req.masked_ip).to eq('8.8.8.0')
+        expect(req.hashed_ip).to match(/\A[0-9a-f]{64}\z/)
+        expect(req.geo_country).to eq('US')
+      end
+    end
+
     describe '#validate_ip_address (IPv6-safe)' do
       let(:req) { request_for }
 

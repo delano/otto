@@ -63,7 +63,7 @@ class Otto
     #   fingerprint.masked_ip    # => '192.168.1.0'
     #   fingerprint.country      # => 'US'
     def redacted_fingerprint
-      env['otto.redacted_fingerprint']
+      env['otto.privacy.fingerprint']
     end
 
     # Get the geo-location country code for the request
@@ -75,7 +75,7 @@ class Otto
     # @example
     #   req.geo_country  # => 'US'
     def geo_country
-      redacted_fingerprint&.country || env['otto.geo_country']
+      redacted_fingerprint&.country || env['otto.privacy.geo_country']
     end
 
     # Get anonymized user agent string
@@ -103,7 +103,7 @@ class Otto
     # @example
     #   req.masked_ip  # => '192.168.1.0'
     def masked_ip
-      env['otto.masked_ip'] || env['REMOTE_ADDR']
+      env['otto.privacy.masked_ip'] || env['REMOTE_ADDR']
     end
 
     # Get hashed IP for session correlation
@@ -116,7 +116,7 @@ class Otto
     # @example
     #   req.hashed_ip  # => 'a3f8b2c4d5e6f7...'
     def hashed_ip
-      redacted_fingerprint&.hashed_ip || env['otto.hashed_ip']
+      redacted_fingerprint&.hashed_ip || env['otto.privacy.hashed_ip']
     end
 
     def client_ipaddress

@@ -15,7 +15,7 @@ class Otto
       #
       # @example Default behavior (privacy enabled)
       #   # env['REMOTE_ADDR'] is masked to 192.168.1.0
-      #   # env['otto.redacted_fingerprint'] contains full anonymized data
+      #   # env['otto.privacy.fingerprint'] contains full anonymized data
       #   # env['otto.original_ip'] is NOT set
       #
       # @example Privacy disabled

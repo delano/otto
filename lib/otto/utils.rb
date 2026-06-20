@@ -54,7 +54,7 @@ class Otto
       # IPAddr validates both IPv4 and IPv6; raises for malformed input
       IPAddr.new(candidate)
       candidate
-    rescue IPAddr::InvalidAddressError
+    rescue IPAddr::InvalidAddressError, IPAddr::AddressFamilyError
       nil
     end
 

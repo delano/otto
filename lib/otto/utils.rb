@@ -112,6 +112,13 @@ class Otto
     def resolve_client_ip(env, security_config)
       remote_addr = env['REMOTE_ADDR']
 
+      # Count-based ("trust the last N hops") mode for non-enumerable proxy
+      # tiers (Fly, cloud load balancers, dynamic reverse proxies) where the
+      # CIDR-walk below has no enumerable proxy IPs to match. Mirrors Express
+      # `trust proxy = N`. Takes precedence over CIDR-walk; the two modes are
+      # mutually exclusive (enforced at config freeze).
+      return resolve_client_ip_by_depth(env, security_config) if security_config&.trusted_proxy_depth_mode?
+
       # No config, or the peer is a direct (untrusted) connection: REMOTE_ADDR
       # is the client. Don't honor forwarded headers from untrusted sources.
       return remote_addr unless security_config&.trusted_proxy?(remote_addr)
@@ -130,6 +137,49 @@ class Otto
 
       # Whole chain was trusted proxies (or empty): fall back to the peer.
       remote_addr
+    end
+
+    # Resolve the client IP by trusting a fixed number of proxy hops, counted
+    # from the right of the forwarded chain (Express `trust proxy = N`). Used
+    # when the proxy tier's addresses cannot be enumerated as CIDRs.
+    #
+    # The chain is X-Forwarded-For (leftmost = client .. rightmost = nearest
+    # proxy) plus REMOTE_ADDR (the direct peer). With depth N the client is
+    # chain[-(N+1)] — exactly N trusted hops from the right, equivalent to
+    # Express's addrs[N]. This is robust to X-Forwarded-For padding: a forged
+    # leftmost entry is never reached.
+    #
+    # SECURITY: depth trust ASSUMES ORIGIN LOCKDOWN — the app must be
+    # unreachable except through the proxy tier. Without it, a direct client
+    # could pad X-Forwarded-For to land a forged value at the target index.
+    # This is the inherent trade vs CIDR-walk (a fixed hop count instead of
+    # enumerable proxy addresses).
+    #
+    # Only X-Forwarded-For is consulted; X-Real-IP / X-Client-IP are
+    # single-value and cannot express a hop chain. Positions are counted raw
+    # (never dropped), so junk padding cannot shift the index; only the
+    # selected entry is validated. If the chain is shorter than N+1 (a request
+    # that may have bypassed the proxy tier) or the selected entry is invalid,
+    # REMOTE_ADDR is returned rather than a spoofable forwarded value.
+    #
+    # @param env [Hash] Rack environment
+    # @param security_config [Otto::Security::Config] config exposing #trusted_proxy_depth
+    # @return [String, nil] resolved client IP (REMOTE_ADDR on short chain / invalid target)
+    def resolve_client_ip_by_depth(env, security_config)
+      remote_addr = env['REMOTE_ADDR']
+      depth       = security_config.trusted_proxy_depth.to_i
+
+      # Split on commas keeping every position (-1 preserves trailing empty
+      # fields) so a malformed hop still counts as a position. The client must
+      # be located by counting from the right; dropping entries here would let
+      # padding shift the index.
+      forwarded = env['HTTP_X_FORWARDED_FOR'].to_s.split(',', -1)
+      chain     = forwarded + [remote_addr]
+
+      index = chain.length - (depth + 1)
+      return remote_addr if index.negative? # chain shorter than depth + 1
+
+      normalize_ip(chain[index].to_s.strip) || remote_addr
     end
 
     # Whether an address is non-public: RFC1918 private, loopback, link-local,

@@ -51,7 +51,7 @@ class Otto
           # Record the connecting peer's trust decision BEFORE any masking, so
           # secure? can authorize X-Forwarded-Proto canonically even after
           # REMOTE_ADDR is rewritten to the masked client IP. Leak-free boolean.
-          env['otto.via_trusted_proxy'] = trusted_proxy?(env['REMOTE_ADDR'])
+          env['otto.via_trusted_proxy'] = via_trusted_proxy?(env['REMOTE_ADDR'])
 
           if @privacy_enabled
             apply_privacy(env)
@@ -174,6 +174,21 @@ class Otto
           return false unless @security_config
 
           @security_config.trusted_proxy?(ip)
+        end
+
+        # Whether the request should be treated as arriving via a trusted proxy.
+        #
+        # True when the connecting peer matches a trusted-proxy CIDR, OR when
+        # count-based depth mode is enabled — in depth mode the proxy tier is
+        # non-enumerable but assumed present (origin lockdown), so the immediate
+        # peer is a trusted hop and secure? may honor X-Forwarded-Proto.
+        #
+        # @param remote_addr [String] connecting peer address
+        # @return [Boolean]
+        def via_trusted_proxy?(remote_addr)
+          return true if @security_config&.trusted_proxy_depth_mode?
+
+          trusted_proxy?(remote_addr)
         end
 
         # Apply no-privacy settings (privacy explicitly disabled)

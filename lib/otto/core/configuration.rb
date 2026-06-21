@@ -57,6 +57,10 @@ class Otto
         # Add trusted proxies if provided
         Array(opts[:trusted_proxies]).each { |proxy| add_trusted_proxy(proxy) } if opts[:trusted_proxies]
 
+        # Set count-based trusted-proxy depth if provided (mutually exclusive
+        # with trusted_proxies; conflict validated at configuration freeze).
+        @security_config.trusted_proxy_depth = opts[:trusted_proxy_depth] if opts[:trusted_proxy_depth]
+
         # Set custom security headers
         return unless opts[:security_headers]
 

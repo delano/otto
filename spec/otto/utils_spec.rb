@@ -256,4 +256,89 @@ RSpec.describe Otto::Utils do
       expect(Otto::Utils.resolve_client_ip(env, config_with("2001:db8::/32"))).to eq("2606:4700:4700::1111")
     end
   end
+
+  describe "#resolve_client_ip in trusted_proxy_depth mode" do
+    def depth_config(depth)
+      cfg = Otto::Security::Config.new
+      cfg.trusted_proxy_depth = depth
+      cfg
+    end
+
+    it "trusts one hop: client is the entry left of REMOTE_ADDR (depth 1)" do
+      env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_FORWARDED_FOR" => "203.0.113.50" }
+      expect(Otto::Utils.resolve_client_ip(env, depth_config(1))).to eq("203.0.113.50")
+    end
+
+    it "trusts two hops through an intermediate proxy (depth 2)" do
+      env = {
+        "REMOTE_ADDR" => "10.0.0.1",                              # nearest proxy (peer)
+        "HTTP_X_FORWARDED_FOR" => "203.0.113.50, 10.0.0.9",       # client, intermediate proxy
+      }
+      expect(Otto::Utils.resolve_client_ip(env, depth_config(2))).to eq("203.0.113.50")
+    end
+
+    it "ignores a forged leftmost X-Forwarded-For entry (padding-robust)" do
+      # Attacker pads XFF with 9.9.9.9; the proxy appends the real client to the
+      # right. With depth 1 only the rightmost hop before REMOTE_ADDR is trusted.
+      env = {
+        "REMOTE_ADDR" => "10.0.0.1",
+        "HTTP_X_FORWARDED_FOR" => "9.9.9.9, 203.0.113.50",
+      }
+      expect(Otto::Utils.resolve_client_ip(env, depth_config(1))).to eq("203.0.113.50")
+    end
+
+    it "is not shifted by invalid padding entries (raw position counting)" do
+      env = {
+        "REMOTE_ADDR" => "10.0.0.1",
+        "HTTP_X_FORWARDED_FOR" => "garbage, , 203.0.113.50",
+      }
+      expect(Otto::Utils.resolve_client_ip(env, depth_config(1))).to eq("203.0.113.50")
+    end
+
+    it "falls back to REMOTE_ADDR when the chain is shorter than depth + 1" do
+      # depth 2 needs client + 1 intermediate + peer = 3 positions; only 2 here.
+      env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_FORWARDED_FOR" => "203.0.113.50" }
+      expect(Otto::Utils.resolve_client_ip(env, depth_config(2))).to eq("10.0.0.1")
+    end
+
+    it "falls back to REMOTE_ADDR when there is no X-Forwarded-For header" do
+      env = { "REMOTE_ADDR" => "10.0.0.1" }
+      expect(Otto::Utils.resolve_client_ip(env, depth_config(1))).to eq("10.0.0.1")
+    end
+
+    it "falls back to REMOTE_ADDR when the target entry is not a valid IP" do
+      env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_FORWARDED_FOR" => "not-an-ip" }
+      expect(Otto::Utils.resolve_client_ip(env, depth_config(1))).to eq("10.0.0.1")
+    end
+
+    it "resolves an IPv6 client without truncation under depth" do
+      env = { "REMOTE_ADDR" => "2001:db8::1", "HTTP_X_FORWARDED_FOR" => "2606:4700:4700::1111" }
+      expect(Otto::Utils.resolve_client_ip(env, depth_config(1))).to eq("2606:4700:4700::1111")
+    end
+
+    it "ignores X-Real-IP / X-Client-IP in depth mode (X-Forwarded-For only)" do
+      env = {
+        "REMOTE_ADDR" => "10.0.0.1",
+        "HTTP_X_FORWARDED_FOR" => "203.0.113.50",
+        "HTTP_X_REAL_IP" => "9.9.9.9",
+        "HTTP_X_CLIENT_IP" => "8.8.8.8",
+      }
+      expect(Otto::Utils.resolve_client_ip(env, depth_config(1))).to eq("203.0.113.50")
+    end
+
+    it "leaves CIDR-walk untouched when depth is nil (regression)" do
+      cfg = Otto::Security::Config.new
+      cfg.add_trusted_proxy("10.0.0.0/8")
+      env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_FORWARDED_FOR" => "203.0.113.50" }
+      expect(Otto::Utils.resolve_client_ip(env, cfg)).to eq("203.0.113.50")
+    end
+
+    it "leaves CIDR-walk untouched when depth is 0 (regression)" do
+      cfg = Otto::Security::Config.new
+      cfg.trusted_proxy_depth = 0
+      cfg.add_trusted_proxy("10.0.0.0/8")
+      env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_FORWARDED_FOR" => "203.0.113.50" }
+      expect(Otto::Utils.resolve_client_ip(env, cfg)).to eq("203.0.113.50")
+    end
+  end
 end

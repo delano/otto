@@ -27,7 +27,7 @@ class Otto
     class Config
       include Otto::Core::Freezable
 
-      attr_accessor :input_validation, :max_param_depth, :csrf_token_key, :rate_limiting_config, :csrf_session_key, :max_request_size, :max_param_keys
+      attr_accessor :input_validation, :max_param_depth, :csrf_token_key, :rate_limiting_config, :csrf_session_key, :max_request_size, :max_param_keys, :trusted_proxy_depth
 
       attr_reader :csrf_protection,  :csrf_header_key,
                   :trusted_proxies, :require_secure_cookies,
@@ -49,6 +49,7 @@ class Otto
         @max_param_keys         = 64
         @trusted_proxies        = []
         @trusted_proxy_matchers = []
+        @trusted_proxy_depth    = nil
         @require_secure_cookies = false
         @security_headers       = default_security_headers
         @input_validation       = true
@@ -158,6 +159,19 @@ class Otto
             false
           end
         end
+      end
+
+      # Whether count-based ("trust the last N hops") proxy resolution is active.
+      #
+      # When true, Otto::Utils.resolve_client_ip ignores trusted-proxy CIDRs and
+      # instead trusts a fixed number of hops from the right of the forwarded
+      # chain (Express `trust proxy = N`). This is the only sound model for
+      # non-enumerable proxy tiers (Fly, cloud load balancers, dynamic reverse
+      # proxies) whose addresses cannot be listed as CIDRs.
+      #
+      # @return [Boolean] true when trusted_proxy_depth is an integer >= 1
+      def trusted_proxy_depth_mode?
+        @trusted_proxy_depth.to_i >= 1
       end
 
       # Validate that a request size is within acceptable limits
@@ -325,6 +339,7 @@ class Otto
       def deep_freeze!
         # Ensure custom_rules is initialized (should already be done in constructor)
         @rate_limiting_config[:custom_rules] ||= {}
+        validate_trusted_proxy_config!
         super
       end
 
@@ -342,6 +357,37 @@ class Otto
       end
 
       private
+
+      # Validate trusted-proxy configuration coherence at freeze time.
+      #
+      # The two resolution modes are mutually exclusive: CIDR-walk (enumerated
+      # trusted_proxies) and count-based depth (trust the last N hops). Order of
+      # configuration is not guaranteed, so this is enforced once at finalization
+      # rather than in the individual setters.
+      #
+      # @raise [ArgumentError] if depth is non-integer/negative, or if both
+      #   trusted_proxies and a depth >= 1 are configured
+      # @return [void]
+      def validate_trusted_proxy_config!
+        depth = @trusted_proxy_depth
+        return if depth.nil?
+
+        unless depth.is_a?(Integer)
+          raise ArgumentError,
+                "trusted_proxy_depth must be an Integer or nil, got #{depth.class}"
+        end
+
+        if depth.negative?
+          raise ArgumentError, "trusted_proxy_depth must be >= 0, got #{depth}"
+        end
+
+        if depth >= 1 && @trusted_proxies.any?
+          raise ArgumentError,
+                'Cannot configure both trusted_proxies (CIDR filter mode) and ' \
+                'trusted_proxy_depth >= 1 (count mode). Enumerate proxy CIDRs ' \
+                'OR set a hop count, not both.'
+        end
+      end
 
       # Parse a value into an IPAddr, returning nil for invalid / non-IP input.
       #

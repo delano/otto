@@ -239,6 +239,70 @@ RSpec.describe Otto::Security::Config do
     end
   end
 
+  describe 'trusted_proxy_depth (count-based proxy mode)' do
+    it 'defaults to nil (depth mode off)' do
+      expect(config.trusted_proxy_depth).to be_nil
+      expect(config.trusted_proxy_depth_mode?).to be false
+    end
+
+    it 'is a plain accessor' do
+      config.trusted_proxy_depth = 2
+      expect(config.trusted_proxy_depth).to eq(2)
+    end
+
+    it 'reports depth mode enabled for an integer >= 1' do
+      config.trusted_proxy_depth = 1
+      expect(config.trusted_proxy_depth_mode?).to be true
+    end
+
+    it 'treats 0 as depth mode off' do
+      config.trusted_proxy_depth = 0
+      expect(config.trusted_proxy_depth_mode?).to be false
+    end
+
+    it 'raises FrozenError when assigned after deep_freeze!' do
+      config.deep_freeze!
+      expect { config.trusted_proxy_depth = 2 }.to raise_error(FrozenError)
+    end
+
+    describe 'freeze-time validation' do
+      it 'accepts depth-only configuration' do
+        config.trusted_proxy_depth = 2
+        expect { config.deep_freeze! }.not_to raise_error
+      end
+
+      it 'accepts CIDR-only configuration' do
+        config.add_trusted_proxy('10.0.0.0/8')
+        expect { config.deep_freeze! }.not_to raise_error
+      end
+
+      it 'rejects configuring both trusted_proxies and depth >= 1' do
+        config.add_trusted_proxy('10.0.0.0/8')
+        config.trusted_proxy_depth = 1
+        expect { config.deep_freeze! }
+          .to raise_error(ArgumentError, /Cannot configure both/)
+      end
+
+      it 'allows trusted_proxies alongside an explicit depth of 0' do
+        config.add_trusted_proxy('10.0.0.0/8')
+        config.trusted_proxy_depth = 0
+        expect { config.deep_freeze! }.not_to raise_error
+      end
+
+      it 'rejects a negative depth' do
+        config.trusted_proxy_depth = -1
+        expect { config.deep_freeze! }
+          .to raise_error(ArgumentError, /must be >= 0/)
+      end
+
+      it 'rejects a non-integer depth' do
+        config.trusted_proxy_depth = '2'
+        expect { config.deep_freeze! }
+          .to raise_error(ArgumentError, /must be an Integer/)
+      end
+    end
+  end
+
   describe 'request size validation' do
     describe '#validate_request_size' do
       it 'accepts requests within size limit' do

@@ -293,15 +293,20 @@ RSpec.describe Otto::Security::ValidationMiddleware do
     end
 
     let(:sql_injection_patterns) do
+      # These payloads are still caught by the remaining best-effort signatures
+      # (quote/semicolon/comment, OR/AND x=y, numeric comparison). A bare
+      # SQL-keyword substring blocklist was intentionally removed (L-4), so
+      # keyword-only payloads such as "UNION SELECT * FROM passwords" or
+      # "INSERT INTO users VALUES" are no longer rejected by the input
+      # validator. See the "allows legitimate values containing SQL-like
+      # keywords" example below for the false-positive fix.
       [
         "1' OR '1'='1",
         "'; DROP TABLE users; --",
-        'UNION SELECT * FROM passwords',
         '1=1',
         "admin'--",
         '%27 OR %271%27=%271',
         '1 AND 1=1',
-        'INSERT INTO users VALUES',
       ]
     end
 
@@ -321,6 +326,28 @@ RSpec.describe Otto::Security::ValidationMiddleware do
         puts "Status: #{response[0]}"
         puts "Error: #{body['message']}"
         puts "==================================\n"
+      end
+    end
+
+    it 'allows legitimate values containing SQL-like keywords (L-4 false-positive fix)' do
+      # The bare SQL-keyword substring blocklist was removed because it rejected
+      # legitimate input while being trivially bypassable. These values contain
+      # SQL keywords/substrings but no quote/semicolon/comment/= /numeric
+      # comparison, so they must pass validation.
+      legitimate_values = [
+        'updated_at',
+        'selection',
+        'creative writing',
+        'SELECT * FROM users',
+        'INSERT INTO users VALUES',
+      ]
+
+      legitimate_values.each do |value|
+        params = { 'query' => value }
+        env = mock_rack_env(method: 'POST', path: '/', params: params)
+
+        response = middleware.call(env)
+        expect(response[0]).to eq(200), "expected #{value.inspect} to be allowed, got #{response[0]}"
       end
     end
 
@@ -648,12 +675,21 @@ RSpec.describe Otto::Security::ValidationHelpers do
       dangerous_inputs = [
         '<script>alert(1)</script>',
         'javascript:alert(1)',
-        'SELECT * FROM users',
+        "'; DROP TABLE users; --",
       ]
 
       dangerous_inputs.each do |input|
         expect { mock_response.validate_input(input) }
           .to raise_error(Otto::Security::ValidationError)
+      end
+    end
+
+    it 'allows legitimate values containing SQL-like keywords (L-4 false-positive fix)' do
+      # The bare SQL-keyword substring blocklist was removed; a value that
+      # merely contains a keyword (without quote/semicolon/comment/= /numeric
+      # comparison) is no longer rejected by the input validator.
+      ['SELECT * FROM users', 'updated_at', 'selection'].each do |input|
+        expect(mock_response.validate_input(input)).to eq(input)
       end
     end
 

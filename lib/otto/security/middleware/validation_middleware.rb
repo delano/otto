@@ -17,9 +17,14 @@ class Otto
 
         # HTML/XSS sanitization is handled by Loofah library for better security coverage
 
+        # Best-effort, defense-in-depth signatures for obviously-malicious payloads.
+        # These are NOT a substitute for SQL-injection protection: the real defense is
+        # parameterized queries / prepared statements at the data-access layer. A bare
+        # SQL-keyword substring blocklist was intentionally removed because it produced
+        # false positives on legitimate input (e.g. "selection", "updated_at") while
+        # remaining trivially bypassable.
         SQL_INJECTION_PATTERNS = [
           /('|(\\')|(;)|(\\)|(--)|(%27)|(%3B)|(%3D))/i,
-          /(union|select|insert|update|delete|drop|create|alter|exec|execute)/i,
           /(or|and)\s+\w+\s*=\s*\w+/i,
           /\d+\s*(=|>|<|>=|<=|<>|!=)\s*\d+/i,
         ].freeze

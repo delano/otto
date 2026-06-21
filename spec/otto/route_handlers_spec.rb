@@ -78,6 +78,41 @@ RSpec.describe Otto::RouteHandlers do
         end.to raise_error(NotImplementedError, /Subclasses must implement #invoke_target/)
       end
     end
+
+    describe 'safe class-name resolution (H-2)' do
+      # BaseHandler#target_class resolves route_definition.klass_name via the
+      # shared, validated Otto::Security::ConstantResolver. Forbidden and
+      # malformed class names must be rejected so a crafted route string cannot
+      # dispatch to dangerous constants like Kernel/Process.
+      it 'rejects forbidden class names (e.g. Kernel) with ArgumentError' do
+        forbidden_definition = Otto::RouteDefinition.new('GET', '/x', 'Kernel.system')
+        forbidden_handler = described_class.new(forbidden_definition)
+
+        expect do
+          forbidden_handler.send(:target_class)
+        end.to raise_error(ArgumentError, /Forbidden class name/)
+      end
+
+      it 'rejects forbidden class names (e.g. Process) with ArgumentError' do
+        forbidden_definition = Otto::RouteDefinition.new('GET', '/x', 'Process.kill')
+        forbidden_handler = described_class.new(forbidden_definition)
+
+        expect do
+          forbidden_handler.send(:target_class)
+        end.to raise_error(ArgumentError, /Forbidden class name/)
+      end
+
+      it 'rejects malformed class names with ArgumentError' do
+        # 'lowercase.method' parses into a klass_name of 'lowercase', which is a
+        # syntactically valid route target but an invalid Ruby constant name.
+        bad_definition = Otto::RouteDefinition.new('GET', '/x', 'lowercase.method')
+        bad_handler = described_class.new(bad_definition)
+
+        expect do
+          bad_handler.send(:target_class)
+        end.to raise_error(ArgumentError, /Invalid class name format/)
+      end
+    end
   end
 
   describe Otto::RouteHandlers::LogicClassHandler do

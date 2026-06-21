@@ -3,6 +3,7 @@
 # frozen_string_literal: true
 
 require_relative '../auth_strategy'
+require 'rack/utils'
 
 class Otto
   module Security
@@ -27,12 +28,23 @@ class Otto
 
             return failure('No API key provided') unless api_key
 
-            if @api_keys.empty? || @api_keys.include?(api_key)
+            if @api_keys.empty? || valid_api_key?(api_key)
               # Create a simple user hash for API key authentication
               user_data = { api_key: api_key }
               success(user: user_data, api_key: api_key)
             else
               failure('Invalid API key')
+            end
+          end
+
+          private
+
+          # Constant-time membership check over the configured API keys. Compares
+          # against every key without short-circuiting so match position/membership is
+          # not leaked via timing.
+          def valid_api_key?(api_key)
+            @api_keys.reduce(false) do |matched, key|
+              Rack::Utils.secure_compare(key, api_key) || matched
             end
           end
         end

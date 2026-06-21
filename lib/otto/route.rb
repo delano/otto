@@ -2,6 +2,8 @@
 #
 # frozen_string_literal: true
 
+require_relative 'security/constant_resolver'
+
 class Otto
   # Otto::Route
   #
@@ -183,33 +185,7 @@ class Otto
     # @return [Class] The resolved class
     # @raise [ArgumentError] if class name is invalid, forbidden, or not found
     def safe_const_get(class_name)
-      # Validate class name format
-      unless class_name.match?(/\A[A-Z][a-zA-Z0-9_]*(?:::[A-Z][a-zA-Z0-9_]*)*\z/)
-        raise ArgumentError, "Invalid class name format: #{class_name}"
-      end
-
-      # Remove any leading :: then add exactly one
-      fq_class_name = "::#{class_name.sub(/^::+/, '')}"
-
-      # Prevent dangerous class names
-      forbidden_classes = %w[
-        Kernel Module Class Object BasicObject
-        File Dir IO Process System
-        Binding Proc Method UnboundMethod
-        Thread ThreadGroup Fiber
-        ObjectSpace GC
-      ]
-
-      if forbidden_classes.include?(class_name) || class_name.start_with?('::')
-        raise ArgumentError, "Forbidden class name: #{class_name}"
-      end
-
-      begin
-        # Always guarantee exactly two leading colons
-        Object.const_get(fq_class_name)
-      rescue NameError => e
-        raise ArgumentError, "Class not found: #{fq_class_name} - #{e.message}"
-      end
+      Otto::Security::ConstantResolver.safe_const_get(class_name)
     end
 
     def compile(path)

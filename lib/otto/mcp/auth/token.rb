@@ -3,6 +3,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'rack/utils'
 
 class Otto
   module MCP
@@ -17,10 +18,20 @@ class Otto
           token = extract_token(env)
           return false unless token
 
-          @tokens.include?(token)
+          valid_token?(token)
         end
 
         private
+
+        def valid_token?(candidate)
+          # Constant-time membership: compare against every configured token without
+          # short-circuiting on the first match, so neither match position nor
+          # membership leaks via timing. Rack::Utils.secure_compare itself is
+          # constant-time for equal-length strings.
+          @tokens.reduce(false) do |matched, token|
+            Rack::Utils.secure_compare(token, candidate) || matched
+          end
+        end
 
         def extract_token(env)
           # Try Authorization header first (Bearer token)

@@ -4,6 +4,7 @@
 
 require 'securerandom'
 require 'digest'
+require 'openssl'
 require 'ipaddr'
 require_relative '../core/freezable'
 
@@ -40,7 +41,8 @@ class Otto
                   :trusted_proxies, :require_secure_cookies,
                   :security_headers,
                   :csp_nonce_enabled, :debug_csp, :mcp_auth,
-                  :ip_privacy_config, :trusted_proxy_depth
+                  :ip_privacy_config, :trusted_proxy_depth,
+                  :csrf_secret
 
       # Initialize security configuration with safe defaults
       #
@@ -64,6 +66,14 @@ class Otto
         @debug_csp              = false
         @rate_limiting_config   = { custom_rules: {} }
         @ip_privacy_config      = Otto::Privacy::Config.new
+
+        @csrf_secret = ENV.fetch('OTTO_CSRF_SECRET', nil)
+        if @csrf_secret.nil? || @csrf_secret.empty?
+          @csrf_secret           = SecureRandom.hex(32)
+          @csrf_secret_generated = true
+        else
+          @csrf_secret_generated = false
+        end
       end
 
       # Enable CSRF (Cross-Site Request Forgery) protection
@@ -221,28 +231,41 @@ class Otto
         true
       end
 
-      def generate_csrf_token(session_id = nil)
-        base       = session_id || 'no-session'
-        token      = SecureRandom.hex(32)
-        hash_input = base + ':' + token
-        signature  = Digest::SHA256.hexdigest(hash_input)
-        csrf_token = "#{token}:#{signature}"
+      # Set the server-side secret used to sign (HMAC) CSRF tokens. Set this to
+      # a stable value (e.g. ENV['OTTO_CSRF_SECRET']) in multi-process or
+      # multi-host deployments so tokens stay valid across workers and restarts.
+      def csrf_secret=(secret)
+        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
 
-        csrf_token
+        @csrf_secret           = secret
+        @csrf_secret_generated = false
       end
 
+      # Generate a CSRF token bound to the given session id and signed (HMAC-SHA256)
+      # with the server-side secret, so tokens cannot be self-minted and are not
+      # valid across sessions. A session binding is REQUIRED.
+      def generate_csrf_token(session_id = nil)
+        binding_id = session_id.to_s
+        raise ArgumentError, 'CSRF token generation requires a session binding' if binding_id.empty?
+
+        warn_generated_csrf_secret
+        token = SecureRandom.hex(32)
+        "#{token}:#{sign_csrf_token(binding_id, token)}"
+      end
+
+      # Verify a CSRF token against its session binding using a constant-time
+      # comparison. Returns false (never raises) for blank/malformed input.
       def verify_csrf_token(token, session_id = nil)
         return false if token.nil? || token.empty?
+
+        binding_id = session_id.to_s
+        return false if binding_id.empty?
 
         token_part, signature = token.split(':')
         return false if token_part.nil? || signature.nil?
 
-        base               = session_id || 'no-session'
-        hash_input         = "#{base}:#{token_part}"
-        expected_signature = Digest::SHA256.hexdigest(hash_input)
-        comparison_result  = secure_compare(signature, expected_signature)
-
-        comparison_result
+        expected_signature = sign_csrf_token(binding_id, token_part)
+        secure_compare(signature, expected_signature)
       end
 
       # Enable HTTP Strict Transport Security (HSTS) header
@@ -540,6 +563,30 @@ class Otto
         result                                = 0
         a.bytes.zip(b.bytes) { |x, y| result |= x ^ y }
         result == 0
+      end
+
+      # HMAC-SHA256 signature binding a token's random component to a session id
+      # and the server-side secret. Keyed HMAC (not a bare digest) is what prevents
+      # token self-minting.
+      def sign_csrf_token(session_id, token)
+        OpenSSL::HMAC.hexdigest('SHA256', @csrf_secret, "#{session_id}:#{token}")
+      end
+
+      # Warn once per config instance when CSRF tokens are being signed with a
+      # randomly-generated per-process secret. Such tokens do not survive process
+      # restarts and are not shared across workers; set OTTO_CSRF_SECRET (or
+      # config.csrf_secret=) for stable multi-process behavior.
+      def warn_generated_csrf_secret
+        return unless @csrf_secret_generated
+        return if @csrf_secret_warning_emitted
+
+        @csrf_secret_warning_emitted = true
+        Otto.logger&.warn(
+          '[Otto::Security::Config] CSRF tokens are signed with a randomly ' \
+          'generated per-process secret; they will not survive restarts or be ' \
+          'valid across workers. Set OTTO_CSRF_SECRET (or config.csrf_secret=) ' \
+          'for stable CSRF tokens in multi-process deployments.'
+        )
       end
 
       # Generate CSP directives for development environment

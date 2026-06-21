@@ -98,14 +98,14 @@ RSpec.describe Otto::Security::Config do
       before { config.enable_csrf_protection! }
 
       it 'generates valid CSRF tokens' do
-        token = config.generate_csrf_token
+        token = config.generate_csrf_token('test_session')
         expect(token).to be_a(String)
         expect(token).to include(':')
 
         parts = token.split(':')
         expect(parts.length).to eq(2)
         expect(parts[0]).to match(/\A[a-f0-9]{64}\z/) # 32 bytes = 64 hex chars
-        expect(parts[1]).to match(/\A[a-f0-9]{64}\z/) # SHA256 = 64 hex chars
+        expect(parts[1]).to match(/\A[a-f0-9]{64}\z/) # HMAC-SHA256 = 64 hex chars
 
         puts "\n=== DEBUG: CSRF Token ==="
         puts "Token: #{token}"
@@ -115,9 +115,48 @@ RSpec.describe Otto::Security::Config do
       end
 
       it 'generates different tokens on each call' do
-        token1 = config.generate_csrf_token
-        token2 = config.generate_csrf_token
+        token1 = config.generate_csrf_token('test_session')
+        token2 = config.generate_csrf_token('test_session')
         expect(token1).not_to eq(token2)
+      end
+
+      it 'raises ArgumentError when called without a session id' do
+        expect { config.generate_csrf_token }
+          .to raise_error(ArgumentError, /requires a session binding/)
+      end
+
+      it 'raises ArgumentError when called with an empty session id' do
+        expect { config.generate_csrf_token('') }
+          .to raise_error(ArgumentError, /requires a session binding/)
+      end
+
+      it 'rejects a token forged with the old static no-session scheme' do
+        t = SecureRandom.hex(32)
+        forged = "#{t}:#{Digest::SHA256.hexdigest("no-session:#{t}")}"
+
+        expect(config.verify_csrf_token(forged, 'no-session')).to be false
+      end
+
+      it 'does not accept tokens signed with a different secret' do
+        config_a = described_class.new
+        config_b = described_class.new
+        config_a.csrf_secret = 'a' * 64
+        config_b.csrf_secret = 'b' * 64
+
+        session_id = 'shared_session'
+        token_a = config_a.generate_csrf_token(session_id)
+        token_b = config_b.generate_csrf_token(session_id)
+
+        expect(config_b.verify_csrf_token(token_a, session_id)).to be false
+        expect(config_a.verify_csrf_token(token_b, session_id)).to be false
+      end
+
+      it 'round-trips generate/verify after setting csrf_secret' do
+        config.csrf_secret = 'c' * 64
+        session_id = 'round_trip_session'
+        token = config.generate_csrf_token(session_id)
+
+        expect(config.verify_csrf_token(token, session_id)).to be true
       end
 
       it 'verifies valid tokens' do

@@ -5,6 +5,8 @@
 require 'json'
 require 'securerandom'
 
+require_relative '../security/constant_resolver'
+
 class Otto
   module RouteHandlers
     # Base class for all route handlers
@@ -194,11 +196,7 @@ class Otto
       # @param name [String] Class name
       # @return [Class] The class
       def safe_const_get(name)
-        name.split('::').inject(Object) do |scope, const_name|
-          scope.const_get(const_name)
-        end
-      rescue NameError => e
-        raise NameError, "Unknown class: #{name} (#{e})"
+        Otto::Security::ConstantResolver.safe_const_get(name)
       end
     end
   end

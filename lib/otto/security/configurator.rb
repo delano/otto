@@ -36,6 +36,9 @@ class Otto
       #   - `true`: Enable with default settings
       #   - `Hash`: Provide custom rate limiting rules
       # @param trusted_proxies [String, Array<String>] IP addresses or CIDR ranges to trust
+      # @param trusted_proxy_depth [Integer, nil] Count-based proxy depth ("trust
+      #   the last N hops") for non-enumerable proxy tiers; mutually exclusive
+      #   with trusted_proxies (validated at configuration freeze)
       # @param security_headers [Hash] Custom security headers to merge with defaults
       # @param hsts [Boolean] Enable HTTP Strict Transport Security
       # @param csp [Boolean, String] Enable Content Security Policy
@@ -58,6 +61,7 @@ class Otto
         request_validation: false,
         rate_limiting: false,
         trusted_proxies: [],
+        trusted_proxy_depth: nil,
         security_headers: {},
         hsts: false,
         csp: false,
@@ -69,6 +73,7 @@ class Otto
         enable_rate_limiting!(rate_limiting.is_a?(Hash) ? rate_limiting : {}) if rate_limiting
 
         Array(trusted_proxies).each { |proxy| add_trusted_proxy(proxy) }
+        self.trusted_proxy_depth = trusted_proxy_depth unless trusted_proxy_depth.nil?
         self.security_headers = security_headers unless security_headers.empty?
 
         enable_hsts! if hsts
@@ -125,6 +130,16 @@ class Otto
       # @param proxy [String, Regexp] IP address, CIDR range, or regex pattern
       def add_trusted_proxy(proxy)
         @security_config.add_trusted_proxy(proxy)
+      end
+
+      # Set count-based trusted-proxy depth ("trust the last N hops") for
+      # non-enumerable proxy tiers (Fly, cloud load balancers, dynamic reverse
+      # proxies). Mutually exclusive with trusted_proxies; the conflict is
+      # validated when the configuration is frozen.
+      #
+      # @param depth [Integer, nil] number of trusted hops (nil/0 disables depth mode)
+      def trusted_proxy_depth=(depth)
+        @security_config.trusted_proxy_depth = depth
       end
 
       # Set custom security headers that will be added to all responses.

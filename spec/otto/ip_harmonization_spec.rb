@@ -205,6 +205,30 @@ RSpec.describe 'IP resolution harmonization (otto#58 / OTS#3436)' do
         expect(env['otto.via_trusted_proxy']).to be false
       end
     end
+
+    describe 'count-based depth mode' do
+      before { security_config.trusted_proxy_depth = 1 }
+
+      it 'resolves the client by hop count into the canonical (masked) client IP' do
+        # No trusted-proxy CIDRs configured: the non-enumerable peer is trusted
+        # purely by hop count (depth 1).
+        env = { 'REMOTE_ADDR' => '198.51.100.1', 'HTTP_X_FORWARDED_FOR' => '203.0.113.50' }
+        middleware.call(env)
+
+        expect(env['otto.client_ip']).to eq('203.0.113.0')
+        expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
+      end
+
+      it 'leaves otto.via_trusted_proxy false (proto-trust is decoupled from depth)' do
+        # Depth resolves the client IP, but via_trusted_proxy is the CIDR
+        # identity check only — never derived from depth. No CIDRs configured
+        # (and depth is mutually exclusive with them), so it stays false.
+        env = { 'REMOTE_ADDR' => '198.51.100.1', 'HTTP_X_FORWARDED_FOR' => '203.0.113.50' }
+        middleware.call(env)
+
+        expect(env['otto.via_trusted_proxy']).to be false
+      end
+    end
   end
 
   describe Otto::Request, 'canonical reads' do
@@ -242,6 +266,34 @@ RSpec.describe 'IP resolution harmonization (otto#58 / OTS#3436)' do
       allow(req).to receive(:otto_security_config).and_return(config)
 
       expect(req.client_ipaddress).to eq('203.0.113.50')
+    end
+
+    describe 'count-based depth mode (standalone, no middleware)' do
+      let(:depth_config) do
+        config = Otto::Security::Config.new
+        config.trusted_proxy_depth = 1
+        config
+      end
+
+      def depth_request(env_overrides = {})
+        req = request_for(env_overrides)
+        allow(req).to receive(:otto_security_config).and_return(depth_config)
+        req
+      end
+
+      it '#client_ipaddress resolves by hop count via the shared resolver' do
+        req = depth_request('REMOTE_ADDR' => '198.51.100.1', 'HTTP_X_FORWARDED_FOR' => '203.0.113.50')
+
+        expect(req.client_ipaddress).to eq('203.0.113.50')
+      end
+
+      it '#secure? does not honor X-Forwarded-Proto in depth mode (proto-trust decoupled)' do
+        # Depth never grants proxy trust for forwarded proto; with no CIDR
+        # identity match, secure? reflects only a direct TLS connection.
+        req = depth_request('REMOTE_ADDR' => '198.51.100.1', 'HTTP_X_FORWARDED_PROTO' => 'https')
+
+        expect(req.secure?).to be false
+      end
     end
 
     it '#private_ip? is IPv6-aware (delegates to Otto::Utils)' do

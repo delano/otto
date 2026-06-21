@@ -51,6 +51,11 @@ class Otto
           # Record the connecting peer's trust decision BEFORE any masking, so
           # secure? can authorize X-Forwarded-Proto canonically even after
           # REMOTE_ADDR is rewritten to the masked client IP. Leak-free boolean.
+          #
+          # This is the trusted-proxy *identity* check only — it is deliberately
+          # independent of count-based depth mode. Depth resolves the client IP;
+          # it never grants proxy trust for X-Forwarded-Proto (matching the
+          # downstream OneTimeSecret behavior).
           env['otto.via_trusted_proxy'] = trusted_proxy?(env['REMOTE_ADDR'])
 
           if @privacy_enabled

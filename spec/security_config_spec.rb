@@ -239,6 +239,107 @@ RSpec.describe Otto::Security::Config do
     end
   end
 
+  describe 'trusted_proxy_depth (count-based proxy mode)' do
+    it 'defaults to nil (depth mode off)' do
+      expect(config.trusted_proxy_depth).to be_nil
+      expect(config.trusted_proxy_depth_mode?).to be false
+    end
+
+    it 'reads back an assigned depth' do
+      config.trusted_proxy_depth = 2
+      expect(config.trusted_proxy_depth).to eq(2)
+    end
+
+    it 'reports depth mode enabled for an integer >= 1' do
+      config.trusted_proxy_depth = 1
+      expect(config.trusted_proxy_depth_mode?).to be true
+    end
+
+    it 'treats 0 as depth mode off' do
+      config.trusted_proxy_depth = 0
+      expect(config.trusted_proxy_depth_mode?).to be false
+    end
+
+    it 'raises FrozenError when assigned after deep_freeze!' do
+      config.deep_freeze!
+      expect { config.trusted_proxy_depth = 2 }.to raise_error(FrozenError)
+    end
+
+    describe 'eager type/range validation' do
+      it 'rejects a non-integer (String) depth at assignment' do
+        expect { config.trusted_proxy_depth = '2' }
+          .to raise_error(ArgumentError, /must be an Integer/)
+      end
+
+      it 'rejects a Symbol depth with ArgumentError, not NoMethodError' do
+        expect { config.trusted_proxy_depth = :one }
+          .to raise_error(ArgumentError, /must be an Integer/)
+      end
+
+      it 'rejects a negative depth at assignment' do
+        expect { config.trusted_proxy_depth = -1 }
+          .to raise_error(ArgumentError, /must be >= 0/)
+      end
+
+      it 'accepts nil (disables depth mode)' do
+        config.trusted_proxy_depth = 1
+        expect { config.trusted_proxy_depth = nil }.not_to raise_error
+        expect(config.trusted_proxy_depth_mode?).to be false
+      end
+
+      it 'does not enable depth mode for a non-integer value (integer-strict)' do
+        # An ivar bypass simulates a value that never passed the setter; the
+        # mode predicate must not treat a stringy "1" as depth mode.
+        config.instance_variable_set(:@trusted_proxy_depth, '1')
+        expect(config.trusted_proxy_depth_mode?).to be false
+      end
+    end
+
+    describe 'eager mutual-exclusion with trusted_proxies' do
+      it 'rejects setting depth >= 1 when trusted_proxies are configured' do
+        config.add_trusted_proxy('10.0.0.0/8')
+        expect { config.trusted_proxy_depth = 1 }
+          .to raise_error(ArgumentError, /Cannot configure both/)
+      end
+
+      it 'rejects add_trusted_proxy when depth >= 1 is configured (reverse order)' do
+        config.trusted_proxy_depth = 1
+        expect { config.add_trusted_proxy('10.0.0.0/8') }
+          .to raise_error(ArgumentError, /Cannot configure both/)
+      end
+
+      it 'allows trusted_proxies alongside an explicit depth of 0' do
+        config.add_trusted_proxy('10.0.0.0/8')
+        expect { config.trusted_proxy_depth = 0 }.not_to raise_error
+      end
+    end
+
+    describe 'freeze-time validation (backstop for direct/ivar paths)' do
+      it 'accepts depth-only configuration' do
+        config.trusted_proxy_depth = 2
+        expect { config.deep_freeze! }.not_to raise_error
+      end
+
+      it 'accepts CIDR-only configuration' do
+        config.add_trusted_proxy('10.0.0.0/8')
+        expect { config.deep_freeze! }.not_to raise_error
+      end
+
+      it 'backstops a non-integer depth set via a direct ivar path' do
+        config.instance_variable_set(:@trusted_proxy_depth, '2') # bypass the eager setter
+        expect { config.deep_freeze! }
+          .to raise_error(ArgumentError, /must be an Integer/)
+      end
+
+      it 'backstops a mode conflict introduced by a direct ivar path' do
+        config.add_trusted_proxy('10.0.0.0/8')
+        config.instance_variable_set(:@trusted_proxy_depth, 1) # bypass the eager setter
+        expect { config.deep_freeze! }
+          .to raise_error(ArgumentError, /Cannot configure both/)
+      end
+    end
+  end
+
   describe 'request size validation' do
     describe '#validate_request_size' do
       it 'accepts requests within size limit' do

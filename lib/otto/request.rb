@@ -197,6 +197,10 @@ class Otto
     # to evaluating the current REMOTE_ADDR when the middleware has not run
     # (standalone request use).
     #
+    # This is the trusted-proxy *identity* check only and is independent of
+    # count-based depth mode: depth resolves the client IP but never grants
+    # proxy trust for X-Forwarded-Proto.
+    #
     # @return [Boolean]
     def forwarded_by_trusted_proxy?
       return env['otto.via_trusted_proxy'] if env.key?('otto.via_trusted_proxy')

@@ -265,6 +265,36 @@ RSpec.describe Otto::Security::Config do
       expect { config.trusted_proxy_depth = 2 }.to raise_error(FrozenError)
     end
 
+    describe 'eager type/range validation' do
+      it 'rejects a non-integer (String) depth at assignment' do
+        expect { config.trusted_proxy_depth = '2' }
+          .to raise_error(ArgumentError, /must be an Integer/)
+      end
+
+      it 'rejects a Symbol depth with ArgumentError, not NoMethodError' do
+        expect { config.trusted_proxy_depth = :one }
+          .to raise_error(ArgumentError, /must be an Integer/)
+      end
+
+      it 'rejects a negative depth at assignment' do
+        expect { config.trusted_proxy_depth = -1 }
+          .to raise_error(ArgumentError, /must be >= 0/)
+      end
+
+      it 'accepts nil (disables depth mode)' do
+        config.trusted_proxy_depth = 1
+        expect { config.trusted_proxy_depth = nil }.not_to raise_error
+        expect(config.trusted_proxy_depth_mode?).to be false
+      end
+
+      it 'does not enable depth mode for a non-integer value (integer-strict)' do
+        # An ivar bypass simulates a value that never passed the setter; the
+        # mode predicate must not treat a stringy "1" as depth mode.
+        config.instance_variable_set(:@trusted_proxy_depth, '1')
+        expect(config.trusted_proxy_depth_mode?).to be false
+      end
+    end
+
     describe 'eager mutual-exclusion with trusted_proxies' do
       it 'rejects setting depth >= 1 when trusted_proxies are configured' do
         config.add_trusted_proxy('10.0.0.0/8')
@@ -284,7 +314,7 @@ RSpec.describe Otto::Security::Config do
       end
     end
 
-    describe 'freeze-time validation' do
+    describe 'freeze-time validation (backstop for direct/ivar paths)' do
       it 'accepts depth-only configuration' do
         config.trusted_proxy_depth = 2
         expect { config.deep_freeze! }.not_to raise_error
@@ -295,19 +325,13 @@ RSpec.describe Otto::Security::Config do
         expect { config.deep_freeze! }.not_to raise_error
       end
 
-      it 'rejects a negative depth' do
-        config.trusted_proxy_depth = -1
-        expect { config.deep_freeze! }
-          .to raise_error(ArgumentError, /must be >= 0/)
-      end
-
-      it 'rejects a non-integer depth' do
-        config.trusted_proxy_depth = '2'
+      it 'backstops a non-integer depth set via a direct ivar path' do
+        config.instance_variable_set(:@trusted_proxy_depth, '2') # bypass the eager setter
         expect { config.deep_freeze! }
           .to raise_error(ArgumentError, /must be an Integer/)
       end
 
-      it 'backstops a conflict introduced by a direct ivar path (defense in depth)' do
+      it 'backstops a mode conflict introduced by a direct ivar path' do
         config.add_trusted_proxy('10.0.0.0/8')
         config.instance_variable_set(:@trusted_proxy_depth, 1) # bypass the eager setter
         expect { config.deep_freeze! }

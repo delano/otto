@@ -180,23 +180,26 @@ class Otto
       # non-enumerable proxy tiers (Fly, cloud load balancers, dynamic reverse
       # proxies) whose addresses cannot be listed as CIDRs.
       #
-      # @return [Boolean] true when trusted_proxy_depth is an integer >= 1
+      # @return [Boolean] true when trusted_proxy_depth is an Integer >= 1
       def trusted_proxy_depth_mode?
-        @trusted_proxy_depth.to_i >= 1
+        @trusted_proxy_depth.is_a?(Integer) && @trusted_proxy_depth >= 1
       end
 
       # Set the count-based trusted-proxy depth ("trust the last N hops").
       #
-      # Eagerly rejects the mutually-exclusive CIDR-walk mode so a contradictory
-      # configuration fails at assignment rather than only at freeze (which the
-      # test harness skips). Type and range (Integer, >= 0) are validated at
-      # freeze via #deep_freeze!; nil/0 disable depth mode.
+      # Validates eagerly so a misconfiguration fails at assignment rather than
+      # only at freeze (which the test harness skips): the value must be a
+      # non-negative Integer or nil, and the mode is mutually exclusive with
+      # CIDR-walk (trusted_proxies). nil/0 disable depth mode.
       #
       # @param depth [Integer, nil] number of trusted hops (nil/0 disables depth mode)
       # @raise [FrozenError] if configuration is frozen
-      # @raise [ArgumentError] if trusted_proxies are already configured and depth >= 1
+      # @raise [ArgumentError] if depth is non-integer/negative, or if
+      #   trusted_proxies are already configured and depth >= 1
       def trusted_proxy_depth=(depth)
         raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+
+        validate_trusted_proxy_depth!(depth)
         raise ArgumentError, PROXY_MODE_CONFLICT_MESSAGE if depth.to_i >= 1 && @trusted_proxies.any?
 
         @trusted_proxy_depth = depth
@@ -386,18 +389,16 @@ class Otto
 
       private
 
-      # Validate trusted-proxy configuration coherence at freeze time.
+      # Validate a candidate trusted_proxy_depth value (type and range).
       #
-      # The two resolution modes are mutually exclusive: CIDR-walk (enumerated
-      # trusted_proxies) and count-based depth (trust the last N hops). Order of
-      # configuration is not guaranteed, so this is enforced once at finalization
-      # rather than in the individual setters.
+      # Shared by the eager #trusted_proxy_depth= setter and the freeze-time
+      # backstop so an invalid value raises a clear ArgumentError instead of a
+      # downstream NoMethodError from #to_i coercion. nil disables depth mode.
       #
-      # @raise [ArgumentError] if depth is non-integer/negative, or if both
-      #   trusted_proxies and a depth >= 1 are configured
+      # @param depth [Object] candidate value
+      # @raise [ArgumentError] if depth is non-nil and not a non-negative Integer
       # @return [void]
-      def validate_trusted_proxy_config!
-        depth = @trusted_proxy_depth
+      def validate_trusted_proxy_depth!(depth)
         return if depth.nil?
 
         unless depth.is_a?(Integer)
@@ -405,13 +406,24 @@ class Otto
                 "trusted_proxy_depth must be an Integer or nil, got #{depth.class}"
         end
 
-        if depth.negative?
-          raise ArgumentError, "trusted_proxy_depth must be >= 0, got #{depth}"
-        end
+        raise ArgumentError, "trusted_proxy_depth must be >= 0, got #{depth}" if depth.negative?
+      end
 
-        # Backstop for the eager checks in #add_trusted_proxy / #trusted_proxy_depth=:
-        # catches a conflict introduced by a direct/ivar configuration path.
-        raise ArgumentError, PROXY_MODE_CONFLICT_MESSAGE if depth >= 1 && @trusted_proxies.any?
+      # Validate trusted-proxy configuration coherence at freeze time.
+      #
+      # The eager setters (#trusted_proxy_depth=, #add_trusted_proxy) already
+      # reject invalid types and the mutually-exclusive CIDR-walk vs depth
+      # combination at assignment. This re-checks at finalization as a backstop
+      # for a direct/ivar configuration path that bypassed the setters.
+      #
+      # @raise [ArgumentError] if depth is non-integer/negative, or if both
+      #   trusted_proxies and a depth >= 1 are configured
+      # @return [void]
+      def validate_trusted_proxy_config!
+        validate_trusted_proxy_depth!(@trusted_proxy_depth)
+        return if @trusted_proxy_depth.nil?
+
+        raise ArgumentError, PROXY_MODE_CONFLICT_MESSAGE if @trusted_proxy_depth >= 1 && @trusted_proxies.any?
       end
 
       # Parse a value into an IPAddr, returning nil for invalid / non-IP input.

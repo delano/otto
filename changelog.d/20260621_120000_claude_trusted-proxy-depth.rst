@@ -35,8 +35,9 @@ Security
   forwarded value. Depth mode is XFF-only (single-value ``X-Real-IP`` /
   ``X-Client-IP`` cannot express a hop chain) and **assumes origin lockdown** —
   the app must be unreachable except through the proxy tier. CIDR-walk and depth
-  are mutually exclusive; configuring both raises immediately at configuration
-  time (with a freeze-time backstop).
+  are mutually exclusive, and ``trusted_proxy_depth`` must be a non-negative
+  Integer or ``nil``; both are validated immediately at configuration time (with
+  a freeze-time backstop), so an invalid or contradictory setup fails fast.
 
 Documentation
 -------------

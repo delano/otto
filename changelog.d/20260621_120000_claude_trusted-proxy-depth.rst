@@ -41,9 +41,10 @@ Security
 Documentation
 -------------
 
-- Added ``docs/migrating/v2.4.0.md`` covering when to use depth vs CIDR-walk, the
-  origin-lockdown prerequisite, configuration examples, Express parity, and the
-  XFF-only / short-chain / mutual-exclusivity semantics.
+- Extended ``docs/migrating/v2.3.0.md`` with a count-based depth section covering
+  when to use depth vs CIDR-walk, the origin-lockdown prerequisite, configuration
+  examples, Express parity, and the XFF-only / short-chain / mutual-exclusivity
+  semantics.
 
 AI Assistance
 -------------

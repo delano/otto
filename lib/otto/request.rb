@@ -256,7 +256,8 @@ class Otto
     def local_or_private_ip?(ip)
       return false unless ip
 
-      # Check for localhost
+      # Fast path for the common localhost cases (avoids IPAddr allocation);
+      # private_ip? would also catch these via IPAddr#loopback?.
       return true if ['127.0.0.1', '::1'].include?(ip)
 
       # Check for private IP ranges

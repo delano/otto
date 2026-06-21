@@ -16,18 +16,11 @@ class Otto
         NULL_BYTE          = /\0/
 
         # HTML/XSS sanitization is handled by Loofah library for better security coverage
-
-        # Best-effort, defense-in-depth signatures for obviously-malicious payloads.
-        # These are NOT a substitute for SQL-injection protection: the real defense is
-        # parameterized queries / prepared statements at the data-access layer. A bare
-        # SQL-keyword substring blocklist was intentionally removed because it produced
-        # false positives on legitimate input (e.g. "selection", "updated_at") while
-        # remaining trivially bypassable.
-        SQL_INJECTION_PATTERNS = [
-          /('|(\\')|(;)|(\\)|(--)|(%27)|(%3B)|(%3D))/i,
-          /(or|and)\s+\w+\s*=\s*\w+/i,
-          /\d+\s*(=|>|<|>=|<=|<>|!=)\s*\d+/i,
-        ].freeze
+        #
+        # NOTE: There is deliberately no SQL-injection pattern matching here.
+        # Input-validation blocklists for SQL are bypassable theater and produce
+        # false positives on legitimate input; the correct defense is
+        # parameterized queries / prepared statements at the data-access layer.
 
         def initialize(app, config = nil)
           @app    = app
@@ -186,14 +179,7 @@ class Otto
           sanitized = Loofah.fragment(original).scrub!(:whitewash).to_s
 
           # Remove control characters (sanitize, don't block)
-          sanitized = sanitized.gsub(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/, '')
-
-          # Check for SQL injection patterns
-          SQL_INJECTION_PATTERNS.each do |pattern|
-            raise Otto::Security::ValidationError, 'Potential SQL injection detected' if sanitized.match?(pattern)
-          end
-
-          sanitized
+          sanitized.gsub(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/, '')
         end
 
         include Otto::Security::ValidationHelpers

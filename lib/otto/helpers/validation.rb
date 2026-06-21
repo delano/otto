@@ -38,11 +38,9 @@ class Otto
           input_str       = sanitized_input
         end
 
-        # Always check for SQL injection
-        ValidationMiddleware::SQL_INJECTION_PATTERNS.each do |pattern|
-          raise Otto::Security::ValidationError, 'Potential SQL injection detected' if input_str.match?(pattern)
-        end
-
+        # NOTE: no SQL-injection inspection here on purpose — see
+        # ValidationMiddleware. Defend against SQL injection with parameterized
+        # queries at the data-access layer, not input blocklists.
         input_str
       end
 

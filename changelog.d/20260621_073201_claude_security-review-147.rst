@@ -58,14 +58,19 @@ Changed
   ``StandardError`` and are unaffected; downstream code that specifically
   rescued ``NameError`` from handler resolution should rescue ``ArgumentError``
   (or ``StandardError``) instead. (otto#147)
-- Removed the bare SQL-keyword substring blocklist
-  (``union|select|insert|update|delete|...``) from
-  ``ValidationMiddleware``'s ``SQL_INJECTION_PATTERNS``. It produced false
-  positives on legitimate input (e.g. ``"updated_at"``, ``"selection"``) while
-  remaining trivially bypassable, giving a false sense of protection. The
-  remaining best-effort signatures stay as defense-in-depth; the real protection
-  for SQL injection is parameterized queries / prepared statements at the
-  data-access layer. (otto#147)
+- Removed SQL-injection pattern matching from input validation entirely. The
+  ``ValidationMiddleware::SQL_INJECTION_PATTERNS`` constant and the matching
+  checks in ``ValidationMiddleware`` and ``ValidationHelpers#validate_input``
+  are gone. Input-validation blocklists for SQL are bypassable theater and
+  produce false positives on legitimate input (e.g. ``"updated_at"``,
+  ``"selection"``, ``"SELECT * FROM users"``); the correct defense is
+  parameterized queries / prepared statements at the data-access layer.
+  XSS/script-injection, null-byte, control-character, size, and structural
+  validations are unchanged. (otto#147)
+- ``Otto.logger`` never returns ``nil``: it lazily falls back to a default
+  ``$stdout`` logger, so call sites no longer need defensive ``&.`` guards.
+  Assign your own logger (or a null logger to silence output) via
+  ``Otto.logger=``. (otto#147)
 
 AI Assistance
 -------------

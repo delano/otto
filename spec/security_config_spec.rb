@@ -245,7 +245,7 @@ RSpec.describe Otto::Security::Config do
       expect(config.trusted_proxy_depth_mode?).to be false
     end
 
-    it 'is a plain accessor' do
+    it 'reads back an assigned depth' do
       config.trusted_proxy_depth = 2
       expect(config.trusted_proxy_depth).to eq(2)
     end
@@ -265,6 +265,25 @@ RSpec.describe Otto::Security::Config do
       expect { config.trusted_proxy_depth = 2 }.to raise_error(FrozenError)
     end
 
+    describe 'eager mutual-exclusion with trusted_proxies' do
+      it 'rejects setting depth >= 1 when trusted_proxies are configured' do
+        config.add_trusted_proxy('10.0.0.0/8')
+        expect { config.trusted_proxy_depth = 1 }
+          .to raise_error(ArgumentError, /Cannot configure both/)
+      end
+
+      it 'rejects add_trusted_proxy when depth >= 1 is configured (reverse order)' do
+        config.trusted_proxy_depth = 1
+        expect { config.add_trusted_proxy('10.0.0.0/8') }
+          .to raise_error(ArgumentError, /Cannot configure both/)
+      end
+
+      it 'allows trusted_proxies alongside an explicit depth of 0' do
+        config.add_trusted_proxy('10.0.0.0/8')
+        expect { config.trusted_proxy_depth = 0 }.not_to raise_error
+      end
+    end
+
     describe 'freeze-time validation' do
       it 'accepts depth-only configuration' do
         config.trusted_proxy_depth = 2
@@ -273,19 +292,6 @@ RSpec.describe Otto::Security::Config do
 
       it 'accepts CIDR-only configuration' do
         config.add_trusted_proxy('10.0.0.0/8')
-        expect { config.deep_freeze! }.not_to raise_error
-      end
-
-      it 'rejects configuring both trusted_proxies and depth >= 1' do
-        config.add_trusted_proxy('10.0.0.0/8')
-        config.trusted_proxy_depth = 1
-        expect { config.deep_freeze! }
-          .to raise_error(ArgumentError, /Cannot configure both/)
-      end
-
-      it 'allows trusted_proxies alongside an explicit depth of 0' do
-        config.add_trusted_proxy('10.0.0.0/8')
-        config.trusted_proxy_depth = 0
         expect { config.deep_freeze! }.not_to raise_error
       end
 
@@ -299,6 +305,13 @@ RSpec.describe Otto::Security::Config do
         config.trusted_proxy_depth = '2'
         expect { config.deep_freeze! }
           .to raise_error(ArgumentError, /must be an Integer/)
+      end
+
+      it 'backstops a conflict introduced by a direct ivar path (defense in depth)' do
+        config.add_trusted_proxy('10.0.0.0/8')
+        config.instance_variable_set(:@trusted_proxy_depth, 1) # bypass the eager setter
+        expect { config.deep_freeze! }
+          .to raise_error(ArgumentError, /Cannot configure both/)
       end
     end
   end

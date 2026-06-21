@@ -27,13 +27,20 @@ class Otto
     class Config
       include Otto::Core::Freezable
 
-      attr_accessor :input_validation, :max_param_depth, :csrf_token_key, :rate_limiting_config, :csrf_session_key, :max_request_size, :max_param_keys, :trusted_proxy_depth
+      # Error raised when the two mutually-exclusive trusted-proxy resolution
+      # modes are configured together: CIDR-walk (enumerated #trusted_proxies)
+      # and count-based depth (#trusted_proxy_depth >= 1).
+      PROXY_MODE_CONFLICT_MESSAGE = 'Cannot configure both trusted_proxies ' \
+        '(CIDR filter mode) and trusted_proxy_depth >= 1 (count mode). ' \
+        'Enumerate proxy CIDRs OR set a hop count, not both.'
+
+      attr_accessor :input_validation, :max_param_depth, :csrf_token_key, :rate_limiting_config, :csrf_session_key, :max_request_size, :max_param_keys
 
       attr_reader :csrf_protection,  :csrf_header_key,
                   :trusted_proxies, :require_secure_cookies,
                   :security_headers,
                   :csp_nonce_enabled, :debug_csp, :mcp_auth,
-                  :ip_privacy_config
+                  :ip_privacy_config, :trusted_proxy_depth
 
       # Initialize security configuration with safe defaults
       #
@@ -113,6 +120,10 @@ class Otto
       #   config.add_trusted_proxy(['10.0.0.1', '172.16.0.0/12'])
       def add_trusted_proxy(proxy)
         raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+        # CIDR-walk and count-based depth are mutually exclusive. Catch the
+        # conflict eagerly here (and in #trusted_proxy_depth=) so it surfaces at
+        # configuration time, not only at freeze (which the test harness skips).
+        raise ArgumentError, PROXY_MODE_CONFLICT_MESSAGE if trusted_proxy_depth_mode?
 
         case proxy
         when String, Regexp
@@ -172,6 +183,23 @@ class Otto
       # @return [Boolean] true when trusted_proxy_depth is an integer >= 1
       def trusted_proxy_depth_mode?
         @trusted_proxy_depth.to_i >= 1
+      end
+
+      # Set the count-based trusted-proxy depth ("trust the last N hops").
+      #
+      # Eagerly rejects the mutually-exclusive CIDR-walk mode so a contradictory
+      # configuration fails at assignment rather than only at freeze (which the
+      # test harness skips). Type and range (Integer, >= 0) are validated at
+      # freeze via #deep_freeze!; nil/0 disable depth mode.
+      #
+      # @param depth [Integer, nil] number of trusted hops (nil/0 disables depth mode)
+      # @raise [FrozenError] if configuration is frozen
+      # @raise [ArgumentError] if trusted_proxies are already configured and depth >= 1
+      def trusted_proxy_depth=(depth)
+        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+        raise ArgumentError, PROXY_MODE_CONFLICT_MESSAGE if depth.to_i >= 1 && @trusted_proxies.any?
+
+        @trusted_proxy_depth = depth
       end
 
       # Validate that a request size is within acceptable limits
@@ -381,12 +409,9 @@ class Otto
           raise ArgumentError, "trusted_proxy_depth must be >= 0, got #{depth}"
         end
 
-        if depth >= 1 && @trusted_proxies.any?
-          raise ArgumentError,
-                'Cannot configure both trusted_proxies (CIDR filter mode) and ' \
-                'trusted_proxy_depth >= 1 (count mode). Enumerate proxy CIDRs ' \
-                'OR set a hop count, not both.'
-        end
+        # Backstop for the eager checks in #add_trusted_proxy / #trusted_proxy_depth=:
+        # catches a conflict introduced by a direct/ivar configuration path.
+        raise ArgumentError, PROXY_MODE_CONFLICT_MESSAGE if depth >= 1 && @trusted_proxies.any?
       end
 
       # Parse a value into an IPAddr, returning nil for invalid / non-IP input.

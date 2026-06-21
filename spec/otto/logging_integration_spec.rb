@@ -416,7 +416,7 @@ RSpec.describe 'Otto Logging Integration' do
         'PATH_INFO' => '/test',
         'REMOTE_ADDR' => '192.168.1.0',  # Already masked
         'HTTP_USER_AGENT' => 'Mozilla/*.* (Macintosh; Intel Mac OS X *.*) Chrome/*.*',  # Already anonymized
-        'otto.geo_country' => 'US'
+        'otto.privacy.geo_country' => 'US'
       }
 
       context = Otto::LoggingHelpers.request_context(env)
@@ -465,7 +465,7 @@ RSpec.describe 'Otto Logging Integration' do
         'REMOTE_ADDR' => '9.9.9.0',
         'HTTP_USER_AGENT' => 'Mozilla/*.*',  # Already anonymized by middleware
         'otto.privacy.fingerprint' => fingerprint,
-        'otto.geo_country' => 'CH'
+        'otto.privacy.geo_country' => 'CH'
       }
 
       context = Otto::LoggingHelpers.request_context(env)

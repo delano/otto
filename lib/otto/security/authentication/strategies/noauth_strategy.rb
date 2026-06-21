@@ -14,7 +14,7 @@ class Otto
           def authenticate(env, _requirement)
             # Note: env['REMOTE_ADDR'] is masked by IPPrivacyMiddleware by default
             metadata = { ip: env['REMOTE_ADDR'] }
-            metadata[:country] = env['otto.geo_country'] if env['otto.geo_country']
+            metadata[:country] = env['otto.privacy.geo_country'] if env['otto.privacy.geo_country']
 
             Otto::Security::Authentication::StrategyResult.anonymous(metadata: metadata)
           end

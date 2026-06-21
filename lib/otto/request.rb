@@ -24,13 +24,25 @@ class Otto
       env['HTTP_USER_AGENT']
     end
 
-    # NOTE: We do NOT override Rack::Request#ip
+    # Canonical client IP for the request.
     #
-    # IPPrivacyMiddleware masks both REMOTE_ADDR and X-Forwarded-For headers,
-    # so Rack's native ip resolution logic works correctly with masked values.
-    # This allows Rack to handle proxy scenarios (trusted proxies, header parsing)
-    # while still returning privacy-safe masked IPs.
+    # Prefers env['otto.client_ip'] — the value resolved once, early, by
+    # IPPrivacyMiddleware ("resolve once, read everywhere"): the masked IP
+    # when privacy is enabled, or the resolved real IP when privacy is
+    # disabled or the address is exempt. This means downstream code no longer
+    # depends on REMOTE_ADDR / X-Forwarded-For rewriting being load-bearing.
     #
+    # Falls back to Rack's native resolution when the middleware has not run
+    # (e.g. standalone request use without the Otto middleware stack).
+    #
+    # @return [String, nil] Canonical (privacy-applied) client IP
+    def ip
+      canonical = env['otto.client_ip']
+      return canonical if canonical && !canonical.empty?
+
+      super
+    end
+
     # If you need the masked IP explicitly, use:
     #   req.masked_ip  # => '192.168.1.0' or nil if privacy disabled
     #
@@ -51,7 +63,7 @@ class Otto
     #   fingerprint.masked_ip    # => '192.168.1.0'
     #   fingerprint.country      # => 'US'
     def redacted_fingerprint
-      env['otto.redacted_fingerprint']
+      env['otto.privacy.fingerprint']
     end
 
     # Get the geo-location country code for the request
@@ -63,7 +75,7 @@ class Otto
     # @example
     #   req.geo_country  # => 'US'
     def geo_country
-      redacted_fingerprint&.country || env['otto.geo_country']
+      redacted_fingerprint&.country || env['otto.privacy.geo_country']
     end
 
     # Get anonymized user agent string
@@ -91,7 +103,7 @@ class Otto
     # @example
     #   req.masked_ip  # => '192.168.1.0'
     def masked_ip
-      env['otto.masked_ip'] || env['REMOTE_ADDR']
+      env['otto.privacy.masked_ip'] || env['REMOTE_ADDR']
     end
 
     # Get hashed IP for session correlation
@@ -104,10 +116,16 @@ class Otto
     # @example
     #   req.hashed_ip  # => 'a3f8b2c4d5e6f7...'
     def hashed_ip
-      redacted_fingerprint&.hashed_ip || env['otto.hashed_ip']
+      redacted_fingerprint&.hashed_ip || env['otto.privacy.hashed_ip']
     end
 
     def client_ipaddress
+      # Prefer the canonical client IP resolved once by IPPrivacyMiddleware
+      # ("resolve once, read everywhere"). Falls back to deriving it directly
+      # for standalone use without the middleware.
+      canonical = env['otto.client_ip']
+      return canonical if canonical && !canonical.empty?
+
       remote_addr = env['REMOTE_ADDR']
 
       # If we don't have a security config or trusted proxies, use direct connection
@@ -180,16 +198,27 @@ class Otto
       # Check direct HTTPS connection
       return true if env['HTTPS'] == 'on' || env['SERVER_PORT'] == '443'
 
-      remote_addr = env['REMOTE_ADDR']
+      # Only trust forwarded proto headers when the request actually arrived via
+      # a trusted proxy.
+      return false unless forwarded_by_trusted_proxy?
 
-      # Only trust forwarded proto headers from trusted proxies
-      if otto_security_config && trusted_proxy?(remote_addr)
-        # X-Scheme is set by nginx
-        # X-FORWARDED-PROTO is set by elastic load balancer
-        return env['HTTP_X_FORWARDED_PROTO'] == 'https' || env['HTTP_X_SCHEME'] == 'https'
-      end
+      # X-Scheme is set by nginx; X-Forwarded-Proto by elastic load balancer
+      env['HTTP_X_FORWARDED_PROTO'] == 'https' || env['HTTP_X_SCHEME'] == 'https'
+    end
 
-      false
+    # Whether the request arrived through a trusted proxy.
+    #
+    # Prefers the canonical decision recorded once by IPPrivacyMiddleware in
+    # env['otto.via_trusted_proxy'] — evaluated against the original peer before
+    # REMOTE_ADDR is masked, so it stays correct even after masking. Falls back
+    # to evaluating the current REMOTE_ADDR when the middleware has not run
+    # (standalone request use).
+    #
+    # @return [Boolean]
+    def forwarded_by_trusted_proxy?
+      return env['otto.via_trusted_proxy'] if env.key?('otto.via_trusted_proxy')
+
+      otto_security_config ? trusted_proxy?(env['REMOTE_ADDR']) : false
     end
 
     # See: http://stackoverflow.com/questions/10013812/how-to-prevent-jquery-ajax-from-following-a-redirect-after-a-post
@@ -227,19 +256,7 @@ class Otto
     end
 
     def validate_ip_address(ip)
-      return nil if ip.nil? || ip.empty?
-
-      # Remove any port number
-      clean_ip = ip.split(':').first
-
-      # Basic IP format validation
-      return nil unless clean_ip.match?(/\A\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\z/)
-
-      # Validate each octet
-      octets = clean_ip.split('.')
-      return nil unless octets.all? { |octet| (0..255).cover?(octet.to_i) }
-
-      clean_ip
+      Otto::Utils.normalize_ip(ip)
     end
 
     def private_ip?(ip)

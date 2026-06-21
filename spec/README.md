@@ -20,7 +20,8 @@ Comprehensive tests for `Otto::Security::Config` covering:
 Key findings:
 - Otto follows security-by-default principles
 - CSRF tokens use cryptographically secure generation with session binding
-- Trusted proxy matching uses simple string prefix matching, not proper CIDR
+- Trusted proxy matching uses proper IPAddr CIDR containment (IPv4 + IPv6),
+  falling back to string prefix matching only for non-IP entries (e.g. '172.16.')
 - All security features must be explicitly enabled
 
 ### 🔄 Otto Main Class (`otto_spec.rb`)

@@ -61,6 +61,14 @@ class Otto
     # Used by: All security middleware (CSRF, Headers, Validation)
     SECURITY_CONFIG = 'otto.security_config'
 
+    # Whether the request arrived via a trusted proxy.
+    # Type: Boolean
+    # Set by: IPPrivacyMiddleware (every request, evaluated on the original
+    #   peer BEFORE REMOTE_ADDR is masked)
+    # Used by: Otto::Request#secure? to authorize X-Forwarded-Proto / X-Scheme
+    #   without depending on the (masked) REMOTE_ADDR
+    VIA_TRUSTED_PROXY = 'otto.via_trusted_proxy'
+
     # =========================================================================
     # LOCALIZATION (I18N)
     # =========================================================================
@@ -102,6 +110,16 @@ class Otto
     # =========================================================================
     # PRIVACY (IP MASKING)
     # =========================================================================
+
+    # Canonical client IP, resolved once early by IPPrivacyMiddleware
+    # ("resolve once, read everywhere"). Downstream code (client_ipaddress,
+    # Request#ip) reads this instead of re-deriving from REMOTE_ADDR / XFF.
+    # Type: String
+    # Set by: IPPrivacyMiddleware (every request, all modes)
+    # Value: masked IP when privacy enabled; resolved real IP when privacy
+    #        disabled or the address is exempt (private/localhost)
+    # Note: presence also acts as the idempotency guard for the middleware
+    CLIENT_IP = 'otto.client_ip'
 
     # Privacy-safe masked IP address
     # Type: String (e.g., '192.168.1.0')

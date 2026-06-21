@@ -7,6 +7,170 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.3.0:
+
+2.3.0 — 2026-06-21
+==================
+
+Added
+-----
+
+- Count-based trusted-proxy resolution ("trust the last N hops"), the Express
+  ``trust proxy = N`` primitive, via a new
+  ``Otto::Security::Config#trusted_proxy_depth`` accessor (Integer, default
+  ``nil``). ``nil`` / ``0`` keeps the existing CIDR-walk; ``>= 1`` enables depth
+  mode. This is the sound model for non-enumerable proxy tiers (Fly, cloud load
+  balancers, dynamic reverse proxies) whose addresses cannot be listed as CIDRs.
+  Resolution flows through the shared ``Otto::Utils.resolve_client_ip``, so the
+  canonical ``env['otto.client_ip']`` (masking, idempotency, "read everywhere")
+  and the standalone ``Request#client_ipaddress`` fallback both honor depth with
+  no further wiring. Settable through ``Otto::Security::Configurator#configure``
+  (``trusted_proxy_depth:``) and the ``trusted_proxy_depth`` option of
+  ``configure_security``. Depth resolves the client *IP* only; it is decoupled
+  from proxy proto-trust — ``env['otto.via_trusted_proxy']`` (and therefore
+  ``Otto::Request#secure?`` honoring ``X-Forwarded-Proto`` / ``X-Scheme``) remains
+  the trusted-proxy *identity* check and is never derived from hop depth,
+  matching the downstream OneTimeSecret behavior. (onetimesecret#3436,
+  onetimesecret#3116)
+
+Changed
+-------
+
+- ``Otto::Security::Config#trusted_proxy?`` now matches string entries with
+  proper ``IPAddr`` CIDR containment for both IPv4 and IPv6, replacing the
+  previous ``==`` / ``start_with?`` text matching. Bare hosts (e.g.
+  ``192.168.1.1``) match only exactly, and CIDR ranges (e.g. ``10.0.0.0/8``)
+  now actually match contained addresses. Non-IP entries (e.g. ``172.16.``)
+  still fall back to the legacy prefix match, and ``Regexp`` entries are
+  unchanged. This is a behavior change: addresses that were previously
+  matched only because they shared a textual prefix are no longer treated as
+  trusted. (otto#58, onetimesecret#3436)
+- ``IPPrivacyMiddleware`` now resolves the client IP once into a canonical
+  ``env['otto.client_ip']`` ("resolve once, read everywhere") and is
+  idempotent: a second pass (e.g. when the middleware is mounted both at the
+  app and router levels) yields instead of re-resolving and double-masking.
+- ``Otto::Request#ip`` and ``#client_ipaddress`` now prefer
+  ``env['otto.client_ip']`` when present, falling back to Rack's native
+  resolution when the middleware has not run. Downstream code no longer
+  depends on ``REMOTE_ADDR`` / ``X-Forwarded-For`` rewriting being
+  load-bearing.
+- ``Otto::Request#secure?`` now authorizes ``X-Forwarded-Proto`` /
+  ``X-Scheme`` from a canonical, leak-free ``env['otto.via_trusted_proxy']``
+  flag recorded by ``IPPrivacyMiddleware`` before masking, instead of
+  re-deriving trust from the (now masked) ``REMOTE_ADDR``. It falls back to
+  the previous behavior when the middleware has not run.
+- ``add_trusted_proxy`` now logs a warning when given a string that is not a
+  valid IP or CIDR (e.g. ``'172.16.'``), since such entries use legacy
+  string-prefix matching; prefer a CIDR range.
+- IP validation and port-stripping were consolidated into
+  ``Otto::Utils.normalize_ip`` / ``strip_ip_port`` (previously duplicated in
+  ``IPPrivacyMiddleware`` and ``Otto::Request``).
+- Trusted-proxy string entries are now parsed to ``IPAddr`` once at
+  registration (in ``add_trusted_proxy``) and cached, so ``trusted_proxy?``
+  no longer re-parses each entry on every request.
+- Client-IP resolution from forwarded headers is now a single shared
+  ``Otto::Utils.resolve_client_ip`` used by both ``IPPrivacyMiddleware``
+  ("resolve once") and ``Otto::Request#client_ipaddress`` (its no-middleware
+  fallback), so the two paths can no longer disagree on which headers to trust
+  or how to walk a proxy chain. The standalone ``Request`` fallback now walks
+  the forwarded chain skipping trusted proxies (matching the middleware) and
+  consults ``X-Client-IP`` instead of the legacy ``Client-IP`` header.
+
+- ``RouteHandlers::BaseHandler`` raises ``ArgumentError`` (was ``NameError``)
+  for an unresolvable handler class name. (otto#147)
+- ``Otto.logger`` never returns ``nil`` (lazy ``$stdout`` default); assign
+  ``Otto.logger=`` to override or silence. (otto#147)
+
+Removed
+-------
+
+- SQL-injection pattern matching from input validation
+  (``ValidationMiddleware::SQL_INJECTION_PATTERNS`` and related checks). It
+  produced false positives and was trivially bypassable; defend against SQL
+  injection with parameterized queries at the data-access layer. (otto#147)
+
+Fixed
+-----
+
+- IPv6 addresses are no longer truncated during proxy resolution.
+  ``validate_ip_address`` previously did ``ip.split(':').first``, collapsing
+  an IPv6 address to its first hextet; it now uses ``IPAddr`` validation with
+  IPv6-safe port stripping (bracketed ``[2001:db8::1]:443`` and IPv4
+  ``host:port``). IPv6 clients behind trusted proxies now resolve and mask
+  correctly. (onetimesecret#3436)
+- ``Otto::Request#redacted_fingerprint``, ``#geo_country``, ``#hashed_ip``
+  and ``#masked_ip`` (plus ``NoAuthStrategy`` metadata and
+  ``LoggingHelpers`` country) read the canonical ``otto.privacy.*`` env keys
+  the middleware actually writes; they previously read un-namespaced keys
+  that were never set and so always returned ``nil``.
+- ``Otto::Request#private_ip?`` (and therefore ``#local_or_private_ip?`` /
+  ``#local?``) is now IPv4- **and** IPv6-aware via ``Otto::Utils.private_ip?``.
+  It recognizes IPv6 loopback (``::1``), unique-local (``fc00::/7``),
+  link-local (``fe80::/10``), multicast and unspecified addresses; the previous
+  IPv4-only regex silently classified every IPv6 address as public.
+- Anonymous and auth-failure metadata (``NoAuthStrategy``,
+  ``RouteAuthWrapper``) and ``LoggingHelpers.request_context`` now record the
+  canonical ``otto.client_ip`` (falling back to ``REMOTE_ADDR``), so the real
+  client — not the connecting proxy — is logged when IP privacy is disabled
+  behind a trusted proxy.
+
+- The CSRF ``<meta>`` tag is now injected into ``<head>`` tags that carry
+  attributes, not only a bare ``<head>``. (otto#147)
+
+Security
+--------
+
+- Trusted-proxy matching is now correct CIDR containment rather than text
+  prefix matching, removing both false positives (e.g. ``192.168.1.100``
+  matching the host ``192.168.1.1``) and false negatives (CIDR ranges that
+  never matched). ``secure?`` no longer silently fails to trust
+  ``X-Forwarded-Proto`` behind a TLS-terminating trusted proxy when IP
+  privacy is enabled. (onetimesecret#3436)
+
+- CSRF tokens are now signed with HMAC-SHA256 keyed by a server-side secret and
+  bound to the session id, so they can no longer be self-minted or replayed
+  across sessions. Set the secret via ``OTTO_CSRF_SECRET`` or
+  ``Otto::Security::Config#csrf_secret=``; enabling CSRF in production without
+  one now raises instead of silently using a per-process secret. (otto#147)
+- All route/handler class-name resolution goes through
+  ``Otto::Security::ConstantResolver``, extending the existing format check and
+  forbidden-class blocklist to ``RouteHandlers::BaseHandler`` and the MCP
+  registry/server (previously unguarded). Forbidden classes reached via a
+  namespace prefix or constant inheritance (e.g. ``Object::Kernel``) are now
+  rejected as well. (otto#147)
+- MCP bearer tokens and API keys are compared in constant time. (otto#147)
+
+- Depth resolution trusts exactly N hops counted from the right of
+  ``X-Forwarded-For`` plus ``REMOTE_ADDR``, so a forged leftmost forwarded entry
+  is never reached. Positions are counted raw (never dropped) so junk padding
+  cannot shift the index, and only the selected entry is validated. A chain
+  shorter than ``N + 1`` (a request that may have bypassed the proxy tier) or an
+  invalid target entry falls back to ``REMOTE_ADDR`` rather than a spoofable
+  forwarded value. Depth mode is XFF-only (single-value ``X-Real-IP`` /
+  ``X-Client-IP`` cannot express a hop chain) and **assumes origin lockdown** —
+  the app must be unreachable except through the proxy tier. CIDR-walk and depth
+  are mutually exclusive, and ``trusted_proxy_depth`` must be a non-negative
+  Integer or ``nil``; both are validated immediately at configuration time (with
+  a freeze-time backstop), so an invalid or contradictory setup fails fast.
+
+Documentation
+-------------
+
+- Extended ``docs/migrating/v2.3.0.md`` with a count-based depth section covering
+  when to use depth vs CIDR-walk, the origin-lockdown prerequisite, configuration
+  examples, Express parity, and the XFF-only / short-chain / mutual-exclusivity
+  semantics.
+
+AI Assistance
+-------------
+
+- Issue #147 findings triaged, fixed, and verified with AI assistance, including
+  an adversarial review that surfaced the namespace-prefix blocklist bypass.
+
+- Trusted-proxy depth design review, threat-model analysis (origin-lockdown
+  trade vs CIDR enumerability, raw-position counting to defeat XFF padding),
+  implementation and test coverage developed with AI pair programming.
+
 .. _changelog-2.2.0:
 
 2.2.0 — 2026-06-09

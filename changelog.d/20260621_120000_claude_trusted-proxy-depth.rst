@@ -12,16 +12,12 @@ Added
   and the standalone ``Request#client_ipaddress`` fallback both honor depth with
   no further wiring. Settable through ``Otto::Security::Configurator#configure``
   (``trusted_proxy_depth:``) and the ``trusted_proxy_depth`` option of
-  ``configure_security``. (onetimesecret#3436, onetimesecret#3116)
-
-Changed
--------
-
-- ``env['otto.via_trusted_proxy']`` is now ``true`` whenever
-  ``trusted_proxy_depth >= 1`` (in addition to the existing trusted-proxy CIDR
-  match), so ``Otto::Request#secure?`` honors ``X-Forwarded-Proto`` / ``X-Scheme``
-  for depth deployments that cannot enumerate proxy CIDRs. The standalone
-  ``Request`` fallback (no middleware) does the same.
+  ``configure_security``. Depth resolves the client *IP* only; it is decoupled
+  from proxy proto-trust — ``env['otto.via_trusted_proxy']`` (and therefore
+  ``Otto::Request#secure?`` honoring ``X-Forwarded-Proto`` / ``X-Scheme``) remains
+  the trusted-proxy *identity* check and is never derived from hop depth,
+  matching the downstream OneTimeSecret behavior. (onetimesecret#3436,
+  onetimesecret#3116)
 
 Security
 --------

@@ -64,9 +64,10 @@ class Otto
     # Whether the request arrived via a trusted proxy.
     # Type: Boolean
     # Set by: IPPrivacyMiddleware (every request, evaluated on the original
-    #   peer BEFORE REMOTE_ADDR is masked). True when the peer matches a
-    #   trusted-proxy CIDR, or unconditionally in count-based depth mode
-    #   (trusted_proxy_depth >= 1), where the proxy tier is assumed present.
+    #   peer BEFORE REMOTE_ADDR is masked). This is the trusted-proxy identity
+    #   check (does REMOTE_ADDR match a configured trusted_proxies CIDR?) — it is
+    #   independent of count-based depth mode, which resolves the client IP but
+    #   never grants proxy trust for forwarded proto.
     # Used by: Otto::Request#secure? to authorize X-Forwarded-Proto / X-Scheme
     #   without depending on the (masked) REMOTE_ADDR
     VIA_TRUSTED_PROXY = 'otto.via_trusted_proxy'

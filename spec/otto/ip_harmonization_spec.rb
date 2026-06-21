@@ -219,11 +219,14 @@ RSpec.describe 'IP resolution harmonization (otto#58 / OTS#3436)' do
         expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
       end
 
-      it 'sets otto.via_trusted_proxy true even with no trusted-proxy CIDRs' do
+      it 'leaves otto.via_trusted_proxy false (proto-trust is decoupled from depth)' do
+        # Depth resolves the client IP, but via_trusted_proxy is the CIDR
+        # identity check only — never derived from depth. No CIDRs configured
+        # (and depth is mutually exclusive with them), so it stays false.
         env = { 'REMOTE_ADDR' => '198.51.100.1', 'HTTP_X_FORWARDED_FOR' => '203.0.113.50' }
         middleware.call(env)
 
-        expect(env['otto.via_trusted_proxy']).to be true
+        expect(env['otto.via_trusted_proxy']).to be false
       end
     end
   end
@@ -284,10 +287,12 @@ RSpec.describe 'IP resolution harmonization (otto#58 / OTS#3436)' do
         expect(req.client_ipaddress).to eq('203.0.113.50')
       end
 
-      it '#secure? honors X-Forwarded-Proto via the depth-derived trust decision' do
+      it '#secure? does not honor X-Forwarded-Proto in depth mode (proto-trust decoupled)' do
+        # Depth never grants proxy trust for forwarded proto; with no CIDR
+        # identity match, secure? reflects only a direct TLS connection.
         req = depth_request('REMOTE_ADDR' => '198.51.100.1', 'HTTP_X_FORWARDED_PROTO' => 'https')
 
-        expect(req.secure?).to be true
+        expect(req.secure?).to be false
       end
     end
 

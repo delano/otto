@@ -33,6 +33,13 @@ Changed
 - Trusted-proxy string entries are now parsed to ``IPAddr`` once at
   registration (in ``add_trusted_proxy``) and cached, so ``trusted_proxy?``
   no longer re-parses each entry on every request.
+- Client-IP resolution from forwarded headers is now a single shared
+  ``Otto::Utils.resolve_client_ip`` used by both ``IPPrivacyMiddleware``
+  ("resolve once") and ``Otto::Request#client_ipaddress`` (its no-middleware
+  fallback), so the two paths can no longer disagree on which headers to trust
+  or how to walk a proxy chain. The standalone ``Request`` fallback now walks
+  the forwarded chain skipping trusted proxies (matching the middleware) and
+  consults ``X-Client-IP`` instead of the legacy ``Client-IP`` header.
 
 Security
 --------
@@ -58,3 +65,13 @@ Fixed
   ``LoggingHelpers`` country) read the canonical ``otto.privacy.*`` env keys
   the middleware actually writes; they previously read un-namespaced keys
   that were never set and so always returned ``nil``.
+- ``Otto::Request#private_ip?`` (and therefore ``#local_or_private_ip?`` /
+  ``#local?``) is now IPv4- **and** IPv6-aware via ``Otto::Utils.private_ip?``.
+  It recognizes IPv6 loopback (``::1``), unique-local (``fc00::/7``),
+  link-local (``fe80::/10``), multicast and unspecified addresses; the previous
+  IPv4-only regex silently classified every IPv6 address as public.
+- Anonymous and auth-failure metadata (``NoAuthStrategy``,
+  ``RouteAuthWrapper``) and ``LoggingHelpers.request_context`` now record the
+  canonical ``otto.client_ip`` (falling back to ``REMOTE_ADDR``), so the real
+  client — not the connecting proxy — is logged when IP privacy is disabled
+  behind a trusted proxy.

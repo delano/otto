@@ -76,7 +76,7 @@ class Otto
       {
             method: env['REQUEST_METHOD'],
               path: env['PATH_INFO'],
-                ip: env['REMOTE_ADDR'], # Already masked by IPPrivacyMiddleware for public IPs
+                ip: env['otto.client_ip'] || env['REMOTE_ADDR'], # Canonical client IP (masked when privacy on)
            country: env['otto.privacy.geo_country'],
         user_agent: env['HTTP_USER_AGENT']&.slice(0, 100), # Already anonymized by IPPrivacyMiddleware
       }.compact

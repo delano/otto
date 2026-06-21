@@ -136,41 +136,17 @@ class Otto
         end
 
 
-        # Resolve the actual client IP address from the request
+        # Resolve the actual client IP address from the request.
         #
-        # This method handles proxy scenarios by checking X-Forwarded-For and
-        # other proxy headers from trusted proxies, similar to Rack's logic
-        # and Otto's client_ipaddress method.
+        # Delegates to the shared Otto::Utils.resolve_client_ip so the
+        # middleware ("resolve once") and Otto::Request#client_ipaddress (its
+        # no-middleware fallback) use one canonical proxy-chain resolver and
+        # cannot drift on which headers are trusted.
         #
         # @param env [Hash] Rack environment
         # @return [String] Resolved client IP address
         def resolve_client_ip(env)
-          remote_addr = env['REMOTE_ADDR']
-
-          # If we don't have a security config, use direct connection
-          return remote_addr unless @security_config
-
-          # If REMOTE_ADDR is not from a trusted proxy, it's the client IP
-          return remote_addr unless trusted_proxy?(remote_addr)
-
-          # REMOTE_ADDR is from a trusted proxy, check forwarded headers
-          forwarded_ips = [
-            env['HTTP_X_FORWARDED_FOR'],
-            env['HTTP_X_REAL_IP'],
-            env['HTTP_X_CLIENT_IP'],
-          ].compact.map { |header| header.split(/,\s*/) }.flatten
-
-          # Return the first valid public IP from forwarded headers
-          forwarded_ips.each do |ip|
-            clean_ip = validate_ip_address(ip.strip)
-            next unless clean_ip
-
-            # Return first IP that's not from a trusted proxy
-            return clean_ip unless trusted_proxy?(clean_ip)
-          end
-
-          # Fallback to remote address if no valid forwarded IPs
-          remote_addr
+          Otto::Utils.resolve_client_ip(env, @security_config)
         end
 
         # Mask X-Forwarded-For and related proxy headers
@@ -198,14 +174,6 @@ class Otto
           return false unless @security_config
 
           @security_config.trusted_proxy?(ip)
-        end
-
-        # Validate and clean IP address (IPv4 and IPv6)
-        #
-        # @param ip [String, nil] IP address to validate (optionally with a port)
-        # @return [String, nil] Cleaned IP or nil if invalid
-        def validate_ip_address(ip)
-          Otto::Utils.normalize_ip(ip)
         end
 
         # Apply no-privacy settings (privacy explicitly disabled)

@@ -38,6 +38,20 @@ RSpec.describe 'IP resolution harmonization (otto#58 / OTS#3436)' do
       expect(config.trusted_proxy?('2001:dead::1')).to be false
     end
 
+    it 'matches a bare IPv6 host only exactly' do
+      config.add_trusted_proxy('2001:db8::1')
+
+      expect(config.trusted_proxy?('2001:db8::1')).to be true
+      expect(config.trusted_proxy?('2001:db8::2')).to be false
+    end
+
+    it 'matches an IPv4-mapped IPv6 peer against an IPv4 range (dual-stack)' do
+      config.add_trusted_proxy('10.0.0.0/8')
+
+      expect(config.trusted_proxy?('::ffff:10.0.0.1')).to be true
+      expect(config.trusted_proxy?('::ffff:11.0.0.1')).to be false
+    end
+
     it 'does not match across address families' do
       config.add_trusted_proxy('10.0.0.0/8')
 
@@ -219,6 +233,26 @@ RSpec.describe 'IP resolution harmonization (otto#58 / OTS#3436)' do
       expect(req.client_ipaddress).to eq('203.0.113.0')
     end
 
+    it '#client_ipaddress fallback uses the shared resolver behind a trusted proxy' do
+      # No middleware ran (otto.client_ip absent), so it must resolve via the
+      # same canonical resolver the middleware uses.
+      config = Otto::Security::Config.new
+      config.add_trusted_proxy('10.0.0.0/8')
+      req = request_for('REMOTE_ADDR' => '10.0.0.1', 'HTTP_X_FORWARDED_FOR' => '203.0.113.50')
+      allow(req).to receive(:otto_security_config).and_return(config)
+
+      expect(req.client_ipaddress).to eq('203.0.113.50')
+    end
+
+    it '#private_ip? is IPv6-aware (delegates to Otto::Utils)' do
+      req = request_for
+
+      expect(req.private_ip?('::1')).to be true       # IPv6 loopback
+      expect(req.private_ip?('fc00::1')).to be true    # IPv6 ULA
+      expect(req.private_ip?('10.0.0.1')).to be true   # IPv4 private
+      expect(req.private_ip?('2606:4700:4700::1111')).to be false # public IPv6
+    end
+
     describe '#secure?' do
       it 'is true for a direct HTTPS connection' do
         expect(request_for('SERVER_PORT' => '443').secure?).to be true
@@ -242,6 +276,13 @@ RSpec.describe 'IP resolution harmonization (otto#58 / OTS#3436)' do
       it 'does not trust forwarded proto when the peer is untrusted' do
         req = request_for('REMOTE_ADDR' => '203.0.113.0', 'HTTP_X_FORWARDED_PROTO' => 'https')
         req.env['otto.via_trusted_proxy'] = false
+
+        expect(req.secure?).to be false
+      end
+
+      it 'is not secure for a non-https forwarded proto even via a trusted proxy' do
+        req = request_for('REMOTE_ADDR' => '203.0.113.0', 'HTTP_X_FORWARDED_PROTO' => 'http')
+        req.env['otto.via_trusted_proxy'] = true
 
         expect(req.secure?).to be false
       end
@@ -279,6 +320,17 @@ RSpec.describe 'IP resolution harmonization (otto#58 / OTS#3436)' do
         expect(req.hashed_ip).to match(/\A[0-9a-f]{64}\z/)
         expect(req.geo_country).to eq('US')
       end
+
+      it 'returns nil from redacted_fingerprint/hashed_ip when privacy is disabled' do
+        config = Otto::Security::Config.new
+        config.ip_privacy_config.disable!
+        env = { 'REMOTE_ADDR' => '8.8.8.8' }
+        Otto::Security::Middleware::IPPrivacyMiddleware.new(app, config).call(env)
+        req = described_class.new(env)
+
+        expect(req.redacted_fingerprint).to be_nil
+        expect(req.hashed_ip).to be_nil
+      end
     end
 
     describe '#validate_ip_address (IPv6-safe)' do
@@ -304,6 +356,31 @@ RSpec.describe 'IP resolution harmonization (otto#58 / OTS#3436)' do
         expect(req.send(:validate_ip_address, 'nope')).to be_nil
         expect(req.send(:validate_ip_address, '')).to be_nil
       end
+    end
+  end
+
+  describe 'canonical client IP is read everywhere' do
+    it 'LoggingHelpers.request_context prefers otto.client_ip, falling back to REMOTE_ADDR' do
+      with_canonical = {
+        'REQUEST_METHOD' => 'GET', 'PATH_INFO' => '/',
+        'REMOTE_ADDR' => '10.0.0.1', 'otto.client_ip' => '203.0.113.50'
+      }
+      without = { 'REQUEST_METHOD' => 'GET', 'PATH_INFO' => '/', 'REMOTE_ADDR' => '10.0.0.1' }
+
+      expect(Otto::LoggingHelpers.request_context(with_canonical)[:ip]).to eq('203.0.113.50')
+      expect(Otto::LoggingHelpers.request_context(without)[:ip]).to eq('10.0.0.1')
+    end
+
+    it 'NoAuthStrategy records the canonical client IP in its metadata' do
+      strategy = Otto::Security::Authentication::Strategies::NoAuthStrategy.new
+
+      via_proxy = strategy.authenticate(
+        { 'REMOTE_ADDR' => '10.0.0.1', 'otto.client_ip' => '203.0.113.50' }, nil
+      )
+      direct = strategy.authenticate({ 'REMOTE_ADDR' => '203.0.113.9' }, nil)
+
+      expect(via_proxy.metadata[:ip]).to eq('203.0.113.50')
+      expect(direct.metadata[:ip]).to eq('203.0.113.9')
     end
   end
 end

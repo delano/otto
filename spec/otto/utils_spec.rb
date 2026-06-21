@@ -149,4 +149,111 @@ RSpec.describe Otto::Utils do
       expect(Otto::Utils.strip_ip_port("203.0.113.5")).to eq("203.0.113.5")
     end
   end
+
+  describe "#private_ip?" do
+    it "recognizes IPv4 RFC1918 private ranges" do
+      expect(Otto::Utils.private_ip?("10.1.2.3")).to be true
+      expect(Otto::Utils.private_ip?("172.16.0.1")).to be true
+      expect(Otto::Utils.private_ip?("172.31.255.255")).to be true
+      expect(Otto::Utils.private_ip?("192.168.1.1")).to be true
+    end
+
+    it "does not treat 172.32.x as private (boundary)" do
+      expect(Otto::Utils.private_ip?("172.32.0.1")).to be false
+      expect(Otto::Utils.private_ip?("172.15.255.255")).to be false
+    end
+
+    it "recognizes IPv4 loopback, link-local, multicast and unspecified" do
+      expect(Otto::Utils.private_ip?("127.0.0.1")).to be true
+      expect(Otto::Utils.private_ip?("169.254.1.1")).to be true # link-local
+      expect(Otto::Utils.private_ip?("224.0.0.1")).to be true   # multicast
+      expect(Otto::Utils.private_ip?("239.255.255.255")).to be true # multicast (/4)
+      expect(Otto::Utils.private_ip?("0.0.0.0")).to be true
+    end
+
+    it "treats public IPv4 as non-private" do
+      expect(Otto::Utils.private_ip?("8.8.8.8")).to be false
+      expect(Otto::Utils.private_ip?("203.0.113.5")).to be false
+    end
+
+    it "recognizes IPv6 loopback, ULA, link-local, multicast and unspecified" do
+      expect(Otto::Utils.private_ip?("::1")).to be true             # loopback
+      expect(Otto::Utils.private_ip?("fc00::1")).to be true         # ULA
+      expect(Otto::Utils.private_ip?("fd12:3456:789a::1")).to be true # ULA
+      expect(Otto::Utils.private_ip?("fe80::1")).to be true         # link-local
+      expect(Otto::Utils.private_ip?("ff02::1")).to be true         # multicast
+      expect(Otto::Utils.private_ip?("::")).to be true              # unspecified
+    end
+
+    it "treats public IPv6 as non-private" do
+      expect(Otto::Utils.private_ip?("2606:4700:4700::1111")).to be false
+      expect(Otto::Utils.private_ip?("2001:4860:4860::8888")).to be false
+    end
+
+    it "folds IPv4-mapped IPv6 to its IPv4 classification" do
+      expect(Otto::Utils.private_ip?("::ffff:10.0.0.1")).to be true
+      expect(Otto::Utils.private_ip?("::ffff:8.8.8.8")).to be false
+    end
+
+    it "accepts an IPAddr object directly" do
+      expect(Otto::Utils.private_ip?(IPAddr.new("10.0.0.1"))).to be true
+      expect(Otto::Utils.private_ip?(IPAddr.new("8.8.8.8"))).to be false
+    end
+
+    it "returns false for nil, empty or malformed input instead of raising" do
+      expect(Otto::Utils.private_ip?(nil)).to be false
+      expect(Otto::Utils.private_ip?("")).to be false
+      expect(Otto::Utils.private_ip?("not-an-ip")).to be false
+    end
+  end
+
+  describe "#resolve_client_ip" do
+    def config_with(*proxies)
+      cfg = Otto::Security::Config.new
+      proxies.each { |p| cfg.add_trusted_proxy(p) }
+      cfg
+    end
+
+    it "returns REMOTE_ADDR when there is no security config" do
+      env = { "REMOTE_ADDR" => "203.0.113.5", "HTTP_X_FORWARDED_FOR" => "1.2.3.4" }
+      expect(Otto::Utils.resolve_client_ip(env, nil)).to eq("203.0.113.5")
+    end
+
+    it "returns REMOTE_ADDR when the peer is not a trusted proxy" do
+      env = { "REMOTE_ADDR" => "198.51.100.9", "HTTP_X_FORWARDED_FOR" => "1.2.3.4" }
+      expect(Otto::Utils.resolve_client_ip(env, config_with("10.0.0.0/8"))).to eq("198.51.100.9")
+    end
+
+    it "resolves the forwarded client when the peer is a trusted proxy" do
+      env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_FORWARDED_FOR" => "203.0.113.50" }
+      expect(Otto::Utils.resolve_client_ip(env, config_with("10.0.0.0/8"))).to eq("203.0.113.50")
+    end
+
+    it "walks the forwarded chain and returns the first non-proxy address" do
+      env = {
+        "REMOTE_ADDR" => "10.0.0.1",
+        "HTTP_X_FORWARDED_FOR" => "203.0.113.50, 10.0.0.9, 10.0.0.1",
+      }
+      expect(Otto::Utils.resolve_client_ip(env, config_with("10.0.0.0/8"))).to eq("203.0.113.50")
+    end
+
+    it "honors X-Real-IP and X-Client-IP in addition to X-Forwarded-For" do
+      real = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_REAL_IP" => "203.0.113.7" }
+      client = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_CLIENT_IP" => "203.0.113.8" }
+      cfg = config_with("10.0.0.0/8")
+
+      expect(Otto::Utils.resolve_client_ip(real, cfg)).to eq("203.0.113.7")
+      expect(Otto::Utils.resolve_client_ip(client, cfg)).to eq("203.0.113.8")
+    end
+
+    it "falls back to REMOTE_ADDR when the whole chain is trusted proxies" do
+      env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_FORWARDED_FOR" => "10.0.0.9, 10.0.0.8" }
+      expect(Otto::Utils.resolve_client_ip(env, config_with("10.0.0.0/8"))).to eq("10.0.0.1")
+    end
+
+    it "resolves IPv6 clients behind an IPv6 trusted proxy without truncation" do
+      env = { "REMOTE_ADDR" => "2001:db8::1", "HTTP_X_FORWARDED_FOR" => "2606:4700:4700::1111" }
+      expect(Otto::Utils.resolve_client_ip(env, config_with("2001:db8::/32"))).to eq("2606:4700:4700::1111")
+    end
+  end
 end

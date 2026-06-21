@@ -292,35 +292,42 @@ RSpec.describe Otto::Security::ValidationMiddleware do
       end
     end
 
-    let(:sql_injection_patterns) do
-      [
+    it 'does not block SQL-injection-shaped input (defense is parameterized queries)' do
+      # SQL-injection defense intentionally lives at the data-access layer
+      # (parameterized queries), NOT here: input-validation blocklists are
+      # bypassable theater and reject legitimate input. These shapes now pass
+      # the validator; XSS/script/null-byte checks still apply separately.
+      sql_shaped = [
         "1' OR '1'='1",
         "'; DROP TABLE users; --",
-        'UNION SELECT * FROM passwords',
         '1=1',
         "admin'--",
-        '%27 OR %271%27=%271',
+        'UNION SELECT * FROM passwords',
         '1 AND 1=1',
-        'INSERT INTO users VALUES',
       ]
+
+      sql_shaped.each do |value|
+        env = mock_rack_env(method: 'POST', path: '/', params: { 'query' => value })
+        response = middleware.call(env)
+        expect(response[0]).to eq(200), "expected #{value.inspect} to pass validation, got #{response[0]}"
+      end
     end
 
-    it 'detects SQL injection pattern' do
-      sql_injection_patterns.each do |pattern|
-        params = { 'query' => pattern }
-        env = mock_rack_env(method: 'POST', path: '/', params: params)
+    it 'allows legitimate values that merely contain SQL-like keywords' do
+      # SQL-keyword inspection was removed entirely, so benign values that
+      # happen to contain SQL-ish substrings are no longer false-positives.
+      legitimate_values = [
+        'updated_at',
+        'selection',
+        'creative writing',
+        'SELECT * FROM users',
+        'INSERT INTO users VALUES',
+      ]
 
+      legitimate_values.each do |value|
+        env = mock_rack_env(method: 'POST', path: '/', params: { 'query' => value })
         response = middleware.call(env)
-        expect(response[0]).to eq(400)
-
-        body = JSON.parse(response[2].join)
-        expect(body['message']).to include('Potential SQL injection detected')
-
-        puts "\n=== DEBUG: SQL Injection Detection ==="
-        puts "Pattern: #{pattern}"
-        puts "Status: #{response[0]}"
-        puts "Error: #{body['message']}"
-        puts "==================================\n"
+        expect(response[0]).to eq(200), "expected #{value.inspect} to be allowed, got #{response[0]}"
       end
     end
 
@@ -648,7 +655,6 @@ RSpec.describe Otto::Security::ValidationHelpers do
       dangerous_inputs = [
         '<script>alert(1)</script>',
         'javascript:alert(1)',
-        'SELECT * FROM users',
       ]
 
       dangerous_inputs.each do |input|
@@ -657,16 +663,19 @@ RSpec.describe Otto::Security::ValidationHelpers do
       end
     end
 
+    it 'allows values that merely contain SQL-like keywords' do
+      # SQL-keyword inspection was removed entirely; a value that merely
+      # contains a keyword is no longer rejected by the input validator. SQL
+      # injection is defended at the data-access layer with parameterized queries.
+      ['SELECT * FROM users', 'updated_at', 'selection'].each do |input|
+        expect(mock_response.validate_input(input)).to eq(input)
+      end
+    end
+
     it 'allows HTML when explicitly permitted' do
       html_input = '<p>This is <strong>safe</strong> HTML</p>'
       result = mock_response.validate_input(html_input, allow_html: true)
       expect(result).to eq(html_input)
-    end
-
-    it 'still checks for SQL injection even when HTML is allowed' do
-      sql_injection = "'; DROP TABLE users; --"
-      expect { mock_response.validate_input(sql_injection, allow_html: true) }
-        .to raise_error(Otto::Security::ValidationError, /SQL injection/)
     end
 
     it 'handles nil and empty input gracefully' do

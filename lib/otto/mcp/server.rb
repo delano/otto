@@ -8,6 +8,7 @@ require_relative 'route_parser'
 require_relative 'auth/token'
 require_relative 'schema_validation'
 require_relative 'rate_limiting'
+require_relative '../security/constant_resolver'
 
 class Otto
   module MCP
@@ -124,7 +125,7 @@ class Otto
 
         # Create resource handler
         handler = lambda do
-          klass = Object.const_get(klass_name)
+          klass = Otto::Security::ConstantResolver.safe_const_get(klass_name)
           method = klass.method(method_name)
           if method.arity != 0
             raise ArgumentError, "Handler #{klass_name}.#{method_name} must be a zero-arity method for resource #{uri}"

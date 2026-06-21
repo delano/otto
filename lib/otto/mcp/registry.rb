@@ -2,6 +2,8 @@
 #
 # frozen_string_literal: true
 
+require_relative '../security/constant_resolver'
+
 class Otto
   module MCP
     # Registry for managing MCP resources and tools
@@ -82,7 +84,7 @@ class Otto
           klass_name   = klass_method[0..-2].join('::')
           method_name  = klass_method.last
 
-          klass  = Object.const_get(klass_name)
+          klass  = Otto::Security::ConstantResolver.safe_const_get(klass_name)
           result = klass.public_send(method_name, arguments, env)
         else
           raise "Invalid tool handler: #{handler}"

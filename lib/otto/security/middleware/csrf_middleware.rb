@@ -93,9 +93,10 @@ class Otto
           # Inject meta tag into HTML head
           body_content = body.respond_to?(:join) ? body.join : body.to_s
 
-          if body_content.match?(/<head>/i)
+          head_open_tag = /<head(?:\s[^>]*)?>/i
+          if body_content.match?(head_open_tag)
             meta_tag     = %(<meta name="csrf-token" content="#{csrf_token}">)
-            body_content = body_content.sub(/<head>/i, "<head>\n#{meta_tag}")
+            body_content = body_content.sub(head_open_tag) { |tag| "#{tag}\n#{meta_tag}" }
 
             # Update content length if present
             content_length_key          = headers.keys.find { |k| k.downcase == 'content-length' }

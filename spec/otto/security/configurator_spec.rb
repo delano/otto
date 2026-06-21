@@ -109,6 +109,20 @@ RSpec.describe Otto::Security::Configurator do
       expect(security_config.security_headers).to eq(original_headers)
     end
 
+    it 'wires count-based depth and its forwarded header' do
+      configurator.configure(trusted_proxy_depth: 2, trusted_proxy_header: 'Forwarded')
+
+      expect(security_config.trusted_proxy_depth).to eq(2)
+      expect(security_config.trusted_proxy_depth_mode?).to be true
+      expect(security_config.trusted_proxy_header).to eq('Forwarded')
+    end
+
+    it 'leaves the forwarded header at its default when not specified' do
+      configurator.configure(trusted_proxy_depth: 1)
+
+      expect(security_config.trusted_proxy_header).to eq('X-Forwarded-For')
+    end
+
     it 'configures only specified options' do
       configurator.configure(csrf_protection: true)
 

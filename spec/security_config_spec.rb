@@ -423,6 +423,45 @@ RSpec.describe Otto::Security::Config do
     end
   end
 
+  describe 'trusted_proxy_header (depth-mode forwarded header)' do
+    it 'defaults to X-Forwarded-For' do
+      expect(config.trusted_proxy_header).to eq('X-Forwarded-For')
+    end
+
+    it 'reads back each recognized value' do
+      %w[X-Forwarded-For Forwarded Both].each do |header|
+        config.trusted_proxy_header = header
+        expect(config.trusted_proxy_header).to eq(header)
+      end
+    end
+
+    it 'rejects an unrecognized header at assignment' do
+      expect { config.trusted_proxy_header = 'X-Real-IP' }
+        .to raise_error(ArgumentError, /must be one of/)
+    end
+
+    it 'rejects a nil header at assignment' do
+      expect { config.trusted_proxy_header = nil }
+        .to raise_error(ArgumentError, /must be one of/)
+    end
+
+    it 'raises FrozenError when assigned after deep_freeze!' do
+      config.deep_freeze!
+      expect { config.trusted_proxy_header = 'Forwarded' }.to raise_error(FrozenError)
+    end
+
+    it 'backstops an invalid header set via a direct ivar path at freeze' do
+      config.instance_variable_set(:@trusted_proxy_header, 'bogus') # bypass the eager setter
+      expect { config.deep_freeze! }
+        .to raise_error(ArgumentError, /must be one of/)
+    end
+
+    it 'is exposed as TRUSTED_PROXY_HEADERS' do
+      expect(Otto::Security::Config::TRUSTED_PROXY_HEADERS)
+        .to contain_exactly('X-Forwarded-For', 'Forwarded', 'Both')
+    end
+  end
+
   describe 'request size validation' do
     describe '#validate_request_size' do
       it 'accepts requests within size limit' do

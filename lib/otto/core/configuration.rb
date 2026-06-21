@@ -61,6 +61,10 @@ class Otto
         # with trusted_proxies; conflict validated at configuration freeze).
         @security_config.trusted_proxy_depth = opts[:trusted_proxy_depth] if opts[:trusted_proxy_depth]
 
+        # Select the forwarded header depth mode reads from ('X-Forwarded-For',
+        # 'Forwarded', or 'Both'). Only consulted in depth mode.
+        @security_config.trusted_proxy_header = opts[:trusted_proxy_header] if opts[:trusted_proxy_header]
+
         # Set custom security headers
         return unless opts[:security_headers]
 

@@ -37,6 +37,13 @@ class Otto
         hop count, not both.
       MSG
 
+      # Forwarded-header sources depth mode (#trusted_proxy_depth) can count
+      # hops from: X-Forwarded-For (default), the RFC 7239 Forwarded header, or
+      # Both (Forwarded when present, else X-Forwarded-For). Mirrors
+      # OneTimeSecret's site.network.trusted_proxy.header. Only consulted in
+      # depth mode; CIDR-walk is unaffected.
+      TRUSTED_PROXY_HEADERS = %w[X-Forwarded-For Forwarded Both].freeze
+
       # Error raised when CSRF protection is enabled in production without an
       # explicitly configured secret. A randomly-generated per-process secret
       # silently breaks token verification across workers and restarts, so we
@@ -56,7 +63,7 @@ class Otto
                   :trusted_proxies, :require_secure_cookies,
                   :security_headers,
                   :csp_nonce_enabled, :debug_csp, :mcp_auth,
-                  :ip_privacy_config, :trusted_proxy_depth
+                  :ip_privacy_config, :trusted_proxy_depth, :trusted_proxy_header
 
       # Initialize security configuration with safe defaults
       #
@@ -73,6 +80,7 @@ class Otto
         @trusted_proxies        = []
         @trusted_proxy_matchers = []
         @trusted_proxy_depth    = nil
+        @trusted_proxy_header   = 'X-Forwarded-For'
         @require_secure_cookies = false
         @security_headers       = default_security_headers
         @input_validation       = true
@@ -223,6 +231,24 @@ class Otto
         raise ArgumentError, PROXY_MODE_CONFLICT_MESSAGE if depth.to_i >= 1 && @trusted_proxies.any?
 
         @trusted_proxy_depth = depth
+      end
+
+      # Select which forwarded header depth mode counts hops from:
+      # 'X-Forwarded-For' (default), 'Forwarded' (RFC 7239), or 'Both'. Only
+      # consulted when depth mode is active (#trusted_proxy_depth_mode?);
+      # CIDR-walk always uses X-Forwarded-For / X-Real-IP / X-Client-IP.
+      #
+      # Validated eagerly (like #trusted_proxy_depth=) so a typo fails at
+      # assignment rather than silently resolving from the wrong header.
+      #
+      # @param header [String] one of TRUSTED_PROXY_HEADERS
+      # @raise [FrozenError] if configuration is frozen
+      # @raise [ArgumentError] if header is not a recognized value
+      def trusted_proxy_header=(header)
+        ensure_not_frozen!
+
+        validate_trusted_proxy_header!(header)
+        @trusted_proxy_header = header
       end
 
       # Validate that a request size is within acceptable limits
@@ -453,6 +479,22 @@ class Otto
         raise ArgumentError, "trusted_proxy_depth must be >= 0, got #{depth}" if depth.negative?
       end
 
+      # Validate a candidate trusted_proxy_header value against the allowed set.
+      #
+      # Shared by the eager #trusted_proxy_header= setter and the freeze-time
+      # backstop so an unrecognized header fails with a clear ArgumentError
+      # instead of silently mis-resolving the client IP at request time.
+      #
+      # @param header [Object] candidate value
+      # @raise [ArgumentError] if header is not one of TRUSTED_PROXY_HEADERS
+      # @return [void]
+      def validate_trusted_proxy_header!(header)
+        return if TRUSTED_PROXY_HEADERS.include?(header)
+
+        raise ArgumentError,
+              "trusted_proxy_header must be one of #{TRUSTED_PROXY_HEADERS.join(', ')}, got #{header.inspect}"
+      end
+
       # Validate trusted-proxy configuration coherence at freeze time.
       #
       # The eager setters (#trusted_proxy_depth=, #add_trusted_proxy) already
@@ -464,6 +506,7 @@ class Otto
       #   trusted_proxies and a depth >= 1 are configured
       # @return [void]
       def validate_trusted_proxy_config!
+        validate_trusted_proxy_header!(@trusted_proxy_header)
         validate_trusted_proxy_depth!(@trusted_proxy_depth)
         return if @trusted_proxy_depth.nil?
 

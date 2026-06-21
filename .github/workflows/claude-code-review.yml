@@ -37,6 +37,11 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
+          # Fall back to Sonnet when the primary model is unavailable/overloaded.
+          # Without this, an unavailable primary surfaces as "Claude encountered
+          # an error" and fails the claude-review check.
+          fallback_model: "claude-sonnet-4-6"
+
           # Direct prompt for automated review (no @claude mention needed)
           direct_prompt: |
             Please review this pull request and provide feedback on:

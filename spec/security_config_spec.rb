@@ -159,6 +159,50 @@ RSpec.describe Otto::Security::Config do
         expect(config.verify_csrf_token(token, session_id)).to be true
       end
 
+      describe 'production secret guard' do
+        around do |example|
+          original = ENV.fetch('RACK_ENV', nil)
+          example.run
+        ensure
+          ENV['RACK_ENV'] = original
+        end
+
+        it 'refuses to generate a token in production with a generated secret' do
+          ENV['RACK_ENV'] = 'production'
+          prod_config = described_class.new # generated per-process secret
+          prod_config.enable_csrf_protection!
+
+          expect { prod_config.generate_csrf_token('session_prod') }
+            .to raise_error(ArgumentError, /without a configured secret/)
+        end
+
+        it 'allows generation in production once a secret is configured' do
+          ENV['RACK_ENV'] = 'production'
+          prod_config = described_class.new
+          prod_config.enable_csrf_protection!
+          prod_config.csrf_secret = SecureRandom.hex(32)
+
+          expect { prod_config.generate_csrf_token('session_prod') }.not_to raise_error
+        end
+
+        it 'refuses to freeze a production config that enables CSRF without a secret' do
+          ENV['RACK_ENV'] = 'production'
+          prod_config = described_class.new
+          prod_config.enable_csrf_protection!
+
+          expect { prod_config.deep_freeze! }
+            .to raise_error(ArgumentError, /without a configured secret/)
+        end
+
+        it 'keeps the zero-config generated-secret fallback outside production' do
+          ENV['RACK_ENV'] = 'development'
+          dev_config = described_class.new
+          dev_config.enable_csrf_protection!
+
+          expect { dev_config.generate_csrf_token('session_dev') }.not_to raise_error
+        end
+      end
+
       it 'verifies valid tokens' do
         session_id = 'test_session_123'
         token = config.generate_csrf_token(session_id)

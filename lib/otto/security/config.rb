@@ -35,6 +35,16 @@ class Otto
         '(CIDR filter mode) and trusted_proxy_depth >= 1 (count mode). ' \
         'Enumerate proxy CIDRs OR set a hop count, not both.'
 
+      # Error raised when CSRF protection is enabled in production without an
+      # explicitly configured secret. A randomly-generated per-process secret
+      # silently breaks token verification across workers and restarts, so we
+      # refuse it in production rather than serve intermittently-failing tokens.
+      CSRF_SECRET_REQUIRED_MESSAGE = 'CSRF protection is enabled in production ' \
+        'without a configured secret. Set OTTO_CSRF_SECRET (or ' \
+        'config.csrf_secret=) to a stable random value (e.g. ' \
+        'SecureRandom.hex(32)); a per-process random secret is not valid ' \
+        'across workers or restarts.'
+
       attr_accessor :input_validation, :max_param_depth, :csrf_token_key, :rate_limiting_config, :csrf_session_key, :max_request_size, :max_param_keys
 
       attr_reader :csrf_protection,  :csrf_header_key,
@@ -248,6 +258,7 @@ class Otto
         binding_id = session_id.to_s
         raise ArgumentError, 'CSRF token generation requires a session binding' if binding_id.empty?
 
+        reject_generated_secret_in_production!
         warn_generated_csrf_secret
         token = SecureRandom.hex(32)
         "#{token}:#{sign_csrf_token(binding_id, token)}"
@@ -394,6 +405,7 @@ class Otto
         # Ensure custom_rules is initialized (should already be done in constructor)
         @rate_limiting_config[:custom_rules] ||= {}
         validate_trusted_proxy_config!
+        validate_csrf_secret_config!
         super
       end
 
@@ -587,6 +599,35 @@ class Otto
           'valid across workers. Set OTTO_CSRF_SECRET (or config.csrf_secret=) ' \
           'for stable CSRF tokens in multi-process deployments.'
         )
+      end
+
+      # Freeze-time backstop: refuse to finalize a production configuration that
+      # enables CSRF with a generated (non-configured) secret. Mirrors
+      # #validate_trusted_proxy_config! so the failure surfaces at boot, before
+      # serving traffic, for apps that deep-freeze their config.
+      def validate_csrf_secret_config!
+        raise ArgumentError, CSRF_SECRET_REQUIRED_MESSAGE if csrf_secret_unsafe_for_production?
+      end
+
+      # Generation-time guard for apps that never freeze their config: never
+      # mint a CSRF token signed with a generated per-process secret in
+      # production (fail loud instead of serving tokens that won't verify).
+      def reject_generated_secret_in_production!
+        raise ArgumentError, CSRF_SECRET_REQUIRED_MESSAGE if csrf_secret_unsafe_for_production?
+      end
+
+      # True when CSRF is enabled, the secret was randomly generated (not
+      # configured via OTTO_CSRF_SECRET / #csrf_secret=), and we are running in
+      # a production environment.
+      def csrf_secret_unsafe_for_production?
+        @csrf_protection && @csrf_secret_generated && production_environment?
+      end
+
+      # Whether RACK_ENV indicates a production deployment. Gated to an explicit
+      # allowlist (not "anything but dev") so test/unknown environments keep the
+      # zero-config generated-secret fallback.
+      def production_environment?
+        defined?(Otto) && Otto.respond_to?(:env?) && Otto.env?(:production, :prod)
       end
 
       # Generate CSP directives for development environment

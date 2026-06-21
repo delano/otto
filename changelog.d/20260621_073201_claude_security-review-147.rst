@@ -13,7 +13,12 @@ Security
   The secret is read from ``ENV['OTTO_CSRF_SECRET']`` (or the new
   ``config.csrf_secret=`` accessor) and falls back to a random per-process
   secret with a one-time warning — set ``OTTO_CSRF_SECRET`` so tokens stay valid
-  across workers and restarts. (otto#147)
+  across workers and restarts. In **production** (``RACK_ENV=production``)
+  enabling CSRF without a configured secret is a hard error rather than a silent
+  fallback: it raises at config finalization (``deep_freeze!``) and at token
+  generation, so a horizontally-scaled deployment fails loudly instead of
+  serving non-persistent, cross-worker-invalid tokens. Non-production
+  environments keep the zero-config generated-secret fallback. (otto#147)
 - Class-name resolution for every dynamic-dispatch path now flows through a
   single validated ``Otto::Security::ConstantResolver.safe_const_get`` that
   enforces the class-name format and a forbidden-class blocklist (``Kernel``,

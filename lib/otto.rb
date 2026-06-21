@@ -214,7 +214,15 @@ class Otto
   end
 
   class << self
-    attr_accessor :debug, :logger # rubocop:disable ThreadSafety/ClassAndModuleAttributes
+    attr_accessor :debug # rubocop:disable ThreadSafety/ClassAndModuleAttributes
+    attr_writer :logger # rubocop:disable ThreadSafety/ClassAndModuleAttributes
+
+    # Otto's logger. Never nil: falls back to a default $stdout logger so call
+    # sites can log unconditionally without defensive `&.` guards. Assign your
+    # own logger (or a null logger to silence) via `Otto.logger = ...`.
+    def logger
+      @logger ||= Logger.new($stdout, Logger::INFO)
+    end
 
     # Helper method for structured logging that works with both standard Logger and structured loggers
     def structured_log(level, message, data = {})

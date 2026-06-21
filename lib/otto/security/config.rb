@@ -31,21 +31,26 @@ class Otto
       # Error raised when the two mutually-exclusive trusted-proxy resolution
       # modes are configured together: CIDR-walk (enumerated #trusted_proxies)
       # and count-based depth (#trusted_proxy_depth >= 1).
-      PROXY_MODE_CONFLICT_MESSAGE = 'Cannot configure both trusted_proxies ' \
-        '(CIDR filter mode) and trusted_proxy_depth >= 1 (count mode). ' \
-        'Enumerate proxy CIDRs OR set a hop count, not both.'
+      PROXY_MODE_CONFLICT_MESSAGE = <<~MSG.gsub(/\s+/, ' ').strip.freeze
+        Cannot configure both trusted_proxies (CIDR filter mode) and
+        trusted_proxy_depth >= 1 (count mode). Enumerate proxy CIDRs OR set a
+        hop count, not both.
+      MSG
 
       # Error raised when CSRF protection is enabled in production without an
       # explicitly configured secret. A randomly-generated per-process secret
       # silently breaks token verification across workers and restarts, so we
       # refuse it in production rather than serve intermittently-failing tokens.
-      CSRF_SECRET_REQUIRED_MESSAGE = 'CSRF protection is enabled in production ' \
-        'without a configured secret. Set OTTO_CSRF_SECRET (or ' \
-        'config.csrf_secret=) to a stable random value (e.g. ' \
-        'SecureRandom.hex(32)); a per-process random secret is not valid ' \
-        'across workers or restarts.'
+      CSRF_SECRET_REQUIRED_MESSAGE = <<~MSG.gsub(/\s+/, ' ').strip.freeze
+        CSRF protection is enabled in production without a configured secret.
+        Set OTTO_CSRF_SECRET (or config.csrf_secret=) to a stable random value
+        (e.g. SecureRandom.hex(32)); a per-process random secret is not valid
+        across workers or restarts.
+      MSG
 
-      attr_accessor :input_validation, :max_param_depth, :csrf_token_key, :rate_limiting_config, :csrf_session_key, :max_request_size, :max_param_keys
+      attr_accessor :input_validation, :max_param_depth, :csrf_token_key,
+                    :rate_limiting_config, :csrf_session_key, :max_request_size,
+                    :max_param_keys
 
       attr_reader :csrf_protection,  :csrf_header_key,
                   :trusted_proxies, :require_secure_cookies,
@@ -77,13 +82,9 @@ class Otto
         @rate_limiting_config   = { custom_rules: {} }
         @ip_privacy_config      = Otto::Privacy::Config.new
 
-        @csrf_secret = ENV.fetch('OTTO_CSRF_SECRET', nil)
-        if @csrf_secret.nil? || @csrf_secret.empty?
-          @csrf_secret           = SecureRandom.hex(32)
-          @csrf_secret_generated = true
-        else
-          @csrf_secret_generated = false
-        end
+        configured_secret      = ENV.fetch('OTTO_CSRF_SECRET', nil)
+        @csrf_secret_generated = configured_secret.nil? || configured_secret.empty?
+        @csrf_secret           = @csrf_secret_generated ? SecureRandom.hex(32) : configured_secret
       end
 
       # Enable CSRF (Cross-Site Request Forgery) protection
@@ -97,7 +98,7 @@ class Otto
       # @return [void]
       # @raise [FrozenError] if configuration is frozen
       def enable_csrf_protection!
-        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+        ensure_not_frozen!
 
         @csrf_protection = true
       end
@@ -107,7 +108,7 @@ class Otto
       # @return [void]
       # @raise [FrozenError] if configuration is frozen
       def disable_csrf_protection!
-        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+        ensure_not_frozen!
 
         @csrf_protection = false
       end
@@ -139,7 +140,7 @@ class Otto
       # @example Add multiple proxies
       #   config.add_trusted_proxy(['10.0.0.1', '172.16.0.0/12'])
       def add_trusted_proxy(proxy)
-        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+        ensure_not_frozen!
         # CIDR-walk and count-based depth are mutually exclusive. Catch the
         # conflict eagerly here (and in #trusted_proxy_depth=) so it surfaces at
         # configuration time, not only at freeze (which the test harness skips).
@@ -217,7 +218,7 @@ class Otto
       # @raise [ArgumentError] if depth is non-integer/negative, or if
       #   trusted_proxies are already configured and depth >= 1
       def trusted_proxy_depth=(depth)
-        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+        ensure_not_frozen!
 
         validate_trusted_proxy_depth!(depth)
         raise ArgumentError, PROXY_MODE_CONFLICT_MESSAGE if depth.to_i >= 1 && @trusted_proxies.any?
@@ -245,7 +246,7 @@ class Otto
       # a stable value (e.g. ENV['OTTO_CSRF_SECRET']) in multi-process or
       # multi-host deployments so tokens stay valid across workers and restarts.
       def csrf_secret=(secret)
-        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+        ensure_not_frozen!
 
         @csrf_secret           = secret
         @csrf_secret_generated = false
@@ -290,7 +291,7 @@ class Otto
       # @return [void]
       # @raise [FrozenError] if configuration is frozen
       def enable_hsts!(max_age: 31_536_000, include_subdomains: true)
-        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+        ensure_not_frozen!
 
         hsts_value                                     = "max-age=#{max_age}"
         hsts_value                                    += '; includeSubDomains' if include_subdomains
@@ -309,7 +310,7 @@ class Otto
       # @example Custom policy
       #   config.enable_csp!("default-src 'self'; script-src 'self' 'unsafe-inline'")
       def enable_csp!(policy = "default-src 'self'")
-        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+        ensure_not_frozen!
 
         @security_headers['content-security-policy'] = policy
       end
@@ -327,7 +328,7 @@ class Otto
       # @example
       #   config.enable_csp_with_nonce!(debug: true)
       def enable_csp_with_nonce!(debug: false)
-        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+        ensure_not_frozen!
 
         @csp_nonce_enabled = true
         @debug_csp         = debug
@@ -338,7 +339,7 @@ class Otto
       # @return [void]
       # @raise [FrozenError] if configuration is frozen
       def disable_csp_nonce!
-        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+        ensure_not_frozen!
 
         @csp_nonce_enabled = false
       end
@@ -373,7 +374,7 @@ class Otto
       # @return [void]
       # @raise [FrozenError] if configuration is frozen
       def enable_frame_protection!(option = 'SAMEORIGIN')
-        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+        ensure_not_frozen!
 
         @security_headers['x-frame-options'] = option
       end
@@ -390,7 +391,7 @@ class Otto
       #     'cross-origin-opener-policy' => 'same-origin'
       #   })
       def set_custom_headers(headers)
-        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+        ensure_not_frozen!
 
         @security_headers.merge!(headers)
       end
@@ -423,6 +424,12 @@ class Otto
       end
 
       private
+
+      # Guard for mutators: refuse changes once the configuration is frozen.
+      # Centralizes the repeated frozen-check so every setter shares one message.
+      def ensure_not_frozen!
+        raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+      end
 
       # Validate a candidate trusted_proxy_depth value (type and range).
       #
@@ -494,7 +501,7 @@ class Otto
       # @param entry [String] trusted proxy entry
       # @return [void]
       def warn_legacy_proxy_entry(entry)
-        Otto.logger&.warn(
+        Otto.logger.warn(
           "[Otto::Security::Config] trusted proxy #{entry.inspect} is not a " \
           'valid IP or CIDR; using legacy string-prefix matching. Prefer a ' \
           "CIDR range (e.g. '172.16.0.0/12')."
@@ -593,12 +600,12 @@ class Otto
         return if @csrf_secret_warning_emitted
 
         @csrf_secret_warning_emitted = true
-        Otto.logger&.warn(
-          '[Otto::Security::Config] CSRF tokens are signed with a randomly ' \
-          'generated per-process secret; they will not survive restarts or be ' \
-          'valid across workers. Set OTTO_CSRF_SECRET (or config.csrf_secret=) ' \
-          'for stable CSRF tokens in multi-process deployments.'
-        )
+        Otto.logger.warn(<<~MSG.gsub(/\s+/, ' ').strip)
+          [Otto::Security::Config] CSRF tokens are signed with a randomly
+          generated per-process secret; they will not survive restarts or be
+          valid across workers. Set OTTO_CSRF_SECRET (or config.csrf_secret=)
+          for stable CSRF tokens in multi-process deployments.
+        MSG
       end
 
       # Freeze-time backstop: refuse to finalize a production configuration that

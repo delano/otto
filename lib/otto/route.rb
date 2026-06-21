@@ -53,7 +53,7 @@ class Otto
       @route_definition = Otto::RouteDefinition.new(verb, path, definition, pattern: pattern, keys: keys)
 
       # Resolve the class
-      @klass = safe_const_get(@route_definition.klass_name)
+      @klass = Otto::Security::ConstantResolver.safe_const_get(@route_definition.klass_name)
     end
 
     # Delegate common methods to route_definition for backward compatibility
@@ -171,22 +171,6 @@ class Otto
     end
 
     private
-
-    # Safely resolve a class name using Object.const_get with security validations
-    # This replaces the previous eval() usage to prevent code injection attacks.
-    #
-    # Security features:
-    # - Validates class name format (must start with capital letter)
-    # - Prevents access to dangerous system classes
-    # - Blocks relative class references (starting with ::)
-    # - Provides clear error messages for debugging
-    #
-    # @param class_name [String] The class name to resolve
-    # @return [Class] The resolved class
-    # @raise [ArgumentError] if class name is invalid, forbidden, or not found
-    def safe_const_get(class_name)
-      Otto::Security::ConstantResolver.safe_const_get(class_name)
-    end
 
     def compile(path)
       keys = []

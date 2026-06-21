@@ -56,8 +56,7 @@ class Otto
                   :trusted_proxies, :require_secure_cookies,
                   :security_headers,
                   :csp_nonce_enabled, :debug_csp, :mcp_auth,
-                  :ip_privacy_config, :trusted_proxy_depth,
-                  :csrf_secret
+                  :ip_privacy_config, :trusted_proxy_depth
 
       # Initialize security configuration with safe defaults
       #
@@ -245,6 +244,9 @@ class Otto
       # Set the server-side secret used to sign (HMAC) CSRF tokens. Set this to
       # a stable value (e.g. ENV['OTTO_CSRF_SECRET']) in multi-process or
       # multi-host deployments so tokens stay valid across workers and restarts.
+      #
+      # Write-only by design: the signing key has no public reader, so it is not
+      # exposed to inspection/logging/serialization via the config object.
       def csrf_secret=(secret)
         ensure_not_frozen!
 
@@ -273,7 +275,7 @@ class Otto
         binding_id = session_id.to_s
         return false if binding_id.empty?
 
-        token_part, signature = token.split(':')
+        token_part, signature = token.split(':', 2)
         return false if token_part.nil? || signature.nil?
 
         expected_signature = sign_csrf_token(binding_id, token_part)

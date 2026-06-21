@@ -48,9 +48,7 @@ class Otto
 
         raise ArgumentError, "Invalid class name format: #{class_name}" unless name.match?(CLASS_NAME_PATTERN)
 
-        if FORBIDDEN_CLASSES.include?(name) || name.start_with?('::')
-          raise ArgumentError, "Forbidden class name: #{class_name}"
-        end
+        raise ArgumentError, "Forbidden class name: #{class_name}" if FORBIDDEN_CLASSES.include?(name)
 
         fq_class_name = "::#{name.sub(/^::+/, '')}"
 

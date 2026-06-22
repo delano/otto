@@ -32,9 +32,14 @@ jobs:
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@beta
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # Fall back to Sonnet when the primary model is unavailable/overloaded.
+          # Without this, an unavailable primary surfaces as "Claude encountered
+          # an error" and fails the claude-review check.
+          fallback_model: "claude-sonnet-4-6"
 
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |

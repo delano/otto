@@ -39,6 +39,9 @@ class Otto
       # @param trusted_proxy_depth [Integer, nil] Count-based proxy depth ("trust
       #   the last N hops") for non-enumerable proxy tiers; mutually exclusive
       #   with trusted_proxies (validated at configuration freeze)
+      # @param trusted_proxy_header [String, nil] Forwarded header depth mode
+      #   counts hops from: 'X-Forwarded-For' (default), 'Forwarded' (RFC 7239),
+      #   or 'Both'. Only consulted in depth mode.
       # @param security_headers [Hash] Custom security headers to merge with defaults
       # @param hsts [Boolean] Enable HTTP Strict Transport Security
       # @param csp [Boolean, String] Enable Content Security Policy
@@ -62,6 +65,7 @@ class Otto
         rate_limiting: false,
         trusted_proxies: [],
         trusted_proxy_depth: nil,
+        trusted_proxy_header: nil,
         security_headers: {},
         hsts: false,
         csp: false,
@@ -74,6 +78,7 @@ class Otto
 
         Array(trusted_proxies).each { |proxy| add_trusted_proxy(proxy) }
         self.trusted_proxy_depth = trusted_proxy_depth unless trusted_proxy_depth.nil?
+        self.trusted_proxy_header = trusted_proxy_header unless trusted_proxy_header.nil?
         self.security_headers = security_headers unless security_headers.empty?
 
         enable_hsts! if hsts
@@ -140,6 +145,16 @@ class Otto
       # @param depth [Integer, nil] number of trusted hops (nil/0 disables depth mode)
       def trusted_proxy_depth=(depth)
         @security_config.trusted_proxy_depth = depth
+      end
+
+      # Select which forwarded header depth mode counts hops from:
+      # 'X-Forwarded-For' (default), 'Forwarded' (RFC 7239), or 'Both'. Only
+      # consulted when depth mode is active. Mirrors OneTimeSecret's
+      # site.network.trusted_proxy.header.
+      #
+      # @param header [String] one of Otto::Security::Config::TRUSTED_PROXY_HEADERS
+      def trusted_proxy_header=(header)
+        @security_config.trusted_proxy_header = header
       end
 
       # Set custom security headers that will be added to all responses.

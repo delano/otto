@@ -341,4 +341,158 @@ RSpec.describe Otto::Utils do
       expect(Otto::Utils.resolve_client_ip(env, cfg)).to eq("203.0.113.50")
     end
   end
+
+  describe "#resolve_client_ip in depth mode with a configurable header" do
+    def depth_config(depth, header)
+      cfg = Otto::Security::Config.new
+      cfg.trusted_proxy_depth = depth
+      cfg.trusted_proxy_header = header
+      cfg
+    end
+
+    context "header = 'Forwarded' (RFC 7239)" do
+      it "resolves the for= entry one hop from the right (depth 1)" do
+        env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_FORWARDED" => "for=203.0.113.50" }
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("203.0.113.50")
+      end
+
+      it "trusts two hops through an intermediate proxy (depth 2)" do
+        env = {
+          "REMOTE_ADDR" => "10.0.0.1",
+          "HTTP_FORWARDED" => "for=203.0.113.50, for=10.0.0.9",
+        }
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(2, "Forwarded"))).to eq("203.0.113.50")
+      end
+
+      it "unwraps a quoted IPv6 for= with brackets and port" do
+        env = {
+          "REMOTE_ADDR" => "2001:db8::1",
+          "HTTP_FORWARDED" => 'for="[2606:4700:4700::1111]:443"',
+        }
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("2606:4700:4700::1111")
+      end
+
+      it "ignores other params and is case-insensitive about the for= key" do
+        env = {
+          "REMOTE_ADDR" => "10.0.0.1",
+          "HTTP_FORWARDED" => "For=203.0.113.50;proto=https;by=10.0.0.1",
+        }
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("203.0.113.50")
+      end
+
+      it "does not truncate a quoted for= whose value contains a semicolon" do
+        # The ';' is inside the DQUOTEs, so the value is '203.0.113.50;ext' — not
+        # a valid IP. It must fall back to REMOTE_ADDR, not be truncated to a
+        # valid-looking '203.0.113.50'.
+        env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_FORWARDED" => 'for="203.0.113.50;ext"' }
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("10.0.0.1")
+      end
+
+      it "parses a real ;-separated param following a quoted for=" do
+        env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_FORWARDED" => 'for="203.0.113.50";proto=https' }
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("203.0.113.50")
+      end
+
+      it "rejects a single-quoted for= value (RFC 7239 uses DQUOTE only)" do
+        # Single quotes are not RFC 7239 quoted-string syntax, so the quotes stay
+        # on the value, which fails normalize_ip → REMOTE_ADDR. Deliberately
+        # stricter than OTS (which strips both ['"]).
+        env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_FORWARDED" => "for='203.0.113.50'" }
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("10.0.0.1")
+      end
+
+      it "ignores a forged leftmost entry (padding-robust, counts from right)" do
+        env = {
+          "REMOTE_ADDR" => "10.0.0.1",
+          "HTTP_FORWARDED" => "for=9.9.9.9, for=203.0.113.50",
+        }
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("203.0.113.50")
+      end
+
+      it "counts elements without a for= as raw positions (no index shift)" do
+        env = {
+          "REMOTE_ADDR" => "10.0.0.1",
+          "HTTP_FORWARDED" => "proto=https, for=203.0.113.50",
+        }
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("203.0.113.50")
+      end
+
+      it "falls back to REMOTE_ADDR when the selected entry is obfuscated/unknown" do
+        env = {
+          "REMOTE_ADDR" => "10.0.0.1",
+          "HTTP_FORWARDED" => "for=203.0.113.50, for=_hidden",
+        }
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("10.0.0.1")
+      end
+
+      it "falls back to REMOTE_ADDR on a short chain" do
+        env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_FORWARDED" => "for=203.0.113.50" }
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(2, "Forwarded"))).to eq("10.0.0.1")
+      end
+
+      it "falls back to REMOTE_ADDR when the Forwarded header is absent" do
+        env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_FORWARDED_FOR" => "203.0.113.50" }
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("10.0.0.1")
+      end
+
+      it "ignores X-Forwarded-For entirely (Forwarded only)" do
+        env = {
+          "REMOTE_ADDR" => "10.0.0.1",
+          "HTTP_FORWARDED" => "for=203.0.113.50",
+          "HTTP_X_FORWARDED_FOR" => "9.9.9.9",
+        }
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("203.0.113.50")
+      end
+    end
+
+    context "header = 'Both'" do
+      it "prefers the Forwarded header when it carries a for=" do
+        env = {
+          "REMOTE_ADDR" => "10.0.0.1",
+          "HTTP_FORWARDED" => "for=203.0.113.50",
+          "HTTP_X_FORWARDED_FOR" => "9.9.9.9, 8.8.8.8",
+        }
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Both"))).to eq("203.0.113.50")
+      end
+
+      it "falls back to X-Forwarded-For when Forwarded is absent" do
+        env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_FORWARDED_FOR" => "203.0.113.50" }
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Both"))).to eq("203.0.113.50")
+      end
+
+      it "falls back to X-Forwarded-For when Forwarded has no for= param" do
+        env = {
+          "REMOTE_ADDR" => "10.0.0.1",
+          "HTTP_FORWARDED" => "proto=https",
+          "HTTP_X_FORWARDED_FOR" => "203.0.113.50",
+        }
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Both"))).to eq("203.0.113.50")
+      end
+
+      it "does not merge chains: a present Forwarded shadows X-Forwarded-For" do
+        # depth 2 against Forwarded alone (1 hop + peer) is a short chain → peer,
+        # proving XFF was not appended to extend the Forwarded chain.
+        env = {
+          "REMOTE_ADDR" => "10.0.0.1",
+          "HTTP_FORWARDED" => "for=203.0.113.50",
+          "HTTP_X_FORWARDED_FOR" => "198.51.100.7, 198.51.100.8",
+        }
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(2, "Both"))).to eq("10.0.0.1")
+      end
+    end
+
+    it "defaults to X-Forwarded-For when no header is configured" do
+      cfg = Otto::Security::Config.new
+      cfg.trusted_proxy_depth = 1
+      env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_FORWARDED_FOR" => "203.0.113.50" }
+      expect(Otto::Utils.resolve_client_ip(env, cfg)).to eq("203.0.113.50")
+    end
+
+    it "resolves from the Forwarded header when configured case-insensitively" do
+      # 'forwarded' is canonicalized to 'Forwarded' at assignment, so the
+      # resolver still reads the RFC 7239 header.
+      env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_FORWARDED" => "for=203.0.113.50" }
+      expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "forwarded"))).to eq("203.0.113.50")
+    end
+  end
 end

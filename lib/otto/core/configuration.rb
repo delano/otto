@@ -59,7 +59,15 @@ class Otto
 
         # Set count-based trusted-proxy depth if provided (mutually exclusive
         # with trusted_proxies; conflict validated at configuration freeze).
-        @security_config.trusted_proxy_depth = opts[:trusted_proxy_depth] if opts[:trusted_proxy_depth]
+        # Guard on presence (`unless nil?`), not truthiness, so an explicitly
+        # provided invalid value (e.g. `false`) reaches the validating setter
+        # and fails loud instead of being silently dropped.
+        @security_config.trusted_proxy_depth = opts[:trusted_proxy_depth] unless opts[:trusted_proxy_depth].nil?
+
+        # Select the forwarded header depth mode reads from ('X-Forwarded-For',
+        # 'Forwarded', or 'Both'). Only consulted in depth mode. Same presence
+        # guard: a provided-but-invalid value is validated, not ignored.
+        @security_config.trusted_proxy_header = opts[:trusted_proxy_header] unless opts[:trusted_proxy_header].nil?
 
         # Set custom security headers
         return unless opts[:security_headers]

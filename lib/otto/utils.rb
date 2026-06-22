@@ -143,43 +143,122 @@ class Otto
     # from the right of the forwarded chain (Express `trust proxy = N`). Used
     # when the proxy tier's addresses cannot be enumerated as CIDRs.
     #
-    # The chain is X-Forwarded-For (leftmost = client .. rightmost = nearest
-    # proxy) plus REMOTE_ADDR (the direct peer). With depth N the client is
-    # chain[-(N+1)] — exactly N trusted hops from the right, equivalent to
-    # Express's addrs[N]. This is robust to X-Forwarded-For padding: a forged
-    # leftmost entry is never reached.
+    # The chain is the configured forwarded header (leftmost = client ..
+    # rightmost = nearest proxy) plus REMOTE_ADDR (the direct peer). With depth
+    # N the client is chain[-(N+1)] — exactly N trusted hops from the right,
+    # equivalent to Express's addrs[N]. This is robust to forwarded-header
+    # padding: a forged leftmost entry is never reached.
     #
     # SECURITY: depth trust ASSUMES ORIGIN LOCKDOWN — the app must be
     # unreachable except through the proxy tier. Without it, a direct client
-    # could pad X-Forwarded-For to land a forged value at the target index.
+    # could pad the forwarded header to land a forged value at the target index.
     # This is the inherent trade vs CIDR-walk (a fixed hop count instead of
     # enumerable proxy addresses).
     #
-    # Only X-Forwarded-For is consulted; X-Real-IP / X-Client-IP are
-    # single-value and cannot express a hop chain. Positions are counted raw
-    # (never dropped), so junk padding cannot shift the index; only the
-    # selected entry is validated. If the chain is shorter than N+1 (a request
-    # that may have bypassed the proxy tier) or the selected entry is invalid,
-    # REMOTE_ADDR is returned rather than a spoofable forwarded value.
+    # The forwarded chain is selected by security_config.trusted_proxy_header:
+    # 'X-Forwarded-For' (default), 'Forwarded' (RFC 7239), or 'Both' (RFC 7239
+    # when it carries a `for=`, otherwise X-Forwarded-For — mirrors
+    # OneTimeSecret's site.network.trusted_proxy.header). X-Real-IP / X-Client-IP
+    # are single-value and cannot express a hop chain, so they are never
+    # consulted in depth mode. Positions are counted raw (never dropped), so junk
+    # padding cannot shift the index; only the selected entry is validated. If
+    # the chain is shorter than N+1 (a request that may have bypassed the proxy
+    # tier) or the selected entry is invalid, REMOTE_ADDR is returned rather than
+    # a spoofable forwarded value.
     #
     # @param env [Hash] Rack environment
-    # @param security_config [Otto::Security::Config] config exposing #trusted_proxy_depth
+    # @param security_config [Otto::Security::Config] config exposing #trusted_proxy_depth and #trusted_proxy_header
     # @return [String, nil] resolved client IP (REMOTE_ADDR on short chain / invalid target)
     def resolve_client_ip_by_depth(env, security_config)
       remote_addr = env['REMOTE_ADDR']
       depth       = security_config.trusted_proxy_depth.to_i
 
-      # Split on commas keeping every position (-1 preserves trailing empty
-      # fields) so a malformed hop still counts as a position. The client must
-      # be located by counting from the right; dropping entries here would let
-      # padding shift the index.
-      forwarded = env['HTTP_X_FORWARDED_FOR'].to_s.split(',', -1)
+      # Build the positional hop chain from the configured header, keeping every
+      # position (junk/empty entries included) so the client can be located by
+      # counting from the right; dropping entries would let padding shift the
+      # index. REMOTE_ADDR (the direct peer) is the rightmost hop.
+      forwarded = forwarded_chain_for_depth(env, security_config.trusted_proxy_header)
       chain     = forwarded + [remote_addr]
 
       index = chain.length - (depth + 1)
       return remote_addr if index.negative? # chain shorter than depth + 1
 
       normalize_ip(chain[index].to_s.strip) || remote_addr
+    end
+
+    # Positional forwarded-hop chain for depth resolution, selected by header
+    # mode. Each element is one hop (preserving count); values are raw — only the
+    # finally-selected entry is normalized. Mirrors OneTimeSecret's
+    # site.network.trusted_proxy.header semantics.
+    #
+    # @param env [Hash] Rack environment
+    # @param header_mode [String] 'X-Forwarded-For', 'Forwarded', or 'Both'
+    # @return [Array<String>] one entry per hop (may include blank/invalid entries)
+    def forwarded_chain_for_depth(env, header_mode)
+      case header_mode
+      when 'Forwarded'
+        rfc7239_for_chain(env['HTTP_FORWARDED'])
+      when 'Both'
+        # RFC 7239 wins when it carries at least one `for=`; otherwise fall back
+        # to X-Forwarded-For. The chains are NOT merged (matches OTS's
+        # `extract_rfc7239_forwarded(env) || extract_x_forwarded_for(env)`).
+        forwarded = rfc7239_for_chain(env['HTTP_FORWARDED'])
+        forwarded.any? { |entry| !entry.empty? } ? forwarded : xff_chain(env['HTTP_X_FORWARDED_FOR'])
+      else
+        xff_chain(env['HTTP_X_FORWARDED_FOR'])
+      end
+    end
+
+    # Split X-Forwarded-For into raw positional entries. `-1` keeps trailing
+    # empty fields so a malformed/empty hop still counts as a position.
+    #
+    # @param value [String, nil] raw X-Forwarded-For header value
+    # @return [Array<String>]
+    def xff_chain(value)
+      value.to_s.split(',', -1)
+    end
+
+    # Extract the per-hop `for=` chain from an RFC 7239 Forwarded header,
+    # preserving one position per forwarded-element. Elements without a `for=`
+    # parameter yield a blank placeholder so they still occupy a hop position
+    # (raw position counting). The extracted token is only unquoted here; port
+    # and IPv6 brackets are left for normalize_ip when the entry is selected.
+    # Obfuscated (`for=_hidden`) and `for=unknown` identifiers are preserved as
+    # positions but normalize to nil (→ REMOTE_ADDR fallback if selected).
+    # Commas separate forwarded-elements (and join multiple Forwarded headers).
+    # A nil/blank header splits to [] (not ['']), so an absent Forwarded header
+    # yields an empty chain and depth's explicit short-chain guard returns
+    # REMOTE_ADDR — symmetric with xff_chain.
+    #
+    # @param value [String, nil] raw Forwarded header value
+    # @return [Array<String>] one `for=` token per forwarded-element
+    def rfc7239_for_chain(value)
+      value.to_s.split(',', -1).map { |element| rfc7239_for_value(element) }
+    end
+
+    # Pull the `for=` token out of a single RFC 7239 forwarded-element. The value
+    # is a quoted-string (which may itself legally contain ';') or an unquoted
+    # token ending at the next ';'. The quoted form is matched first so a ';'
+    # inside DQUOTEs is NOT treated as a parameter separator — otherwise a value
+    # like for="1.2.3.4;junk" would be truncated to a valid-looking IP instead of
+    # being rejected. Only DQUOTE wrappers are stripped: RFC 7239 quoted-strings
+    # use DQUOTE exclusively, so a value like for='1.2.3.4' keeps its quotes,
+    # fails normalize_ip, and safely falls back to REMOTE_ADDR rather than being
+    # permissively accepted. This is deliberately stricter than OTS (which strips
+    # both ['"]), consistent with depth's other intentionally-not-reconciled-down
+    # safety properties. The raw value (port / IPv6 brackets intact) is left for
+    # normalize_ip when the entry is selected. Returns '' when the element carries
+    # no `for=` parameter, preserving the hop position. The `for=` pair may be the
+    # element's first pair or follow a ';'; leading whitespace (e.g. after a comma
+    # split) is tolerated.
+    #
+    # @param element [String] one forwarded-element (e.g. 'for=1.2.3.4;proto=https')
+    # @return [String]
+    def rfc7239_for_value(element)
+      match = element.match(/(?:\A|;)\s*for=(?:"([^"]*)"|([^;]+))/i)
+      return '' unless match
+
+      (match[1] || match[2]).strip
     end
 
     # Whether an address is non-public: RFC1918 private, loopback, link-local,

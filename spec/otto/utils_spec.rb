@@ -393,6 +393,11 @@ RSpec.describe Otto::Utils do
         expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("203.0.113.50")
       end
 
+      it "strips a single-quoted for= value (non-RFC, accepted for OTS parity)" do
+        env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_FORWARDED" => "for='203.0.113.50'" }
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("203.0.113.50")
+      end
+
       it "ignores a forged leftmost entry (padding-robust, counts from right)" do
         env = {
           "REMOTE_ADDR" => "10.0.0.1",

@@ -234,24 +234,25 @@ class Otto
     end
 
     # Pull the `for=` token out of a single RFC 7239 forwarded-element. The value
-    # is either a quoted-string (which may itself legally contain ';') or an
-    # unquoted token ending at the next ';'. The quoted form is matched first so
-    # a ';' inside DQUOTEs is NOT treated as a parameter separator — otherwise a
-    # quoted value like for="1.2.3.4;junk" would be truncated to a valid-looking
-    # IP instead of being rejected. The surrounding DQUOTEs are stripped; the
-    # raw value (port / IPv6 brackets intact) is left for normalize_ip when the
-    # entry is selected. Returns '' when the element carries no `for=` parameter,
-    # preserving the hop position. The `for=` pair may be the element's first
-    # pair or follow a ';'; leading whitespace (e.g. after a comma split) is
-    # tolerated.
+    # is a quoted-string (which may itself legally contain ';') or an unquoted
+    # token ending at the next ';'. The quoted form is matched first so a ';'
+    # inside quotes is NOT treated as a parameter separator — otherwise a value
+    # like for="1.2.3.4;junk" would be truncated to a valid-looking IP instead of
+    # being rejected. Both DQUOTE and — non-RFC, but accepted for parity with
+    # OneTimeSecret's resolver — single-quote wrappers are stripped; the raw
+    # value (port / IPv6 brackets intact) is left for normalize_ip when the entry
+    # is selected, so a stripped value that is not a valid IP is still rejected.
+    # Returns '' when the element carries no `for=` parameter, preserving the hop
+    # position. The `for=` pair may be the element's first pair or follow a ';';
+    # leading whitespace (e.g. after a comma split) is tolerated.
     #
     # @param element [String] one forwarded-element (e.g. 'for=1.2.3.4;proto=https')
     # @return [String]
     def rfc7239_for_value(element)
-      match = element.match(/(?:\A|;)\s*for=(?:"([^"]*)"|([^;]*))/i)
+      match = element.match(/(?:\A|;)\s*for=(?:"([^"]*)"|'([^']*)'|([^;]+))/i)
       return '' unless match
 
-      (match[1] || match[2]).to_s.strip
+      (match[1] || match[2] || match[3]).strip
     end
 
     # Whether an address is non-public: RFC1918 private, loopback, link-local,

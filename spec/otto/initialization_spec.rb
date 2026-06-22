@@ -131,6 +131,30 @@ RSpec.describe Otto, 'initialization' do
     end
   end
 
+  context 'with trusted-proxy depth-header options' do
+    let(:routes_file) { create_test_routes_file('test_routes_depth.txt', test_routes) }
+
+    it 'wires trusted_proxy_header through Otto.new' do
+      otto = described_class.new(routes_file, trusted_proxy_depth: 1, trusted_proxy_header: 'Forwarded')
+      expect(otto.security_config.trusted_proxy_header).to eq('Forwarded')
+    end
+
+    it 'canonicalizes a case-insensitive trusted_proxy_header from Otto.new' do
+      otto = described_class.new(routes_file, trusted_proxy_depth: 1, trusted_proxy_header: 'both')
+      expect(otto.security_config.trusted_proxy_header).to eq('Both')
+    end
+
+    it 'fails loud on an invalid trusted_proxy_header rather than silently ignoring it' do
+      expect { described_class.new(routes_file, trusted_proxy_depth: 1, trusted_proxy_header: false) }
+        .to raise_error(ArgumentError, /must be one of/)
+    end
+
+    it 'fails loud on an invalid trusted_proxy_depth rather than silently ignoring it' do
+      expect { described_class.new(routes_file, trusted_proxy_depth: false) }
+        .to raise_error(ArgumentError, /must be an Integer/)
+    end
+  end
+
   describe 'configuration isolation' do
     it 'maintains separate configurations between instances' do
       otto1 = Otto.new(nil, csrf_protection: true, security_headers: { 'strict-transport-security' => 'max-age=31536000; includeSubDomains' })

@@ -233,19 +233,25 @@ class Otto
       value.to_s.split(',', -1).map { |element| rfc7239_for_value(element) }
     end
 
-    # Pull the `for=` token out of a single RFC 7239 forwarded-element, unquoting
-    # a surrounding DQUOTE. Returns '' when the element carries no `for=`
-    # parameter, preserving the hop position.
+    # Pull the `for=` token out of a single RFC 7239 forwarded-element. The value
+    # is either a quoted-string (which may itself legally contain ';') or an
+    # unquoted token ending at the next ';'. The quoted form is matched first so
+    # a ';' inside DQUOTEs is NOT treated as a parameter separator — otherwise a
+    # quoted value like for="1.2.3.4;junk" would be truncated to a valid-looking
+    # IP instead of being rejected. The surrounding DQUOTEs are stripped; the
+    # raw value (port / IPv6 brackets intact) is left for normalize_ip when the
+    # entry is selected. Returns '' when the element carries no `for=` parameter,
+    # preserving the hop position. The `for=` pair may be the element's first
+    # pair or follow a ';'; leading whitespace (e.g. after a comma split) is
+    # tolerated.
     #
     # @param element [String] one forwarded-element (e.g. 'for=1.2.3.4;proto=https')
     # @return [String]
     def rfc7239_for_value(element)
-      element.split(';').each do |param|
-        next unless (match = param.strip.match(/\Afor=(.+)\z/i))
+      match = element.match(/(?:\A|;)\s*for=(?:"([^"]*)"|([^;]*))/i)
+      return '' unless match
 
-        return match[1].strip.gsub(/\A["']|["']\z/, '')
-      end
-      ''
+      (match[1] || match[2]).to_s.strip
     end
 
     # Whether an address is non-public: RFC1918 private, loopback, link-local,

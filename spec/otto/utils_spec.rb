@@ -380,6 +380,19 @@ RSpec.describe Otto::Utils do
         expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("203.0.113.50")
       end
 
+      it "does not truncate a quoted for= whose value contains a semicolon" do
+        # The ';' is inside the DQUOTEs, so the value is '203.0.113.50;ext' — not
+        # a valid IP. It must fall back to REMOTE_ADDR, not be truncated to a
+        # valid-looking '203.0.113.50'.
+        env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_FORWARDED" => 'for="203.0.113.50;ext"' }
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("10.0.0.1")
+      end
+
+      it "parses a real ;-separated param following a quoted for=" do
+        env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_FORWARDED" => 'for="203.0.113.50";proto=https' }
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("203.0.113.50")
+      end
+
       it "ignores a forged leftmost entry (padding-robust, counts from right)" do
         env = {
           "REMOTE_ADDR" => "10.0.0.1",

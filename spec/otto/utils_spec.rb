@@ -466,5 +466,12 @@ RSpec.describe Otto::Utils do
       env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_FORWARDED_FOR" => "203.0.113.50" }
       expect(Otto::Utils.resolve_client_ip(env, cfg)).to eq("203.0.113.50")
     end
+
+    it "resolves from the Forwarded header when configured case-insensitively" do
+      # 'forwarded' is canonicalized to 'Forwarded' at assignment, so the
+      # resolver still reads the RFC 7239 header.
+      env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_FORWARDED" => "for=203.0.113.50" }
+      expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "forwarded"))).to eq("203.0.113.50")
+    end
   end
 end

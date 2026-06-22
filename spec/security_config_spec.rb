@@ -435,6 +435,22 @@ RSpec.describe Otto::Security::Config do
       end
     end
 
+    it 'matches case-insensitively and canonicalizes the stored spelling' do
+      {
+        'forwarded' => 'Forwarded',
+        'BOTH' => 'Both',
+        'x-forwarded-for' => 'X-Forwarded-For',
+      }.each do |input, canonical|
+        config.trusted_proxy_header = input
+        expect(config.trusted_proxy_header).to eq(canonical)
+      end
+    end
+
+    it 'ignores surrounding whitespace when canonicalizing' do
+      config.trusted_proxy_header = '  Both  '
+      expect(config.trusted_proxy_header).to eq('Both')
+    end
+
     it 'rejects an unrecognized header at assignment' do
       expect { config.trusted_proxy_header = 'X-Real-IP' }
         .to raise_error(ArgumentError, /must be one of/)

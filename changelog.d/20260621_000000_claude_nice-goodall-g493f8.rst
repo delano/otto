@@ -10,12 +10,16 @@ Added
   ``trusted_proxy_header`` option of ``Otto.new`` / ``configure_security``. The
   RFC 7239 parser reads each forwarded-element's ``for=`` case-insensitively,
   unquotes it, and handles quoted IPv6 with a port, obfuscated / ``unknown``
-  identifiers, and multiple/comma-joined ``Forwarded`` values. Depth's safety
-  properties are preserved across all modes: raw position counting (junk cannot
-  shift the index), short-chain → ``REMOTE_ADDR`` fallback, and the single-value
-  ``X-Real-IP`` / ``X-Client-IP`` headers still ignored. This reaches parity with
-  OneTimeSecret's ``site.network.trusted_proxy.header`` so the downstream depth
-  path can be deleted. (delano/otto#150, onetimesecret#3436)
+  identifiers, and multiple/comma-joined ``Forwarded`` values. The
+  ``trusted_proxy_header`` value itself is matched case-insensitively (whitespace
+  ignored) and stored canonicalized, so a hand-edited ``forwarded`` / ``both``
+  works; a genuinely unrecognized value raises ``ArgumentError`` at assignment
+  rather than silently resolving from a default header, surfacing typos at config
+  time. Depth's safety properties are preserved across all modes: raw position
+  counting (junk cannot shift the index), short-chain → ``REMOTE_ADDR`` fallback,
+  and the single-value ``X-Real-IP`` / ``X-Client-IP`` headers still ignored. This
+  reaches parity with OneTimeSecret's ``site.network.trusted_proxy.header`` so the
+  downstream depth path can be deleted. (delano/otto#150, onetimesecret#3436)
 
 AI Assistance
 -------------

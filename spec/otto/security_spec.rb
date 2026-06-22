@@ -140,5 +140,13 @@ RSpec.describe Otto, 'security features' do
         expect(otto.security_config.trusted_proxies).to include('172.16.')
       end
     end
+
+    describe 'depth-mode configuration' do
+      it 'raises ArgumentError when passed an invalid trusted_proxy_header via options' do
+        expect {
+          Otto.new(nil, trusted_proxy_depth: 1, trusted_proxy_header: false)
+        }.to raise_error(ArgumentError, /trusted_proxy_header must be one of/)
+      end
+    end
   end
 end

@@ -238,17 +238,20 @@ class Otto
       # consulted when depth mode is active (#trusted_proxy_depth_mode?);
       # CIDR-walk always uses X-Forwarded-For / X-Real-IP / X-Client-IP.
       #
-      # Validated eagerly (like #trusted_proxy_depth=) so a typo fails at
-      # assignment rather than silently resolving from the wrong header.
+      # The value is matched case-insensitively (surrounding whitespace ignored)
+      # and stored in its canonical spelling, so a hand-edited config can write
+      # `forwarded` or `both` without surprise. A genuinely unrecognized value
+      # fails loud at assignment (rather than silently resolving from the wrong
+      # header, the way a permissive default would), so a typo surfaces at config
+      # time instead of as subtly-wrong client IPs at request time.
       #
-      # @param header [String] one of TRUSTED_PROXY_HEADERS
+      # @param header [String] one of TRUSTED_PROXY_HEADERS (case-insensitive)
       # @raise [FrozenError] if configuration is frozen
       # @raise [ArgumentError] if header is not a recognized value
       def trusted_proxy_header=(header)
         ensure_not_frozen!
 
-        validate_trusted_proxy_header!(header)
-        @trusted_proxy_header = header
+        @trusted_proxy_header = canonicalize_trusted_proxy_header(header)
       end
 
       # Validate that a request size is within acceptable limits
@@ -479,11 +482,31 @@ class Otto
         raise ArgumentError, "trusted_proxy_depth must be >= 0, got #{depth}" if depth.negative?
       end
 
-      # Validate a candidate trusted_proxy_header value against the allowed set.
+      # Canonicalize a candidate trusted_proxy_header value: match it
+      # case-insensitively (ignoring surrounding whitespace) against the
+      # recognized set and return the canonical spelling. Liberal in the spelling
+      # it accepts (e.g. 'forwarded' => 'Forwarded') but fail-loud on a genuinely
+      # unrecognized value, so a typo is caught at config time rather than
+      # silently resolving the client IP from the wrong header.
       #
-      # Shared by the eager #trusted_proxy_header= setter and the freeze-time
-      # backstop so an unrecognized header fails with a clear ArgumentError
-      # instead of silently mis-resolving the client IP at request time.
+      # @param header [Object] candidate value
+      # @raise [ArgumentError] if header is not one of TRUSTED_PROXY_HEADERS
+      # @return [String] the canonical header value
+      def canonicalize_trusted_proxy_header(header)
+        candidate = header.to_s.strip
+        canonical = TRUSTED_PROXY_HEADERS.find { |allowed| allowed.casecmp?(candidate) }
+        return canonical if canonical
+
+        raise ArgumentError,
+              "trusted_proxy_header must be one of #{TRUSTED_PROXY_HEADERS.join(', ')}, got #{header.inspect}"
+      end
+
+      # Strictly validate a stored trusted_proxy_header value against the allowed
+      # set. The eager #trusted_proxy_header= setter already canonicalizes, so by
+      # freeze time the value is canonical; this freeze-time backstop catches a
+      # value smuggled in through a direct-ivar path that bypassed the setter,
+      # failing loud rather than silently mis-resolving the client IP at request
+      # time.
       #
       # @param header [Object] candidate value
       # @raise [ArgumentError] if header is not one of TRUSTED_PROXY_HEADERS

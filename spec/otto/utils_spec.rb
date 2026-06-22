@@ -393,9 +393,12 @@ RSpec.describe Otto::Utils do
         expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("203.0.113.50")
       end
 
-      it "strips a single-quoted for= value (non-RFC, accepted for OTS parity)" do
+      it "rejects a single-quoted for= value (RFC 7239 uses DQUOTE only)" do
+        # Single quotes are not RFC 7239 quoted-string syntax, so the quotes stay
+        # on the value, which fails normalize_ip → REMOTE_ADDR. Deliberately
+        # stricter than OTS (which strips both ['"]).
         env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_FORWARDED" => "for='203.0.113.50'" }
-        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("203.0.113.50")
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("10.0.0.1")
       end
 
       it "ignores a forged leftmost entry (padding-robust, counts from right)" do

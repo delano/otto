@@ -114,6 +114,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
+    # `rake` lives in the optional :development group (see Gemfile), so a plain
+    # `bundle install` skips it and rubygems/release-gem's `bundle exec rake
+    # release` dies with "rake is not currently included in the bundle". Opt the
+    # group in for the whole job: setup-ruby's cached `bundle install` reads
+    # BUNDLE_WITH so rake is installed, and the release step's `bundle exec`
+    # reads it too so rake stays in the resolved bundle. This mirrors the
+    # `bundle config set --local with` that ci.yml uses for the same groups.
+    env:
+      BUNDLE_WITH: development
+
     environment:
       name: rubygems.org
       url: https://rubygems.org/gems/otto

@@ -32,6 +32,13 @@ jobs:
     timeout-minutes: 10
     runs-on: ubuntu-latest
     name: Generate YARD Documentation
+    env:
+      # otto declares yard/kramdown in a `group :development` whose name also
+      # appears in an `optional: true` block, so Bundler treats `development`
+      # as optional and the default `bundle install` skips it (yard never
+      # installs -> `bundle exec yard` is "command not found"). Mirror otto's
+      # ci.yml convention so setup-ruby installs the dev/test gems.
+      BUNDLE_WITH: "development:test"
 
     steps:
       - name: Checkout repository

@@ -4,6 +4,16 @@ on:
   pull_request:
     types: [opened, synchronize, labeled]
   workflow_dispatch:
+    inputs:
+      model:
+        description: "Claude model for this run (overrides the CLAUDE_MODEL repo variable)"
+        type: choice
+        required: false
+        default: claude-opus-4-6
+        options:
+          - claude-opus-4-6
+          - claude-sonnet-4-6
+          - claude-haiku-4-5-20251001
 
 jobs:
   claude-review:
@@ -37,10 +47,12 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
-          # Fall back to Sonnet when the primary model is unavailable/overloaded.
-          # Without this, an unavailable primary surfaces as "Claude encountered
-          # an error" and fails the claude-review check.
-          fallback_model: "claude-sonnet-4-6"
+          # Primary model precedence: the workflow_dispatch "model" input (manual
+          # runs) -> the CLAUDE_MODEL repo variable -> this built-in default.
+          # Pinning a current id avoids the action's frozen default, which 404s
+          # ("model: claude-sonnet-4-20250514"). Fall back to Sonnet on overload.
+          model: "${{ inputs.model || vars.CLAUDE_MODEL || 'claude-opus-4-6' }}"
+          fallback_model: "${{ vars.CLAUDE_FALLBACK_MODEL || 'claude-sonnet-4-6' }}"
 
           # Direct prompt for automated review (no @claude mention needed)
           direct_prompt: |

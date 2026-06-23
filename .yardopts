@@ -1,0 +1,15 @@
+--readme README.md
+--title "Otto Ruby Library Documentation"
+--protected
+--no-private
+--markup markdown
+--markup-provider kramdown
+--output-dir doc
+--exclude lib/otto/version.rb
+lib/**/*.rb
+-
+README.md
+CHANGELOG.rst
+LICENSE.txt
+docs/**/*.md
+examples/*.rb

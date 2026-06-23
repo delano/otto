@@ -36,4 +36,6 @@ group :development do
   gem 'stackprof', require: false
   gem 'syntax_tree', require: false
   gem 'tryouts', '~> 3.7.1', require: false
+  gem 'yard', '~> 0.9', require: false # API docs for yardoc.yml
+  gem 'kramdown', require: false # Markdown provider for YARD
 end

@@ -199,6 +199,14 @@ class Otto
         # @param env [Hash] Rack environment
         # @param masked_ip [String] The masked IP to use as replacement
         def mask_forwarded_headers(env, masked_ip)
+          # Defensive: never write a nil replacement into these CGI-style headers
+          # (the Rack SPEC requires String values; a nil trips Rack::Lint — see
+          # issue #167). apply_privacy's early "no client IP" guard already
+          # guarantees a non-nil masked_ip here, but keep this method
+          # self-contained so a future caller change can't reintroduce a
+          # present-but-nil HTTP_X_FORWARDED_FOR.
+          return if masked_ip.nil?
+
           # Replace X-Forwarded-For with masked IP
           # This prevents Rack::Request#ip from finding the real IP
           env['HTTP_X_FORWARDED_FOR'] = masked_ip if env['HTTP_X_FORWARDED_FOR']

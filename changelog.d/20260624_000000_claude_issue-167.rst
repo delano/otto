@@ -1,0 +1,22 @@
+Fixed
+-----
+
+- ``IPPrivacyMiddleware`` no longer writes ``nil`` to CGI-style Rack env keys
+  when redacting request data. Assigning ``nil`` to a period-less key (e.g.
+  ``HTTP_REFERER``, ``HTTP_USER_AGENT``, ``REMOTE_ADDR``) violates the Rack SPEC
+  and trips ``Rack::Lint`` (commonly enabled in development). When the
+  anonymized ``Referer`` / ``User-Agent`` is empty the key is now deleted
+  instead of set to ``nil`` — semantically identical to "cleared", and
+  marginally more private since an absent header is indistinguishable from one
+  never sent. A request with no resolvable client IP (absent or blank
+  ``REMOTE_ADDR``) is also no longer rewritten to a present-but-``nil``
+  ``REMOTE_ADDR``; masking is skipped, leaving the value untouched.
+  (delano/otto#167)
+
+AI Assistance
+-------------
+
+- Diagnosed the Rack SPEC violation and, after fixing the reported
+  ``Referer`` / ``User-Agent`` case, swept the middleware for sibling
+  ``nil``-into-CGI-key bugs — surfacing and fixing the ``REMOTE_ADDR`` masking
+  path — with AI assistance, including ``Rack::Lint`` integration test coverage.

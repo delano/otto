@@ -85,6 +85,27 @@ class Otto
 
           Otto.logger.debug "[IPPrivacyMiddleware] Resolved client IP: #{client_ip}" if Otto.debug
 
+          # No resolvable client IP (REMOTE_ADDR absent or blank, and no trusted
+          # forwarded value). There is nothing to mask, and masking would derive
+          # a nil masked IP (IPPrivacy.mask_ip returns nil for nil/empty input).
+          # Writing that nil back to REMOTE_ADDR / forwarded headers would leave
+          # present-but-nil CGI keys, which violate the Rack SPEC and trip
+          # Rack::Lint — the same class of bug as the User-Agent/Referer case
+          # below (issue #167). Skip the IP-masking work, leaving REMOTE_ADDR
+          # untouched (an absent key stays absent; an empty string stays an
+          # empty string).
+          #
+          # The User-Agent/Referer redaction, however, is independent of the
+          # client IP, and this middleware's contract is to ALWAYS clear the
+          # original sensitive data. So still scrub those headers before
+          # bailing — a request with no resolvable IP must not leak an
+          # un-anonymized User-Agent or Referer.
+          if client_ip.to_s.empty?
+            Otto.logger.debug '[IPPrivacyMiddleware] No resolvable client IP; skipping IP masking' if Otto.debug
+            scrub_sensitive_headers(env, Otto::Privacy::RedactedFingerprint.new(env, @config))
+            return
+          end
+
           # Skip masking for private/localhost IPs unless explicitly configured to mask them
           # This provides better DX for development while still protecting public IPs
           unless @config.mask_private_ips
@@ -122,13 +143,10 @@ class Otto
           # Privacy-safe: holds the masked value, never the original public IP.
           env['otto.client_ip'] = fingerprint.masked_ip
 
-          # Replace User-Agent with anonymized version (consistent with IP masking)
-          # CRITICAL: Always replace, even if nil, to clear original sensitive data
-          env['HTTP_USER_AGENT'] = fingerprint.anonymized_ua
-
-          # Replace Referer with anonymized version (query params stripped)
-          # CRITICAL: Always replace, even if nil, to clear original sensitive data
-          env['HTTP_REFERER'] = fingerprint.referer
+          # Replace User-Agent / Referer with anonymized versions (consistent
+          # with IP masking). See scrub_sensitive_headers — also reached by the
+          # no-resolvable-IP path so these headers are always cleared.
+          scrub_sensitive_headers(env, fingerprint)
 
           # Mask X-Forwarded-For headers to prevent leakage
           # Replace with masked IP so proxy resolution logic finds the masked IP
@@ -140,6 +158,45 @@ class Otto
           # or env['otto.original_referer']. This prevents accidental leakage of the real values.
         end
 
+
+        # Set or clear a Rack env header in a SPEC-compliant way.
+        #
+        # CGI-style keys (those without a period) must hold String values per
+        # the Rack SPEC; a present-but-nil value trips Rack::Lint. So when the
+        # anonymized replacement is nil, delete the key entirely instead of
+        # assigning nil — semantically identical to "cleared" for downstream
+        # readers, and SPEC-compliant.
+        #
+        # @param env [Hash] Rack environment
+        # @param key [String] Env key to set or delete
+        # @param value [String, nil] Replacement value, or nil to clear the key
+        def replace_or_delete(env, key, value)
+          if value.nil?
+            env.delete(key)
+          else
+            env[key] = value
+          end
+        end
+
+        # Redact the request's sensitive non-IP headers in place.
+        #
+        # User-Agent and Referer carry identifying information independent of
+        # the client IP, so they are scrubbed on every privacy-enabled request
+        # — including ones with no resolvable IP, where IP masking is skipped.
+        # Each header is replaced with the fingerprint's anonymized value, or
+        # DELETED when that value is nil (no/empty header): CGI-style keys must
+        # hold String values per the Rack SPEC, so a present-but-nil
+        # HTTP_USER_AGENT/HTTP_REFERER would trip Rack::Lint (issue #167).
+        # Deleting is also marginally more private — an absent header is
+        # indistinguishable from one that was never sent.
+        #
+        # @param env [Hash] Rack environment
+        # @param fingerprint [Otto::Privacy::RedactedFingerprint] source of the
+        #   anonymized header values
+        def scrub_sensitive_headers(env, fingerprint)
+          replace_or_delete(env, 'HTTP_USER_AGENT', fingerprint.anonymized_ua)
+          replace_or_delete(env, 'HTTP_REFERER', fingerprint.referer)
+        end
 
         # Resolve the actual client IP address from the request.
         #
@@ -162,6 +219,14 @@ class Otto
         # @param env [Hash] Rack environment
         # @param masked_ip [String] The masked IP to use as replacement
         def mask_forwarded_headers(env, masked_ip)
+          # Defensive: never write a nil replacement into these CGI-style headers
+          # (the Rack SPEC requires String values; a nil trips Rack::Lint — see
+          # issue #167). apply_privacy's early "no client IP" guard already
+          # guarantees a non-nil masked_ip here, but keep this method
+          # self-contained so a future caller change can't reintroduce a
+          # present-but-nil HTTP_X_FORWARDED_FOR.
+          return if masked_ip.nil?
+
           # Replace X-Forwarded-For with masked IP
           # This prevents Rack::Request#ip from finding the real IP
           env['HTTP_X_FORWARDED_FOR'] = masked_ip if env['HTTP_X_FORWARDED_FOR']

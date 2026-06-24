@@ -545,11 +545,29 @@ RSpec.describe 'IP Privacy Features' do
           expect(env['HTTP_USER_AGENT']).to be_nil
         end
 
+        it 'deletes the key (rather than writing nil) when there is no User-Agent' do
+          # Rack SPEC requires CGI-style keys to hold String values; a
+          # present-but-nil HTTP_USER_AGENT trips Rack::Lint (issue #167).
+          env = { 'REMOTE_ADDR' => '9.9.9.9' }
+          middleware.call(env)
+
+          expect(env).not_to have_key('HTTP_USER_AGENT')
+        end
+
         it 'handles nil Referer gracefully' do
           env = { 'REMOTE_ADDR' => '9.9.9.9' }
           middleware.call(env)
 
           expect(env['HTTP_REFERER']).to be_nil
+        end
+
+        it 'deletes the key (rather than writing nil) when there is no Referer' do
+          # Rack SPEC requires CGI-style keys to hold String values; a
+          # present-but-nil HTTP_REFERER trips Rack::Lint (issue #167).
+          env = { 'REMOTE_ADDR' => '9.9.9.9' }
+          middleware.call(env)
+
+          expect(env).not_to have_key('HTTP_REFERER')
         end
 
         it 'clears original User-Agent when anonymization returns empty string' do
@@ -559,8 +577,9 @@ RSpec.describe 'IP Privacy Features' do
           }
           middleware.call(env)
 
-          # CRITICAL: env['HTTP_USER_AGENT'] should be nil (cleared), not empty string
+          # CRITICAL: the key must be deleted, not left present-but-nil (Rack SPEC)
           expect(env['HTTP_USER_AGENT']).to be_nil
+          expect(env).not_to have_key('HTTP_USER_AGENT')
           expect(env).not_to have_key('otto.original_user_agent')
         end
 
@@ -571,8 +590,9 @@ RSpec.describe 'IP Privacy Features' do
           }
           middleware.call(env)
 
-          # CRITICAL: env['HTTP_REFERER'] should be nil (cleared), not empty string
+          # CRITICAL: the key must be deleted, not left present-but-nil (Rack SPEC)
           expect(env['HTTP_REFERER']).to be_nil
+          expect(env).not_to have_key('HTTP_REFERER')
           expect(env).not_to have_key('otto.original_referer')
         end
 
@@ -925,6 +945,92 @@ RSpec.describe 'IP Privacy Features' do
         # Original values available for legitimate use cases
         expect(env['otto.original_user_agent']).to eq('Mozilla/5.0 Chrome/141.0')
         expect(env['otto.original_referer']).to eq('https://example.com/page?secret=value')
+      end
+    end
+
+    # Rack SPEC compliance (issue #167): every CGI-style env key (one without a
+    # period) must hold a String value. The middleware must never leave a
+    # present-but-nil CGI key behind when clearing/masking request data, or it
+    # trips Rack::Lint and breaks spec-strict downstream middleware.
+    context 'Rack SPEC compliance (no nil-valued CGI keys)' do
+      require 'rack/lint'
+
+      # Build a minimal but fully Rack-SPEC-valid env. rack.input must be
+      # opened in binary mode (ASCII-8BIT) or Rack::Lint rejects it.
+      def lint_valid_env(overrides = {})
+        {
+          'REQUEST_METHOD'  => 'GET',
+          'SCRIPT_NAME'     => '',
+          'PATH_INFO'       => '/some/path',
+          'QUERY_STRING'    => '',
+          'SERVER_NAME'     => 'app.example',
+          'SERVER_PORT'     => '443',
+          'SERVER_PROTOCOL' => 'HTTP/1.1',
+          'rack.input'      => StringIO.new(''.b),
+          'rack.errors'     => StringIO.new,
+          'rack.url_scheme' => 'https'
+        }.merge(overrides)
+      end
+
+      # Wrap a passthrough app in Rack::Lint so that the env the middleware
+      # forwards downstream is validated against the Rack SPEC.
+      def lint_middleware
+        downstream = ->(_env) { [200, { 'content-type' => 'text/plain' }, ['OK']] }
+        Otto::Security::Middleware::IPPrivacyMiddleware.new(
+          Rack::Lint.new(downstream), security_config
+        )
+      end
+
+      it 'does not write a nil REMOTE_ADDR when REMOTE_ADDR is absent' do
+        env = { 'PATH_INFO' => '/x' }  # no REMOTE_ADDR at all
+        middleware.call(env)
+
+        # Must not introduce a present-but-nil REMOTE_ADDR key
+        expect(env).not_to have_key('REMOTE_ADDR')
+      end
+
+      it 'does not corrupt an empty REMOTE_ADDR into nil' do
+        env = { 'REMOTE_ADDR' => '' }
+        middleware.call(env)
+
+        # Empty string is a valid String per the Rack SPEC; must stay a String
+        expect(env['REMOTE_ADDR']).to eq('')
+        expect(env['REMOTE_ADDR']).not_to be_nil
+      end
+
+      it 'passes Rack::Lint with no Referer or User-Agent (public IP)' do
+        env = lint_valid_env('REMOTE_ADDR' => '9.9.9.9')
+
+        expect { lint_middleware.call(env) }.not_to raise_error
+      end
+
+      it 'passes Rack::Lint with empty Referer and User-Agent (public IP)' do
+        env = lint_valid_env(
+          'REMOTE_ADDR'     => '9.9.9.9',
+          'HTTP_USER_AGENT' => '',
+          'HTTP_REFERER'    => ''
+        )
+
+        expect { lint_middleware.call(env) }.not_to raise_error
+      end
+
+      it 'passes Rack::Lint when REMOTE_ADDR is absent' do
+        env = lint_valid_env  # no REMOTE_ADDR
+
+        expect { lint_middleware.call(env) }.not_to raise_error
+      end
+
+      it 'passes Rack::Lint with real Referer and User-Agent (still masked)' do
+        env = lint_valid_env(
+          'REMOTE_ADDR'     => '9.9.9.9',
+          'HTTP_USER_AGENT' => 'Mozilla/5.0 Chrome/141.0',
+          'HTTP_REFERER'    => 'https://example.com/page?token=secret'
+        )
+
+        expect { lint_middleware.call(env) }.not_to raise_error
+        # And the values were still anonymized
+        expect(env['HTTP_REFERER']).to eq('https://example.com/page')
+        expect(env['HTTP_USER_AGENT']).to include('*.*')
       end
     end
   end

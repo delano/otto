@@ -91,10 +91,18 @@ class Otto
           # Writing that nil back to REMOTE_ADDR / forwarded headers would leave
           # present-but-nil CGI keys, which violate the Rack SPEC and trip
           # Rack::Lint — the same class of bug as the User-Agent/Referer case
-          # above (issue #167). Bail out, leaving REMOTE_ADDR untouched (an
-          # absent key stays absent; an empty string stays an empty string).
+          # below (issue #167). Skip the IP-masking work, leaving REMOTE_ADDR
+          # untouched (an absent key stays absent; an empty string stays an
+          # empty string).
+          #
+          # The User-Agent/Referer redaction, however, is independent of the
+          # client IP, and this middleware's contract is to ALWAYS clear the
+          # original sensitive data. So still scrub those headers before
+          # bailing — a request with no resolvable IP must not leak an
+          # un-anonymized User-Agent or Referer.
           if client_ip.to_s.empty?
-            Otto.logger.debug '[IPPrivacyMiddleware] No resolvable client IP; skipping masking' if Otto.debug
+            Otto.logger.debug '[IPPrivacyMiddleware] No resolvable client IP; skipping IP masking' if Otto.debug
+            scrub_sensitive_headers(env, Otto::Privacy::RedactedFingerprint.new(env, @config))
             return
           end
 
@@ -135,18 +143,10 @@ class Otto
           # Privacy-safe: holds the masked value, never the original public IP.
           env['otto.client_ip'] = fingerprint.masked_ip
 
-          # Replace User-Agent with anonymized version (consistent with IP masking).
-          # CRITICAL: Always clear original sensitive data. When anonymization
-          # yields nil (no/empty UA), DELETE the key rather than assigning nil:
-          # the Rack SPEC requires CGI-style keys (no period) to hold String
-          # values, and a present-but-nil HTTP_USER_AGENT trips Rack::Lint.
-          # Deleting is also marginally more private — an absent header is
-          # indistinguishable from one that was never sent.
-          replace_or_delete(env, 'HTTP_USER_AGENT', fingerprint.anonymized_ua)
-
-          # Replace Referer with anonymized version (query params stripped).
-          # Same Rack SPEC concern as User-Agent above: delete on nil.
-          replace_or_delete(env, 'HTTP_REFERER', fingerprint.referer)
+          # Replace User-Agent / Referer with anonymized versions (consistent
+          # with IP masking). See scrub_sensitive_headers — also reached by the
+          # no-resolvable-IP path so these headers are always cleared.
+          scrub_sensitive_headers(env, fingerprint)
 
           # Mask X-Forwarded-For headers to prevent leakage
           # Replace with masked IP so proxy resolution logic finds the masked IP
@@ -176,6 +176,26 @@ class Otto
           else
             env[key] = value
           end
+        end
+
+        # Redact the request's sensitive non-IP headers in place.
+        #
+        # User-Agent and Referer carry identifying information independent of
+        # the client IP, so they are scrubbed on every privacy-enabled request
+        # — including ones with no resolvable IP, where IP masking is skipped.
+        # Each header is replaced with the fingerprint's anonymized value, or
+        # DELETED when that value is nil (no/empty header): CGI-style keys must
+        # hold String values per the Rack SPEC, so a present-but-nil
+        # HTTP_USER_AGENT/HTTP_REFERER would trip Rack::Lint (issue #167).
+        # Deleting is also marginally more private — an absent header is
+        # indistinguishable from one that was never sent.
+        #
+        # @param env [Hash] Rack environment
+        # @param fingerprint [Otto::Privacy::RedactedFingerprint] source of the
+        #   anonymized header values
+        def scrub_sensitive_headers(env, fingerprint)
+          replace_or_delete(env, 'HTTP_USER_AGENT', fingerprint.anonymized_ua)
+          replace_or_delete(env, 'HTTP_REFERER', fingerprint.referer)
         end
 
         # Resolve the actual client IP address from the request.

@@ -1032,6 +1032,37 @@ RSpec.describe 'IP Privacy Features' do
         expect(env['HTTP_REFERER']).to eq('https://example.com/page')
         expect(env['HTTP_USER_AGENT']).to include('*.*')
       end
+
+      # Regression (PR #168 review): the no-resolvable-IP guard skips IP
+      # masking, but User-Agent / Referer redaction is independent of the IP
+      # and must still happen — otherwise a request with no REMOTE_ADDR would
+      # leak an un-anonymized User-Agent and a query-bearing Referer.
+      it 'still anonymizes Referer and User-Agent when REMOTE_ADDR is absent' do
+        env = lint_valid_env(  # no REMOTE_ADDR
+          'HTTP_USER_AGENT' => 'Mozilla/5.0 Chrome/141.0',
+          'HTTP_REFERER'    => 'https://example.com/page?token=secret'
+        )
+
+        expect { lint_middleware.call(env) }.not_to raise_error
+        # IP masking is skipped (no IP to mask), but sensitive headers are scrubbed
+        expect(env).not_to have_key('REMOTE_ADDR')
+        expect(env['HTTP_REFERER']).to eq('https://example.com/page')
+        expect(env['HTTP_USER_AGENT']).to include('*.*')
+        expect(env['HTTP_USER_AGENT']).not_to include('141.0')
+      end
+
+      it 'deletes empty Referer / User-Agent when REMOTE_ADDR is absent' do
+        env = lint_valid_env(  # no REMOTE_ADDR
+          'HTTP_USER_AGENT' => '',
+          'HTTP_REFERER'    => ''
+        )
+
+        expect { lint_middleware.call(env) }.not_to raise_error
+        # Anonymizing an empty header yields nil; the key must be deleted, not
+        # left present-but-nil (Rack SPEC / issue #167).
+        expect(env).not_to have_key('HTTP_USER_AGENT')
+        expect(env).not_to have_key('HTTP_REFERER')
+      end
     end
   end
 

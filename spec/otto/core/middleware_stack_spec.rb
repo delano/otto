@@ -246,4 +246,80 @@ RSpec.describe Otto::Core::MiddlewareStack do
       expect(app.options).to eq(option: 'value')
     end
   end
+
+  describe 'add_with_position(:outermost)' do
+    let(:base_app) { ->(_env) { [200, {}, ['base']] } }
+
+    # Two distinct pass-through middleware classes so we can identify which one
+    # ends up outermost (the returned wrapper) vs innermost.
+    let(:outer_mw) do
+      Class.new do
+        attr_reader :app
+        def initialize(app, *_args, **_opts) = (@app = app)
+        def call(env) = @app.call(env)
+      end
+    end
+    let(:plain_mw) do
+      Class.new do
+        attr_reader :app
+        def initialize(app, *_args, **_opts) = (@app = app)
+        def call(env) = @app.call(env)
+      end
+    end
+    let(:third_mw) do
+      Class.new do
+        attr_reader :app
+        def initialize(app, *_args, **_opts) = (@app = app)
+        def call(env) = @app.call(env)
+      end
+    end
+
+    it 'places a pinned middleware outermost even when added FIRST' do
+      stack.add_with_position(outer_mw, position: :outermost)
+      stack.add(plain_mw) # appended afterwards
+
+      app = stack.wrap(base_app)
+      expect(app).to be_a(outer_mw)      # outermost wrapper
+      expect(app.app).to be_a(plain_mw)  # inner
+    end
+
+    it 'places a pinned middleware outermost even when added LAST' do
+      stack.add(plain_mw)
+      stack.add_with_position(outer_mw, position: :outermost)
+
+      app = stack.wrap(base_app)
+      expect(app).to be_a(outer_mw)
+      expect(app.app).to be_a(plain_mw)
+    end
+
+    it 'keeps the pin outermost when a NON-pinned middleware is appended afterward' do
+      stack.add_with_position(outer_mw, position: :outermost)
+      stack.add(plain_mw)
+      stack.add(third_mw)
+
+      app = stack.wrap(base_app)
+      expect(app).to be_a(outer_mw) # still outermost despite two later appends
+    end
+
+    it 'un-pins the class on removal (falls back to insertion-order outermost)' do
+      stack.add_with_position(outer_mw, position: :outermost)
+      stack.add(plain_mw)
+      stack.remove(outer_mw)
+      stack.add(outer_mw) # re-added plain (not pinned)
+
+      app = stack.wrap(base_app)
+      # plain_mw was added before the plain re-add of outer_mw, so outer_mw is
+      # now the last (insertion-order) outermost — proving the pin was cleared.
+      expect(app).to be_a(outer_mw)
+      expect(app.app).to be_a(plain_mw)
+    end
+
+    it 'does not reorder the stack for ordinary (unpinned) apps' do
+      stack.add(plain_mw)
+      stack.add(third_mw) # last-added is outermost by default
+
+      app = stack.wrap(base_app)
+      expect(app).to be_a(third_mw)
+    end
+  end
 end

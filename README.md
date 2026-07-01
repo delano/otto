@@ -84,6 +84,49 @@ app = Otto.new("./routes", {
 
 Security features include CSRF protection, input validation, security headers, and trusted proxy configuration.
 
+### CSP Violation Reporting
+
+Otto can both emit Content-Security-Policy headers and receive the violation
+reports browsers post back. Point a policy at a report path and register a
+callback — Otto handles the HTTP ceremony (parsing both wire formats, the size
+cap, the CSRF bypass) and hands your callback a normalized report:
+
+```ruby
+app = Otto.new("./routes")
+app.enable_csp_with_nonce!            # emit a nonce-based CSP (see send_csp_headers)
+
+app.enable_csp_reporting!("/_/csp-report") do |report|
+  Otto.logger.warn("CSP violation: #{report.violated_directive} " \
+                   "blocked #{report.blocked_uri}")
+  # report also exposes: document_uri, source_file, line_number,
+  # column_number, disposition, effective_directive, ... and report.to_h
+end
+```
+
+`enable_csp_reporting!` does three things:
+
+1. Appends a `report-uri /_/csp-report` directive to every emitted CSP policy —
+   both the static `enable_csp!` policy and the per-request nonce policy — so
+   browsers know where to send violations.
+2. Registers your callback, invoked once per violation with an
+   `Otto::Security::CSP::Report`.
+3. Injects `Otto::Security::CSP::ReportMiddleware`, pinned **outermost** in the
+   stack, which intercepts `POST`s to the report path, parses both the legacy
+   `application/csp-report` and the Reporting API `application/reports+json`
+   formats, enforces a 64 KiB body cap, and always answers `204 No Content` —
+   without touching your routes.
+
+Because the middleware is pinned outermost, it short-circuits ahead of the CSRF
+middleware, so browsers can POST reports without a CSRF token — regardless of the
+order you enable security features in. A throwing callback can never break the
+receiver; it still answers `204`.
+
+> [!IMPORTANT]
+> Report URL fields (`document_uri`, `blocked_uri`, `referrer`, `source_file`)
+> reflect the page the browser was on and may carry sensitive path/query data in
+> some applications. Otto does **not** redact them — normalize/redact in your
+> callback per your own privacy policy before logging or forwarding.
+
 ## Error Handling
 
 Otto provides base error classes that automatically return correct HTTP status codes:

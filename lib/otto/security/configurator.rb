@@ -198,6 +198,30 @@ class Otto
         @security_config.enable_csp_with_nonce!(debug: debug)
       end
 
+      # Enable turnkey CSP violation reporting: set the report URI (appends a
+      # `report-uri` directive to emitted policies), register the callback, and
+      # inject {Otto::Security::CSP::ReportMiddleware} pinned OUTERMOST so it
+      # intercepts report POSTs ahead of CSRF regardless of enable order.
+      #
+      # @param report_uri [String] path browsers POST reports to (matched against PATH_INFO)
+      # @yieldparam report [Otto::Security::CSP::Report] a normalized violation report
+      def enable_csp_reporting!(report_uri, &block)
+        @security_config.csp_report_uri = report_uri
+        @security_config.on_csp_violation(&block) if block
+
+        return if middleware_enabled?(Otto::Security::CSP::ReportMiddleware)
+
+        @middleware_stack.add_with_position(Otto::Security::CSP::ReportMiddleware, position: :outermost)
+      end
+
+      # Configure the CSP violation report path without injecting middleware.
+      # Prefer {#enable_csp_reporting!} for the full turnkey setup.
+      #
+      # @param uri [String, nil] report path (matched against PATH_INFO), or nil to disable
+      def csp_report_uri=(uri)
+        @security_config.csp_report_uri = uri
+      end
+
       # Add a single authentication strategy
       #
       # Part of the Security::Configurator facade for consolidated configuration.

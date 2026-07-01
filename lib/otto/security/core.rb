@@ -135,6 +135,48 @@ class Otto
         @security_config.enable_csp_with_nonce!(debug: debug)
       end
 
+      # Enable turnkey Content Security Policy violation reporting.
+      #
+      # This is the receiving half of Otto's CSP support. It:
+      # 1. Configures the report path (`config.csp_report_uri = report_uri`), so a
+      #    `report-uri` directive is appended to every emitted CSP policy (static
+      #    {#enable_csp!} and nonce {#enable_csp_with_nonce!} alike).
+      # 2. Registers your violation callback (if a block is given).
+      # 3. Injects {Otto::Security::CSP::ReportMiddleware} so browser POSTs to the
+      #    report path are received, parsed, and dispatched to the callback —
+      #    always answered with 204 and never touching your routes.
+      #
+      # The middleware is pinned to run OUTERMOST (ahead of CSRF and every other
+      # middleware), so it short-circuits report POSTs before CSRF validation —
+      # browsers can post reports without a CSRF token. This holds regardless of
+      # the order in which you enable security features.
+      #
+      # To (re)assign the callback later without touching the wiring, use the
+      # config primitive directly: `otto.security_config.on_csp_violation { ... }`.
+      #
+      # @param report_uri [String] path browsers POST reports to (matched against
+      #   `PATH_INFO`, e.g. `/_/csp-report`).
+      # @yieldparam report [Otto::Security::CSP::Report] a normalized violation report
+      # @return [void]
+      # @example
+      #   otto.enable_csp_with_nonce!
+      #   otto.enable_csp_reporting!('/_/csp-report') do |report|
+      #     Otto.logger.warn("CSP violation: #{report.to_h}")
+      #   end
+      def enable_csp_reporting!(report_uri, &block)
+        ensure_not_frozen!
+
+        @security_config.csp_report_uri = report_uri
+        @security_config.on_csp_violation(&block) if block
+
+        return if @middleware.includes?(Otto::Security::CSP::ReportMiddleware)
+
+        # Pin OUTERMOST so it intercepts report POSTs ahead of CSRF regardless of
+        # the order security features are enabled in.
+        @middleware.add_with_position(Otto::Security::CSP::ReportMiddleware, position: :outermost)
+        build_app! if @app # rebuild if middleware stack already built
+      end
+
       # Add an authentication strategy with a registered name
       #
       # This is the primary public API for registering authentication strategies.

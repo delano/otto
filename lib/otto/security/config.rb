@@ -63,7 +63,8 @@ class Otto
                   :trusted_proxies, :require_secure_cookies,
                   :security_headers,
                   :csp_nonce_enabled, :debug_csp, :mcp_auth,
-                  :ip_privacy_config, :trusted_proxy_depth, :trusted_proxy_header
+                  :ip_privacy_config, :trusted_proxy_depth, :trusted_proxy_header,
+                  :csp_report_uri, :csp_violation_callback
 
       # Initialize security configuration with safe defaults
       #
@@ -86,6 +87,9 @@ class Otto
         @input_validation       = true
         @csp_nonce_enabled      = false
         @debug_csp              = false
+        @csp_policy             = nil
+        @csp_report_uri         = nil
+        @csp_violation_callback = nil
         @rate_limiting_config   = { custom_rules: {} }
         @ip_privacy_config      = Otto::Privacy::Config.new
 
@@ -343,7 +347,8 @@ class Otto
       def enable_csp!(policy = "default-src 'self'")
         ensure_not_frozen!
 
-        @security_headers['content-security-policy'] = policy
+        @csp_policy = policy
+        @security_headers['content-security-policy'] = build_static_csp(policy)
       end
 
       # Enable Content Security Policy (CSP) with nonce support
@@ -389,6 +394,74 @@ class Otto
         @debug_csp
       end
 
+      # Configure the path browsers should POST CSP violation reports to.
+      #
+      # Setting this does two things:
+      # 1. A `report-uri <path>` directive is appended to every emitted CSP
+      #    policy — both the static policy from {#enable_csp!} and the per-request
+      #    nonce policy from {#generate_nonce_csp} — so browsers know where to
+      #    send violations.
+      # 2. {Otto::Security::CSP::ReportMiddleware} activates for that path (it is
+      #    inert until a report URI is set).
+      #
+      # When nil/empty (the default), NO reporting directive is emitted and the
+      # policy output is byte-identical to Otto's historical output.
+      #
+      # For the turnkey setup that also injects the receiving middleware, prefer
+      # {Otto::Security::Core#enable_csp_reporting!} on the Otto instance.
+      #
+      # @param uri [String, nil] path browsers POST reports to (matched against
+      #   `PATH_INFO`, e.g. `/_/csp-report`), or nil to disable reporting.
+      # @return [void]
+      # @raise [FrozenError] if configuration is frozen
+      def csp_report_uri=(uri)
+        ensure_not_frozen!
+
+        @csp_report_uri = normalize_report_uri(uri)
+        # Recompute the static header (if a static policy is active) so the
+        # report-uri directive is present regardless of the order in which
+        # #enable_csp! and #csp_report_uri= were called.
+        @security_headers['content-security-policy'] = build_static_csp(@csp_policy) unless @csp_policy.nil?
+      end
+
+      # Register the callback invoked once per parsed CSP violation report.
+      #
+      # The block receives an {Otto::Security::CSP::Report}. Your application
+      # decides what to do — log, emit a metric, store, forward, or ignore. Otto
+      # adds no storage or database coupling.
+      #
+      # Registering a second callback REPLACES the first (last registration
+      # wins), matching the singular `on_csp_violation` semantics. Calling this
+      # with NO block clears (unregisters) any previously-set callback.
+      #
+      # SECURITY NOTE: report URL fields may carry sensitive path/query data in
+      # some applications. Redact them in your callback before logging if needed;
+      # Otto passes them through un-redacted (see {Otto::Security::CSP::Report}).
+      #
+      # @yieldparam report [Otto::Security::CSP::Report] a normalized report
+      # @return [void]
+      # @raise [FrozenError] if configuration is frozen
+      def on_csp_violation(&block)
+        ensure_not_frozen!
+
+        @csp_violation_callback = block
+      end
+
+      # Invoke the registered violation callback for a report, isolating any
+      # error it raises. A misbehaving application callback must never break the
+      # report receiver (which always answers 204).
+      #
+      # @param report [Otto::Security::CSP::Report]
+      # @return [void]
+      def dispatch_csp_violation(report)
+        callback = @csp_violation_callback
+        return if callback.nil?
+
+        callback.call(report)
+      rescue StandardError => e
+        Otto.logger.error("[Otto::CSP] violation callback raised #{e.class}: #{e.message}")
+      end
+
       # Generate a CSP policy string with the provided nonce
       #
       # @param nonce [String] The nonce value to include in the CSP
@@ -396,6 +469,8 @@ class Otto
       # @return [String] Complete CSP policy string
       def generate_nonce_csp(nonce, development_mode: false)
         directives = development_mode ? development_csp_directives(nonce) : production_csp_directives(nonce)
+        report_directive = csp_report_directive
+        directives += ["#{report_directive};"] if report_directive
         directives.join(' ')
       end
 
@@ -703,6 +778,39 @@ class Otto
       # zero-config generated-secret fallback.
       def production_environment?
         defined?(Otto) && Otto.respond_to?(:env?) && Otto.env?(:production, :prod)
+      end
+
+      # Normalize a configured report URI: strip surrounding whitespace and
+      # treat a blank string as "not configured" (nil).
+      #
+      # @param uri [String, nil]
+      # @return [String, nil]
+      def normalize_report_uri(uri)
+        return nil if uri.nil?
+
+        stripped = uri.to_s.strip
+        stripped.empty? ? nil : stripped
+      end
+
+      # The `report-uri` directive to append to emitted policies, or nil when no
+      # report URI is configured. No trailing semicolon (callers add their own
+      # separator to match each policy style).
+      #
+      # @return [String, nil]
+      def csp_report_directive
+        return nil if @csp_report_uri.nil? || @csp_report_uri.empty?
+
+        "report-uri #{@csp_report_uri}"
+      end
+
+      # Build the stored static-CSP header value: the base policy plus the
+      # optional report-uri directive. Byte-identical to the bare policy when no
+      # report URI is configured, so existing static-CSP output is unchanged.
+      #
+      # @param policy [String] the base policy passed to {#enable_csp!}
+      # @return [String]
+      def build_static_csp(policy)
+        [policy, csp_report_directive].compact.join('; ')
       end
 
       # Generate CSP directives for development environment

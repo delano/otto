@@ -279,4 +279,45 @@ RSpec.describe Otto::Security::Configurator do
       end
     end
   end
+
+  describe 'CSP violation reporting' do
+    describe '#enable_csp_reporting!' do
+      it 'sets the report URI, registers the callback, and injects the middleware pinned outermost' do
+        seen = []
+        configurator.enable_csp_reporting!('/_/csp-report') { |report| seen << report }
+
+        expect(security_config.csp_report_uri).to eq('/_/csp-report')
+        expect(middleware_stack.includes?(Otto::Security::CSP::ReportMiddleware)).to be true
+
+        report = Otto::Security::CSP::Report.from_raw('violated-directive' => 'script-src')
+        security_config.dispatch_csp_violation(report)
+        expect(seen).to eq([report])
+      end
+
+      it 'is idempotent — a second call does not add a duplicate middleware entry' do
+        configurator.enable_csp_reporting!('/_/csp-report')
+        configurator.enable_csp_reporting!('/_/csp-report')
+
+        expect(middleware_stack.count(Otto::Security::CSP::ReportMiddleware)).to eq(1)
+      end
+
+      it 'pins the middleware to run outermost regardless of other middleware' do
+        configurator.enable_csp_reporting!('/_/csp-report')
+        configurator.enable_csrf_protection! # added afterwards
+
+        base_app = ->(_env) { [200, {}, ['base']] }
+        app = middleware_stack.wrap(base_app, security_config)
+        expect(app).to be_a(Otto::Security::CSP::ReportMiddleware)
+      end
+    end
+
+    describe '#csp_report_uri=' do
+      it 'delegates to the security config without injecting middleware' do
+        configurator.csp_report_uri = '/reports'
+
+        expect(security_config.csp_report_uri).to eq('/reports')
+        expect(middleware_stack.includes?(Otto::Security::CSP::ReportMiddleware)).to be false
+      end
+    end
+  end
 end

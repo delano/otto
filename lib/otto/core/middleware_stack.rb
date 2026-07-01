@@ -16,6 +16,9 @@ class Otto
       def initialize
         @stack = []
         @middleware_set = Set.new
+        # Classes pinned to run OUTERMOST regardless of insertion order (see
+        # the :outermost position in #add_with_position and #ordered_stack).
+        @outermost = Set.new
         @on_change_callback = nil
       end
 
@@ -49,10 +52,20 @@ class Otto
 
       # Add middleware with position hint for optimal ordering
       #
+      # Positions:
+      # - :first     — innermost (runs last, closest to the app)
+      # - :last/nil  — append (outermost among currently-registered middleware,
+      #                but a later append displaces it)
+      # - :outermost — pin to run OUTERMOST (first to see the request) and STAY
+      #                there even if more middleware is appended afterward. Unlike
+      #                :last, this is order-independent: honored in #ordered_stack
+      #                at build time. Use for middleware that must short-circuit
+      #                ahead of everything else (e.g. the CSP report receiver,
+      #                which must intercept before CSRF).
+      #
       # @param middleware_class [Class] Middleware class
       # @param args [Array] Middleware arguments
-      # @param position [Symbol, nil] Position hint (:first, :last, or nil for append)
-      # @option options [Symbol] :position Position hint (:first or :last)
+      # @param position [Symbol, nil] Position hint (:first, :last, :outermost, or nil)
       def add_with_position(middleware_class, *args, position: nil, **options)
         raise FrozenError, 'Cannot modify frozen middleware stack' if frozen?
 
@@ -70,10 +83,11 @@ class Otto
         case position
         when :first
           @stack.unshift(entry)
-        when :last
+        when :outermost
           @stack << entry
+          @outermost.add(middleware_class)
         else
-          @stack << entry # Default append
+          @stack << entry # :last / nil — default append
         end
 
         @middleware_set.add(middleware_class)
@@ -148,6 +162,7 @@ class Otto
 
         # Rebuild the set of unique middleware classes
         @middleware_set = Set.new(@stack.map { |entry| entry[:middleware] })
+        @outermost.delete(middleware_class)
         # Notify of change
         @on_change_callback&.call
       end
@@ -164,6 +179,7 @@ class Otto
 
         @stack.clear
         @middleware_set.clear
+        @outermost.clear
         # Notify of change
         @on_change_callback&.call
       end
@@ -174,8 +190,13 @@ class Otto
       end
 
       # Build Rack application with middleware chain
+      #
+      # The stack folds via reduce, so the LAST entry becomes the OUTERMOST
+      # wrapper (first to see the request). #ordered_stack moves any :outermost-
+      # pinned middleware to the end so it stays outermost regardless of the
+      # order middleware was registered in.
       def wrap(base_app, security_config = nil)
-        @stack.reduce(base_app) do |app, entry|
+        ordered_stack.reduce(base_app) do |app, entry|
           middleware = entry[:middleware]
           args = entry[:args]
           options = entry[:options]
@@ -233,6 +254,18 @@ class Otto
 
       private
 
+      # The stack ordered for #wrap: identical to @stack unless some middleware
+      # is pinned :outermost, in which case pinned entries are moved to the end
+      # (outermost) while preserving the relative order of both groups. Returns
+      # @stack itself (no copy) in the common no-pin case, so ordinary apps are
+      # completely unaffected.
+      def ordered_stack
+        return @stack if @outermost.empty?
+
+        pinned, rest = @stack.partition { |entry| @outermost.include?(entry[:middleware]) }
+        rest + pinned
+      end
+
       def middleware_needs_config?(middleware_class)
         # Include all Otto security middleware that can accept security_config
         # Support both new namespaced classes and backward compatibility aliases
@@ -241,6 +274,7 @@ class Otto
           Otto::Security::Middleware::ValidationMiddleware,
           Otto::Security::Middleware::RateLimitMiddleware,
           Otto::Security::Middleware::IPPrivacyMiddleware,
+          Otto::Security::CSP::ReportMiddleware,
         ].include?(middleware_class)
       end
     end

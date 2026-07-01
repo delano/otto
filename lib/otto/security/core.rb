@@ -135,6 +135,68 @@ class Otto
         @security_config.enable_csp_with_nonce!(debug: debug)
       end
 
+      # Enable turnkey Content Security Policy violation reporting.
+      #
+      # This is the receiving half of Otto's CSP support. It:
+      # 1. Configures the report path (`config.csp_report_uri = report_uri`), so a
+      #    `report-uri` directive is appended to every emitted CSP policy (static
+      #    {#enable_csp!} and nonce {#enable_csp_with_nonce!} alike).
+      # 2. Registers your violation callback (if a block is given).
+      # 3. Injects {Otto::Security::CSP::ReportMiddleware} so browser POSTs to the
+      #    report path are received, parsed, and dispatched to the callback —
+      #    always answered with 204 and never touching your routes.
+      #
+      # The middleware is pinned to run OUTERMOST (ahead of CSRF and every other
+      # middleware), so it short-circuits report POSTs before CSRF validation —
+      # browsers can post reports without a CSRF token. This holds regardless of
+      # the order in which you enable security features.
+      #
+      # SECURITY / DoS: running outermost also means the receiver sits ahead of
+      # rate limiting (rate limiting is inner middleware). This is intentional —
+      # a public, unauthenticated report endpoint cannot depend on CSRF, session,
+      # or per-client throttling state — but it means a client can POST reports
+      # up to the 64 KiB body cap and invoke your callback on each one. Keep the
+      # callback cheap and bounded (sample or aggregate; avoid unbounded
+      # synchronous I/O), and put request-rate control for this path at the edge
+      # (reverse proxy / CDN / WAF) rather than expecting Otto to throttle it.
+      #
+      # To (re)assign the callback later without touching the wiring, use the
+      # config primitive directly: `otto.security_config.on_csp_violation { ... }`.
+      #
+      # For modern browsers (which have deprecated `report-uri`), also pass
+      # `endpoint_url:` — an ABSOLUTE URL whose path is `report_uri`. Otto then
+      # emits a `report-to` directive plus a `Reporting-Endpoints` header so those
+      # browsers deliver `application/reports+json` to the same receiver.
+      #
+      # @param report_uri [String] path browsers POST reports to (matched against
+      #   `PATH_INFO`, e.g. `/_/csp-report`).
+      # @param endpoint_url [String, nil] absolute URL for the modern Reporting
+      #   API endpoint (e.g. `https://example.com/_/csp-report`); nil emits only
+      #   the legacy `report-uri`.
+      # @yieldparam report [Otto::Security::CSP::Report] a normalized violation report
+      # @return [void]
+      # @example
+      #   otto.enable_csp_with_nonce!
+      #   otto.enable_csp_reporting!('/_/csp-report',
+      #     endpoint_url: 'https://example.com/_/csp-report') do |report|
+      #     Otto.logger.warn("CSP violation: #{report.to_h}")
+      #   end
+      def enable_csp_reporting!(report_uri, endpoint_url: nil, &block)
+        ensure_not_frozen!
+
+        @security_config.csp_report_uri = report_uri
+        @security_config.csp_report_to_url = endpoint_url unless endpoint_url.nil?
+        @security_config.on_csp_violation(&block) if block
+
+        return if @middleware.includes?(Otto::Security::CSP::ReportMiddleware)
+
+        # Pin OUTERMOST so it intercepts report POSTs ahead of CSRF regardless of
+        # the order security features are enabled in. add_with_position fires the
+        # stack's on_change callback, which rebuilds @app (wired in
+        # Otto#initialize_core_state) — no explicit build_app! needed.
+        @middleware.add_with_position(Otto::Security::CSP::ReportMiddleware, position: :outermost)
+      end
+
       # Add an authentication strategy with a registered name
       #
       # This is the primary public API for registering authentication strategies.

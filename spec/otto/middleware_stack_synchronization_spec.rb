@@ -118,12 +118,17 @@ RSpec.describe 'Middleware Stack Synchronization' do
   end
 
   describe 'security configuration' do
-    it 'configures security middleware' do
+    it 'configures security middleware and puts it in the running chain' do
       # Add security middleware via configurator
       otto.security.enable_csrf_protection!
 
       # Middleware should be in stack
       expect(otto.middleware.includes?(Otto::Security::CSRFMiddleware)).to be true
+
+      # ...and @app must have been rebuilt so the middleware actually executes.
+      # List membership alone is not enough: it was already true while the
+      # Configurator-enabled middleware was silently bypassed.
+      expect(otto.instance_variable_get(:@app)).to be_a(Otto::Security::CSRFMiddleware)
     end
 
     it 'maintains security configuration' do
@@ -137,8 +142,9 @@ RSpec.describe 'Middleware Stack Synchronization' do
       expect(otto.security_config.csrf_enabled?).to be true
       expect(otto.security_config.trusted_proxy?('127.0.0.1')).to be true
 
-      # Middleware should be in stack
+      # Middleware should be in stack and wired into the running chain
       expect(otto.middleware.includes?(Otto::Security::CSRFMiddleware)).to be true
+      expect(otto.instance_variable_get(:@app)).to be_a(Otto::Security::CSRFMiddleware)
     end
   end
 

@@ -35,13 +35,12 @@ class Otto
       # @param args Additional arguments passed to middleware constructor
       def use(middleware, ...)
         ensure_not_frozen!
+        # @middleware.add fires the stack's on_change callback, which rebuilds
+        # @app when it already exists (wired in Otto#initialize_core_state). A
+        # rebuild triggered during a live request could swap @app mid-flight
+        # under multi-threaded serving; configure middleware before the first
+        # request (the lazy configuration freeze enforces this in production).
         @middleware.add(middleware, ...)
-
-        # NOTE: If build_app! is triggered during a request (via use() or
-        # middleware_stack=), the @app instance variable could be swapped
-        # mid-request in a multi-threaded environment.
-
-        build_app! if @app # Rebuild app if already initialized
       end
 
       # Compatibility method for existing tests
@@ -53,9 +52,10 @@ class Otto
       # Compatibility method for existing tests
       # @param stack [Array] Array of middleware classes
       def middleware_stack=(stack)
+        # clear! and each add fire the stack's on_change callback, which keeps
+        # @app in sync (wired in Otto#initialize_core_state).
         @middleware.clear!
         Array(stack).each { |middleware| @middleware.add(middleware) }
-        build_app! if @app # Rebuild app if already initialized
       end
 
       # Check if a specific middleware is enabled

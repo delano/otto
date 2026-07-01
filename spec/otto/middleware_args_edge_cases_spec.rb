@@ -202,12 +202,16 @@ RSpec.describe 'Middleware Args Edge Cases' do
     end
 
     it 'propagates middleware initialization errors' do
-      otto.middleware.add(faulty_middleware)
+      # Unit-test wrap in isolation via a standalone stack. (Adding to an Otto
+      # instance's stack now rebuilds @app on change, so the error would surface
+      # at add-time rather than at the explicit wrap under test.)
+      stack = Otto::Core::MiddlewareStack.new
+      stack.add(faulty_middleware)
 
       base_app = ->(_env) { [200, {}, ['base']] }
 
       expect do
-        otto.middleware.wrap(base_app, security_config)
+        stack.wrap(base_app, security_config)
       end.to raise_error(StandardError, 'Middleware initialization failed')
     end
   end

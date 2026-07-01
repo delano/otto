@@ -7,6 +7,77 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.4.0:
+
+2.4.0 — 2026-07-01
+==================
+
+Added
+-----
+
+- ``Otto#enable_csp_reporting!(report_uri, &block)`` — a turnkey Content
+  Security Policy violation report receiver. Appends a ``report-uri`` directive
+  to emitted policies, parses both the legacy ``application/csp-report`` and the
+  Reporting API ``application/reports+json`` formats into a normalized
+  ``Otto::Security::CSP::Report``, and invokes the callback once per violation.
+  (delano/otto#174)
+
+- ``MiddlewareStack`` ``:outermost`` position for middleware that must run ahead
+  of all others regardless of registration order.
+
+- ``Otto::CaddyTLS``: an opt-in Caddy on-demand TLS permission endpoint,
+  enabled with ``otto.enable_caddy_tls! { |domain| ... }``. (delano/otto#175)
+
+- ``Otto#enable_csp_reporting!`` accepts ``endpoint_url:`` to emit a ``report-to``
+  directive and ``Reporting-Endpoints`` header for browsers that have deprecated
+  ``report-uri``. Opt-in.
+
+Fixed
+-----
+
+- ``IPPrivacyMiddleware`` no longer writes ``nil`` to CGI-style Rack env keys
+  when redacting request data. Assigning ``nil`` to a period-less key (e.g.
+  ``HTTP_REFERER``, ``HTTP_USER_AGENT``, ``REMOTE_ADDR``) violates the Rack SPEC
+  and trips ``Rack::Lint`` (commonly enabled in development). When the
+  anonymized ``Referer`` / ``User-Agent`` is empty the key is now deleted
+  instead of set to ``nil`` — semantically identical to "cleared", and
+  marginally more private since an absent header is indistinguishable from one
+  never sent. A request with no resolvable client IP (absent or blank
+  ``REMOTE_ADDR``) is also no longer rewritten to a present-but-``nil``
+  ``REMOTE_ADDR``; masking is skipped, leaving the value untouched.
+  (delano/otto#167)
+
+- ``Otto::Security::CSP::ReportMiddleware`` no longer turns a downstream error on
+  a non-report request into an empty ``204``.
+
+Security
+--------
+
+- The permission endpoint is loopback-only by default and fails closed.
+
+- Security middleware added through the ``otto.security.*`` Configurator after
+  ``Otto.new`` now runs on the request chain. It previously registered without
+  taking effect, leaving CSRF, request validation, rate limiting, and CSP
+  reporting unenforced.
+
+AI Assistance
+-------------
+
+- Diagnosed the Rack SPEC violation and, after fixing the reported
+  ``Referer`` / ``User-Agent`` case, swept the middleware for sibling
+  ``nil``-into-CGI-key bugs — surfacing and fixing the ``REMOTE_ADDR`` masking
+  path — with AI assistance, including ``Rack::Lint`` integration test coverage.
+
+- CSP violation reporting handler and ``:outermost`` middleware position
+  implemented with AI assistance.
+
+- Designed, implemented, and reviewed with AI assistance.
+
+- Middleware-rebuild fix and report-receiver error scoping implemented with AI
+  assistance.
+
+- ``report-to`` / ``Reporting-Endpoints`` emission implemented with AI assistance.
+
 .. _changelog-2.3.1:
 
 2.3.1 — 2026-06-22

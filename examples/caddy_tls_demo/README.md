@@ -1,6 +1,6 @@
 # Otto — Caddy on-demand TLS demo
 
-This example demonstrates `Otto::Services` and its pilot integration: the **Caddy
+This example demonstrates `Otto::CaddyTLS`, Otto's integration for the **Caddy
 on-demand TLS permission endpoint**. When Caddy serves TLS for a hostname it has
 no certificate for, it asks the backend "may I obtain a certificate for this
 domain?". This endpoint answers that question.

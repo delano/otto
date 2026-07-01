@@ -1,10 +1,10 @@
-# spec/otto/services/localhost_guard_spec.rb
+# spec/otto/caddy_tls/localhost_guard_spec.rb
 #
 # frozen_string_literal: true
 
 require 'spec_helper'
 
-RSpec.describe Otto::Services::LocalhostGuard do
+RSpec.describe Otto::CaddyTLS::LocalhostGuard do
   let(:endpoint) { '/_caddy/tls-permission' }
 
   # A downstream app that records whether it was reached and with which env.

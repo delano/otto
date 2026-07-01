@@ -178,12 +178,13 @@ The locale helper checks multiple sources in order of precedence and validates a
 
 ## Network Service Integrations
 
-`Otto::Services` is a modular home for turnkey endpoints that an external network
-component (a reverse proxy, TLS layer, browser reporter, ...) calls over a fixed
-HTTP contract. The app supplies a small decision; Otto owns the routing, the
-security guard, and the fail-safe behavior.
+Otto ships small, opt-in integrations for endpoints that an external network
+component (a reverse proxy, a TLS layer) calls over a fixed HTTP contract. Each is
+a self-contained, feature-named module — loaded but inert until you enable it, like
+`Otto::MCP`. The app supplies a small decision; Otto owns the routing, the security
+guard, and the fail-safe behavior.
 
-The pilot integration answers **Caddy's on-demand TLS** question — "may I obtain a
+The first integration, `Otto::CaddyTLS`, answers **Caddy's on-demand TLS** question — "may I obtain a
 certificate for this domain?":
 
 ```ruby
@@ -220,7 +221,7 @@ Otto includes comprehensive examples demonstrating different features:
 - **[Authentication Strategies](examples/authentication_strategies/)** - Token, API key, and role-based authentication
 - **[Security Features](examples/security_features/)** - CSRF protection, input validation, file uploads, and security headers
 - **[MCP Demo](examples/mcp_demo/)** - JSON-RPC 2.0 endpoints for CLI automation and integrations
-- **[Caddy on-demand TLS](examples/caddy_tls_demo/)** - Reverse-proxy permission endpoint via `Otto::Services`
+- **[Caddy on-demand TLS](examples/caddy_tls_demo/)** - Reverse-proxy permission endpoint via `Otto::CaddyTLS`
 
 ### Standalone Tutorials
 

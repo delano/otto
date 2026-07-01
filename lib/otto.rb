@@ -22,7 +22,7 @@ require_relative 'otto/route_handlers'
 require_relative 'otto/errors'
 require_relative 'otto/locale'
 require_relative 'otto/mcp'
-require_relative 'otto/services'
+require_relative 'otto/caddy_tls'
 require_relative 'otto/core'
 require_relative 'otto/privacy'
 require_relative 'otto/security'
@@ -63,7 +63,7 @@ class Otto
   include Otto::Security::Core
   include Otto::Privacy::Core
   include Otto::MCP::Core
-  include Otto::Services::Core
+  include Otto::CaddyTLS::Core
 
   LIB_HOME = __dir__ unless defined?(Otto::LIB_HOME)
 

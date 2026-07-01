@@ -1,10 +1,10 @@
-# spec/otto/services/caddy_tls_spec.rb
+# spec/otto/caddy_tls/server_spec.rb
 #
 # frozen_string_literal: true
 
 require 'spec_helper'
 
-RSpec.describe Otto::Services::CaddyTLS do
+RSpec.describe Otto::CaddyTLS do
   # An empty-ish routes file; the permission route is registered programmatically.
   let(:otto) { create_minimal_otto(['GET /health HealthProbe.ok']) }
   let(:endpoint) { '/_caddy/tls-permission' }
@@ -178,7 +178,7 @@ RSpec.describe Otto::Services::CaddyTLS do
 
     it 'does not install the guard middleware when localhost_only: false' do
       otto.enable_caddy_tls!(localhost_only: false) { |_domain| true }
-      expect(otto.middleware_enabled?(Otto::Services::LocalhostGuard)).to be(false)
+      expect(otto.middleware_enabled?(Otto::CaddyTLS::LocalhostGuard)).to be(false)
     end
   end
 

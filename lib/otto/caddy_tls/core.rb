@@ -1,24 +1,20 @@
-# lib/otto/services/core.rb
+# lib/otto/caddy_tls/core.rb
 #
 # frozen_string_literal: true
 
 class Otto
-  # Otto::Services is the home for modular network-service integrations:
-  # small, optional, turnkey features that expose an HTTP surface consumed by
-  # an external network component (a reverse proxy, TLS layer, browser reporter,
-  # etc.). Each integration is opt-in and self-contained — enabling one never
-  # loads another — mirroring how Otto::MCP is structured rather than the
-  # always-on Otto::Security / Otto::Privacy concerns.
+  # Otto::CaddyTLS is a modular, opt-in integration for Caddy's on-demand TLS
+  # permission endpoint — the HTTP question Caddy asks a backend before it
+  # obtains or loads a certificate on demand: "may I serve TLS for this host?".
   #
-  # The pilot integration is the Caddy on-demand TLS permission endpoint
-  # (see Otto::Services::CaddyTLS). Future integrations (e.g. a CSP violation
-  # reporting endpoint) add another +enable_*!+ verb here without new
-  # architecture.
-  module Services
-    # Public API mixin included into the Otto class. Aggregates the small
-    # +enable_*!+ / +*_enabled?+ methods for all network-service integrations,
-    # so Otto gains one +include+, not one per integration. Mirrors
-    # Otto::MCP::Core.
+  # It is structured like Otto::MCP: a self-contained, top-level namespace loaded
+  # eagerly but inert until +enable_caddy_tls!+ is called, rather than an
+  # always-on concern like Otto::Security / Otto::Privacy. Each such integration
+  # gets its own feature-named home (cf. Otto::MCP, Otto::Security::CSP) — Otto
+  # deliberately has no generic "services" bucket; genuinely shared mechanism
+  # (e.g. the +:outermost+ middleware position) lives in Otto::Core instead.
+  module CaddyTLS
+    # Public API mixin included into the Otto class. Mirrors Otto::MCP::Core.
     module Core
       # Enable the Caddy on-demand TLS permission endpoint.
       #
@@ -45,9 +41,9 @@ class Otto
         ensure_not_frozen!
         raise ArgumentError, 'enable_caddy_tls! requires a permission block' unless block_given?
 
-        @caddy_tls_server ||= Otto::Services::CaddyTLS::Server.new(self)
+        @caddy_tls_server ||= Otto::CaddyTLS::Server.new(self)
         @caddy_tls_server.enable!(endpoint: endpoint, localhost_only: localhost_only, permission: permission)
-        Otto.logger.info '[Services] Enabled Caddy on-demand TLS permission endpoint' if Otto.debug
+        Otto.logger.info '[CaddyTLS] Enabled Caddy on-demand TLS permission endpoint' if Otto.debug
 
         self
       end

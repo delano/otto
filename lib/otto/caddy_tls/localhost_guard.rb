@@ -1,4 +1,4 @@
-# lib/otto/services/localhost_guard.rb
+# lib/otto/caddy_tls/localhost_guard.rb
 #
 # frozen_string_literal: true
 
@@ -6,16 +6,18 @@ require 'ipaddr'
 require 'rack/utils'
 
 class Otto
-  module Services
+  module CaddyTLS
     # Path-scoped Rack middleware that only allows requests to a single
     # endpoint when they originate from the loopback interface.
     #
-    # This is the shared building block for network-service integrations whose
-    # only legitimate caller is a co-located process (e.g. a reverse proxy's
-    # control-plane callback). It is deliberately generic: pass it the endpoint
-    # path to protect, and it 401s any request to that path whose connecting
-    # peer is not loopback. Every other path passes straight through, so
-    # installing it never affects the rest of the application.
+    # Introduced for the Caddy on-demand TLS endpoint but written to be generic:
+    # it protects any single endpoint whose only legitimate caller is a
+    # co-located process (a reverse proxy's control-plane callback). Pass it the
+    # endpoint path to protect, and it 401s any request to that path whose
+    # connecting peer is not loopback. Every other path passes straight through,
+    # so installing it never affects the rest of the application. (It lives under
+    # Otto::CaddyTLS while it has a single consumer; promote it to a shared home
+    # if a second internal-only integration ever needs it.)
     #
     # == Security: authenticate the RAW peer, not the resolved client IP
     #

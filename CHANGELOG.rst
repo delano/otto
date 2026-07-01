@@ -7,6 +7,65 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.4.0:
+
+2.4.0 — 2026-07-01
+==================
+
+Added
+-----
+
+- ``Otto#enable_csp_reporting!(report_uri, endpoint_url: nil, &block)`` —
+  turnkey CSP violation reporting. Emits a ``report-uri`` directive and, with
+  ``endpoint_url:``, a ``report-to`` directive plus ``Reporting-Endpoints``
+  header. Parses legacy ``application/csp-report`` and Reporting API
+  ``application/reports+json`` payloads into ``Otto::Security::CSP::Report``
+  and invokes the callback per violation. Opt-in. (delano/otto#174)
+
+- ``MiddlewareStack`` ``:outermost`` position, for middleware that must run
+  ahead of all others regardless of registration order.
+
+- ``Otto::CaddyTLS``: an opt-in Caddy on-demand TLS permission endpoint,
+  enabled with ``otto.enable_caddy_tls! { |domain| ... }``. (delano/otto#175)
+
+Fixed
+-----
+
+- ``IPPrivacyMiddleware`` no longer writes ``nil`` into CGI-style Rack env
+  keys (e.g. ``HTTP_REFERER``, ``HTTP_USER_AGENT``, ``REMOTE_ADDR``) when
+  redacting request data, which violated the Rack SPEC and tripped
+  ``Rack::Lint``. Empty anonymized values now delete the key instead of
+  setting it to ``nil``, and a request with no resolvable client IP no
+  longer gets a ``nil`` ``REMOTE_ADDR``. (delano/otto#167)
+
+- ``Otto::Security::CSP::ReportMiddleware`` no longer turns a downstream
+  error on a non-report request into an empty ``204``.
+
+Security
+--------
+
+- The ``Otto::CaddyTLS`` permission endpoint is loopback-only by default and
+  fails closed. (delano/otto#175)
+
+- Security middleware registered through the ``otto.security.*``
+  Configurator after ``Otto.new`` now actually runs on the request chain —
+  previously CSRF, request validation, rate limiting, and CSP reporting
+  silently went unenforced.
+
+AI Assistance
+-------------
+
+- CSP violation reporting (``report-uri`` / ``report-to``), the
+  ``:outermost`` middleware position, and the Configurator
+  middleware-registration fix were designed and implemented with AI
+  assistance.
+
+- ``Otto::CaddyTLS`` designed, implemented, and reviewed with AI assistance.
+
+- The Rack SPEC ``nil``-into-CGI-key fix — including the sibling
+  ``REMOTE_ADDR`` masking bug and ``Rack::Lint`` test coverage — diagnosed
+  and fixed with AI assistance.
+
 .. _changelog-2.3.1:
 
 2.3.1 — 2026-06-22

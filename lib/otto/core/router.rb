@@ -72,14 +72,10 @@ class Otto
         path_info          = '/' if path_info.to_s.empty?
 
         begin
-          path_info_clean = path_info
-                            .encode(
-                              'UTF-8', # Target encoding
-                              invalid: :replace, # Replace invalid byte sequences
-                              undef: :replace,   # Replace characters undefined in UTF-8
-                              replace: '' # Use empty string for replacement
-                            )
-                            .gsub(%r{/$}, '') # Remove trailing slash, if present
+          # Shared with Otto::CaddyTLS::LocalhostGuard so the guard and the
+          # router cannot normalize a path differently (which would be a guard
+          # bypass). See Otto::Utils.normalize_path.
+          path_info_clean = Otto::Utils.normalize_path(env['PATH_INFO'])
         rescue ArgumentError => e
           # Log the error but don't expose details
           Otto.logger.error '[Otto.handle_request] Path encoding error'

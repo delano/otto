@@ -6,27 +6,6 @@ require_relative '../route'
 require_relative 'localhost_guard'
 
 class Otto
-  # Caddy on-demand TLS permission integration.
-  #
-  # Answers the HTTP question Caddy asks before obtaining or loading a
-  # certificate on demand: "may I serve TLS for this domain?". The contract
-  # is a single GET endpoint with +?domain=<host>+ appended; HTTP 200 means
-  # allow, any non-2xx means deny.
-  #
-  # This one endpoint serves BOTH the deprecated +ask+ directive and its
-  # replacement, the +permission http+ module — their HTTP contracts are
-  # identical, so migrating is config-only on Caddy's side:
-  #
-  #   on_demand_tls {
-  #     permission http { endpoint http://127.0.0.1:PORT/_caddy/tls-permission }
-  #   }
-  #   # legacy / deprecated, same endpoint:
-  #   on_demand_tls { ask http://127.0.0.1:PORT/_caddy/tls-permission }
-  #
-  # Otto owns all the HTTP ceremony (routing, localhost-only guard, blank
-  # domain handling, fail-closed decision, response semantics). The app owns
-  # exactly one thing — the domain decision — supplied as a block to
-  # +Otto#enable_caddy_tls!+.
   module CaddyTLS
     # Registers the permission route and (by default) the localhost guard,
     # and wraps the app-supplied decision block with fail-closed semantics.

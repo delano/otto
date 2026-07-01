@@ -221,11 +221,14 @@ allowed.
 ### 5.4 Path-scoped, bypass-resistant
 
 The guard only enforces loopback for its own endpoint; every other route passes
-through untouched. It normalizes `PATH_INFO` (URL-unescape, scrub invalid UTF-8
-bytes, strip trailing slashes) **exactly as the router does**, so a percent-encoded
+through untouched. It normalizes `PATH_INFO` through the **same
+`Otto::Utils.normalize_path` the router uses for literal matching** (URL-unescape,
+scrub invalid UTF-8 bytes, strip a trailing slash), so a percent-encoded
 (`…permissio%6e`), invalid-byte, or trailing-slash variant that the router would
 still route cannot slip past by normalizing differently in the guard than at
-dispatch.
+dispatch. Sharing one implementation makes that agreement structural rather than a
+duplicated invariant two files must remember to keep in sync — if the router's
+normalization ever changes, the guard changes with it.
 
 ### 5.5 Fail-closed everywhere
 

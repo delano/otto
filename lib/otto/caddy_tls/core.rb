@@ -6,6 +6,21 @@ class Otto
   # Otto::CaddyTLS is a modular, opt-in integration for Caddy's on-demand TLS
   # permission endpoint — the HTTP question Caddy asks a backend before it
   # obtains or loads a certificate on demand: "may I serve TLS for this host?".
+  # The contract is a single GET endpoint with +?domain=<host>+ appended; HTTP
+  # 200 means allow, any non-2xx means deny. One endpoint serves BOTH the
+  # deprecated +ask+ directive and its replacement, the +permission http+ module
+  # (their HTTP contracts are identical, so migrating is config-only on Caddy's
+  # side):
+  #
+  #   on_demand_tls {
+  #     permission http { endpoint http://127.0.0.1:PORT/_caddy/tls-permission }
+  #   }
+  #   # legacy / deprecated, same endpoint:
+  #   on_demand_tls { ask http://127.0.0.1:PORT/_caddy/tls-permission }
+  #
+  # Otto owns all the HTTP ceremony (routing, localhost-only guard, blank-domain
+  # handling, fail-closed decision, response semantics). The app owns exactly one
+  # thing — the domain decision — supplied as a block to +enable_caddy_tls!+.
   #
   # It is structured like Otto::MCP: a self-contained, top-level namespace loaded
   # eagerly but inert until +enable_caddy_tls!+ is called, rather than an

@@ -3,7 +3,8 @@
 # frozen_string_literal: true
 
 require 'ipaddr'
-require 'rack/utils'
+
+require_relative '../utils'
 
 class Otto
   module CaddyTLS
@@ -103,10 +104,10 @@ class Otto
       end
 
       # Whether this request is for the protected endpoint. Normalizes
-      # +PATH_INFO+ exactly as the router does (URL-unescape, replace invalid
-      # UTF-8 bytes, strip trailing slashes) so a percent-encoded, invalid-byte,
-      # or trailing-slash variant that the router would still route cannot slip
-      # past the guard by normalizing differently here than at dispatch.
+      # +PATH_INFO+ through the same +Otto::Utils.normalize_path+ the router
+      # uses for literal matching, so a percent-encoded, invalid-byte, or
+      # trailing-slash variant the router would still route cannot slip past the
+      # guard by normalizing differently here than at dispatch.
       #
       # @param env [Hash] Rack environment
       # @return [Boolean]
@@ -114,19 +115,14 @@ class Otto
         normalize_path(env['PATH_INFO']) == @endpoint
       end
 
+      # Router-equivalent path normalization. Delegates to the single shared
+      # implementation so the guard and the router cannot drift (see
+      # Otto::Utils.normalize_path).
+      #
       # @param path [String, nil]
-      # @return [String] router-equivalent normalized path
+      # @return [String] normalized path
       def normalize_path(path)
-        decoded =
-          begin
-            Rack::Utils.unescape(path.to_s)
-          rescue StandardError
-            path.to_s
-          end
-        # Match the router: drop invalid/undefined bytes rather than keep them,
-        # so a crafted invalid byte cannot make the guard and router disagree.
-        decoded = decoded.encode('UTF-8', invalid: :replace, undef: :replace, replace: '')
-        decoded.gsub(%r{/+$}, '')
+        Otto::Utils.normalize_path(path)
       end
 
       # Whether the connecting peer is a loopback address. Fails closed: a

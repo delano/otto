@@ -1,4 +1,4 @@
-# spec/otto/caddy_tls/server_spec.rb
+# spec/otto/caddy_tls/caddy_tls_spec.rb
 #
 # frozen_string_literal: true
 

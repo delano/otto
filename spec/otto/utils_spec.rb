@@ -104,6 +104,52 @@ RSpec.describe Otto::Utils do
     end
   end
 
+  describe "#normalize_path" do
+    # This is the single source of truth shared by the router's literal-route
+    # matching and Otto::CaddyTLS::LocalhostGuard. These cases pin the contract
+    # so the two consumers cannot drift.
+    it "returns a plain path unchanged" do
+      expect(Otto::Utils.normalize_path("/_caddy/tls-permission")).to eq("/_caddy/tls-permission")
+    end
+
+    it "strips a single trailing slash" do
+      expect(Otto::Utils.normalize_path("/foo/")).to eq("/foo")
+    end
+
+    it "URL-unescapes percent-encoded characters" do
+      # %6e decodes to 'n'
+      expect(Otto::Utils.normalize_path("/_caddy/tls-permissio%6e")).to eq("/_caddy/tls-permission")
+    end
+
+    it "scrubs a raw invalid UTF-8 byte rather than raising" do
+      expect(Otto::Utils.normalize_path("/foo\xFF")).to eq("/foo")
+    end
+
+    it "scrubs a percent-encoded invalid byte identically to a raw one" do
+      # %FF decodes to the same invalid byte; both must normalize alike or the
+      # guard and router could disagree.
+      expect(Otto::Utils.normalize_path("/foo%FF")).to eq(Otto::Utils.normalize_path("/foo\xFF"))
+    end
+
+    it "normalizes an empty path to '' like the router (root -> '')" do
+      # The router maps empty -> '/', then strips the trailing slash to '' for
+      # literal matching; normalize_path mirrors that end state.
+      expect(Otto::Utils.normalize_path("")).to eq("")
+    end
+
+    it "coerces nil the same as an empty path" do
+      expect(Otto::Utils.normalize_path(nil)).to eq("")
+    end
+
+    it "normalizes root '/' the same as an empty path" do
+      expect(Otto::Utils.normalize_path("/")).to eq("")
+    end
+
+    it "never raises on hostile input" do
+      expect { Otto::Utils.normalize_path("%%%\xFF//") }.not_to raise_error
+    end
+  end
+
   describe "#normalize_ip" do
     it "accepts a bare IPv4 address" do
       expect(Otto::Utils.normalize_ip("203.0.113.5")).to eq("203.0.113.5")

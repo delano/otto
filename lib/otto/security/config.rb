@@ -6,6 +6,7 @@ require 'securerandom'
 require 'digest'
 require 'openssl'
 require 'ipaddr'
+require 'rack/headers'
 require_relative '../core/freezable'
 
 class Otto
@@ -516,6 +517,51 @@ class Otto
         directives += ["#{report_uri_directive};"] if report_uri_directive
         directives += ["#{report_to_directive};"] if report_to_directive
         directives.join(' ')
+      end
+
+      # Apply a nonce-based CSP to a Rack response-headers hash, case-insensitively.
+      #
+      # This is the single apply core shared by {Otto::Response#send_csp_headers},
+      # {Otto::Security::CSP::EmitMiddleware}, and downstream applications that
+      # apply a nonce CSP at a raw response-tuple boundary (`@app.call(env)`).
+      # A plain Hash from a downstream app can carry canonically-cased keys
+      # (`Content-Type`, `Content-Security-Policy`); every lookup and write here
+      # goes through {Rack::Headers}, so casing can never silently drop the CSP
+      # or emit a duplicate header.
+      #
+      # RETURN-VALUE CONTRACT: a plain Hash is wrapped in {Rack::Headers}, which
+      # COPIES the hash — writes never reach the original. Callers MUST use the
+      # returned object (e.g. put it in the response tuple), not the argument. A
+      # {Rack::Headers} input (such as {Rack::Response#headers}) is mutated in
+      # place and returned as the same object.
+      #
+      # The CSP is only applied when all of these hold, mirroring the guards
+      # previously copy-pasted at each emission site:
+      # - nonce support is enabled ({#csp_nonce_enabled?})
+      # - the nonce is present (non-nil, non-empty)
+      # - the response is HTML (`content-type` starts with `text/html`)
+      # - no CSP header is already set, unless `clobber: true`
+      #
+      # `clobber` preserves the existing split between Otto's two emission
+      # paths: a deliberate per-request call ({Otto::Response#send_csp_headers})
+      # OVERWRITES an existing CSP, while a passive backstop middleware DEFERS
+      # to one.
+      #
+      # @param headers [Hash, Rack::Headers] response headers to apply the CSP to
+      # @param nonce [String, nil] the per-request nonce; nil/empty skips
+      # @param development_mode [Boolean] use development-friendly directives
+      # @param clobber [Boolean] overwrite an existing CSP header (default: false)
+      # @return [Hash, Rack::Headers] the headers object the caller must use
+      def write_nonce_csp(headers, nonce, development_mode: false, clobber: false)
+        return headers unless csp_nonce_enabled?
+        return headers if nonce.to_s.empty?
+
+        h = headers.is_a?(Rack::Headers) ? headers : Rack::Headers[headers]
+        return h unless h['content-type']&.start_with?('text/html')
+        return h if !clobber && h['content-security-policy']
+
+        h['content-security-policy'] = generate_nonce_csp(nonce, development_mode: development_mode)
+        h
       end
 
       # Enable X-Frame-Options header to prevent clickjacking

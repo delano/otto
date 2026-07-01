@@ -70,4 +70,28 @@ RSpec.describe Otto::Response, '#send_csp_headers' do
     # Development allows inline scripts alongside the nonce; production does not.
     expect(csp).to include("script-src 'nonce-devnonce' 'unsafe-inline'")
   end
+
+  # The apply is delegated to the shared core (Config#write_nonce_csp), whose
+  # guards now also protect this helper: no policy is emitted for a blank nonce
+  # (previously a broken 'nonce-' policy) or a non-HTML content type.
+  describe 'shared-core guards (delano/otto#179)' do
+    it 'does not emit a broken policy for a nil nonce' do
+      response.send_csp_headers('text/html', nil, security_config: nonce_config)
+
+      expect(response.headers).not_to have_key('content-security-policy')
+    end
+
+    it 'does not emit a broken policy for an empty nonce' do
+      response.send_csp_headers('text/html', '', security_config: nonce_config)
+
+      expect(response.headers).not_to have_key('content-security-policy')
+    end
+
+    it 'does not emit a CSP for a non-HTML content type' do
+      response.send_csp_headers('application/json', 'abc123', security_config: nonce_config)
+
+      expect(response.headers['content-type']).to eq('application/json')
+      expect(response.headers).not_to have_key('content-security-policy')
+    end
+  end
 end

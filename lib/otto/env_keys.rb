@@ -72,6 +72,14 @@ class Otto
     #   without depending on the (masked) REMOTE_ADDR
     VIA_TRUSTED_PROXY = 'otto.via_trusted_proxy'
 
+    # Per-request CSP nonce (default key; configurable via nonce_key:)
+    # Type: String (base64)
+    # Set by: Otto::Security::CSP::EmitMiddleware (generated when absent;
+    #   an existing value — set upstream or by the application — is respected)
+    # Used by: views/templates embedding the nonce, EmitMiddleware when
+    #   applying the Content-Security-Policy header on the response
+    NONCE = 'otto.nonce'
+
     # =========================================================================
     # LOCALIZATION (I18N)
     # =========================================================================

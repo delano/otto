@@ -84,6 +84,39 @@ app = Otto.new("./routes", {
 
 Security features include CSRF protection, input validation, security headers, and trusted proxy configuration.
 
+### Nonce-based CSP Emission
+
+With `enable_csp_with_nonce!`, Otto emits a per-request nonce-based
+Content-Security-Policy. There are two ways to apply it, both routed through
+one case-insensitive core (`Otto::Security::Config#write_nonce_csp`), so a
+canonically-cased `Content-Type` / `Content-Security-Policy` from a downstream
+app can never silently drop the CSP or produce a duplicate header:
+
+```ruby
+# 1. Deliberate, per-route: overrides any existing CSP (clobber: true)
+def show(req, res)
+  nonce = SecureRandom.base64(16)
+  res.send_csp_headers('text/html; charset=utf-8', nonce)
+end
+
+# 2. Passive chokepoint: mount the middleware and every HTML response gets the
+#    CSP, deferring to any policy the app already set (clobber: false).
+app.use Otto::Security::CSP::EmitMiddleware
+# The middleware ensures env['otto.nonce'] before calling the app, so views can
+# embed the same nonce the header carries. Apps with their own convention can
+# point it at theirs: use Otto::Security::CSP::EmitMiddleware, nonce_key: 'myapp.nonce'
+```
+
+Downstream applications applying a CSP at a raw response-tuple boundary can call
+the core directly — note it RETURNS the headers to use (a plain `Hash` is
+wrapped in `Rack::Headers`, which copies):
+
+```ruby
+status, headers, body = @app.call(env)
+headers = security_config.write_nonce_csp(headers, env['myapp.nonce'])
+[status, headers, body]
+```
+
 ### CSP Violation Reporting
 
 Otto can both emit Content-Security-Policy headers and receive the violation

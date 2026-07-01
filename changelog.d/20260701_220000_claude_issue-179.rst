@@ -1,0 +1,32 @@
+Added
+-----
+
+- ``Otto::Security::Config#write_nonce_csp``: a single, case-insensitive
+  nonce-CSP apply core for Rack response headers. All lookups and writes go
+  through ``Rack::Headers``, so a canonically-cased ``Content-Type`` /
+  ``Content-Security-Policy`` at a raw response-tuple boundary can never
+  silently drop the CSP or emit a duplicate header. ``clobber:`` selects
+  between overriding an existing CSP (deliberate call) and deferring to one
+  (passive backstop). (#179)
+- ``Otto::Security::CSP::EmitMiddleware``: a mountable web chokepoint that
+  ensures a per-request nonce in ``env['otto.nonce']`` (key configurable via
+  ``nonce_key:``) and applies the nonce CSP to HTML responses via
+  ``write_nonce_csp`` with ``clobber: false``, so downstream apps no longer
+  hand-roll the HTML-only / don't-clobber / needs-nonce guards. Inert unless
+  ``csp_nonce_enabled?``. (#179)
+
+Changed
+-------
+
+- ``Otto::Response#send_csp_headers`` now routes its apply through
+  ``write_nonce_csp`` (with ``clobber: true``), keeping its default
+  content-type, override warning, and debug logging. As a result it no longer
+  emits a broken ``'nonce-'`` policy for a blank nonce, and no longer emits a
+  CSP for non-HTML content types. (#179)
+
+AI Assistance
+-------------
+
+- Shared casing-safe nonce-CSP apply core designed and implemented with AI
+  assistance, consolidating guard logic previously duplicated across
+  ``Otto::Response`` and downstream application middleware.

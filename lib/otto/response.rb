@@ -103,6 +103,12 @@ class Otto
     # following the same usage pattern as send_cookie methods. The CSP policy
     # is generated dynamically based on the security configuration and environment.
     #
+    # The apply itself is delegated to the shared, casing-safe core
+    # {Otto::Security::Config#write_nonce_csp} with `clobber: true`: an existing
+    # CSP header is deliberately overridden (with a warning), while a blank
+    # nonce or a non-HTML content type skips emission rather than producing a
+    # broken or pointless policy.
+    #
     # @param content_type [String] Content-Type header value to set
     # @param nonce [String] Nonce value to include in CSP directives
     # @param opts [Hash] Options for CSP generation
@@ -135,18 +141,17 @@ class Otto
       # Skip if CSP nonce support is not enabled
       return unless security_config&.csp_nonce_enabled?
 
-      # Generate CSP policy with nonce
-      development_mode = opts[:development_mode] || false
-      csp_policy       = security_config.generate_nonce_csp(nonce, development_mode: development_mode)
-
-      # Debug logging if enabled
-      debug_enabled = opts[:debug] || security_config.debug_csp?
-      if debug_enabled && defined?(Otto.logger)
-        Otto.logger.debug "[CSP] #{csp_policy}"
-      end
-
-      # Set the CSP header
-      headers['content-security-policy'] = csp_policy
+      # Apply through the shared, casing-safe core. #headers is a Rack::Headers
+      # (Rack 3.1+), so it is mutated in place; clobber: true preserves this
+      # helper's override-an-existing-CSP behavior. The core also skips blank
+      # nonces and non-HTML content types.
+      before = headers['content-security-policy']
+      security_config.write_nonce_csp(
+        headers, nonce,
+        development_mode: opts[:development_mode] || false,
+        clobber: true
+      )
+      log_csp_debug(security_config, opts[:debug], before)
     end
 
     # Set cache control headers to prevent caching
@@ -186,6 +191,19 @@ class Otto
       paths = paths.flatten.compact
       paths.unshift(request.env['SCRIPT_NAME']) if request&.env&.[]('SCRIPT_NAME')
       paths.join('/').gsub('//', '/')
+    end
+
+    private
+
+    # Log the CSP policy written by #send_csp_headers when debug logging is
+    # enabled. `before` is the header value prior to the apply; the shared core
+    # may have skipped (blank nonce, non-HTML), in which case nothing is logged.
+    def log_csp_debug(security_config, debug_opt, before)
+      csp_policy = headers['content-security-policy']
+      return if csp_policy.nil? || csp_policy.equal?(before)
+      return unless debug_opt || security_config.debug_csp?
+
+      Otto.logger.debug "[CSP] #{csp_policy}" if defined?(Otto.logger)
     end
   end
 end

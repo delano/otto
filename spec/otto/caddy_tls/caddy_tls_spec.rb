@@ -188,5 +188,21 @@ RSpec.describe Otto::CaddyTLS do
       response = request(path: '/internal/acme/ask', query: { domain: 'x.example.com' })
       expect(response[0]).to eq(200)
     end
+
+    it 'normalizes a configured trailing slash so the router still matches it' do
+      # Registering '/internal/acme/ask/' verbatim would make the literal key
+      # unmatchable (requests normalize the slash away). The endpoint must be
+      # normalized at enable! so the router and guard agree.
+      otto.enable_caddy_tls!(endpoint: '/internal/acme/ask/') { |_domain| true }
+      response = request(path: '/internal/acme/ask', query: { domain: 'x.example.com' })
+      expect(response[0]).to eq(200)
+    end
+
+    it 'guards a custom endpoint against a non-loopback caller (401)' do
+      otto.enable_caddy_tls!(endpoint: '/internal/acme/ask') { |_domain| true }
+      response = request(path: '/internal/acme/ask', query: { domain: 'x.example.com' },
+                         remote_addr: '8.8.8.8')
+      expect(response[0]).to eq(401)
+    end
   end
 end

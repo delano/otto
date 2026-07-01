@@ -40,7 +40,9 @@ class Otto
       # block is caught and treated as a denial (fail-closed).
       #
       # @param endpoint [String] path to serve (default '/_caddy/tls-permission')
-      # @param localhost_only [Boolean] install the loopback-only guard (default true)
+      # @param localhost_only [Boolean] install the loopback-only guard (default true).
+      #   Passing false removes the only built-in access control — do so only when the
+      #   endpoint is isolated at the network layer; a warning is logged when disabled.
       # @yieldparam domain [String] the domain Caddy is asking about
       # @yieldreturn [Boolean] truthy to allow (200), falsy to deny (403)
       # @return [self]

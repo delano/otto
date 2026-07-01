@@ -3,7 +3,9 @@
 require_relative '../../lib/otto'
 require_relative 'app'
 
-app = Otto.new('routes')
+# Resolve the routes file relative to this file, not the process CWD, so the
+# documented `rackup examples/caddy_tls_demo/config.ru` works from the repo root.
+app = Otto.new(File.expand_path('routes', __dir__))
 
 # Enable the Caddy on-demand TLS permission endpoint. The block is the only
 # application-specific part: it receives the domain Caddy is asking about and

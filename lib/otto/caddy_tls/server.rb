@@ -3,6 +3,7 @@
 # frozen_string_literal: true
 
 require_relative '../route'
+require_relative '../utils'
 require_relative 'localhost_guard'
 
 class Otto
@@ -40,6 +41,13 @@ class Otto
       def enable!(endpoint:, localhost_only:, permission:)
         return if @enabled
 
+        # Normalize once so the guard's endpoint, the router's literal-route
+        # key, and @endpoint all agree. Without this, a configured trailing
+        # slash (or percent-encoding) registers a literal route the router can
+        # never match — requests are normalized before lookup — while the guard
+        # still targets it, so Caddy would get a denial instead of a decision.
+        endpoint = Otto::Utils.normalize_path(endpoint)
+
         @endpoint       = endpoint
         @permission     = permission
         @localhost_only = localhost_only
@@ -47,10 +55,19 @@ class Otto
 
         register_route(endpoint)
 
-        # SECURITY: appended (via #use) so it is OUTERMOST in the stack and
-        # runs BEFORE IPPrivacyMiddleware — the guard must see the raw socket
-        # peer, not the forwarded-header-resolved client IP. See LocalhostGuard.
-        @otto.use(Otto::CaddyTLS::LocalhostGuard, endpoint) if localhost_only
+        if localhost_only
+          # SECURITY: appended (via #use) so it is OUTERMOST in the stack and
+          # runs BEFORE IPPrivacyMiddleware — the guard must see the raw socket
+          # peer, not the forwarded-header-resolved client IP. See LocalhostGuard.
+          @otto.use(Otto::CaddyTLS::LocalhostGuard, endpoint)
+        else
+          # Explicit opt-out: the endpoint then has no built-in access control,
+          # so it must be isolated at the network layer. Surface that at setup.
+          Otto.structured_log(:warn,
+            '[CaddyTLS] localhost guard disabled (localhost_only: false); endpoint is ' \
+            'reachable by any client that can reach this app — ensure network-level isolation',
+            endpoint: endpoint)
+        end
 
         # structured_log self-skips :debug unless Otto.debug is set.
         Otto.structured_log(:debug, '[CaddyTLS] enabled',

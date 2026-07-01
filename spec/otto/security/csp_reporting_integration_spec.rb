@@ -13,14 +13,19 @@ require 'tempfile'
 RSpec.describe 'Otto CSP violation reporting (integration)' do
   include Rack::Test::Methods
 
-  # A trivial controller for the routes file.
+  # A trivial controller for the routes file. Otto instantiates it as
+  # new(req, res) and invokes the action with no arguments.
   class CspIntegrationApp
-    def index(_req, res)
-      res.write('ok')
+    def initialize(_req, res)
+      @res = res
     end
 
-    def submit(_req, res)
-      res.write('submitted')
+    def index
+      @res.write('ok')
+    end
+
+    def submit
+      @res.write('submitted')
     end
   end
 
@@ -125,5 +130,45 @@ RSpec.describe 'Otto CSP violation reporting (integration)' do
   it 'passes a GET to the report path through to routing (only POST is intercepted)' do
     get '/_/csp-report'
     expect(last_response.status).to eq(404)
+  end
+
+  context 'with a static policy and legacy reporting enabled' do
+    let(:otto) do
+      instance = Otto.new(routes_file.path)
+      instance.enable_csp!("default-src 'self'")
+      instance.enable_csp_reporting!('/_/csp-report') { |report| violations << report }
+      instance
+    end
+
+    it 'carries the report-uri directive in the emitted policy on ordinary responses' do
+      get '/'
+      expect(last_response['content-security-policy']).to include('report-uri /_/csp-report')
+    end
+  end
+
+  context 'with a static policy and modern (Reporting API) reporting enabled' do
+    let(:endpoint) { 'https://example.com/_/csp-report' }
+    let(:otto) do
+      instance = Otto.new(routes_file.path)
+      instance.enable_csp!("default-src 'self'")
+      instance.enable_csp_reporting!('/_/csp-report', endpoint_url: endpoint) { |report| violations << report }
+      instance
+    end
+
+    it 'emits both report-uri and report-to plus a Reporting-Endpoints header' do
+      get '/'
+      csp = last_response['content-security-policy']
+      expect(csp).to include('report-uri /_/csp-report')
+      expect(csp).to include('report-to otto-csp')
+      expect(last_response['reporting-endpoints']).to eq(%(otto-csp="#{endpoint}"))
+    end
+
+    it 'still receives and dispatches a modern reports+json POST' do
+      body = [{ 'type' => 'csp-violation', 'body' => { 'effectiveDirective' => 'img-src' } }].to_json
+      post '/_/csp-report', body, 'CONTENT_TYPE' => 'application/reports+json'
+
+      expect(last_response.status).to eq(204)
+      expect(violations.map(&:effective_directive)).to eq(['img-src'])
+    end
   end
 end

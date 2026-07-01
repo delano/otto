@@ -204,9 +204,13 @@ class Otto
       # intercepts report POSTs ahead of CSRF regardless of enable order.
       #
       # @param report_uri [String] path browsers POST reports to (matched against PATH_INFO)
+      # @param endpoint_url [String, nil] absolute URL for the modern Reporting
+      #   API endpoint (emits `report-to` + `Reporting-Endpoints`); nil emits
+      #   only the legacy `report-uri`
       # @yieldparam report [Otto::Security::CSP::Report] a normalized violation report
-      def enable_csp_reporting!(report_uri, &block)
+      def enable_csp_reporting!(report_uri, endpoint_url: nil, &block)
         @security_config.csp_report_uri = report_uri
+        @security_config.csp_report_to_url = endpoint_url unless endpoint_url.nil?
         @security_config.on_csp_violation(&block) if block
 
         return if middleware_enabled?(Otto::Security::CSP::ReportMiddleware)
@@ -220,6 +224,16 @@ class Otto
       # @param uri [String, nil] report path (matched against PATH_INFO), or nil to disable
       def csp_report_uri=(uri)
         @security_config.csp_report_uri = uri
+      end
+
+      # Configure the absolute URL for the modern Reporting API endpoint
+      # (`report-to` directive + `Reporting-Endpoints` header) without injecting
+      # middleware. Prefer {#enable_csp_reporting!} with `endpoint_url:` for the
+      # full turnkey setup.
+      #
+      # @param url [String, nil] absolute endpoint URL, or nil to disable modern reporting
+      def csp_report_to_url=(url)
+        @security_config.csp_report_to_url = url
       end
 
       # Add a single authentication strategy

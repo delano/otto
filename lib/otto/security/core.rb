@@ -154,27 +154,38 @@ class Otto
       # To (re)assign the callback later without touching the wiring, use the
       # config primitive directly: `otto.security_config.on_csp_violation { ... }`.
       #
+      # For modern browsers (which have deprecated `report-uri`), also pass
+      # `endpoint_url:` — an ABSOLUTE URL whose path is `report_uri`. Otto then
+      # emits a `report-to` directive plus a `Reporting-Endpoints` header so those
+      # browsers deliver `application/reports+json` to the same receiver.
+      #
       # @param report_uri [String] path browsers POST reports to (matched against
       #   `PATH_INFO`, e.g. `/_/csp-report`).
+      # @param endpoint_url [String, nil] absolute URL for the modern Reporting
+      #   API endpoint (e.g. `https://example.com/_/csp-report`); nil emits only
+      #   the legacy `report-uri`.
       # @yieldparam report [Otto::Security::CSP::Report] a normalized violation report
       # @return [void]
       # @example
       #   otto.enable_csp_with_nonce!
-      #   otto.enable_csp_reporting!('/_/csp-report') do |report|
+      #   otto.enable_csp_reporting!('/_/csp-report',
+      #     endpoint_url: 'https://example.com/_/csp-report') do |report|
       #     Otto.logger.warn("CSP violation: #{report.to_h}")
       #   end
-      def enable_csp_reporting!(report_uri, &block)
+      def enable_csp_reporting!(report_uri, endpoint_url: nil, &block)
         ensure_not_frozen!
 
         @security_config.csp_report_uri = report_uri
+        @security_config.csp_report_to_url = endpoint_url unless endpoint_url.nil?
         @security_config.on_csp_violation(&block) if block
 
         return if @middleware.includes?(Otto::Security::CSP::ReportMiddleware)
 
         # Pin OUTERMOST so it intercepts report POSTs ahead of CSRF regardless of
-        # the order security features are enabled in.
+        # the order security features are enabled in. add_with_position fires the
+        # stack's on_change callback, which rebuilds @app (wired in
+        # Otto#initialize_core_state) — no explicit build_app! needed.
         @middleware.add_with_position(Otto::Security::CSP::ReportMiddleware, position: :outermost)
-        build_app! if @app # rebuild if middleware stack already built
       end
 
       # Add an authentication strategy with a registered name

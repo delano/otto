@@ -121,6 +121,22 @@ middleware, so browsers can POST reports without a CSRF token — regardless of 
 order you enable security features in. A throwing callback can never break the
 receiver; it still answers `204`.
 
+Modern browsers (Chrome) have deprecated `report-uri` in favour of the Reporting
+API. Pass `endpoint_url:` — an **absolute** URL whose path is the report path —
+to also emit a `report-to` directive and a `Reporting-Endpoints` response header,
+so those browsers deliver `application/reports+json` to the same receiver:
+
+```ruby
+app.enable_csp_reporting!("/_/csp-report",
+                          endpoint_url: "https://example.com/_/csp-report") do |report|
+  Otto.logger.warn("CSP violation: #{report.violated_directive}")
+end
+```
+
+The legacy `report-uri` is always kept alongside `report-to`, so older browsers
+(Firefox, Safari) keep working. When `endpoint_url:` is omitted, output is
+byte-identical to `report-uri`-only.
+
 > [!IMPORTANT]
 > Report URL fields (`document_uri`, `blocked_uri`, `referrer`, `source_file`)
 > reflect the page the browser was on and may carry sensitive path/query data in

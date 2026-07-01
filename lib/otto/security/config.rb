@@ -44,6 +44,11 @@ class Otto
       # depth mode; CIDR-walk is unaffected.
       TRUSTED_PROXY_HEADERS = %w[X-Forwarded-For Forwarded Both].freeze
 
+      # Endpoint group name shared by the CSP `report-to` directive and the
+      # `Reporting-Endpoints` response header (modern Reporting API). Browsers
+      # match the directive's group to the header's key, so both must agree.
+      CSP_REPORTING_GROUP = 'otto-csp'
+
       # Error raised when CSRF protection is enabled in production without an
       # explicitly configured secret. A randomly-generated per-process secret
       # silently breaks token verification across workers and restarts, so we
@@ -64,7 +69,7 @@ class Otto
                   :security_headers,
                   :csp_nonce_enabled, :debug_csp, :mcp_auth,
                   :ip_privacy_config, :trusted_proxy_depth, :trusted_proxy_header,
-                  :csp_report_uri, :csp_violation_callback
+                  :csp_report_uri, :csp_report_to_url, :csp_violation_callback
 
       # Initialize security configuration with safe defaults
       #
@@ -89,6 +94,7 @@ class Otto
         @debug_csp              = false
         @csp_policy             = nil
         @csp_report_uri         = nil
+        @csp_report_to_url      = nil
         @csp_violation_callback = nil
         @rate_limiting_config   = { custom_rules: {} }
         @ip_privacy_config      = Otto::Privacy::Config.new
@@ -424,6 +430,45 @@ class Otto
         @security_headers['content-security-policy'] = build_static_csp(@csp_policy) unless @csp_policy.nil?
       end
 
+      # Configure the absolute URL browsers should POST CSP violation reports to
+      # via the modern Reporting API (Reporting-Endpoints header + `report-to`
+      # directive), complementing the legacy path-based {#csp_report_uri=}.
+      #
+      # Setting this does two things:
+      # 1. A `report-to #{CSP_REPORTING_GROUP}` directive is appended to every
+      #    emitted CSP policy (static and per-request nonce alike), and a
+      #    `Reporting-Endpoints` response header maps that group to this URL.
+      # 2. Modern browsers (which have deprecated `report-uri`) deliver reports
+      #    as `application/reports+json` to this endpoint — already parsed by
+      #    {Otto::Security::CSP::Parser}.
+      #
+      # The value MUST be an ABSOLUTE URL (Reporting-Endpoints does not accept a
+      # bare path). Point it at the same receiver as {#csp_report_uri=}: its path
+      # component should equal the report URI so {Otto::Security::CSP::ReportMiddleware}
+      # (which matches on PATH_INFO) intercepts modern reports too.
+      #
+      # When nil/empty (the default), NO `report-to` directive or
+      # `Reporting-Endpoints` header is emitted and policy output is
+      # byte-identical to Otto's historical output.
+      #
+      # @param url [String, nil] absolute URL for the Reporting API endpoint, or
+      #   nil to disable modern reporting.
+      # @return [void]
+      # @raise [FrozenError] if configuration is frozen
+      def csp_report_to_url=(url)
+        ensure_not_frozen!
+
+        @csp_report_to_url = normalize_report_uri(url)
+        if @csp_report_to_url
+          @security_headers['reporting-endpoints'] = reporting_endpoints_header
+        else
+          @security_headers.delete('reporting-endpoints')
+        end
+        # Recompute the static header (if active) so the report-to directive
+        # tracks the setting regardless of call order relative to #enable_csp!.
+        @security_headers['content-security-policy'] = build_static_csp(@csp_policy) unless @csp_policy.nil?
+      end
+
       # Register the callback invoked once per parsed CSP violation report.
       #
       # The block receives an {Otto::Security::CSP::Report}. Your application
@@ -469,8 +514,10 @@ class Otto
       # @return [String] Complete CSP policy string
       def generate_nonce_csp(nonce, development_mode: false)
         directives = development_mode ? development_csp_directives(nonce) : production_csp_directives(nonce)
-        report_directive = csp_report_directive
-        directives += ["#{report_directive};"] if report_directive
+        report_uri_directive = csp_report_directive
+        report_to_directive  = csp_report_to_directive
+        directives += ["#{report_uri_directive};"] if report_uri_directive
+        directives += ["#{report_to_directive};"] if report_to_directive
         directives.join(' ')
       end
 
@@ -803,14 +850,35 @@ class Otto
         "report-uri #{@csp_report_uri}"
       end
 
+      # The `report-to` directive (modern Reporting API) to append to emitted
+      # policies, or nil when no reporting endpoint URL is configured. Its group
+      # name matches the Reporting-Endpoints header. No trailing semicolon.
+      #
+      # @return [String, nil]
+      def csp_report_to_directive
+        return nil if @csp_report_to_url.nil? || @csp_report_to_url.empty?
+
+        "report-to #{CSP_REPORTING_GROUP}"
+      end
+
+      # The `Reporting-Endpoints` response header value mapping the CSP reporting
+      # group to the configured absolute endpoint URL, e.g.
+      # `otto-csp="https://example.com/_/csp-report"`.
+      #
+      # @return [String]
+      def reporting_endpoints_header
+        %(#{CSP_REPORTING_GROUP}="#{@csp_report_to_url}")
+      end
+
       # Build the stored static-CSP header value: the base policy plus the
-      # optional report-uri directive. Byte-identical to the bare policy when no
-      # report URI is configured, so existing static-CSP output is unchanged.
+      # optional report-uri and report-to directives. Byte-identical to the bare
+      # policy when no reporting is configured, so existing static-CSP output is
+      # unchanged.
       #
       # @param policy [String] the base policy passed to {#enable_csp!}
       # @return [String]
       def build_static_csp(policy)
-        [policy, csp_report_directive].compact.join('; ')
+        [policy, csp_report_directive, csp_report_to_directive].compact.join('; ')
       end
 
       # Generate CSP directives for development environment

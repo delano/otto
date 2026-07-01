@@ -1,28 +1,15 @@
 Added
 -----
 
-- ``Otto::CaddyTLS``, an opt-in integration for Caddy's on-demand TLS permission
-  endpoint (a feature-named module alongside ``Otto::MCP``). Enable it with
-  ``otto.enable_caddy_tls! { |domain| ... }`` — the block decides (truthy allows,
-  falsy/nil/raise denies). One endpoint serves both Caddy's deprecated ``ask``
-  directive and the ``permission http`` module. (delano/otto#175)
+- ``Otto::CaddyTLS``: an opt-in Caddy on-demand TLS permission endpoint,
+  enabled with ``otto.enable_caddy_tls! { |domain| ... }``. (delano/otto#175)
 
 Security
 --------
 
-- The Caddy permission endpoint is loopback-only by default via
-  ``Otto::CaddyTLS::LocalhostGuard``: allowed only when the raw TCP peer is
-  loopback and the request carries no forwarding header. Fail-closed on missing
-  block, blank domain, and callback errors.
-
-Documentation
--------------
-
-- Added ``docs/reverse-proxy-network-services.md`` and the
-  ``examples/caddy_tls_demo/`` example (mounted and standalone deployments).
+- The permission endpoint is loopback-only by default and fails closed.
 
 AI Assistance
 -------------
 
-- Designed and reviewed with AI assistance (multi-perspective design panel and
-  adversarial code review).
+- Designed, implemented, and reviewed with AI assistance.

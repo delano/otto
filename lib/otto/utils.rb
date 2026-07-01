@@ -3,6 +3,7 @@
 # frozen_string_literal: true
 
 require 'ipaddr'
+require 'rack/utils'
 
 class Otto
   # Utility methods for common operations and helpers
@@ -55,6 +56,41 @@ class Otto
     # yes?('1')     # => true
     def yes?(value)
       !value.to_s.empty? && %w[true yes 1].include?(value.to_s.downcase)
+    end
+
+    # Canonical path normalization for literal route matching: URL-unescape,
+    # scrub invalid/undefined bytes, and strip a single trailing slash.
+    #
+    # This is the SINGLE SOURCE OF TRUTH shared by the router
+    # (Otto::Core::Router#handle_request, which compares the result against its
+    # literal-route table) and Otto::CaddyTLS::LocalhostGuard (which compares it
+    # against the guarded endpoint). The two MUST normalize identically: if a
+    # crafted path — a trailing slash, a percent-encoded byte, an invalid UTF-8
+    # byte — normalized differently in the guard than in the router, the router
+    # could dispatch a request the guard let through, bypassing the loopback
+    # check. One implementation makes that drift impossible.
+    #
+    # Mirrors the empty-path handling and :replace scrubbing the router applies.
+    # Robust to invalid input: Rack::Utils.unescape raises ArgumentError on an
+    # already-invalid byte sequence (a raw \xFF in the path), so that is caught
+    # and the raw string is scrubbed instead — a percent-encoded invalid byte
+    # (%FF) decodes to the same invalid byte and is scrubbed identically, so the
+    # two crafted forms normalize alike. The method itself does not raise.
+    #
+    # @param raw_path [String, nil] a raw PATH_INFO or a configured endpoint
+    # @return [String] normalized path suitable for exact literal comparison
+    def normalize_path(raw_path)
+      raw = raw_path.to_s
+      decoded =
+        begin
+          Rack::Utils.unescape(raw)
+        rescue ArgumentError
+          raw
+        end
+      decoded = '/' if decoded.empty?
+      decoded
+        .encode('UTF-8', invalid: :replace, undef: :replace, replace: '')
+        .gsub(%r{/$}, '')
     end
 
     # Validate and normalize an IP address (IPv4 and IPv6).

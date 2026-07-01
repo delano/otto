@@ -1,0 +1,9 @@
+# examples/caddy_tls_demo/routes
+#
+# The Caddy on-demand TLS permission endpoint is registered programmatically by
+# `enable_caddy_tls!` (see config.ru); no route entry is needed here. These are
+# just the demo's own pages, shown to prove the permission endpoint coexists with
+# a normal app and that the localhost guard does not affect other routes.
+
+GET  /        DemoApp.index
+GET  /health  DemoApp.health

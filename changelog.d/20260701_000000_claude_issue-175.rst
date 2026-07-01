@@ -1,0 +1,15 @@
+Added
+-----
+
+- ``Otto::CaddyTLS``: an opt-in Caddy on-demand TLS permission endpoint,
+  enabled with ``otto.enable_caddy_tls! { |domain| ... }``. (delano/otto#175)
+
+Security
+--------
+
+- The permission endpoint is loopback-only by default and fails closed.
+
+AI Assistance
+-------------
+
+- Designed, implemented, and reviewed with AI assistance.

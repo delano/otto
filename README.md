@@ -176,6 +176,41 @@ end
 
 The locale helper checks multiple sources in order of precedence and validates against your configured locales.
 
+## Network Service Integrations
+
+`Otto::Services` is a modular home for turnkey endpoints that an external network
+component (a reverse proxy, TLS layer, browser reporter, ...) calls over a fixed
+HTTP contract. The app supplies a small decision; Otto owns the routing, the
+security guard, and the fail-safe behavior.
+
+The pilot integration answers **Caddy's on-demand TLS** question — "may I obtain a
+certificate for this domain?":
+
+```ruby
+otto = Otto.new('routes.txt')
+
+otto.enable_caddy_tls! do |domain|
+  # The only app-specific part. Truthy => 200 (allow), falsy => 403 (deny).
+  # Any exception here is caught and denies (fail-closed).
+  MyApp::CustomDomain.verified?(domain)
+end
+```
+
+This serves `GET /_caddy/tls-permission?domain=<host>` and covers both Caddy's
+deprecated `ask` directive and its replacement `permission http` module (identical
+HTTP contract, so migration is config-only):
+
+```caddyfile
+on_demand_tls {
+  permission http { endpoint http://127.0.0.1:PORT/_caddy/tls-permission }
+}
+```
+
+Secure by default: the endpoint is restricted to the loopback interface (the guard
+authenticates the raw TCP peer, so a spoofed `X-Forwarded-For` cannot help), and
+every layer fails closed. See [docs/reverse-proxy-network-services.md](docs/reverse-proxy-network-services.md)
+for the design and deployment notes.
+
 ## Examples
 
 Otto includes comprehensive examples demonstrating different features:
@@ -185,6 +220,7 @@ Otto includes comprehensive examples demonstrating different features:
 - **[Authentication Strategies](examples/authentication_strategies/)** - Token, API key, and role-based authentication
 - **[Security Features](examples/security_features/)** - CSRF protection, input validation, file uploads, and security headers
 - **[MCP Demo](examples/mcp_demo/)** - JSON-RPC 2.0 endpoints for CLI automation and integrations
+- **[Caddy on-demand TLS](examples/caddy_tls_demo/)** - Reverse-proxy permission endpoint via `Otto::Services`
 
 ### Standalone Tutorials
 

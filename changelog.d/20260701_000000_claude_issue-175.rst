@@ -1,0 +1,65 @@
+Added
+-----
+
+- ``Otto::Services`` — a modular home for network-service integrations, where an
+  external network component speaks a fixed HTTP contract to the app and the app
+  supplies a small decision while Otto owns the HTTP ceremony. Sits alongside
+  ``Otto::MCP`` / ``Otto::Security`` / ``Otto::Privacy`` and is opt-in per
+  integration.
+
+- **Caddy on-demand TLS permission endpoint** (the pilot integration). Enable it
+  with a single call whose block is the only application coupling point::
+
+    otto.enable_caddy_tls! do |domain|
+      MyApp::CustomDomain.verified?(domain)  # truthy => 200 allow, falsy => 403 deny
+    end
+
+  One endpoint (default ``/_caddy/tls-permission``) serves both Caddy's deprecated
+  ``ask`` directive and its replacement ``permission http`` module — the HTTP
+  contract is identical (``GET ?domain=<host>``, ``200`` = allow, non-``2xx`` =
+  deny), so migrating is config-only on Caddy's side. The route is registered
+  programmatically (like ``/_mcp``); no routes file entry is required.
+
+Security
+--------
+
+- ``Otto::Services::LocalhostGuard`` — a path-scoped, loopback-only guard that
+  every network-service integration can opt into. A request is allowed only if it
+  is a *direct local call*: the **raw TCP peer** is loopback **and** the request
+  carries no forwarding header (``X-Forwarded-For`` / ``X-Real-IP`` /
+  ``X-Client-IP`` / ``Forwarded``). The raw peer is read before
+  ``IPPrivacyMiddleware`` resolves forwarded headers, closing a loopback bypass
+  (reading Otto's resolved client IP would let a co-located, trusted-proxy Caddy be
+  tricked with a spoofed ``X-Forwarded-For: 127.0.0.1``); rejecting forwarding
+  headers additionally keeps the endpoint safe if it is accidentally mounted inside
+  a public app behind a proxy that connects over loopback. Loopback detection uses
+  ``IPAddr#native.loopback?`` so IPv4-mapped IPv6 (``::ffff:127.0.0.1``) is
+  recognized, and fails closed (``401``) on blank/malformed peers. Path matching
+  normalizes ``PATH_INFO`` exactly as the router does (unescape, drop invalid UTF-8
+  bytes, strip trailing slash), so percent-encoded, invalid-byte, or trailing-slash
+  variants cannot bypass it.
+
+- The Caddy permission decision is fail-closed at every layer: the app block is
+  wrapped so ``nil`` / ``false`` / any raised error denies (``403``); a
+  blank/missing ``domain`` returns ``400`` before the block runs; only ``?domain=``
+  reaches the decision; and enabling without a block raises ``ArgumentError``
+  (there is no allow-all default).
+
+Documentation
+-------------
+
+- Added ``docs/reverse-proxy-network-services.md`` (design exploration:
+  options considered, the recommendation, the security model, and how CSP
+  reporting (#174) would later reuse the same space) and the
+  ``examples/caddy_tls_demo/`` runnable example. (delano/otto#175)
+
+AI Assistance
+-------------
+
+- The modular ``Otto::Services`` space and the Caddy on-demand TLS pilot were
+  designed with AI assistance via a multi-perspective design panel: several
+  independent architectures were generated and adversarially critiqued, which
+  surfaced and corrected a loopback-bypass (authenticate the raw peer, not the
+  proxy-resolved client IP) and an IPv4-mapped-loopback false-reject before any
+  code was written. Load-bearing claims (middleware execution order,
+  ``IPAddr#native.loopback?`` behavior) were verified empirically.

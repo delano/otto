@@ -22,6 +22,7 @@ require_relative 'otto/route_handlers'
 require_relative 'otto/errors'
 require_relative 'otto/locale'
 require_relative 'otto/mcp'
+require_relative 'otto/services'
 require_relative 'otto/core'
 require_relative 'otto/privacy'
 require_relative 'otto/security'
@@ -62,6 +63,7 @@ class Otto
   include Otto::Security::Core
   include Otto::Privacy::Core
   include Otto::MCP::Core
+  include Otto::Services::Core
 
   LIB_HOME = __dir__ unless defined?(Otto::LIB_HOME)
 
@@ -75,7 +77,7 @@ class Otto
 
   attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option,
               :static_route, :security_config, :locale_config, :auth_config,
-              :route_handler_factory, :mcp_server, :security, :middleware,
+              :route_handler_factory, :mcp_server, :caddy_tls_server, :security, :middleware,
               :error_handlers, :request_class, :response_class
   attr_accessor :not_found, :server_error
 

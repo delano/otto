@@ -321,5 +321,27 @@ RSpec.describe Otto::Core::MiddlewareStack do
       app = stack.wrap(base_app)
       expect(app).to be_a(third_mw)
     end
+
+    it 'co-exists with position: :first — :first ends innermost, :outermost ends outermost' do
+      stack.add_with_position(plain_mw, position: :first)     # pinned innermost
+      stack.add(third_mw)                                     # ordinary (middle)
+      stack.add_with_position(outer_mw, position: :outermost) # pinned outermost
+
+      app = stack.wrap(base_app)
+      expect(app).to be_a(outer_mw)          # outermost wrapper
+      expect(app.app).to be_a(third_mw)      # ordinary middleware in the middle
+      expect(app.app.app).to be_a(plain_mw)  # :first pinned innermost
+      expect(app.app.app.app).to eq(base_app)
+    end
+
+    it 'keeps the :outermost pin regardless of the order the two pins are added' do
+      stack.add_with_position(outer_mw, position: :outermost) # outermost added FIRST
+      stack.add_with_position(plain_mw, position: :first)     # innermost added LAST
+
+      app = stack.wrap(base_app)
+      expect(app).to be_a(outer_mw)
+      expect(app.app).to be_a(plain_mw)
+      expect(app.app.app).to eq(base_app)
+    end
   end
 end

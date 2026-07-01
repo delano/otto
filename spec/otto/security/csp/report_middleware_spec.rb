@@ -65,6 +65,17 @@ RSpec.describe Otto::Security::CSP::ReportMiddleware do
       expect(downstream_called).to eq(['/_/csp-report'])
       expect(received).to be_empty
     end
+
+    it 'does NOT swallow downstream errors on pass-through requests' do
+      # The receiver runs outermost; its rescue must guard report handling only.
+      # A downstream error on an ordinary request must propagate to Otto's normal
+      # error handling, not be masked as a silent 204.
+      boom = ->(_env) { raise StandardError, 'downstream boom' }
+      mw = described_class.new(boom, config)
+
+      expect { mw.call(post_env(path: '/api/submit', body: '{}')) }
+        .to raise_error(StandardError, 'downstream boom')
+    end
   end
 
   describe 'receiving reports' do

@@ -365,7 +365,12 @@ RSpec.describe Otto, 'Configuration Methods' do
     end
 
     it 'returns true when middleware is in stack' do
-      middleware_class = Class.new
+      # A valid pass-through middleware: adding to the stack now rebuilds @app,
+      # which instantiates it (app, *args), so it must accept the app argument.
+      middleware_class = Class.new do
+        def initialize(app, *) = (@app = app)
+        def call(env) = @app.call(env)
+      end
       app.middleware.add(middleware_class)
 
       result = app.send(:middleware_enabled?, middleware_class)

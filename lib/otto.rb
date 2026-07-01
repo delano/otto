@@ -107,8 +107,13 @@ class Otto
 
   # Main Rack application interface
   def call(env)
-    # Freeze configuration on first request (thread-safe)
-    # Skip in test environment to allow test flexibility
+    # Freeze configuration on first request (thread-safe).
+    # Skipped under RSpec so specs can mutate configuration after construction.
+    # Because of this skip, behavior that depends on a genuinely frozen config
+    # (e.g. CSP violation dispatch through a frozen Config) is NOT exercised by
+    # the normal request path in tests — cover it with specs that freeze
+    # explicitly (see spec/otto/security/csp_reporting_frozen_spec.rb and
+    # spec/otto/configuration_freezing_spec.rb).
     unless defined?(RSpec) || @configuration_frozen
       Otto.logger.debug '[Otto] Lazy freezing check: configuration not yet frozen' if Otto.debug
 
@@ -169,6 +174,22 @@ class Otto
     @auth_config       = { auth_strategies: {}, default_auth_strategy: 'noauth' }
     @security          = Otto::Security::Configurator.new(@security_config, @middleware, @auth_config)
     @app               = nil # Pre-built middleware app (built after initialization)
+
+    # Keep the running Rack app in sync with the middleware stack. This is the
+    # SINGLE rebuild trigger: any add/remove/clear — whether via Otto#use,
+    # otto.enable_*!, or the otto.security.* Configurator surface — rebuilds @app
+    # once it exists. Without it, middleware added through the Configurator after
+    # Otto.new would register in the stack but never enter the running request
+    # chain, silently disabling CSRF, request validation, rate limiting, and CSP
+    # reporting configured that way.
+    #
+    # The `if @app` guard makes stack mutations during initialization (e.g. the
+    # IP-privacy add below) no-ops until the first build_app! runs. A rebuild
+    # during a live request could swap @app mid-flight under multi-threaded
+    # serving; Otto's contract is to configure before the first request, which
+    # the lazy configuration freeze enforces in production.
+    @middleware.on_change { build_app! if @app }
+
     @request_complete_callbacks = [] # Instance-level request completion callbacks
     @route_matched_callbacks    = [] # Instance-level route matched callbacks
     @handler_wrappers           = [] # Instance-level handler wrapper factories

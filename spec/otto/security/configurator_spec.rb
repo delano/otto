@@ -320,4 +320,30 @@ RSpec.describe Otto::Security::Configurator do
       end
     end
   end
+
+  # The Configurator mutators reach a frozen Config (through a guarded method or
+  # a frozen ivar/hash), so they raise FrozenError after freeze just like the
+  # Core `otto.enable_*!` surface. This locks that parity so a future refactor
+  # cannot silently reintroduce post-freeze mutation on the Configurator surface.
+  describe 'post-freeze mutation raises (parity with the Core surface)' do
+    before { security_config.deep_freeze! }
+
+    {
+      'enable_csrf_protection!'   => ->(c) { c.enable_csrf_protection! },
+      'enable_request_validation!' => ->(c) { c.enable_request_validation! },
+      'enable_rate_limiting!'     => ->(c) { c.enable_rate_limiting! },
+      'enable_hsts!'              => ->(c) { c.enable_hsts! },
+      'enable_csp!'               => ->(c) { c.enable_csp! },
+      'enable_frame_protection!'  => ->(c) { c.enable_frame_protection! },
+      'enable_csp_with_nonce!'    => ->(c) { c.enable_csp_with_nonce! },
+      'csp_report_uri='           => ->(c) { c.csp_report_uri = '/r' },
+      'security_headers='         => ->(c) { c.security_headers = { 'x' => 'y' } },
+      'add_trusted_proxy'         => ->(c) { c.add_trusted_proxy('127.0.0.1') },
+      'enable_csp_reporting!'     => ->(c) { c.enable_csp_reporting!('/r') },
+    }.each do |name, mutate|
+      it "raises FrozenError from ##{name}" do
+        expect { mutate.call(configurator) }.to raise_error(FrozenError)
+      end
+    end
+  end
 end

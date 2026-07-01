@@ -49,17 +49,25 @@ class Otto
         def call(env)
           return @app.call(env) unless report_request?(env)
 
+          receive_report(env)
+        end
+
+        private
+
+        # Handle a report POST and always answer 204. A report receiver must
+        # never surface an error to the browser, so parse/dispatch failures are
+        # contained HERE — deliberately NOT around the #call pass-through, which
+        # would swallow unrelated downstream errors (turning every failing
+        # request into a silent 204, since this middleware runs outermost).
+        def receive_report(env)
           handle_report(env)
           # A fresh header hash + body per call (never a shared/frozen literal)
           # so a downstream server that mutates the response tuple is safe.
           [204, {}, []]
         rescue StandardError => e
-          # A report receiver must never surface an error to the browser.
           Otto.logger.error("[Otto::CSP] report handling failed: #{e.class}: #{e.message}")
           [204, {}, []]
         end
-
-        private
 
         # True only when reporting is configured AND this is a POST to the
         # configured report path.

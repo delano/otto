@@ -20,6 +20,16 @@ RSpec.describe Otto::Security::Config, 'CSP reporting' do
       expect(config.csp_report_uri).to eq('/_/csp-report')
     end
 
+    it 'coerces a relative path to an absolute path so it matches PATH_INFO' do
+      config.csp_report_uri = 'csp-report'
+      expect(config.csp_report_uri).to eq('/csp-report')
+    end
+
+    it 'leaves an already-absolute path untouched' do
+      config.csp_report_uri = '/_/csp-report'
+      expect(config.csp_report_uri).to eq('/_/csp-report')
+    end
+
     it 'treats a blank string as not configured (nil)' do
       config.csp_report_uri = '   '
       expect(config.csp_report_uri).to be_nil
@@ -78,6 +88,33 @@ RSpec.describe Otto::Security::Config, 'CSP reporting' do
     it 'does not fabricate a static policy when only the report URI is set' do
       config.csp_report_uri = '/r'
       expect(config.security_headers).not_to have_key('content-security-policy')
+    end
+  end
+
+  describe 'reporting augmentation of a directly-set static CSP header' do
+    # A CSP injected through #set_security_headers (bypassing #enable_csp!, so
+    # @csp_policy stays nil) should still receive the reporting directives when
+    # reporting is enabled afterwards, rather than silently going unreported.
+    it 'appends report-uri to a header set via security_headers before reporting' do
+      config.security_headers['content-security-policy'] = "default-src 'self'"
+      config.csp_report_uri = '/r'
+      expect(config.security_headers['content-security-policy'])
+        .to eq("default-src 'self'; report-uri /r")
+    end
+
+    it 'stays idempotent across multiple report setters (no double-append)' do
+      config.security_headers['content-security-policy'] = "default-src 'self'"
+      config.csp_report_uri = '/r'
+      config.csp_report_to_url = 'https://example.com/r'
+      expect(config.security_headers['content-security-policy'])
+        .to eq("default-src 'self'; report-uri /r; report-to otto-csp")
+    end
+
+    it 'does not adopt a header that already carries a report directive' do
+      config.security_headers['content-security-policy'] = "default-src 'self'; report-uri /manual"
+      config.csp_report_uri = '/r'
+      expect(config.security_headers['content-security-policy'])
+        .to eq("default-src 'self'; report-uri /manual")
     end
   end
 

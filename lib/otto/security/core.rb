@@ -151,6 +151,15 @@ class Otto
       # browsers can post reports without a CSRF token. This holds regardless of
       # the order in which you enable security features.
       #
+      # SECURITY / DoS: running outermost also means the receiver sits ahead of
+      # rate limiting (rate limiting is inner middleware). This is intentional —
+      # a public, unauthenticated report endpoint cannot depend on CSRF, session,
+      # or per-client throttling state — but it means a client can POST reports
+      # up to the 64 KiB body cap and invoke your callback on each one. Keep the
+      # callback cheap and bounded (sample or aggregate; avoid unbounded
+      # synchronous I/O), and put request-rate control for this path at the edge
+      # (reverse proxy / CDN / WAF) rather than expecting Otto to throttle it.
+      #
       # To (re)assign the callback later without touching the wiring, use the
       # config primitive directly: `otto.security_config.on_csp_violation { ... }`.
       #

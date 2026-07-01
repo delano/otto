@@ -105,7 +105,10 @@ class Otto
         def extract_from_object(data)
           if data['csp-report'].is_a?(Hash)
             [data['csp-report']]
-          elsif data['body'].is_a?(Hash)
+          elsif data['body'].is_a?(Hash) && (data['type'].nil? || data['type'] == 'csp-violation')
+            # Mirror extract_from_reporting_api: accept a lone csp-violation (or
+            # untyped) envelope, but skip other single-object report types
+            # (deprecation, intervention, ...).
             [data['body']]
           else
             []

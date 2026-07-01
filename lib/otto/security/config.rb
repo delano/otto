@@ -417,17 +417,16 @@ class Otto
       # {Otto::Security::Core#enable_csp_reporting!} on the Otto instance.
       #
       # @param uri [String, nil] path browsers POST reports to (matched against
-      #   `PATH_INFO`, e.g. `/_/csp-report`), or nil to disable reporting.
+      #   `PATH_INFO`, e.g. `/_/csp-report`), or nil to disable reporting. A
+      #   value without a leading slash is coerced to an absolute path so it
+      #   matches the slash-prefixed `PATH_INFO` the middleware compares against.
       # @return [void]
       # @raise [FrozenError] if configuration is frozen
       def csp_report_uri=(uri)
         ensure_not_frozen!
 
-        @csp_report_uri = normalize_report_uri(uri)
-        # Recompute the static header (if a static policy is active) so the
-        # report-uri directive is present regardless of the order in which
-        # #enable_csp! and #csp_report_uri= were called.
-        @security_headers['content-security-policy'] = build_static_csp(@csp_policy) unless @csp_policy.nil?
+        @csp_report_uri = normalize_report_path(uri)
+        rebuild_static_csp_with_reporting!
       end
 
       # Configure the absolute URL browsers should POST CSP violation reports to
@@ -464,9 +463,7 @@ class Otto
         else
           @security_headers.delete('reporting-endpoints')
         end
-        # Recompute the static header (if active) so the report-to directive
-        # tracks the setting regardless of call order relative to #enable_csp!.
-        @security_headers['content-security-policy'] = build_static_csp(@csp_policy) unless @csp_policy.nil?
+        rebuild_static_csp_with_reporting!
       end
 
       # Register the callback invoked once per parsed CSP violation report.
@@ -837,6 +834,58 @@ class Otto
 
         stripped = uri.to_s.strip
         stripped.empty? ? nil : stripped
+      end
+
+      # Normalize a configured report PATH: the local endpoint the receiver
+      # matches on `PATH_INFO`. Same strip/blank-to-nil handling as
+      # {#normalize_report_uri}, but a bare relative value is coerced to an
+      # absolute path — a value like `"csp-report"` would otherwise (a) never
+      # equal the slash-prefixed `PATH_INFO` the middleware compares against, and
+      # (b) be resolved by browsers relative to the document URL. An absolute URL
+      # (contains a scheme) is left untouched.
+      #
+      # @param uri [String, nil]
+      # @return [String, nil]
+      def normalize_report_path(uri)
+        normalized = normalize_report_uri(uri)
+        return nil if normalized.nil?
+        return normalized if normalized.start_with?('/') || normalized.include?('://')
+
+        "/#{normalized}"
+      end
+
+      # Recompute the stored static CSP header so the report-uri / report-to
+      # directives track the current settings, independent of the order in which
+      # {#enable_csp!} and the report setters were called.
+      #
+      # The base is normally @csp_policy (set by {#enable_csp!}). When a static
+      # CSP was instead injected directly through {#set_security_headers} (so
+      # @csp_policy is nil), adopt that header as the base the first time a report
+      # directive is configured — so reporting augments it too. Capturing it as
+      # the pristine base keeps later rebuilds idempotent. A static header set
+      # directly AFTER reporting is configured bypasses this and remains the
+      # application's to manage.
+      #
+      # @return [void]
+      def rebuild_static_csp_with_reporting!
+        @csp_policy ||= adoptable_static_csp_base
+        return if @csp_policy.nil?
+
+        @security_headers['content-security-policy'] = build_static_csp(@csp_policy)
+      end
+
+      # The current static CSP header when it can serve as a pristine base policy
+      # for reporting augmentation: present and not already carrying a report
+      # directive (adopting one that does would double-append). Otherwise nil —
+      # notably, the nonce path sets no static header, so nothing is adopted.
+      #
+      # @return [String, nil]
+      def adoptable_static_csp_base
+        existing = @security_headers['content-security-policy']
+        return nil if existing.nil? || existing.empty?
+        return nil if existing.include?('report-uri') || existing.include?('report-to')
+
+        existing
       end
 
       # The `report-uri` directive to append to emitted policies, or nil when no

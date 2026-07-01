@@ -87,6 +87,19 @@ RSpec.describe Otto::Security::CSP::Parser do
         expect(reports.length).to eq(1)
         expect(reports.first.effective_directive).to eq('media-src')
       end
+
+      it 'accepts an explicitly typed csp-violation object' do
+        body = { 'type' => 'csp-violation', 'body' => { 'effectiveDirective' => 'img-src' } }.to_json
+        reports = described_class.parse(body, 'application/reports+json')
+
+        expect(reports.length).to eq(1)
+        expect(reports.first.effective_directive).to eq('img-src')
+      end
+
+      it 'skips a single non-csp-violation object (parity with the batch path)' do
+        body = { 'type' => 'deprecation', 'body' => { 'id' => 'x' } }.to_json
+        expect(described_class.parse(body, 'application/reports+json')).to eq([])
+      end
     end
 
     context 'malformed and empty input' do

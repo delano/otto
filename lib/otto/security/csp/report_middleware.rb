@@ -22,12 +22,14 @@ class Otto
       #   not configured the middleware is a transparent pass-through.
       # - Only intercepts a POST whose path matches the configured report URI.
       #   Everything else (other paths, other methods) passes through untouched.
-      # - Short-circuits BEFORE inner middleware, so CSRF/auth never see the
-      #   request. This is why browsers can POST reports with no CSRF token: the
-      #   report never reaches the CSRF middleware. {Otto::Security::Core#enable_csp_reporting!}
-      #   pins this middleware OUTERMOST (via the :outermost stack position), so
-      #   the guarantee holds regardless of the order security features are
-      #   enabled in.
+      # - Short-circuits BEFORE inner middleware, so CSRF, auth, and rate
+      #   limiting never see the request. This is why browsers can POST reports
+      #   with no CSRF token: the report never reaches the CSRF middleware.
+      #   {Otto::Security::Core#enable_csp_reporting!} pins this middleware
+      #   OUTERMOST (via the :outermost stack position), so the guarantee holds
+      #   regardless of the order security features are enabled in. The flip side
+      #   is that reports also bypass rate limiting — see the DoS note on
+      #   {Otto::Security::Core#enable_csp_reporting!}; keep callbacks cheap.
       # - Enforces a hard {MAX_BODY_BYTES} body cap. Oversized bodies are
       #   detected with a `cap + 1` read and skipped WITHOUT parsing, so a
       #   hostile client cannot force large allocations against a public endpoint.

@@ -1,31 +1,18 @@
 Added
 -----
 
-- CSP violation reporting as a first-class Otto security primitive, pairing with
-  the existing CSP emission (``enable_csp!`` / ``enable_csp_with_nonce!`` /
-  ``Otto::Response#send_csp_headers``). ``Otto#enable_csp_reporting!(report_uri,
-  &block)`` is the turnkey entry point: it appends a ``report-uri`` directive to
-  every emitted policy (static and nonce), registers a violation callback, and
-  injects ``Otto::Security::CSP::ReportMiddleware``. The middleware intercepts
-  ``POST``\ s to the report path, parses BOTH the legacy
-  ``application/csp-report`` and the Reporting API ``application/reports+json``
-  wire formats into a normalized ``Otto::Security::CSP::Report``, enforces a
-  64 KiB body cap (oversized bodies are dropped unparsed), tolerates
-  malformed/empty input, and always answers ``204 No Content`` without touching
-  application routes. It short-circuits ahead of the CSRF middleware, so
-  browsers can post reports without a CSRF token, and a throwing application
-  callback can never break the receiver. The lower-level primitives
-  (``Otto::Security::Config#csp_report_uri=``, ``#on_csp_violation``,
-  ``#dispatch_csp_violation``) are also available directly. When no report URI is
-  configured, emitted CSP output is byte-identical to before. Otto normalizes
-  reports but does not redact URL fields — applications decide logging/redaction
-  policy in their callback. (delano/otto#174)
+- ``Otto#enable_csp_reporting!(report_uri, &block)`` — a turnkey Content
+  Security Policy violation report receiver. Appends a ``report-uri`` directive
+  to emitted policies, parses both the legacy ``application/csp-report`` and the
+  Reporting API ``application/reports+json`` formats into a normalized
+  ``Otto::Security::CSP::Report``, and invokes the callback once per violation.
+  (delano/otto#174)
+
+- ``MiddlewareStack`` ``:outermost`` position for middleware that must run ahead
+  of all others regardless of registration order.
 
 AI Assistance
 -------------
 
-- Designed and implemented the CSP violation reporting handler (parser for both
-  standardized wire formats, receiving middleware, callback API, and report-uri
-  emission) with AI assistance, including unit, middleware, integration, and
-  configuration specs and a regression check that CSP emission is unchanged when
-  reporting is not configured.
+- CSP violation reporting handler and ``:outermost`` middleware position
+  implemented with AI assistance.

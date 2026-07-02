@@ -7,6 +7,7 @@ require 'digest'
 require 'openssl'
 require 'ipaddr'
 require_relative '../core/freezable'
+require_relative 'csp/policy'
 
 class Otto
   module Security
@@ -47,7 +48,9 @@ class Otto
       # Endpoint group name shared by the CSP `report-to` directive and the
       # `Reporting-Endpoints` response header (modern Reporting API). Browsers
       # match the directive's group to the header's key, so both must agree.
-      CSP_REPORTING_GROUP = 'otto-csp'
+      # Aliases {Otto::Security::CSP::Policy::REPORTING_GROUP} — the one source
+      # the policy builder uses — so the header and the directive cannot drift.
+      CSP_REPORTING_GROUP = Otto::Security::CSP::Policy::REPORTING_GROUP
 
       # Error raised when CSRF protection is enabled in production without an
       # explicitly configured secret. A randomly-generated per-process secret
@@ -67,7 +70,7 @@ class Otto
       attr_reader :csrf_protection,  :csrf_header_key,
                   :trusted_proxies, :require_secure_cookies,
                   :security_headers,
-                  :csp_nonce_enabled, :debug_csp, :mcp_auth,
+                  :csp_nonce_enabled, :debug_csp, :mcp_auth, :csp_nonce_key,
                   :ip_privacy_config, :trusted_proxy_depth, :trusted_proxy_header,
                   :csp_report_uri, :csp_report_to_url, :csp_violation_callback
 
@@ -92,6 +95,7 @@ class Otto
         @input_validation       = true
         @csp_nonce_enabled      = false
         @debug_csp              = false
+        @csp_nonce_key          = 'otto.nonce'
         @csp_policy             = nil
         @csp_report_uri         = nil
         @csp_report_to_url      = nil
@@ -393,6 +397,22 @@ class Otto
         @csp_nonce_enabled
       end
 
+      # Set the Rack env key the framework-owned lazy nonce is memoized under
+      # ({Otto::Security::CSP.nonce} / {Otto::Request#csp_nonce}). Defaults to
+      # `'otto.nonce'`; override it for an app with an existing convention (e.g.
+      # `'onetime.nonce'`) so the accessor adopts that app's env key without a
+      # rename. A blank value resets to the default.
+      #
+      # @param key [String] the env key
+      # @return [void]
+      # @raise [FrozenError] if configuration is frozen
+      def csp_nonce_key=(key)
+        ensure_not_frozen!
+
+        normalized     = key.to_s.strip
+        @csp_nonce_key = normalized.empty? ? 'otto.nonce' : normalized
+      end
+
       # Check if CSP debug logging is enabled
       #
       # @return [Boolean] true if CSP debug logging is enabled
@@ -506,16 +526,20 @@ class Otto
 
       # Generate a CSP policy string with the provided nonce
       #
+      # Thin facade over {Otto::Security::CSP::Policy.nonce_policy}; the directive
+      # sets and report-uri/report-to assembly live there now. Output is
+      # byte-identical to Otto's historical policy.
+      #
       # @param nonce [String] The nonce value to include in the CSP
       # @param development_mode [Boolean] Whether to use development-friendly directives
       # @return [String] Complete CSP policy string
       def generate_nonce_csp(nonce, development_mode: false)
-        directives = development_mode ? development_csp_directives(nonce) : production_csp_directives(nonce)
-        report_uri_directive = csp_report_directive
-        report_to_directive  = csp_report_to_directive
-        directives += ["#{report_uri_directive};"] if report_uri_directive
-        directives += ["#{report_to_directive};"] if report_to_directive
-        directives.join(' ')
+        Otto::Security::CSP::Policy.nonce_policy(
+          nonce,
+          development_mode: development_mode,
+          report_uri: @csp_report_uri,
+          report_to_url: @csp_report_to_url
+        )
       end
 
       # Enable X-Frame-Options header to prevent clickjacking
@@ -888,28 +912,6 @@ class Otto
         existing
       end
 
-      # The `report-uri` directive to append to emitted policies, or nil when no
-      # report URI is configured. No trailing semicolon (callers add their own
-      # separator to match each policy style).
-      #
-      # @return [String, nil]
-      def csp_report_directive
-        return nil if @csp_report_uri.nil? || @csp_report_uri.empty?
-
-        "report-uri #{@csp_report_uri}"
-      end
-
-      # The `report-to` directive (modern Reporting API) to append to emitted
-      # policies, or nil when no reporting endpoint URL is configured. Its group
-      # name matches the Reporting-Endpoints header. No trailing semicolon.
-      #
-      # @return [String, nil]
-      def csp_report_to_directive
-        return nil if @csp_report_to_url.nil? || @csp_report_to_url.empty?
-
-        "report-to #{CSP_REPORTING_GROUP}"
-      end
-
       # The `Reporting-Endpoints` response header value mapping the CSP reporting
       # group to the configured absolute endpoint URL, e.g.
       # `otto-csp="https://example.com/_/csp-report"`.
@@ -920,62 +922,18 @@ class Otto
       end
 
       # Build the stored static-CSP header value: the base policy plus the
-      # optional report-uri and report-to directives. Byte-identical to the bare
-      # policy when no reporting is configured, so existing static-CSP output is
-      # unchanged.
+      # optional report-uri and report-to directives. Thin facade over
+      # {Otto::Security::CSP::Policy.static_policy}; byte-identical to the bare
+      # policy when no reporting is configured.
       #
       # @param policy [String] the base policy passed to {#enable_csp!}
       # @return [String]
       def build_static_csp(policy)
-        [policy, csp_report_directive, csp_report_to_directive].compact.join('; ')
-      end
-
-      # Generate CSP directives for development environment
-      #
-      # Development mode allows inline scripts/styles and hot reloading connections
-      # for better developer experience with build tools like Vite.
-      #
-      # @param nonce [String] The nonce value to include in script-src
-      # @return [Array<String>] Array of CSP directive strings
-      def development_csp_directives(nonce)
-        [
-          "default-src 'none';",
-          "script-src 'nonce-#{nonce}' 'unsafe-inline';", # Allow inline scripts for development tools
-          "style-src 'self' 'unsafe-inline';",
-          "connect-src 'self' ws: wss: http: https:;", # Allow HTTP and all WebSocket connections for dev tools
-          "img-src 'self' data:;",
-          "font-src 'self';",
-          "object-src 'none';",
-          "base-uri 'self';",
-          "form-action 'self';",
-          "frame-ancestors 'none';",
-          "manifest-src 'self';",
-          "worker-src 'self' data:;",
-        ]
-      end
-
-      # Generate CSP directives for production environment
-      #
-      # Production mode is more restrictive, only allowing HTTPS connections
-      # and nonce-only scripts for enhanced XSS protection.
-      #
-      # @param nonce [String] The nonce value to include in script-src
-      # @return [Array<String>] Array of CSP directive strings
-      def production_csp_directives(nonce)
-        [
-          "default-src 'none';",                     # Restrict to same origin by default
-          "script-src 'nonce-#{nonce}';",            # Only allow scripts with valid nonce
-          "style-src 'self' 'unsafe-inline';",       # Allow inline styles and same-origin stylesheets
-          "connect-src 'self' wss: https:;",         # Only HTTPS and secure WebSockets
-          "img-src 'self' data:;",                   # Allow images from same origin and data URIs
-          "font-src 'self';",                        # Allow fonts from same origin only
-          "object-src 'none';",                      # Block <object>, <embed>, and <applet> elements
-          "base-uri 'self';",                        # Restrict <base> tag targets to same origin
-          "form-action 'self';",                     # Restrict form submissions to same origin
-          "frame-ancestors 'none';",                 # Prevent site from being embedded in frames
-          "manifest-src 'self';",                    # Allow web app manifests from same origin
-          "worker-src 'self' data:;",                # Allow Workers from same origin and data blobs
-        ]
+        Otto::Security::CSP::Policy.static_policy(
+          policy,
+          report_uri: @csp_report_uri,
+          report_to_url: @csp_report_to_url
+        )
       end
     end
 

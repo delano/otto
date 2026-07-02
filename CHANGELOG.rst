@@ -7,6 +7,76 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.5.0:
+
+2.5.0 — 2026-07-02
+==================
+
+Added
+-----
+
+- ``Otto::Security::CSP::Writer.apply(headers, nonce, config:, mode:,
+  development_mode:)`` — the single structural apply core for nonce-based CSP
+  emission. Writes are in-place and key-scoped (case-variant keys are corrected
+  to Rack 3's lowercase in the caller's hash; a frozen headers hash fails loud).
+  Returns a ``Result`` (``applied?``, ``policy``, ``skip_reason`` of
+  ``:disabled`` / ``:blank_nonce`` / ``:non_html`` / ``:existing_csp``). Named
+  modes ``:override`` (deliberate, replaces) and ``:backstop`` (passive,
+  defers). (delano/otto#180)
+
+- Framework-owned lazy nonce: ``Otto::Request#csp_nonce`` /
+  ``Otto::Security::CSP.nonce(env)`` generate on first access and memoize into
+  ``env['otto.nonce']`` (registered as ``Otto::EnvKeys::NONCE``), so views and
+  the header read one value. Configurable env key via
+  ``Otto::Security::Config#csp_nonce_key`` for apps with an existing convention.
+
+- ``Otto::Security::CSP::EmitMiddleware`` and ``Otto#enable_csp_emission!`` — a
+  passive backstop that emits a nonce CSP for HTML responses whose request
+  consumed a nonce (emit-if-consumed default), never clobbering an existing
+  policy. Optional ``eager:`` mode and a per-request ``development_mode:``
+  callable.
+
+- ``Otto::Response#apply_csp(nonce, mode: :override)`` — the one emission helper,
+  routed through the apply core.
+
+- ``Otto::Security::CSP::Policy`` — CSP policy building (directive sets,
+  report-uri/report-to assembly) extracted from ``Otto::Security::Config`` into
+  its own home beside the parser and middlewares; ``Config`` delegates with
+  byte-identical output.
+
+Deprecated
+----------
+
+- ``Otto::Response#send_csp_headers`` — use ``#apply_csp`` or
+  ``#enable_csp_emission!``. Retained as a thin shim over the apply core (logs a
+  one-time ``Otto.logger`` deprecation notice).
+
+Fixed
+-----
+
+- ``#send_csp_headers`` no longer emits a broken ``script-src 'nonce-'`` for a
+  blank/nil nonce (it skips) and no longer emits a CSP for non-HTML responses —
+  both via the shared apply core. Its bare ``warn`` to stderr when overwriting an
+  existing CSP is also gone: replacement is deliberate in ``:override`` mode, and
+  the shim instead logs a one-time deprecation notice through ``Otto.logger``.
+
+Security
+--------
+
+- Nonce-CSP emission now detects and normalizes CSP / Content-Type headers
+  case-insensitively, so a canonical-/mixed-cased header from a downstream layer
+  is recognized (and the CSP key rewritten to lowercase) rather than silently
+  duplicated — de-duplicating the hand-rolled, case-sensitive guards adopters
+  previously re-implemented at each raw-tuple boundary. (delano/otto#180)
+
+AI Assistance
+-------------
+
+- The nonce-CSP emission redesign — the ``Writer`` apply core, the
+  framework-owned lazy nonce, the ``EmitMiddleware`` backstop, and the
+  ``Policy`` extraction — was designed and implemented with AI assistance.
+  (delano/otto#180)
+
 .. _changelog-2.4.0:
 
 2.4.0 — 2026-07-01

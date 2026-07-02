@@ -61,6 +61,16 @@ class Otto
     # Used by: All security middleware (CSRF, Headers, Validation)
     SECURITY_CONFIG = 'otto.security_config'
 
+    # Per-request CSP nonce, minted lazily on first access and memoized here.
+    # Type: String (base64)
+    # Set by: Otto::Security::CSP.nonce / Otto::Request#csp_nonce (first touch)
+    # Used by: views (stamping script/style nonces) and
+    #   Otto::Security::CSP::EmitMiddleware (emit-if-consumed)
+    # Note: this is the DEFAULT key. Apps with an existing convention can point
+    #   the accessor at their own key via Otto::Security::Config#csp_nonce_key
+    #   (e.g. 'onetime.nonce'), so the header and views still share one value.
+    NONCE = 'otto.nonce'
+
     # Whether the request arrived via a trusted proxy.
     # Type: Boolean
     # Set by: IPPrivacyMiddleware (every request, evaluated on the original

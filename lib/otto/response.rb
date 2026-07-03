@@ -14,12 +14,18 @@ class Otto
   # @example Using Otto's response in route handlers
   #   def show(req, res)
   #     res.send_secure_cookie('session_id', token, 3600)
-  #     res.send_csp_headers('text/html', nonce)
+  #     res.apply_csp(req.csp_nonce)
   #     res.no_cache!
   #   end
   #
   # @see Otto#register_response_helpers
   class Response < Rack::Response
+    # One-time-per-process guard for the #send_csp_headers deprecation warning.
+    @send_csp_headers_deprecation_warned = false
+    class << self
+      attr_accessor :send_csp_headers_deprecation_warned # rubocop:disable ThreadSafety/ClassAndModuleAttributes
+    end
+
     # Reference to the request object (needed by some response helpers)
     # @return [Otto::Request]
     attr_accessor :request
@@ -97,56 +103,65 @@ class Otto
       headers
     end
 
-    # Set Content Security Policy (CSP) headers with nonce support
+    # Apply a nonce-based Content-Security-Policy to this response.
     #
-    # This method generates and sets CSP headers with the provided nonce value,
-    # following the same usage pattern as send_cookie methods. The CSP policy
-    # is generated dynamically based on the security configuration and environment.
+    # This is THE emission helper: it routes through the single apply core
+    # ({Otto::Security::CSP::Writer}), so all the invariants — enabled-only,
+    # nonce-present, HTML-only, lowercase key, no duplicate — hold here exactly as
+    # they do in the middleware, with no guard logic duplicated. The response's
+    # Content-Type must already be set (it decides HTML-only); this helper does
+    # NOT set it.
     #
-    # @param content_type [String] Content-Type header value to set
+    # `mode: :override` (the default) is the deliberate per-request call: it
+    # REPLACES any existing CSP. Pass `mode: :backstop` to defer to an existing
+    # policy instead.
+    #
+    # @param nonce [String] the per-request nonce (typically {Otto::Request#csp_nonce})
+    # @param mode [Symbol] `:override` or `:backstop` (see {Otto::Security::CSP::Writer::MODES})
+    # @param development_mode [Boolean] use development-friendly CSP directives
+    # @param security_config [Otto::Security::Config, nil] config to use; resolved
+    #   from the request env when omitted
+    # @return [Otto::Security::CSP::Writer::Result] the outcome (applied?, policy,
+    #   skip_reason) for uniform observability
+    #
+    # @example
+    #   res['content-type'] = 'text/html; charset=utf-8'
+    #   res.apply_csp(req.csp_nonce)
+    def apply_csp(nonce, mode: :override, development_mode: false, security_config: nil)
+      config = security_config || (request&.env && request.env['otto.security_config'])
+      Otto::Security::CSP::Writer.apply(
+        headers, nonce,
+        config: config, mode: mode, development_mode: development_mode
+      )
+    end
+
+    # @deprecated Use {#apply_csp} instead. Retained as a thin shim over the apply
+    #   core so existing callers keep working while its historical quirks are
+    #   fixed: a nil/empty nonce no longer emits a broken `script-src 'nonce-'`
+    #   (it skips), a CSP is no longer emitted for non-HTML responses, and the
+    #   override notice goes through {Otto.logger} instead of a bare `warn` to
+    #   stderr. Unlike {#apply_csp}, it still sets the Content-Type for you and
+    #   emits in `:override` mode.
+    #
+    # @param content_type [String] Content-Type to set if not already set
     # @param nonce [String] Nonce value to include in CSP directives
-    # @param opts [Hash] Options for CSP generation
+    # @param opts [Hash] Options
     # @option opts [Otto::Security::Config] :security_config Security config to use
     # @option opts [Boolean] :development_mode Use development-friendly CSP directives
-    # @option opts [Boolean] :debug Enable debug logging for this request
-    # @return [void]
-    #
-    # @example Basic usage
-    #   nonce = SecureRandom.base64(16)
-    #   res.send_csp_headers('text/html; charset=utf-8', nonce)
-    #
-    # @example With options
-    #   res.send_csp_headers('text/html; charset=utf-8', nonce, {
-    #     development_mode: Rails.env.development?,
-    #     debug: true
-    #   })
+    # @return [Otto::Security::CSP::Writer::Result]
     def send_csp_headers(content_type, nonce, opts = {})
-      # Set content type if not already set
+      warn_send_csp_headers_deprecated
+
+      # Historical behavior the shim keeps (apply_csp does not): default the
+      # Content-Type so an HTML response is recognized as HTML.
       headers['content-type'] ||= content_type
 
-      # Warn if CSP header already exists but don't skip
-      warn 'CSP header already set, overriding with nonce-based policy' if headers['content-security-policy']
-
-      # Get security configuration
-      security_config = opts[:security_config] ||
-                        (request&.env && request.env['otto.security_config']) ||
-                        nil
-
-      # Skip if CSP nonce support is not enabled
-      return unless security_config&.csp_nonce_enabled?
-
-      # Generate CSP policy with nonce
-      development_mode = opts[:development_mode] || false
-      csp_policy       = security_config.generate_nonce_csp(nonce, development_mode: development_mode)
-
-      # Debug logging if enabled
-      debug_enabled = opts[:debug] || security_config.debug_csp?
-      if debug_enabled && defined?(Otto.logger)
-        Otto.logger.debug "[CSP] #{csp_policy}"
-      end
-
-      # Set the CSP header
-      headers['content-security-policy'] = csp_policy
+      apply_csp(
+        nonce,
+        mode: :override,
+        development_mode: opts[:development_mode] || false,
+        security_config: opts[:security_config]
+      )
     end
 
     # Set cache control headers to prevent caching
@@ -186,6 +201,28 @@ class Otto
       paths = paths.flatten.compact
       paths.unshift(request.env['SCRIPT_NAME']) if request&.env&.[]('SCRIPT_NAME')
       paths.join('/').gsub('//', '/')
+    end
+
+    private
+
+    # Emit the #send_csp_headers deprecation notice at most once per process
+    # (Response is per-request, so the guard lives on the class).
+    #
+    # The check-then-set on the class flag is deliberately unsynchronized: the
+    # race is benign — worst case, two threads racing on the very first call each
+    # log the notice once. The flag gates only a log line, never any behavior, so
+    # a mutex would add contention on a hot path to save at most a couple of
+    # duplicate deprecation lines at startup.
+    def warn_send_csp_headers_deprecated
+      return if self.class.send_csp_headers_deprecation_warned
+      return unless defined?(Otto.logger) && Otto.logger
+
+      self.class.send_csp_headers_deprecation_warned = true
+      Otto.logger.warn(
+        '[Otto::Response] #send_csp_headers is deprecated and will be removed in a ' \
+        'future release; use #apply_csp(nonce, mode: :override) (set Content-Type first), ' \
+        'or mount Otto::Security::CSP::EmitMiddleware via #enable_csp_emission!.'
+      )
     end
   end
 end

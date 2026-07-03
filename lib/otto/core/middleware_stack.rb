@@ -275,6 +275,7 @@ class Otto
           Otto::Security::Middleware::RateLimitMiddleware,
           Otto::Security::Middleware::IPPrivacyMiddleware,
           Otto::Security::CSP::ReportMiddleware,
+          Otto::Security::CSP::EmitMiddleware,
         ].include?(middleware_class)
       end
     end

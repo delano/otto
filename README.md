@@ -84,6 +84,60 @@ app = Otto.new("./routes", {
 
 Security features include CSRF protection, input validation, security headers, and trusted proxy configuration.
 
+### Content Security Policy (nonce-based emission)
+
+Otto owns the nonce lifecycle so the header and your views can never drift. A
+request-scoped nonce is minted lazily on first access and memoized in the env;
+your views read it to stamp `<script>`/`<link>` tags, and the framework reads
+the *same* value to emit the `script-src 'nonce-…'` header.
+
+```ruby
+app = Otto.new("./routes")
+app.enable_csp_with_nonce!    # turn on nonce-based CSP
+app.enable_csp_emission!      # mount the backstop that writes the header
+
+# In a view/handler:
+def show(req, res)
+  res['content-type'] = 'text/html; charset=utf-8'
+  res.write(%(<script nonce="#{req.csp_nonce}">/* inline */</script>))
+end
+```
+
+`enable_csp_emission!` mounts `Otto::Security::CSP::EmitMiddleware`, a passive
+**backstop**:
+
+- **Emit-if-consumed** (default): it emits a policy only for a response whose
+  request actually consumed a nonce (a view called `req.csp_nonce`). A nonce-only
+  `script-src` on an HTML page that never stamped the nonce would block every
+  script, so "CSP responses whose request consumed a nonce" is the only safe
+  blanket default. Pass `eager: true` to mint-and-emit for every eligible HTML
+  response (see the caveat in the middleware docs).
+- **Never clobbers**: it defers to any CSP a route already set.
+- **HTML only**, and inert unless `enable_csp_with_nonce!` is on.
+- `development_mode:` accepts a per-request callable, e.g.
+  `->(env) { ENV['RACK_ENV'] == 'development' }`, to switch directive sets.
+
+To set a policy explicitly from a handler instead, use the one emission helper —
+it routes through the same apply core:
+
+```ruby
+res['content-type'] = 'text/html; charset=utf-8'
+result = res.apply_csp(req.csp_nonce)          # mode: :override by default
+result.applied?        # => true
+result.skip_reason     # => nil (or :disabled / :blank_nonce / :non_html / :existing_csp)
+```
+
+Apps with an existing nonce env-key convention can point the accessor at it with
+`app.security_config.csp_nonce_key = 'onetime.nonce'` — the views and the header
+still share one value.
+
+> [!NOTE]
+> `res.send_csp_headers(content_type, nonce)` is **deprecated** in favour of
+> `res.apply_csp` / `enable_csp_emission!`. It remains as a thin shim over the
+> same apply core (so its old quirks — a broken `'nonce-'` on a blank nonce, a
+> CSP on non-HTML responses, a `warn` to stderr — are now fixed) and logs a
+> one-time deprecation notice.
+
 ### CSP Violation Reporting
 
 Otto can both emit Content-Security-Policy headers and receive the violation

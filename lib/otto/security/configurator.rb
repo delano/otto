@@ -198,6 +198,22 @@ class Otto
         @security_config.enable_csp_with_nonce!(debug: debug)
       end
 
+      # Mount {Otto::Security::CSP::EmitMiddleware} (passive backstop that emits a
+      # nonce CSP for responses lacking one, never clobbering). Enable nonce-CSP
+      # ({#enable_csp_with_nonce!}) for it to emit anything; until then it is
+      # INERT (a transparent pass-through), not an error, and the two may be
+      # enabled in either order. Emit-if-consumed by default — see
+      # {Otto::Security::Core#enable_csp_emission!}.
+      #
+      # @param eager [Boolean] mint-and-emit for every eligible HTML response
+      # @param development_mode [Boolean, #call, nil] development-directive toggle;
+      #   a callable is evaluated per request with the env
+      def enable_csp_emission!(eager: false, development_mode: nil)
+        return if middleware_enabled?(Otto::Security::CSP::EmitMiddleware)
+
+        @middleware_stack.add(Otto::Security::CSP::EmitMiddleware, eager: eager, development_mode: development_mode)
+      end
+
       # Enable turnkey CSP violation reporting: set the report URI (appends a
       # `report-uri` directive to emitted policies), register the callback, and
       # inject {Otto::Security::CSP::ReportMiddleware} pinned OUTERMOST so it

@@ -24,6 +24,20 @@ class Otto
       env['HTTP_USER_AGENT']
     end
 
+    # Framework-owned, request-scoped CSP nonce, generated lazily on first
+    # access and memoized into the request env. Views call this to stamp
+    # `nonce="…"` onto their inline `<script>`/`<link>` tags; the same value is
+    # what {Otto::Security::CSP::EmitMiddleware} writes into the `script-src
+    # 'nonce-…'` header — so the header and the views agree structurally, not by
+    # convention. An untouched request generates nothing.
+    #
+    # The env key is configurable via {Otto::Security::Config#csp_nonce_key}.
+    #
+    # @return [String] this request's nonce (base64)
+    def csp_nonce
+      Otto::Security::CSP.nonce(env)
+    end
+
     # Canonical client IP for the request.
     #
     # Prefers env['otto.client_ip'] — the value resolved once, early, by

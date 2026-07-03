@@ -135,6 +135,38 @@ class Otto
         @security_config.enable_csp_with_nonce!(debug: debug)
       end
 
+      # Mount {Otto::Security::CSP::EmitMiddleware} so nonce-based CSP headers are
+      # applied to responses by the framework instead of hand-rolled in each app.
+      #
+      # It is a passive backstop: it emits a nonce CSP only for responses that
+      # would otherwise ship without one, and never clobbers a policy a route
+      # already set. Enable nonce-CSP via {#enable_csp_with_nonce!} for it to
+      # emit anything — until then the middleware is INERT (a transparent
+      # pass-through), NOT an error. The two may be enabled in either order:
+      # both read the same security config, so mounting the backstop first and
+      # enabling nonce-CSP later works. Enable-order independence is why this
+      # does not raise when nonce-CSP is off.
+      #
+      # By DEFAULT it is emit-if-consumed — it emits only when the request
+      # actually consumed a nonce (a view called {Otto::Request#csp_nonce}). This
+      # is the only safe blanket default: a nonce-only policy on a page that never
+      # stamped the nonce blocks every script.
+      #
+      # @param eager [Boolean] mint-and-emit for every eligible HTML response
+      #   rather than only emit-if-consumed (see the middleware's caveats)
+      # @param development_mode [Boolean, #call, nil] whether to emit development
+      #   directives; a callable is evaluated per request with the env
+      # @return [void]
+      # @example
+      #   otto.enable_csp_with_nonce!
+      #   otto.enable_csp_emission!(development_mode: -> (env) { ENV['RACK_ENV'] == 'development' })
+      def enable_csp_emission!(eager: false, development_mode: nil)
+        ensure_not_frozen!
+        return if @middleware.includes?(Otto::Security::CSP::EmitMiddleware)
+
+        @middleware.add(Otto::Security::CSP::EmitMiddleware, eager: eager, development_mode: development_mode)
+      end
+
       # Enable turnkey Content Security Policy violation reporting.
       #
       # This is the receiving half of Otto's CSP support. It:

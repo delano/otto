@@ -199,9 +199,11 @@ class Otto
       end
 
       # Mount {Otto::Security::CSP::EmitMiddleware} (passive backstop that emits a
-      # nonce CSP for responses lacking one, never clobbering). Requires nonce-CSP
-      # enabled ({#enable_csp_with_nonce!}); inert otherwise. Emit-if-consumed by
-      # default — see {Otto::Security::Core#enable_csp_emission!}.
+      # nonce CSP for responses lacking one, never clobbering). Enable nonce-CSP
+      # ({#enable_csp_with_nonce!}) for it to emit anything; until then it is
+      # INERT (a transparent pass-through), not an error, and the two may be
+      # enabled in either order. Emit-if-consumed by default — see
+      # {Otto::Security::Core#enable_csp_emission!}.
       #
       # @param eager [Boolean] mint-and-emit for every eligible HTML response
       # @param development_mode [Boolean, #call, nil] development-directive toggle;

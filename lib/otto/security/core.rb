@@ -140,8 +140,12 @@ class Otto
       #
       # It is a passive backstop: it emits a nonce CSP only for responses that
       # would otherwise ship without one, and never clobbers a policy a route
-      # already set. Requires nonce-CSP to be enabled (call
-      # {#enable_csp_with_nonce!} first); the middleware is inert otherwise.
+      # already set. Enable nonce-CSP via {#enable_csp_with_nonce!} for it to
+      # emit anything — until then the middleware is INERT (a transparent
+      # pass-through), NOT an error. The two may be enabled in either order:
+      # both read the same security config, so mounting the backstop first and
+      # enabling nonce-CSP later works. Enable-order independence is why this
+      # does not raise when nonce-CSP is off.
       #
       # By DEFAULT it is emit-if-consumed — it emits only when the request
       # actually consumed a nonce (a view called {Otto::Request#csp_nonce}). This

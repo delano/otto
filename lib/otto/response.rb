@@ -207,6 +207,12 @@ class Otto
 
     # Emit the #send_csp_headers deprecation notice at most once per process
     # (Response is per-request, so the guard lives on the class).
+    #
+    # The check-then-set on the class flag is deliberately unsynchronized: the
+    # race is benign — worst case, two threads racing on the very first call each
+    # log the notice once. The flag gates only a log line, never any behavior, so
+    # a mutex would add contention on a hot path to save at most a couple of
+    # duplicate deprecation lines at startup.
     def warn_send_csp_headers_deprecated
       return if self.class.send_csp_headers_deprecation_warned
       return unless defined?(Otto.logger) && Otto.logger

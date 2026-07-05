@@ -107,6 +107,10 @@ class Otto
   end
   alias options option
 
+  # Read-only view of assembled instance options. LambdaHandler resolves its
+  # registry via otto_instance.config[:lambda_handlers].
+  alias config option
+
   # Main Rack application interface
   def call(env)
     # Freeze configuration on first request (thread-safe).
@@ -234,6 +238,10 @@ class Otto
 
     # Initialize MCP server
     configure_mcp(opts)
+
+    # Validate and freeze the lambda handler registry (issue #41).
+    # Runs last so misconfiguration fails fast at construction.
+    configure_lambda_handlers(opts)
   end
 
   class << self

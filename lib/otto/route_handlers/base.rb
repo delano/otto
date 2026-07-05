@@ -125,6 +125,10 @@ class Otto
       # @param env [Hash] Rack environment
       # @param extra_params [Hash] Additional parameters
       def setup_request_response(req, res, env, extra_params)
+        # Expose the raw path-capture hash to invoke_target (LambdaHandler
+        # passes it as the proc's 3rd arg). Inert for other subclasses.
+        @extra_params = extra_params
+
         # Set request reference (helpers are already included in class)
         res.request = req
 

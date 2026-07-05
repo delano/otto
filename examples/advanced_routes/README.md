@@ -58,6 +58,55 @@ Add arbitrary key-value pairs for flexible routing:
 GET  /admin            AdminPanel#dashboard     role=admin
 ```
 
+### Lambda / Inline Route Handlers (Issue #41)
+Route to a proc that you **pre-register** by name, using the `&` prefix:
+```
+GET  /ping             &health_check            response=json
+POST /webhook          &receive_webhook         response=json csrf=exempt
+GET  /go               &to_dashboard            response=redirect
+```
+
+The `&name` token is a plain string key looked up (O(1)) in a registry you
+supply at construction — the entire token after `&` is the key (dots, `#`, and
+`::` are inert). Register the procs when you build Otto:
+```ruby
+otto = Otto.new('routes', lambda_handlers: {
+  'health_check'   => ->(req, res, extra_params) {
+    { status: 'ok', at: Time.now.to_i }        # response=json serializes this Hash
+  },
+  'receive_webhook' => ->(req, res, extra_params) {
+    { received: true }
+  },
+  'to_dashboard'   => ->(req, res, extra_params) {
+    '/dashboard'                                 # response=redirect uses this path
+  },
+})
+```
+
+The handler contract:
+
+- Each proc is called with **`(req, res, extra_params)`** — `extra_params` is the
+  hash of path captures (e.g. `:id` from `/users/:id`).
+- The proc must accept 3 arguments (fixed arity `3`, or a splat/optional form).
+  An invalid arity raises `ArgumentError` at construction.
+- **All response types work** exactly as for controller routes:
+  `response=json` (serializes a returned Hash), `response=view` (`to_s` as HTML),
+  `response=redirect` (returned String is the `Location`), `response=auto`
+  (content negotiation). With the default response type the proc must write to
+  `res` directly, just like the other handler kinds.
+- **Route options apply**: `csrf=exempt` (parse/expose parity with controllers),
+  `auth=`, `role=`, and custom path params all flow through unchanged.
+
+Security guarantee (the point of this feature): route files never carry code.
+`&name` is only ever a name; there is **no `eval` and no dynamic constant
+loading**. A route naming an unregistered handler fails with a clear
+`ArgumentError` ("Lambda handler '...' is not registered or not callable")
+instead of executing anything. The registered procs are, of course, trusted
+code that you wrote.
+
+Note: `csrf=exempt` is parse-and-expose parity with controller routes — the CSRF
+middleware does not enforce it for any handler kind.
+
 ## How to Run
 
 ### Using rackup (recommended)

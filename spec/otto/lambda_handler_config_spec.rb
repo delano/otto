@@ -200,6 +200,48 @@ RSpec.describe 'Otto lambda_handlers configuration (issue #41 AC#3/AC#8)' do
     end
   end
 
+  describe 'key normalization (Symbol keys resolve like String keys)' do
+    # Route targets are always Strings parsed from the route file, so a handler
+    # registered under a Symbol key must be reachable by its String name.
+    it 'normalizes Symbol keys to Strings in the stored registry' do
+      handler = ->(_a, _b, _c) {}
+      otto = build(health_check: handler)
+      expect(otto.config[:lambda_handlers]['health_check']).to be(handler)
+    end
+
+    it 'preserves String keys as-is' do
+      handler = ->(_a, _b, _c) {}
+      otto = build('health_check' => handler)
+      expect(otto.config[:lambda_handlers]['health_check']).to be(handler)
+    end
+
+    it 'rejects a blank handler name' do
+      expect { build('' => ->(_a, _b, _c) {}) }
+        .to raise_error(ArgumentError, /blank/)
+    end
+
+    it 'rejects a whitespace-only handler name' do
+      expect { build('   ' => ->(_a, _b, _c) {}) }
+        .to raise_error(ArgumentError, /blank/)
+    end
+
+    it 'raises when a Symbol and String key collide after normalization' do
+      expect { build(health_check: ->(_a, _b, _c) {}, 'health_check' => ->(_a, _b, _c) {}) }
+        .to raise_error(ArgumentError, /more than once/)
+    end
+  end
+
+  describe "does not mutate the caller's Hash" do
+    it 'leaves the input Hash unfrozen and independent of the stored registry' do
+      input = { 'health_check' => ->(_a, _b, _c) {} }
+      otto = build(input)
+      expect(input).not_to be_frozen
+      expect(input).not_to be(otto.config[:lambda_handlers])
+      # Caller can still mutate their own object without a FrozenError.
+      expect { input['other'] = ->(_a, _b, _c) {} }.not_to raise_error
+    end
+  end
+
   describe 'empty / absent registry' do
     it 'defaults to a frozen empty Hash when no :lambda_handlers option is given' do
       otto = Otto.new(routes_file)

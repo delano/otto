@@ -109,6 +109,12 @@ class Otto
 
       # @raise [ArgumentError] naming the offending handler on any invalid entry
       # @return [Hash] frozen registry ({}.freeze when none supplied)
+      #
+      # Keys are normalized to Strings so lookups from +&name+ routes (whose
+      # target is always a String parsed from the route file) resolve regardless
+      # of whether the caller registered handlers under Symbol or String keys.
+      # A fresh Hash is built and frozen so the caller's input object is never
+      # mutated in place.
       def validate_lambda_handlers!(handlers)
         return {}.freeze if handlers.nil?
 
@@ -117,21 +123,38 @@ class Otto
                 "Otto :lambda_handlers must be a Hash of name => callable, got #{handlers.class}"
         end
 
+        registry = {}
+
         handlers.each do |name, handler|
+          key = name.to_s
+          if key.strip.empty?
+            raise ArgumentError,
+                  "Lambda handler name #{name.inspect} is blank " \
+                  '(expected a non-empty name matching the &handler_name route target)'
+          end
+
+          if registry.key?(key)
+            raise ArgumentError,
+                  "Lambda handler name #{key.inspect} is registered more than once " \
+                  '(String and Symbol keys collide once normalized to a String)'
+          end
+
           unless handler.respond_to?(:call)
             raise ArgumentError,
-                  "Lambda handler '#{name}' is not callable (expected an object " \
+                  "Lambda handler '#{key}' is not callable (expected an object " \
                   "responding to #call, got #{handler.class})"
           end
 
-          next if lambda_handler_accepts_three?(handler)
+          unless lambda_handler_accepts_three?(handler)
+            raise ArgumentError,
+                  "Lambda handler '#{key}' has invalid arity " \
+                  '(must accept 3 arguments: req, res, extra_params)'
+          end
 
-          raise ArgumentError,
-                "Lambda handler '#{name}' has invalid arity " \
-                '(must accept 3 arguments: req, res, extra_params)'
+          registry[key] = handler
         end
 
-        handlers.freeze
+        registry.freeze
       end
 
       # True if +handler+ can be invoked with exactly three positional arguments.

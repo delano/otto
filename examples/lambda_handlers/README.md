@@ -73,8 +73,10 @@ class/instance/logic handler does:
 Route options apply to lambdas just like any other handler:
 
 - `response=json` — serialize the returned Hash as JSON.
-- `csrf=exempt` — skip CSRF verification (used here for the webhook, which
-  external callers reach without a browser token).
+- `csrf=exempt` — parsed and exposed on the route definition (intended to mark
+  the webhook, which external callers reach without a browser token). Note:
+  `CSRFMiddleware` does not yet consult per-route options, so this option is
+  currently recorded but not enforced — see issue #186.
 - `auth=` / `role=` — authentication and authorization (when `auth_config`
   is configured on the Otto instance).
 

@@ -94,6 +94,18 @@ POST  /logic/complex/handler    Complex::Business::Handler response=json
 PUT   /logic/system/config      System::Config::Manager response=json csrf=exempt
 
 # ========================================
+# LAMBDA / INLINE ROUTE HANDLERS (Issue #41)
+# ========================================
+
+# The '&name' prefix references a proc pre-registered via
+#   Otto.new('routes', lambda_handlers: { 'name' => ->(req,res,extra){ ... } })
+# Lookup is O(1) by exact string name — no eval, no dynamic constants.
+# An unregistered name fails with a clear error, never executes code.
+GET   /ping                     &health_check response=json
+POST  /hooks/receive            &receive_webhook response=json csrf=exempt
+GET   /go/dashboard             &to_dashboard response=redirect
+
+# ========================================
 # NAMESPACED CLASS ROUTES
 # ========================================
 

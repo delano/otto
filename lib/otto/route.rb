@@ -52,8 +52,15 @@ class Otto
       # Create immutable route definition
       @route_definition = Otto::RouteDefinition.new(verb, path, definition, pattern: pattern, keys: keys)
 
-      # Resolve the class
-      @klass = Otto::Security::ConstantResolver.safe_const_get(@route_definition.klass_name)
+      # Resolve the class.
+      # Lambda routes carry a registry KEY in klass_name, not a Ruby constant.
+      # Skip constant resolution (it would raise on a lowercase/unregistered key
+      # and the loader would silently drop the route).
+      @klass = if @route_definition.kind == :lambda
+                 nil
+               else
+                 Otto::Security::ConstantResolver.safe_const_get(@route_definition.klass_name)
+               end
     end
 
     # Delegate common methods to route_definition for backward compatibility
@@ -124,8 +131,11 @@ class Otto
         end
       end
 
-      klass.extend Otto::Route::ClassMethods
-      klass.otto = otto
+      # No target class for lambda routes (klass is nil); skip class extension.
+      if klass
+        klass.extend Otto::Route::ClassMethods
+        klass.otto = otto
+      end
 
       # Add security helpers if CSRF is enabled
       if otto.respond_to?(:security_config) && otto.security_config&.csrf_enabled?

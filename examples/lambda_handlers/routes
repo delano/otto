@@ -1,0 +1,28 @@
+# examples/lambda_handlers/routes
+
+# OTTO - LAMBDA / INLINE ROUTE HANDLERS (issue #41)
+#
+# A route target prefixed with '&' names a pre-registered lambda handler
+# instead of a class/method. The name after '&' is looked up O(1) from the
+# lambda_handlers registry supplied to Otto.new -- never eval'd.
+#
+# The target comes first; route options follow it.
+#
+# Compare the four handler kinds:
+#   App.index      -> :class    (class method)
+#   App#index      -> :instance (instance method)
+#   BareClass      -> :logic    (Logic object)
+#   &health_check  -> :lambda   (pre-registered proc)   <-- this file
+
+# Plain-text string responder (default response handler).
+GET   /ping           &health_check
+
+# Hash responder serialized as JSON.
+GET   /status         &status    response=json
+
+# Reads a path param, returned as JSON.
+GET   /greet/:name    &greet     response=json
+
+# Webhook receiver: marked csrf=exempt (option is parsed/exposed but not yet
+# enforced by CSRFMiddleware -- see issue #186).
+POST  /webhook        &webhook   csrf=exempt response=json

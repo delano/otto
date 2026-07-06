@@ -19,6 +19,7 @@ class Otto
                         when :logic then LogicClassHandler
                         when :instance then InstanceMethodHandler
                         when :class then ClassMethodHandler
+                        when :lambda then LambdaHandler
                         else
                           raise ArgumentError, "Unknown handler kind: #{route_definition.kind}"
                         end

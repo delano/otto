@@ -72,12 +72,6 @@ class Otto
         # Apply privacy settings to environment
         #
         # @param env [Hash] Rack environment
-        # Apply privacy settings to environment
-        #
-        # @param env [Hash] Rack environment
-        # Apply privacy settings to environment
-        #
-        # @param env [Hash] Rack environment
         def apply_privacy(env)
           # Resolve the actual client IP once (handling proxies). This is the
           # canonical resolution step; masking below operates on this value.
@@ -116,6 +110,15 @@ class Otto
               # Canonical client IP downstream reads (exempt: not masked)
               env['otto.client_ip'] = client_ip
               # Don't mask forwarded headers for private IPs
+              #
+              # This early return also means NONE of the privacy fingerprint
+              # values are produced for exempt IPs — no otto.privacy.fingerprint,
+              # masked_ip, hashed_ip, geo_country, or correlation_hash. That is
+              # intentional and consistent: the correlation hash targets public
+              # audit-trail traffic, so req.ip_correlation_hash is nil for
+              # localhost / RFC-1918 addresses (the default dev path) even when a
+              # correlation_secret is configured. Set mask_private_ips to treat
+              # private IPs as public and run them through the full path below.
               Otto.logger.debug "[IPPrivacyMiddleware] Private/localhost IP exempted: #{client_ip}" if Otto.debug
               return
             end
@@ -133,6 +136,14 @@ class Otto
           env['otto.privacy.masked_ip'] = fingerprint.masked_ip
           env['otto.privacy.hashed_ip'] = fingerprint.hashed_ip
           env['otto.privacy.geo_country'] = fingerprint.country
+
+          # Fingerprint the FULL client IP here — while client_ip is still the
+          # real address, before REMOTE_ADDR is masked below — so it identifies
+          # the visitor, not just their /24. Uses the caller's stable secret
+          # (unlike hashed_ip's daily key), so the same IP matches across days.
+          # nil when no secret is set. The real IP is never written to env; only
+          # this hash leaves the middleware.
+          env['otto.privacy.correlation_hash'] = correlation_hash(client_ip)
 
           # CRITICAL: Replace REMOTE_ADDR and forwarded headers with masked values
           # This ensures downstream code (rate limiting, auth, logging, Rack's request.ip)
@@ -158,6 +169,23 @@ class Otto
           # or env['otto.original_referer']. This prevents accidental leakage of the real values.
         end
 
+        # Fingerprint of the full client IP, keyed with the caller's stable
+        # correlation secret (not hashed_ip's daily-rotating key). The same IP
+        # and secret always produce the same value, so it can match a visitor
+        # across days — which the daily hash can't.
+        #
+        # Returns nil when no secret is configured. An empty key is never used
+        # to hash (that would let anyone reverse it); we return nil rather than
+        # raise, since "no secret" just means the feature is off.
+        #
+        # @param client_ip [String] Resolved full client IP (pre-masking)
+        # @return [String, nil] Hex HMAC-SHA256 digest, or nil when unconfigured
+        def correlation_hash(client_ip)
+          secret = @config.correlation_secret
+          return nil if secret.nil? || secret.empty?
+
+          Otto::Privacy::IPPrivacy.hash_ip(client_ip, secret)
+        end
 
         # Set or clear a Rack env header in a SPEC-compliant way.
         #

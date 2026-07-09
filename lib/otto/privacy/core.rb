@@ -52,6 +52,13 @@ class Otto
       # @param hash_rotation [Integer] Seconds between key rotation (default: 86400)
       # @param geo [Boolean] Enable geo-location resolution (default: true)
       # @param redis [Redis] Redis connection for multi-server atomic key generation
+      # @param correlation_secret [String] A secret string that turns on IP
+      #   correlation: it lets you tell whether two requests, even months apart,
+      #   came from the same visitor — without your app ever seeing the real IP.
+      #   (Otto masks the IP before your app runs; with a secret set it also
+      #   fingerprints the full IP into req.ip_correlation_hash, which can't be
+      #   reversed to an IP without the secret.) Omit it to leave any existing
+      #   secret unchanged; pass an empty string to turn the feature back off.
       #
       # @example Mask 2 octets instead of 1
       #   otto.configure_ip_privacy(octet_precision: 2)
@@ -62,16 +69,26 @@ class Otto
       # @example Custom hash rotation
       #   otto.configure_ip_privacy(hash_rotation: 24.hours)
       #
+      # @example Enable stable IP correlation (same visitor across days)
+      #   otto.configure_ip_privacy(correlation_secret: ENV['IP_CORRELATION_SECRET'])
+      #
       # @example Multi-server with Redis
       #   redis = Redis.new(url: ENV['REDIS_URL'])
       #   otto.configure_ip_privacy(redis: redis)
-      def configure_ip_privacy(octet_precision: nil, hash_rotation: nil, geo: nil, redis: nil)
+      def configure_ip_privacy(octet_precision: nil, hash_rotation: nil, geo: nil, redis: nil,
+                               correlation_secret: nil)
         ensure_not_frozen!
         config = @security_config.ip_privacy_config
 
         config.octet_precision = octet_precision if octet_precision
         config.hash_rotation_period = hash_rotation if hash_rotation
         config.geo_enabled = geo unless geo.nil?
+        # Mirror geo's `unless nil?` guard: nil means "leave unchanged", while an
+        # explicit "" is a real value that disables the correlation hash. (A
+        # plain `if correlation_secret` would also assign "" since "" is truthy
+        # in Ruby, but stating the nil intent explicitly keeps this consistent
+        # with the other nilable kwargs.)
+        config.correlation_secret = correlation_secret unless correlation_secret.nil?
         config.instance_variable_set(:@redis, redis) if redis
 
         # Validate configuration

@@ -28,7 +28,7 @@ class Otto
       include Otto::Core::Freezable
 
       attr_accessor :octet_precision, :hash_rotation_period, :geo_enabled, :mask_private_ips
-      attr_reader :disabled
+      attr_reader :disabled, :correlation_secret
 
       # Class-level rotation key storage (mutable, not frozen with instances)
       # This is stored at the class level so it persists across frozen config instances
@@ -51,6 +51,22 @@ class Otto
       # @option options [Boolean] :geo_enabled Enable geo-location resolution (default: true)
       # @option options [Boolean] :disabled Disable privacy entirely (default: false)
       # @option options [Boolean] :mask_private_ips Mask private/localhost IPs (default: false)
+      # @option options [String] :correlation_secret A secret string that turns
+      #   on IP correlation. Default nil, meaning off.
+      #
+      #   It answers one question: "are these two requests, maybe months apart,
+      #   from the same visitor?" — without your app ever seeing the real IP.
+      #
+      #   Otto masks each IP before your app runs (203.0.113.42 becomes
+      #   203.0.113.0), which is too coarse to tell visitors apart. When a secret
+      #   is set, Otto also fingerprints the full IP, before masking, and hands
+      #   your app just the fingerprint as req.ip_correlation_hash. The same IP
+      #   always produces the same fingerprint, and it can't be turned back into
+      #   an IP without the secret.
+      #
+      #   Keep the secret stable — changing it changes every fingerprint. An empty
+      #   string is rejected, because an empty secret would let anyone reverse the
+      #   fingerprint back to an IP.
       # @option options [Redis] :redis Optional Redis connection for multi-server environments
       def initialize(options = {})
         @octet_precision = options.fetch(:octet_precision, 1)
@@ -58,7 +74,27 @@ class Otto
         @geo_enabled = options.fetch(:geo_enabled, true)
         @disabled = options.fetch(:disabled, false) # Enabled by default (privacy-by-default)
         @mask_private_ips = options.fetch(:mask_private_ips, false) # Don't mask private/localhost by default
+        self.correlation_secret = options.fetch(:correlation_secret, nil) # Opt-in stable IP-correlation secret
         @redis = options[:redis] # Optional Redis connection for multi-server environments
+      end
+
+      # Set the stable correlation secret, validating its type up front.
+      #
+      # nil or an empty string mean "correlation hash disabled" (see
+      # IPPrivacyMiddleware#correlation_hash — an empty key is never used to
+      # hash). Any other non-String is a configuration error: without this
+      # guard it would surface far from its cause, as a NoMethodError on
+      # `#empty?` deep inside per-request middleware. Fail fast here instead,
+      # at the point of misconfiguration, with a message that names the type.
+      #
+      # @param value [String, nil] stable secret, or nil/"" to disable
+      # @raise [ArgumentError] if value is neither a String nor nil
+      def correlation_secret=(value)
+        unless value.nil? || value.is_a?(String)
+          raise ArgumentError, "correlation_secret must be a String or nil, got: #{value.class}"
+        end
+
+        @correlation_secret = value
       end
 
       # Check if privacy is enabled

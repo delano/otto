@@ -75,7 +75,8 @@ class Otto
            end
   @logger = Logger.new($stdout, Logger::INFO)
 
-  attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option,
+  attr_reader :routes, :routes_literal, :routes_static, :route_definitions,
+              :routes_by_definition, :option,
               :static_route, :security_config, :locale_config, :auth_config,
               :route_handler_factory, :mcp_server, :caddy_tls_server, :security, :middleware,
               :error_handlers, :request_class, :response_class
@@ -174,6 +175,11 @@ class Otto
     @routes            = { GET: [] }
     @routes_literal    = { GET: {} }
     @route_definitions = {}
+    # All routes per definition string, in load order. A definition string is
+    # not unique — the same handler can be mounted at several verb/path pairs —
+    # so reverse lookups (Otto#uri) consult this index instead of the
+    # single-route @route_definitions entry (issue #190).
+    @routes_by_definition = {}
     @security_config   = Otto::Security::Config.new
     @middleware        = Otto::Core::MiddlewareStack.new
     # Initialize @auth_config first so it can be shared with the configurator

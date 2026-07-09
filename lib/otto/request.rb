@@ -146,8 +146,12 @@ class Otto
     # (not the /24 the app is otherwise left with); the raw IP itself never
     # reaches the application — only the hash does.
     #
-    # Returns nil when IP privacy is disabled or no correlation secret is
-    # configured (see Otto#configure_ip_privacy(correlation_secret:)).
+    # Returns nil when IP privacy is disabled, no correlation secret is
+    # configured (see Otto#configure_ip_privacy(correlation_secret:)), or the
+    # client IP is exempt from masking. By default private/localhost IPs are
+    # exempt (mask_private_ips is false), so this is nil for RFC-1918 and
+    # loopback addresses — including the common local dev path — just like
+    # #masked_ip and #hashed_ip. It targets public audit-trail traffic.
     #
     # @return [String, nil] Hexadecimal HMAC-SHA256 hash string or nil
     # @example

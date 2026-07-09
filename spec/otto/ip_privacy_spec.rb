@@ -2298,6 +2298,38 @@ RSpec.describe 'IP Privacy Features' do
       end
     end
 
+    context 'for private / localhost IPs (exempt from masking by default)' do
+      # Private/localhost IPs take the early-return exempt path, which skips the
+      # whole fingerprint — masked_ip, hashed_ip AND correlation_hash. Assert it
+      # explicitly so this intentional "nil on the local dev path" behavior is
+      # documented and a future refactor can't silently change it.
+      it 'produces no correlation hash for a loopback IP, even with a secret configured' do
+        env = { 'REMOTE_ADDR' => '127.0.0.1' }
+        middleware.call(env)
+
+        expect(env['otto.privacy.correlation_hash']).to be_nil
+        expect(env['otto.privacy.hashed_ip']).to be_nil     # same exemption
+        expect(env['REMOTE_ADDR']).to eq('127.0.0.1')       # exempt: not masked
+      end
+
+      it 'produces no correlation hash for an RFC-1918 IP, even with a secret configured' do
+        env = { 'REMOTE_ADDR' => '192.168.1.100' }
+        middleware.call(env)
+
+        expect(env['otto.privacy.correlation_hash']).to be_nil
+      end
+
+      it 'DOES produce one for a private IP when mask_private_ips is enabled' do
+        security_config.ip_privacy_config.mask_private_ips = true
+        env = { 'REMOTE_ADDR' => '192.168.1.100' }
+        middleware.call(env)
+
+        # Now the private IP runs the full path: hash keyed over the FULL IP.
+        expect(env['otto.privacy.correlation_hash'])
+          .to eq(Otto::Privacy::IPPrivacy.hash_ip('192.168.1.100', correlation_secret))
+      end
+    end
+
     describe 'Otto::Request#ip_correlation_hash' do
       it 'reads env["otto.privacy.correlation_hash"]' do
         env = { 'REMOTE_ADDR' => '9.9.9.9' }

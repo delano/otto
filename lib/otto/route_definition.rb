@@ -191,6 +191,19 @@ class Otto
     # @return [Hash] Hash with :klass_name, :method_name, and :kind
     def parse_target(target)
       case target
+      when /^&/
+        # Lambda handler: '&name' references a proc pre-registered in the
+        # lambda_handlers registry. The entire remainder after '&' is the exact
+        # O(1) Hash lookup key (may contain '.', '#', '::' — all inert here;
+        # resolution is string equality, never eval/const_get). Issue #41 security.
+        name = target[1..].to_s
+        if name.strip.empty?
+          raise ArgumentError,
+                "Invalid lambda handler target #{target.inspect}: handler name " \
+                "after '&' cannot be empty (expected '&handler_name')"
+        end
+        { klass_name: name, method_name: nil, kind: :lambda }
+
       when /^(.+)\.(.+)$/
         # Class.method - call class method directly
         { klass_name: ::Regexp.last_match(1), method_name: ::Regexp.last_match(2), kind: :class }

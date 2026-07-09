@@ -100,6 +100,98 @@ class Otto
         @mcp_server.enable!(mcp_options)
       end
 
+      # Validate and freeze the lambda handler registry supplied at construction
+      # (issue #41, AC#3). Security: only pre-registered callables are accepted;
+      # nothing from route files reaches here, so no eval / dynamic code (AC#8).
+      def configure_lambda_handlers(opts)
+        @option[:lambda_handlers] = validate_lambda_handlers!(opts[:lambda_handlers])
+      end
+
+      # @raise [ArgumentError] naming the offending handler on any invalid entry
+      # @return [Hash] frozen registry ({}.freeze when none supplied)
+      #
+      # Keys are normalized to Strings so lookups from +&name+ routes (whose
+      # target is always a String parsed from the route file) resolve regardless
+      # of whether the caller registered handlers under Symbol or String keys.
+      # A fresh Hash is built and frozen so the caller's input object is never
+      # mutated in place.
+      def validate_lambda_handlers!(handlers)
+        return {}.freeze if handlers.nil?
+
+        unless handlers.is_a?(Hash)
+          raise ArgumentError,
+                "Otto :lambda_handlers must be a Hash of name => callable, got #{handlers.class}"
+        end
+
+        registry = {}
+
+        handlers.each do |name, handler|
+          key = name.to_s
+          if key.strip.empty?
+            raise ArgumentError,
+                  "Lambda handler name #{name.inspect} is blank " \
+                  '(expected a non-empty name matching the &handler_name route target)'
+          end
+
+          if registry.key?(key)
+            raise ArgumentError,
+                  "Lambda handler name #{key.inspect} is registered more than once " \
+                  '(String and Symbol keys collide once normalized to a String)'
+          end
+
+          unless handler.respond_to?(:call)
+            raise ArgumentError,
+                  "Lambda handler '#{key}' is not callable (expected an object " \
+                  "responding to #call, got #{handler.class})"
+          end
+
+          unless lambda_handler_accepts_three?(handler)
+            raise ArgumentError,
+                  "Lambda handler '#{key}' has invalid arity " \
+                  '(must accept 3 arguments: req, res, extra_params)'
+          end
+
+          registry[key] = handler
+        end
+
+        registry.freeze
+      end
+
+      # True if +handler+ can be invoked with exactly three positional arguments.
+      #
+      # Reflects on the callable's #parameters rather than #arity so that:
+      #   * non-Proc/Method callables (a plain object with #call) are supported
+      #     without ever calling #arity, which they need not define (BUG A); and
+      #   * optional-arg forms that cannot actually take 3 positional args are
+      #     rejected instead of blanket-accepted by a negative arity (BUG B) --
+      #     e.g. ->(a=1){} (accepts 0..1) and ->(a,b=1){} (accepts 1..2).
+      #
+      # Accepts req/opt/rest combinations that admit 3 positionals; rejects
+      # anything requiring more than 3 or unable to reach 3.
+      #
+      # @api private
+      # @return [Boolean]
+      def lambda_handler_accepts_three?(handler)
+        callable =
+          if handler.is_a?(Proc) || handler.is_a?(Method)
+            handler
+          else
+            handler.method(:call)
+          end
+        params   = callable.parameters
+        required = params.count { |(type, _)| type == :req }
+        optional = params.count { |(type, _)| type == :opt }
+        has_rest = params.any?  { |(type, _)| type == :rest }
+
+        return false if required > 3
+
+        has_rest || (required + optional) >= 3
+      rescue NameError, NoMethodError
+        # A pathological callable whose #method(:call) reflection blows up still
+        # yields a clean, handler-named ArgumentError from the caller.
+        false
+      end
+
       # Configure locale settings for the application
       #
       # @param available_locales [Hash] Hash of available locales (e.g., { 'en' => 'English', 'es' => 'Spanish' })

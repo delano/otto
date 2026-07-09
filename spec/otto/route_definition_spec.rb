@@ -207,6 +207,83 @@ RSpec.describe Otto::RouteDefinition do
     end
   end
 
+  describe 'lambda routes (& prefix)' do
+    it 'parses "&handler" to kind :lambda with klass_name and nil method_name' do
+      route = described_class.new('GET', '/ping', '&health_check')
+
+      expect(route.kind).to eq(:lambda)
+      expect(route.klass_name).to eq('health_check')
+      expect(route.method_name).to be_nil
+    end
+
+    it 'parses the target and options together for "&handler csrf=exempt response=json"' do
+      route = described_class.new('GET', '/ping', '&health_check csrf=exempt response=json')
+
+      expect(route.kind).to eq(:lambda)
+      expect(route.klass_name).to eq('health_check')
+      expect(route.method_name).to be_nil
+      expect(route.option(:csrf)).to eq('exempt')
+      expect(route.response_type).to eq('json')
+      expect(route.csrf_exempt?).to be true
+    end
+
+    it 'exposes lambda target details through to_h' do
+      route = described_class.new('GET', '/ping', '&health_check')
+
+      hash = route.to_h
+
+      expect(hash[:kind]).to eq(:lambda)
+      expect(hash[:klass_name]).to eq('health_check')
+      expect(hash[:method_name]).to be_nil
+    end
+
+    it 'is not a logic route' do
+      route = described_class.new('GET', '/ping', '&health_check')
+
+      expect(route.logic_route?).to be false
+    end
+
+    it 'treats a dotted handler name as a single lambda key (ordering lock)' do
+      route = described_class.new('GET', '/metrics', '&metrics.collect')
+
+      expect(route.kind).to eq(:lambda)
+      expect(route.klass_name).to eq('metrics.collect')
+      expect(route.method_name).to be_nil
+    end
+
+    it 'treats a hashed handler name as a single lambda key (ordering lock)' do
+      route = described_class.new('GET', '/key', '&ns#key')
+
+      expect(route.kind).to eq(:lambda)
+      expect(route.klass_name).to eq('ns#key')
+      expect(route.method_name).to be_nil
+    end
+
+    it 'preserves the "&" target on a with_options round-trip' do
+      route   = described_class.new('GET', '/ping', '&health_check')
+      updated = route.with_options(response: 'json')
+
+      expect(updated.kind).to eq(:lambda)
+      expect(updated.klass_name).to eq('health_check')
+      expect(updated.method_name).to be_nil
+      expect(updated.response_type).to eq('json')
+    end
+
+    it 'parses auth and role options for a lambda route' do
+      route = described_class.new('GET', '/admin', '&admin_panel auth=session role=admin')
+
+      expect(route.kind).to eq(:lambda)
+      expect(route.auth_requirements).to eq(['session'])
+      expect(route.role_requirements).to eq(['admin'])
+    end
+
+    it 'raises ArgumentError when the handler name after "&" is empty' do
+      expect do
+        described_class.new('GET', '/x', '&')
+      end.to raise_error(ArgumentError)
+    end
+  end
+
   describe 'immutability' do
     it 'freezes the route definition instance' do
       route = described_class.new('GET', '/test', 'TestApp.test')

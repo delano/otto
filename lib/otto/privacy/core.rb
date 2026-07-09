@@ -52,15 +52,13 @@ class Otto
       # @param hash_rotation [Integer] Seconds between key rotation (default: 86400)
       # @param geo [Boolean] Enable geo-location resolution (default: true)
       # @param redis [Redis] Redis connection for multi-server atomic key generation
-      # @param correlation_secret [String] Stable secret that enables the
-      #   long-horizon IP correlation hash (req.ip_correlation_hash). What it's
-      #   for: let long-lived records tell whether two events came from the same
-      #   host across days/months, without the app ever handling the raw IP — the
-      #   per-host granularity the masked-IP-only view can't give you (that's just
-      #   a /24). It hashes the full pre-masking IP with a key that, unlike
-      #   hashed_ip's daily-rotating one, never rotates. Omit (nil) to leave any
-      #   existing secret unchanged, consistent with the other kwargs here; pass
-      #   an empty string to explicitly disable a previously configured secret.
+      # @param correlation_secret [String] A secret string that turns on IP
+      #   correlation: it lets you tell whether two requests, even months apart,
+      #   came from the same visitor — without your app ever seeing the real IP.
+      #   (Otto masks the IP before your app runs; with a secret set it also
+      #   fingerprints the full IP into req.ip_correlation_hash, which can't be
+      #   reversed to an IP without the secret.) Omit it to leave any existing
+      #   secret unchanged; pass an empty string to turn the feature back off.
       #
       # @example Mask 2 octets instead of 1
       #   otto.configure_ip_privacy(octet_precision: 2)
@@ -71,7 +69,7 @@ class Otto
       # @example Custom hash rotation
       #   otto.configure_ip_privacy(hash_rotation: 24.hours)
       #
-      # @example Enable long-horizon IP correlation
+      # @example Enable stable IP correlation (same visitor across days)
       #   otto.configure_ip_privacy(correlation_secret: ENV['IP_CORRELATION_SECRET'])
       #
       # @example Multi-server with Redis

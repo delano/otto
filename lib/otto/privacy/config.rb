@@ -51,18 +51,22 @@ class Otto
       # @option options [Boolean] :geo_enabled Enable geo-location resolution (default: true)
       # @option options [Boolean] :disabled Disable privacy entirely (default: false)
       # @option options [Boolean] :mask_private_ips Mask private/localhost IPs (default: false)
-      # @option options [String] :correlation_secret Enables the long-horizon IP
-      #   correlation hash, exposed as req.ip_correlation_hash (default: nil = off).
-      #   What it's for: let long-lived records answer "did these two events come
-      #   from the same host, months apart?" WITHOUT the app ever handling the raw
-      #   IP. The middleware masks the IP before the app sees it, leaving only a
-      #   /24 — too coarse to identify a host. This instead hashes the FULL IP at
-      #   the edge, pre-masking, keyed with this stable, caller-owned secret. And
-      #   unlike hashed_ip's key, which rotates daily (session correlation, useless
-      #   across days), this one never rotates, so the same IP hashes identically
-      #   over time — the piece long-horizon correlation needs. nil/empty leaves
-      #   the feature off; an empty key is refused, because the secret is the only
-      #   thing stopping anyone from recomputing the hash and de-anonymizing the IP.
+      # @option options [String] :correlation_secret A secret string that turns
+      #   on IP correlation. Default nil, meaning off.
+      #
+      #   It answers one question: "are these two requests, maybe months apart,
+      #   from the same visitor?" — without your app ever seeing the real IP.
+      #
+      #   Otto masks each IP before your app runs (203.0.113.42 becomes
+      #   203.0.113.0), which is too coarse to tell visitors apart. When a secret
+      #   is set, Otto also fingerprints the full IP, before masking, and hands
+      #   your app just the fingerprint as req.ip_correlation_hash. The same IP
+      #   always produces the same fingerprint, and it can't be turned back into
+      #   an IP without the secret.
+      #
+      #   Keep the secret stable — changing it changes every fingerprint. An empty
+      #   string is rejected, because an empty secret would let anyone reverse the
+      #   fingerprint back to an IP.
       # @option options [Redis] :redis Optional Redis connection for multi-server environments
       def initialize(options = {})
         @octet_precision = options.fetch(:octet_precision, 1)
@@ -70,7 +74,7 @@ class Otto
         @geo_enabled = options.fetch(:geo_enabled, true)
         @disabled = options.fetch(:disabled, false) # Enabled by default (privacy-by-default)
         @mask_private_ips = options.fetch(:mask_private_ips, false) # Don't mask private/localhost by default
-        self.correlation_secret = options.fetch(:correlation_secret, nil) # Stable long-horizon correlation key
+        self.correlation_secret = options.fetch(:correlation_secret, nil) # Opt-in stable IP-correlation secret
         @redis = options[:redis] # Optional Redis connection for multi-server environments
       end
 

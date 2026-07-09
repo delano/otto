@@ -137,15 +137,12 @@ class Otto
           env['otto.privacy.hashed_ip'] = fingerprint.hashed_ip
           env['otto.privacy.geo_country'] = fingerprint.country
 
-          # Stable-keyed correlation hash over the FULL, still-unmasked client
-          # IP. Computed here — while client_ip is the resolved raw address and
-          # before REMOTE_ADDR is overwritten with the masked value below — so
-          # it captures per-host granularity, not the /24 the app would be left
-          # with. Unlike hashed_ip (daily-rotating key, for short-lived session
-          # correlation), this uses a caller-configured STABLE secret, so the
-          # same IP hashes identically across days for long-horizon records.
-          # nil when no correlation secret is configured. The raw IP itself is
-          # never written to env; only this hash escapes the middleware.
+          # Fingerprint the FULL client IP here — while client_ip is still the
+          # real address, before REMOTE_ADDR is masked below — so it identifies
+          # the visitor, not just their /24. Uses the caller's stable secret
+          # (unlike hashed_ip's daily key), so the same IP matches across days.
+          # nil when no secret is set. The real IP is never written to env; only
+          # this hash leaves the middleware.
           env['otto.privacy.correlation_hash'] = correlation_hash(client_ip)
 
           # CRITICAL: Replace REMOTE_ADDR and forwarded headers with masked values
@@ -172,18 +169,14 @@ class Otto
           # or env['otto.original_referer']. This prevents accidental leakage of the real values.
         end
 
-        # Compute the stable-keyed correlation hash over the full client IP.
+        # Fingerprint of the full client IP, keyed with the caller's stable
+        # correlation secret (not hashed_ip's daily-rotating key). The same IP
+        # and secret always produce the same value, so it can match a visitor
+        # across days — which the daily hash can't.
         #
-        # HMAC-SHA256 keyed with the caller-configured, non-rotating
-        # correlation secret (distinct from the daily rotation_key behind
-        # hashed_ip). Same IP + same secret => same hash, indefinitely — the
-        # long-horizon correlation the daily hash cannot provide.
-        #
-        # Returns nil when no correlation secret is configured. We never hash
-        # under a nil/empty key (that would be trivially guessable and defeat
-        # the privacy guarantee) — mirroring IPPrivacy.hash_ip's own empty-key
-        # guard, but degrading to nil here rather than raising, since a missing
-        # secret is a valid "feature not enabled" state, not a caller error.
+        # Returns nil when no secret is configured. An empty key is never used
+        # to hash (that would let anyone reverse it); we return nil rather than
+        # raise, since "no secret" just means the feature is off.
         #
         # @param client_ip [String] Resolved full client IP (pre-masking)
         # @return [String, nil] Hex HMAC-SHA256 digest, or nil when unconfigured

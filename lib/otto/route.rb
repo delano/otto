@@ -109,16 +109,30 @@ class Otto
     # @return [Array] Rack response array [status, headers, body]
     def call(env, extra_params = {})
       extra_params ||= {}
-      req            = otto.request_class.new(env)
-      res            = otto.response_class.new
-      res.request = req
 
       # Make security config available to response helpers
       env['otto.security_config'] = otto.security_config if otto.respond_to?(:security_config) && otto.security_config
 
-      # NEW: Make route definition and options available to middleware and handlers
+      # Make route definition and options available to middleware and handlers.
+      # Set before delegating so wrappers that run ahead of the handler's own
+      # setup (RouteAuthWrapper, the centralized error handler) can see them.
       env['otto.route_definition'] = @route_definition
       env['otto.route_options'] = @route_definition.options
+
+      # Pluggable route handler factory (Phase 4). The handler owns
+      # request/response construction and decoration — param merging,
+      # indifferent access, security headers, CSRF/validation helpers all
+      # happen once in BaseHandler#setup_request_response. Building them here
+      # too would duplicate that work on objects that get discarded (issue #189).
+      if otto&.route_handler_factory
+        handler = otto.route_handler_factory.create_handler(@route_definition, otto)
+        return handler.call(env, extra_params)
+      end
+
+      # Fallback to legacy behavior for backward compatibility
+      req         = otto.request_class.new(env)
+      res         = otto.response_class.new
+      res.request = req
 
       # Process parameters through security layer
       req.params.merge! extra_params
@@ -145,39 +159,31 @@ class Otto
       # Add validation helpers
       res.extend Otto::Security::ValidationHelpers
 
-      # NEW: Use the pluggable route handler factory (Phase 4)
-      # This replaces the hardcoded execution pattern with a factory approach
-      if otto&.route_handler_factory
-        handler = otto.route_handler_factory.create_handler(@route_definition, otto)
-        handler.call(env, extra_params)
-      else
-        # Fallback to legacy behavior for backward compatibility
-        inst = nil
-        result = case kind
-                 when :instance
-                   inst = klass.new req, res
-                   inst.send(name)
-                 when :class
-                   klass.send(name, req, res)
-                 else
-                   raise "Unsupported kind for #{definition}: #{kind}"
-                 end
+      inst = nil
+      result = case kind
+               when :instance
+                 inst = klass.new req, res
+                 inst.send(name)
+               when :class
+                 klass.send(name, req, res)
+               else
+                 raise "Unsupported kind for #{definition}: #{kind}"
+               end
 
-        # Handle response based on route options
-        response_type = @route_definition.response_type
-        if response_type != 'default'
-          context = {
-            logic_instance: (kind == :instance ? inst : nil),
-               status_code: nil,
-             redirect_path: nil,
-          }
+      # Handle response based on route options
+      response_type = @route_definition.response_type
+      if response_type != 'default'
+        context = {
+          logic_instance: (kind == :instance ? inst : nil),
+             status_code: nil,
+           redirect_path: nil,
+        }
 
-          Otto::ResponseHandlers::HandlerFactory.handle_response(result, res, response_type, context)
-        end
-
-        res.body = [res.body] unless res.body.respond_to?(:each)
-        res.finish
+        Otto::ResponseHandlers::HandlerFactory.handle_response(result, res, response_type, context)
       end
+
+      res.body = [res.body] unless res.body.respond_to?(:each)
+      res.finish
     end
 
     private

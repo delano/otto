@@ -2185,4 +2185,151 @@ RSpec.describe 'IP Privacy Features' do
       expect(log_line).to include('127.0.0.1')
     end
   end
+
+  describe 'Stable-keyed IP correlation hash (otto#192)' do
+    let(:app) { ->(env) { [200, {}, ['OK']] } }
+    let(:security_config) { Otto::Security::Config.new }
+    let(:correlation_secret) { 'stable-correlation-secret-v1' }
+    let(:middleware) do
+      security_config.ip_privacy_config.correlation_secret = correlation_secret
+      Otto::Security::Middleware::IPPrivacyMiddleware.new(app, security_config)
+    end
+
+    # Run one request through the middleware and return the correlation hash.
+    def correlation_hash_for(remote_addr)
+      env = { 'REMOTE_ADDR' => remote_addr }
+      middleware.call(env)
+      env['otto.privacy.correlation_hash']
+    end
+
+    it 'computes an HMAC-SHA256 hex digest over the FULL client IP' do
+      hash = correlation_hash_for('9.9.9.9')
+
+      expect(hash).to match(/^[0-9a-f]{64}$/)
+      # Keyed with the configured stable secret over the full address...
+      expect(hash).to eq(Otto::Privacy::IPPrivacy.hash_ip('9.9.9.9', correlation_secret))
+      # ...NOT over the masked /24 the app is otherwise left with.
+      expect(hash).not_to eq(Otto::Privacy::IPPrivacy.hash_ip('9.9.9.0', correlation_secret))
+    end
+
+    it 'is stable for the same IP + secret across requests' do
+      expect(correlation_hash_for('9.9.9.9')).to eq(correlation_hash_for('9.9.9.9'))
+    end
+
+    it 'remains stable across daily key rotations (unlike hashed_ip)' do
+      env1 = { 'REMOTE_ADDR' => '9.9.9.9' }
+      middleware.call(env1)
+
+      # Simulate crossing into a new "day": the daily rotation-key store is
+      # regenerated, so the next request's hashed_ip is keyed differently.
+      Otto::Privacy::Config.rotation_keys_store.clear
+
+      env2 = { 'REMOTE_ADDR' => '9.9.9.9' }
+      middleware.call(env2)
+
+      # The daily session hash rotated away...
+      expect(env2['otto.privacy.hashed_ip']).not_to eq(env1['otto.privacy.hashed_ip'])
+      # ...but the stable correlation hash survived the boundary.
+      expect(env2['otto.privacy.correlation_hash']).to eq(env1['otto.privacy.correlation_hash'])
+    end
+
+    it 'diverges for different IPs' do
+      expect(correlation_hash_for('9.9.9.9')).not_to eq(correlation_hash_for('8.8.8.8'))
+    end
+
+    it 'supports IPv6 addresses' do
+      hash = correlation_hash_for('2606:4700:4700::1111')
+
+      expect(hash).to match(/^[0-9a-f]{64}$/)
+      expect(hash).to eq(Otto::Privacy::IPPrivacy.hash_ip('2606:4700:4700::1111', correlation_secret))
+    end
+
+    it 'is provably distinct from the daily-rotating hashed_ip for the same IP' do
+      env = { 'REMOTE_ADDR' => '9.9.9.9' }
+      middleware.call(env)
+
+      expect(env['otto.privacy.correlation_hash']).to match(/^[0-9a-f]{64}$/)
+      expect(env['otto.privacy.hashed_ip']).to match(/^[0-9a-f]{64}$/)
+      expect(env['otto.privacy.correlation_hash']).not_to eq(env['otto.privacy.hashed_ip'])
+    end
+
+    it 'never writes the raw IP into env (only the hash escapes)' do
+      env = { 'REMOTE_ADDR' => '9.9.9.9' }
+      middleware.call(env)
+
+      expect(env['REMOTE_ADDR']).to eq('9.9.9.0')     # masked in place
+      expect(env['otto.original_ip']).to be_nil        # raw never stored
+      expect(env.values).not_to include('9.9.9.9')     # raw absent everywhere
+    end
+
+    context 'when no correlation secret is configured' do
+      let(:correlation_secret) { nil }
+
+      it 'sets the correlation hash to nil (never hashes under an empty key)' do
+        env = { 'REMOTE_ADDR' => '9.9.9.9' }
+        middleware.call(env)
+
+        expect(env['otto.privacy.correlation_hash']).to be_nil
+        # The daily hash is still produced — only the correlation hash opts out.
+        expect(env['otto.privacy.hashed_ip']).to match(/^[0-9a-f]{64}$/)
+      end
+    end
+
+    context 'when the correlation secret is an empty string' do
+      let(:correlation_secret) { '' }
+
+      it 'sets the correlation hash to nil' do
+        env = { 'REMOTE_ADDR' => '9.9.9.9' }
+        middleware.call(env)
+
+        expect(env['otto.privacy.correlation_hash']).to be_nil
+      end
+    end
+
+    context 'when IP privacy is disabled' do
+      before { security_config.ip_privacy_config.disable! }
+
+      it 'does not compute a correlation hash' do
+        env = { 'REMOTE_ADDR' => '9.9.9.9' }
+        middleware.call(env)
+
+        expect(env['otto.privacy.correlation_hash']).to be_nil
+        expect(env['REMOTE_ADDR']).to eq('9.9.9.9') # unmasked (privacy off)
+      end
+    end
+
+    describe 'Otto::Request#ip_correlation_hash' do
+      it 'reads env["otto.privacy.correlation_hash"]' do
+        env = { 'REMOTE_ADDR' => '9.9.9.9' }
+        middleware.call(env)
+        req = Otto::Request.new(env)
+
+        expect(req.ip_correlation_hash).to eq(env['otto.privacy.correlation_hash'])
+        expect(req.ip_correlation_hash).to match(/^[0-9a-f]{64}$/)
+      end
+
+      it 'returns nil when the middleware never computed one' do
+        req = Otto::Request.new({})
+
+        expect(req.ip_correlation_hash).to be_nil
+      end
+    end
+  end
+
+  describe 'Otto::Privacy::Config correlation_secret' do
+    it 'defaults to nil' do
+      expect(Otto::Privacy::Config.new.correlation_secret).to be_nil
+    end
+
+    it 'accepts a correlation secret at construction' do
+      config = Otto::Privacy::Config.new(correlation_secret: 'abc')
+      expect(config.correlation_secret).to eq('abc')
+    end
+
+    it 'is settable after construction' do
+      config = Otto::Privacy::Config.new
+      config.correlation_secret = 'later'
+      expect(config.correlation_secret).to eq('later')
+    end
+  end
 end

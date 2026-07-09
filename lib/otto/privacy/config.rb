@@ -27,7 +27,8 @@ class Otto
     class Config
       include Otto::Core::Freezable
 
-      attr_accessor :octet_precision, :hash_rotation_period, :geo_enabled, :mask_private_ips
+      attr_accessor :octet_precision, :hash_rotation_period, :geo_enabled, :mask_private_ips,
+                    :correlation_secret
       attr_reader :disabled
 
       # Class-level rotation key storage (mutable, not frozen with instances)
@@ -51,6 +52,11 @@ class Otto
       # @option options [Boolean] :geo_enabled Enable geo-location resolution (default: true)
       # @option options [Boolean] :disabled Disable privacy entirely (default: false)
       # @option options [Boolean] :mask_private_ips Mask private/localhost IPs (default: false)
+      # @option options [String] :correlation_secret Stable secret for the long-horizon
+      #   IP correlation hash (default: nil). Distinct from the daily-rotating
+      #   rotation_key used by hashed_ip: this key is caller-owned and does NOT
+      #   rotate, so the same IP hashes identically across days. When nil/empty
+      #   no correlation hash is produced (never hash under a weak/empty key).
       # @option options [Redis] :redis Optional Redis connection for multi-server environments
       def initialize(options = {})
         @octet_precision = options.fetch(:octet_precision, 1)
@@ -58,6 +64,7 @@ class Otto
         @geo_enabled = options.fetch(:geo_enabled, true)
         @disabled = options.fetch(:disabled, false) # Enabled by default (privacy-by-default)
         @mask_private_ips = options.fetch(:mask_private_ips, false) # Don't mask private/localhost by default
+        @correlation_secret = options.fetch(:correlation_secret, nil) # Stable long-horizon correlation key
         @redis = options[:redis] # Optional Redis connection for multi-server environments
       end
 

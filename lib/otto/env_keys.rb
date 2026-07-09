@@ -153,6 +153,17 @@ class Otto
       # Used by: Session correlation without storing IPs
       HASHED_IP = 'otto.privacy.hashed_ip'
 
+      # Stable-keyed IP correlation hash for long-horizon correlation
+      # Type: String (hexadecimal), or nil when no correlation secret configured
+      # Set by: IPPrivacyMiddleware (computed over the FULL client IP,
+      #   pre-masking, keyed with the caller-configured stable
+      #   correlation_secret — NOT the daily rotation_key behind HASHED_IP)
+      # Used by: Correlating the same host across days/months (e.g. audit
+      #   trails) without ever storing or exposing the raw IP
+      # Read via: Otto::Request#ip_correlation_hash
+      # Contrast: HASHED_IP rotates daily (session-scoped); this is stable.
+      CORRELATION_HASH = 'otto.privacy.correlation_hash'
+
       # Privacy fingerprint object
       # Type: Otto::Privacy::RedactedFingerprint
       # Set by: IPPrivacyMiddleware

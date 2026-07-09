@@ -134,6 +134,17 @@ class Otto
           env['otto.privacy.hashed_ip'] = fingerprint.hashed_ip
           env['otto.privacy.geo_country'] = fingerprint.country
 
+          # Stable-keyed correlation hash over the FULL, still-unmasked client
+          # IP. Computed here — while client_ip is the resolved raw address and
+          # before REMOTE_ADDR is overwritten with the masked value below — so
+          # it captures per-host granularity, not the /24 the app would be left
+          # with. Unlike hashed_ip (daily-rotating key, for short-lived session
+          # correlation), this uses a caller-configured STABLE secret, so the
+          # same IP hashes identically across days for long-horizon records.
+          # nil when no correlation secret is configured. The raw IP itself is
+          # never written to env; only this hash escapes the middleware.
+          env['otto.privacy.correlation_hash'] = correlation_hash(client_ip)
+
           # CRITICAL: Replace REMOTE_ADDR and forwarded headers with masked values
           # This ensures downstream code (rate limiting, auth, logging, Rack's request.ip)
           # automatically uses the masked values without modification
@@ -158,6 +169,27 @@ class Otto
           # or env['otto.original_referer']. This prevents accidental leakage of the real values.
         end
 
+        # Compute the stable-keyed correlation hash over the full client IP.
+        #
+        # HMAC-SHA256 keyed with the caller-configured, non-rotating
+        # correlation secret (distinct from the daily rotation_key behind
+        # hashed_ip). Same IP + same secret => same hash, indefinitely — the
+        # long-horizon correlation the daily hash cannot provide.
+        #
+        # Returns nil when no correlation secret is configured. We never hash
+        # under a nil/empty key (that would be trivially guessable and defeat
+        # the privacy guarantee) — mirroring IPPrivacy.hash_ip's own empty-key
+        # guard, but degrading to nil here rather than raising, since a missing
+        # secret is a valid "feature not enabled" state, not a caller error.
+        #
+        # @param client_ip [String] Resolved full client IP (pre-masking)
+        # @return [String, nil] Hex HMAC-SHA256 digest, or nil when unconfigured
+        def correlation_hash(client_ip)
+          secret = @config.correlation_secret
+          return nil if secret.nil? || secret.empty?
+
+          Otto::Privacy::IPPrivacy.hash_ip(client_ip, secret)
+        end
 
         # Set or clear a Rack env header in a SPEC-compliant way.
         #

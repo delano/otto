@@ -52,6 +52,10 @@ class Otto
       # @param hash_rotation [Integer] Seconds between key rotation (default: 86400)
       # @param geo [Boolean] Enable geo-location resolution (default: true)
       # @param redis [Redis] Redis connection for multi-server atomic key generation
+      # @param correlation_secret [String] Stable secret for the long-horizon IP
+      #   correlation hash (req.ip_correlation_hash). Distinct from the daily-
+      #   rotating hashed_ip key: this one does NOT rotate, so the same IP
+      #   correlates across days. Leave unset to disable the correlation hash.
       #
       # @example Mask 2 octets instead of 1
       #   otto.configure_ip_privacy(octet_precision: 2)
@@ -62,16 +66,21 @@ class Otto
       # @example Custom hash rotation
       #   otto.configure_ip_privacy(hash_rotation: 24.hours)
       #
+      # @example Enable long-horizon IP correlation
+      #   otto.configure_ip_privacy(correlation_secret: ENV['IP_CORRELATION_SECRET'])
+      #
       # @example Multi-server with Redis
       #   redis = Redis.new(url: ENV['REDIS_URL'])
       #   otto.configure_ip_privacy(redis: redis)
-      def configure_ip_privacy(octet_precision: nil, hash_rotation: nil, geo: nil, redis: nil)
+      def configure_ip_privacy(octet_precision: nil, hash_rotation: nil, geo: nil, redis: nil,
+                               correlation_secret: nil)
         ensure_not_frozen!
         config = @security_config.ip_privacy_config
 
         config.octet_precision = octet_precision if octet_precision
         config.hash_rotation_period = hash_rotation if hash_rotation
         config.geo_enabled = geo unless geo.nil?
+        config.correlation_secret = correlation_secret if correlation_secret
         config.instance_variable_set(:@redis, redis) if redis
 
         # Validate configuration

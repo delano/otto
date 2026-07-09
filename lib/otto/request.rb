@@ -133,6 +133,29 @@ class Otto
       redacted_fingerprint&.hashed_ip || env['otto.privacy.hashed_ip']
     end
 
+    # Get the stable-keyed correlation hash of the client IP.
+    #
+    # Contrast with #hashed_ip: that value is keyed with a daily-rotating
+    # secret (great for correlating requests within a session, useless across
+    # days). This value is HMAC-SHA256 over the SAME full, pre-masking client
+    # IP but keyed with a caller-configured STABLE secret, so the same IP
+    # produces the same hash indefinitely — the granularity long-lived audit
+    # records need without ever handling the raw IP.
+    #
+    # Both are computed before masking, so both reflect the per-host address
+    # (not the /24 the app is otherwise left with); the raw IP itself never
+    # reaches the application — only the hash does.
+    #
+    # Returns nil when IP privacy is disabled or no correlation secret is
+    # configured (see Otto#configure_ip_privacy(correlation_secret:)).
+    #
+    # @return [String, nil] Hexadecimal HMAC-SHA256 hash string or nil
+    # @example
+    #   req.ip_correlation_hash  # => 'b7e2...'  (stable across days)
+    def ip_correlation_hash
+      env['otto.privacy.correlation_hash']
+    end
+
     def client_ipaddress
       # Prefer the canonical client IP resolved once by IPPrivacyMiddleware
       # ("resolve once, read everywhere"). Falls back to the shared resolver

@@ -51,11 +51,18 @@ class Otto
       # @option options [Boolean] :geo_enabled Enable geo-location resolution (default: true)
       # @option options [Boolean] :disabled Disable privacy entirely (default: false)
       # @option options [Boolean] :mask_private_ips Mask private/localhost IPs (default: false)
-      # @option options [String] :correlation_secret Stable secret for the long-horizon
-      #   IP correlation hash (default: nil). Distinct from the daily-rotating
-      #   rotation_key used by hashed_ip: this key is caller-owned and does NOT
-      #   rotate, so the same IP hashes identically across days. When nil/empty
-      #   no correlation hash is produced (never hash under a weak/empty key).
+      # @option options [String] :correlation_secret Enables the long-horizon IP
+      #   correlation hash, exposed as req.ip_correlation_hash (default: nil = off).
+      #   What it's for: let long-lived records answer "did these two events come
+      #   from the same host, months apart?" WITHOUT the app ever handling the raw
+      #   IP. The middleware masks the IP before the app sees it, leaving only a
+      #   /24 — too coarse to identify a host. This instead hashes the FULL IP at
+      #   the edge, pre-masking, keyed with this stable, caller-owned secret. And
+      #   unlike hashed_ip's key, which rotates daily (session correlation, useless
+      #   across days), this one never rotates, so the same IP hashes identically
+      #   over time — the piece long-horizon correlation needs. nil/empty leaves
+      #   the feature off; an empty key is refused, because the secret is the only
+      #   thing stopping anyone from recomputing the hash and de-anonymizing the IP.
       # @option options [Redis] :redis Optional Redis connection for multi-server environments
       def initialize(options = {})
         @octet_precision = options.fetch(:octet_precision, 1)

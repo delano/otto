@@ -52,12 +52,15 @@ class Otto
       # @param hash_rotation [Integer] Seconds between key rotation (default: 86400)
       # @param geo [Boolean] Enable geo-location resolution (default: true)
       # @param redis [Redis] Redis connection for multi-server atomic key generation
-      # @param correlation_secret [String] Stable secret for the long-horizon IP
-      #   correlation hash (req.ip_correlation_hash). Distinct from the daily-
-      #   rotating hashed_ip key: this one does NOT rotate, so the same IP
-      #   correlates across days. Omit (nil) to leave any existing secret
-      #   unchanged, consistent with the other kwargs here; pass an empty
-      #   string to explicitly disable a previously configured secret.
+      # @param correlation_secret [String] Stable secret that enables the
+      #   long-horizon IP correlation hash (req.ip_correlation_hash). What it's
+      #   for: let long-lived records tell whether two events came from the same
+      #   host across days/months, without the app ever handling the raw IP — the
+      #   per-host granularity the masked-IP-only view can't give you (that's just
+      #   a /24). It hashes the full pre-masking IP with a key that, unlike
+      #   hashed_ip's daily-rotating one, never rotates. Omit (nil) to leave any
+      #   existing secret unchanged, consistent with the other kwargs here; pass
+      #   an empty string to explicitly disable a previously configured secret.
       #
       # @example Mask 2 octets instead of 1
       #   otto.configure_ip_privacy(octet_precision: 2)

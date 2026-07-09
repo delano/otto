@@ -27,9 +27,8 @@ class Otto
     class Config
       include Otto::Core::Freezable
 
-      attr_accessor :octet_precision, :hash_rotation_period, :geo_enabled, :mask_private_ips,
-                    :correlation_secret
-      attr_reader :disabled
+      attr_accessor :octet_precision, :hash_rotation_period, :geo_enabled, :mask_private_ips
+      attr_reader :disabled, :correlation_secret
 
       # Class-level rotation key storage (mutable, not frozen with instances)
       # This is stored at the class level so it persists across frozen config instances
@@ -64,8 +63,27 @@ class Otto
         @geo_enabled = options.fetch(:geo_enabled, true)
         @disabled = options.fetch(:disabled, false) # Enabled by default (privacy-by-default)
         @mask_private_ips = options.fetch(:mask_private_ips, false) # Don't mask private/localhost by default
-        @correlation_secret = options.fetch(:correlation_secret, nil) # Stable long-horizon correlation key
+        self.correlation_secret = options.fetch(:correlation_secret, nil) # Stable long-horizon correlation key
         @redis = options[:redis] # Optional Redis connection for multi-server environments
+      end
+
+      # Set the stable correlation secret, validating its type up front.
+      #
+      # nil or an empty string mean "correlation hash disabled" (see
+      # IPPrivacyMiddleware#correlation_hash — an empty key is never used to
+      # hash). Any other non-String is a configuration error: without this
+      # guard it would surface far from its cause, as a NoMethodError on
+      # `#empty?` deep inside per-request middleware. Fail fast here instead,
+      # at the point of misconfiguration, with a message that names the type.
+      #
+      # @param value [String, nil] stable secret, or nil/"" to disable
+      # @raise [ArgumentError] if value is neither a String nor nil
+      def correlation_secret=(value)
+        unless value.nil? || value.is_a?(String)
+          raise ArgumentError, "correlation_secret must be a String or nil, got: #{value.class}"
+        end
+
+        @correlation_secret = value
       end
 
       # Check if privacy is enabled

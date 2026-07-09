@@ -2331,5 +2331,52 @@ RSpec.describe 'IP Privacy Features' do
       config.correlation_secret = 'later'
       expect(config.correlation_secret).to eq('later')
     end
+
+    it 'accepts an empty string (the feature-disabled sentinel)' do
+      expect(Otto::Privacy::Config.new(correlation_secret: '').correlation_secret).to eq('')
+    end
+
+    it 'rejects a non-String, non-nil secret at construction (fail fast)' do
+      expect { Otto::Privacy::Config.new(correlation_secret: 123) }
+        .to raise_error(ArgumentError, /correlation_secret must be a String or nil, got: Integer/)
+    end
+
+    it 'rejects a non-String, non-nil secret assigned after construction' do
+      config = Otto::Privacy::Config.new
+      expect { config.correlation_secret = :nope }
+        .to raise_error(ArgumentError, /correlation_secret must be a String or nil/)
+    end
+  end
+
+  describe 'Otto#configure_ip_privacy(correlation_secret:)' do
+    it 'stores the correlation secret on the privacy config' do
+      otto = create_minimal_otto(['GET / TestApp.index'])
+      otto.configure_ip_privacy(correlation_secret: 'stable-secret')
+
+      expect(otto.security_config.ip_privacy_config.correlation_secret).to eq('stable-secret')
+    end
+
+    it 'leaves an existing secret unchanged when omitted (nil means "no change")' do
+      otto = create_minimal_otto(['GET / TestApp.index'])
+      otto.configure_ip_privacy(correlation_secret: 'stable-secret')
+      otto.configure_ip_privacy(octet_precision: 2)
+
+      expect(otto.security_config.ip_privacy_config.correlation_secret).to eq('stable-secret')
+    end
+
+    it 'disables a previously configured secret when given an empty string' do
+      otto = create_minimal_otto(['GET / TestApp.index'])
+      otto.configure_ip_privacy(correlation_secret: 'stable-secret')
+      otto.configure_ip_privacy(correlation_secret: '')
+
+      expect(otto.security_config.ip_privacy_config.correlation_secret).to eq('')
+    end
+
+    it 'fails fast on a non-String secret' do
+      otto = create_minimal_otto(['GET / TestApp.index'])
+
+      expect { otto.configure_ip_privacy(correlation_secret: 123) }
+        .to raise_error(ArgumentError, /correlation_secret must be a String or nil/)
+    end
   end
 end

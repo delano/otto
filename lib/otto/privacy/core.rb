@@ -55,7 +55,9 @@ class Otto
       # @param correlation_secret [String] Stable secret for the long-horizon IP
       #   correlation hash (req.ip_correlation_hash). Distinct from the daily-
       #   rotating hashed_ip key: this one does NOT rotate, so the same IP
-      #   correlates across days. Leave unset to disable the correlation hash.
+      #   correlates across days. Omit (nil) to leave any existing secret
+      #   unchanged, consistent with the other kwargs here; pass an empty
+      #   string to explicitly disable a previously configured secret.
       #
       # @example Mask 2 octets instead of 1
       #   otto.configure_ip_privacy(octet_precision: 2)
@@ -80,7 +82,12 @@ class Otto
         config.octet_precision = octet_precision if octet_precision
         config.hash_rotation_period = hash_rotation if hash_rotation
         config.geo_enabled = geo unless geo.nil?
-        config.correlation_secret = correlation_secret if correlation_secret
+        # Mirror geo's `unless nil?` guard: nil means "leave unchanged", while an
+        # explicit "" is a real value that disables the correlation hash. (A
+        # plain `if correlation_secret` would also assign "" since "" is truthy
+        # in Ruby, but stating the nil intent explicitly keeps this consistent
+        # with the other nilable kwargs.)
+        config.correlation_secret = correlation_secret unless correlation_secret.nil?
         config.instance_variable_set(:@redis, redis) if redis
 
         # Validate configuration

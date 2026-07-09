@@ -5,6 +5,7 @@
 require_relative 'privacy/core'
 require_relative 'privacy/config'
 require_relative 'privacy/ip_privacy'
+require_relative 'privacy/user_agent_privacy'
 require_relative 'privacy/geo_resolver'
 require_relative 'privacy/redacted_fingerprint'
 

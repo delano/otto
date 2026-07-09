@@ -2,10 +2,18 @@
 #
 # frozen_string_literal: true
 
+require_relative 'errors'
+
 class Otto
   # Immutable data class representing a complete route definition
   # This encapsulates all aspects of a route: path, target, and options
   class RouteDefinition
+    # Options that gate access to a route. A malformed token for one of these
+    # (e.g. `csrf` instead of `csrf=exempt`, or a bare `auth`) must not fall
+    # back to the default behavior silently — the route would serve without
+    # its intended protection (issue #191).
+    SECURITY_GATING_OPTIONS = %w[auth role csrf].freeze
+
     # @return [String] The HTTP verb (GET, POST, etc.)
     attr_reader :verb
 
@@ -168,6 +176,9 @@ class Otto
     # Parse route definition into target and options
     # @param definition [String] The route definition
     # @return [Hash] Hash with :target and :options keys
+    # @raise [Otto::RouteDefinitionError] if a security-gating option token
+    #   (auth/role/csrf) has no value — failing fast instead of serving the
+    #   route with default (less safe) behavior
     def parse_definition(definition)
       parts   = definition.split(/\s+/)
       target  = parts.shift
@@ -175,11 +186,15 @@ class Otto
 
       parts.each do |part|
         key, value = part.split('=', 2)
-        if key && value
+        if SECURITY_GATING_OPTIONS.include?(key) && (value.nil? || value.empty?)
+          raise Otto::RouteDefinitionError,
+                "Malformed security option #{part.inspect} in route definition " \
+                "#{definition.inspect}: expected #{key}=value"
+        elsif key && value
           options[key.to_sym] = value
-        elsif Otto.debug
-          # Malformed parameter, log warning if debug enabled
-          Otto.logger.warn "Ignoring malformed route parameter: #{part}"
+        else
+          Otto.structured_log(:warn, 'Malformed route option ignored',
+            { option: part, definition: definition })
         end
       end
 

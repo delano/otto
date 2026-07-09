@@ -17,7 +17,13 @@ class Otto
           # Enhanced parsing: split only on first two whitespace boundaries
           # This preserves parameters in the definition part
           parts = entry.split(/\s+/, 3)
-          next if parts.size < 3 # Skip malformed entries
+          if parts.size < 3
+            # A missing/blank handler must not make the route vanish silently
+            # (issue #191): warn unconditionally, not gated behind Otto.debug.
+            Otto.structured_log(:warn, 'Malformed route line skipped',
+              { line: entry, expected: 'VERB /path Handler [options]' })
+            next
+          end
 
           verb = parts[0]
           path = parts[1]
@@ -49,6 +55,11 @@ class Otto
           @routes[route.verb] << route
           @routes_literal[route.verb]           ||= {}
           @routes_literal[route.verb][path_clean] = route
+        rescue Otto::RouteDefinitionError
+          # A malformed security-gating option (auth/role/csrf) fails fast at
+          # boot rather than serving the route without its intended protection
+          # (issue #191). Deliberately not swallowed like other per-line errors.
+          raise
         rescue StandardError => e
           Otto.structured_log(:error, 'Route load failed',
             {

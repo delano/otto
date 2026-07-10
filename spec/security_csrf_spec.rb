@@ -104,87 +104,19 @@ RSpec.describe Otto::Security::CSRFMiddleware do
     end
   end
 
-  describe 'unsafe method validation' do
+  # Enforcement moved out of the global middleware to the handler-layer
+  # CSRFEnforcementWrapper (issue #186) so per-route `csrf=exempt` can be
+  # honored. The middleware itself no longer blocks unsafe requests — it only
+  # injects tokens. Enforcement is specced in
+  # spec/otto/security/csrf_enforcement_wrapper_spec.rb.
+  describe 'unsafe method handling (no longer enforced here)' do
     %w[POST PUT DELETE PATCH].each do |method|
-      context "for #{method} requests" do
-        it 'rejects requests without CSRF token' do
-          env = mock_rack_env(method: method, path: '/')
-          response = middleware.call(env)
+      it "passes #{method} requests through without a token (enforcement is route-layer)" do
+        env = mock_rack_env(method: method, path: '/')
+        response = middleware.call(env)
 
-          expect(response[0]).to eq(403)
-          expect(response[1]['content-type']).to eq('application/json')
-
-          body = JSON.parse(response[2].join)
-          expect(body['error']).to eq('CSRF token validation failed')
-
-          puts "\n=== DEBUG: CSRF Rejection #{method} ==="
-          puts "Status: #{response[0]}"
-          puts "Error: #{body['error']}"
-          puts "Message: #{body['message']}"
-          puts "===============================\n"
-        end
-
-        it 'rejects requests with invalid CSRF token' do
-          env = mock_rack_env(method: method, path: '/', params: { '_csrf_token' => 'invalid:token' })
-          response = middleware.call(env)
-
-          expect(response[0]).to eq(403)
-
-          body = JSON.parse(response[2].join)
-          expect(body['error']).to eq('CSRF token validation failed')
-        end
-
-        it 'accepts requests with valid CSRF token in params' do
-          # First, generate a valid token
-          session_id = 'test_session_123'
-          valid_token = config.generate_csrf_token(session_id)
-
-          # Mock request with session
-          env = mock_rack_env(method: method, path: '/', params: { '_csrf_token' => valid_token })
-          env['rack.session'] = { 'session_id' => session_id }
-
-          response = middleware.call(env)
-
-          expect(response[0]).to eq(200)
-
-          puts "\n=== DEBUG: Valid CSRF Token #{method} ==="
-          puts "Token: #{valid_token}"
-          puts "Session ID: #{session_id}"
-          puts "Status: #{response[0]}"
-          puts "===============================\n"
-        end
-
-        it 'accepts requests with valid CSRF token in header' do
-          session_id = 'test_session_456'
-          valid_token = config.generate_csrf_token(session_id)
-
-          env = mock_rack_env(method: method, path: '/', headers: { 'X-CSRF-Token' => valid_token })
-          env['rack.session'] = { 'session_id' => session_id }
-
-          response = middleware.call(env)
-
-          expect(response[0]).to eq(200)
-        end
-
-        it 'tries alternative header format for AJAX requests' do
-          session_id = 'ajax_session_789'
-          valid_token = config.generate_csrf_token(session_id)
-
-          env = mock_rack_env(method: method, path: '/')
-          env['HTTP_X_REQUESTED_WITH'] = 'XMLHttpRequest'
-          env['HTTP_X_CSRF_TOKEN'] = valid_token
-          env['rack.session'] = { 'session_id' => session_id }
-
-          response = middleware.call(env)
-
-          expect(response[0]).to eq(200)
-
-          puts "\n=== DEBUG: AJAX CSRF Token #{method} ==="
-          puts "Token: #{valid_token}"
-          puts "X-Requested-With: #{env['HTTP_X_REQUESTED_WITH']}"
-          puts "Status: #{response[0]}"
-          puts "===============================\n"
-        end
+        # The app returns 200; the middleware does not block, it only injects.
+        expect(response[0]).to eq(200)
       end
     end
   end
@@ -320,36 +252,6 @@ RSpec.describe Otto::Security::CSRFMiddleware do
     end
   end
 
-  describe 'error response format' do
-    it 'returns properly formatted JSON error' do
-      env = mock_rack_env(method: 'POST', path: '/')
-      response = middleware.call(env)
-
-      expect(response[0]).to eq(403)
-      expect(response[1]['content-type']).to eq('application/json')
-
-      body = JSON.parse(response[2].join)
-      expect(body).to have_key('error')
-      expect(body).to have_key('message')
-      expect(body['error']).to eq('CSRF token validation failed')
-
-      content_length = response[1]['content-length']
-      expect(content_length.to_i).to eq(response[2].join.bytesize)
-
-      puts "\n=== DEBUG: Error Response Format ==="
-      puts "Status: #{response[0]}"
-      puts "Content-Type: #{response[1]['content-type']}"
-      puts "Content-Length: #{content_length}"
-      puts "Body: #{response[2].join}"
-      puts "JSON valid: #{begin
-        JSON.parse(response[2].join)
-      rescue StandardError
-        false
-      end}"
-      puts "===============================\n"
-    end
-  end
-
   describe 'disabled CSRF protection' do
     let(:disabled_config) { Otto::Security::Config.new } # CSRF disabled by default
     let(:disabled_middleware) { described_class.new(app, disabled_config) }
@@ -376,20 +278,6 @@ RSpec.describe Otto::Security::CSRFMiddleware do
   end
 
   describe 'edge cases and error conditions' do
-    it 'handles requests with empty token parameter' do
-      env = mock_rack_env(method: 'POST', path: '/', params: { '_csrf_token' => '' })
-      response = middleware.call(env)
-
-      expect(response[0]).to eq(403)
-    end
-
-    it 'handles requests with whitespace-only token' do
-      env = mock_rack_env(method: 'POST', path: '/', params: { '_csrf_token' => '   ' })
-      response = middleware.call(env)
-
-      expect(response[0]).to eq(403)
-    end
-
     it 'handles responses with array body' do
       array_app = lambda { |_env|
         [200, { 'content-type' => 'text/html' }, ['<html><head>', '</head><body>Hello</body></html>']]

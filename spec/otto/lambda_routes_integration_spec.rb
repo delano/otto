@@ -144,20 +144,34 @@ RSpec.describe 'Otto lambda routes end-to-end (issue #41)' do
       expect(seen_extra).to include('id' => '42')
     end
 
-    context 'csrf=exempt on a POST lambda route (parse + expose only)' do
-      # The route file parses csrf=exempt into the route definition and exposes
-      # it, but CSRFMiddleware does not enforce per-route exemption for ANY
-      # handler kind (it ignores route options). So we assert two honest things:
-      #   1. the option is parsed and exposed on the route definition, and
-      #   2. the exempt lambda route behaves IDENTICALLY to an equivalent
-      #      controller route under the same csrf configuration.
-      # We deliberately do NOT assert that the exemption bypasses CSRF, because
-      # the middleware does not honor it (see issue notes).
+    context 'csrf=exempt on a POST lambda route (now enforced)' do
+      # csrf=exempt is enforced at the handler layer (issue #186): a tokenless
+      # POST to an exempt route is served, while the same request to a
+      # non-exempt route is rejected. Lambda and controller routes behave
+      # identically because the enforcement wrapper is applied by the shared
+      # handler factory regardless of handler kind.
       it 'parses and exposes csrf=exempt on the route definition' do
         rd = Otto::RouteDefinition.new('POST', '/webhook', '&hook csrf=exempt response=json')
         expect(rd.kind).to eq(:lambda)
         expect(rd.option(:csrf)).to eq('exempt')
         expect(rd.csrf_exempt?).to be(true)
+      end
+
+      it 'serves a tokenless POST to an exempt lambda route (200), unlike a guarded route (403)' do
+        otto = build_otto(
+          [
+            'POST /webhook &hook csrf=exempt response=json',
+            'POST /guarded &hook response=json',
+          ],
+          { 'hook' => ->(_req, _res, _extra) { { ok: true } } },
+          csrf_protection: true
+        )
+
+        exempt_status, = otto.call(mock_rack_env(method: 'POST', path: '/webhook'))
+        guarded_status, = otto.call(mock_rack_env(method: 'POST', path: '/guarded'))
+
+        expect(exempt_status).to eq(200)  # exemption is honored
+        expect(guarded_status).to eq(403) # non-exempt still enforced
       end
 
       it 'behaves identically to a controller route under csrf_protection' do
@@ -176,9 +190,9 @@ RSpec.describe 'Otto lambda routes end-to-end (issue #41)' do
         lambda_status, = lambda_otto.call(mock_rack_env(method: 'POST', path: '/webhook'))
         controller_status, = controller_otto.call(mock_rack_env(method: 'POST', path: '/webhook'))
 
-        # Parity: whatever CSRFMiddleware does to a tokenless POST, it does the
-        # same to the lambda route and the controller route.
-        expect(lambda_status).to eq(controller_status)
+        # Both honor the exemption: a tokenless POST is served, not blocked.
+        expect(lambda_status).to eq(200)
+        expect(controller_status).to eq(200)
       end
     end
   end

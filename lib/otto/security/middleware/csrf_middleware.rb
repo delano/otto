@@ -3,13 +3,24 @@
 # frozen_string_literal: true
 
 require_relative '../config'
+require_relative '../csrf_validation'
 
 class Otto
   module Security
     module Middleware
-      # Middleware that provides Cross-Site Request Forgery (CSRF) protection
+      # Global middleware that injects CSRF tokens into HTML responses.
+      #
+      # Token *enforcement* deliberately does NOT live here. This middleware
+      # runs ahead of route matching, so it cannot see per-route options like
+      # +csrf=exempt+ (issue #186); enforcing globally would block routes an
+      # operator explicitly exempted. Enforcement is applied after matching by
+      # +Otto::Security::CSRFEnforcementWrapper+ at the handler layer, where the
+      # route definition is available. This middleware keeps only the
+      # response-shaping half — injecting a fresh token into HTML responses so
+      # forms and meta tags can carry it — which is method/content-type based
+      # and correctly stays global.
       class CSRFMiddleware
-        SAFE_METHODS = %w[GET HEAD OPTIONS TRACE].freeze
+        include Otto::Security::CSRFValidation
 
         def initialize(app, config = nil)
           @app    = app
@@ -19,59 +30,13 @@ class Otto
         def call(env)
           return @app.call(env) unless @config.csrf_enabled?
 
-          request = Otto::Request.new(env)
-
-          # Skip CSRF protection for safe methods
-          if safe_method?(request.request_method)
-            response = @app.call(env)
-            response = inject_csrf_token(request, response) if html_response?(response)
-            return response
-          end
-
-          # Validate CSRF token for unsafe methods
-          unless valid_csrf_token?(request)
-            # Log CSRF validation failure
-            Otto.structured_log(:warn, "CSRF validation failed",
-              Otto::LoggingHelpers.request_context(env).merge(
-                referrer: request.referrer
-              )
-            )
-            return csrf_error_response
-          end
-
-          @app.call(env)
+          request  = Otto::Request.new(env)
+          response = @app.call(env)
+          response = inject_csrf_token(request, response) if html_response?(response)
+          response
         end
 
         private
-
-        def safe_method?(method)
-          SAFE_METHODS.include?(method.upcase)
-        end
-
-        def valid_csrf_token?(request)
-          token = extract_csrf_token(request)
-          return false if token.nil? || token.empty?
-
-          session_id = @config.get_or_create_session_id(request)
-          @config.verify_csrf_token(token, session_id)
-        end
-
-        def extract_csrf_token(request)
-          # Try form parameter first
-          token = request.params[@config.csrf_token_key]
-
-          # Try header if not in params
-          token ||= request.env[@config.csrf_header_key]
-
-          # Try alternative header format
-          token ||= request.env['HTTP_X_CSRF_TOKEN'] if request.env['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest'
-
-          token
-        end
-
-        def extract_session_id(request)
-          @config.get_or_create_session_id(request)
-        end
 
         def inject_csrf_token(request, response)
           return response unless response.is_a?(Array) && response.length >= 3
@@ -137,24 +102,6 @@ class Otto
           headers      = response[1]
           content_type = headers.find { |k, _v| k.downcase == 'content-type' }&.last
           content_type&.include?('text/html')
-        end
-
-        def csrf_error_response
-          [
-            403,
-            {
-              'content-type' => 'application/json',
-              'content-length' => csrf_error_body.bytesize.to_s,
-            },
-            [csrf_error_body],
-          ]
-        end
-
-        def csrf_error_body
-          {
-            error: 'CSRF token validation failed',
-            message: 'The request could not be authenticated. Please refresh the page and try again.',
-          }.to_json
         end
       end
     end

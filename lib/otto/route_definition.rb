@@ -120,6 +120,32 @@ class Otto
       option(:response, 'default')
     end
 
+    # Parse a single whitespace-delimited `key=value` option token, applying
+    # the security-gating fail-fast rule shared by normal routes and the MCP
+    # RouteParser (issue #191 and its MCP/TOOL follow-up).
+    # @param part [String] a single option token, e.g. "auth=session"
+    # @param context [String] human-readable source description for the
+    #   raised error message, e.g. "route definition \"GET /admin ...\""
+    # @return [Array(Symbol, String), nil] the [key, value] pair to store,
+    #   or nil if the token is malformed and should only be warned about
+    # @raise [Otto::RouteDefinitionError] if a security-gating option
+    #   (auth/role/csrf) is malformed
+    def self.parse_option_token(part, context)
+      key, value = part.split('=', 2)
+      normalized_key = key&.downcase
+
+      if SECURITY_GATING_OPTIONS.include?(normalized_key)
+        if key != normalized_key || value.nil? || value.empty?
+          raise Otto::RouteDefinitionError,
+                "Malformed security option #{part.inspect} in #{context}: " \
+                "expected #{normalized_key}=value"
+        end
+        [key.to_sym, value]
+      elsif key && !key.empty? && value
+        [key.to_sym, value]
+      end
+    end
+
     # Check if CSRF is exempt for this route
     # @return [Boolean]
     def csrf_exempt?
@@ -185,13 +211,9 @@ class Otto
       options = {}
 
       parts.each do |part|
-        key, value = part.split('=', 2)
-        if SECURITY_GATING_OPTIONS.include?(key) && (value.nil? || value.empty?)
-          raise Otto::RouteDefinitionError,
-                "Malformed security option #{part.inspect} in route definition " \
-                "#{definition.inspect}: expected #{key}=value"
-        elsif key && value
-          options[key.to_sym] = value
+        pair = self.class.parse_option_token(part, "route definition #{definition.inspect}")
+        if pair
+          options[pair[0]] = pair[1]
         else
           Otto.structured_log(:warn, 'Malformed route option ignored',
             { option: part, definition: definition })

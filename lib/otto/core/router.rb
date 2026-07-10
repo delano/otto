@@ -230,6 +230,10 @@ class Otto
         route_info = Otto::MCP::RouteParser.parse_mcp_route(verb, path, definition)
         @mcp_server.register_mcp_route(route_info)
         Otto.logger.debug "[MCP] Registered resource route: #{definition}" if Otto.debug
+      rescue Otto::RouteDefinitionError
+        # Same fail-fast contract as the normal route loader: a malformed
+        # security-gating option must abort boot, not just log-and-drop.
+        raise
       rescue StandardError => e
         Otto.logger.error "[MCP] Failed to parse MCP route: #{definition} - #{e.message}"
       end
@@ -240,6 +244,8 @@ class Otto
         route_info = Otto::MCP::RouteParser.parse_tool_route(verb, path, definition)
         @mcp_server.register_mcp_route(route_info)
         Otto.logger.debug "[MCP] Registered tool route: #{definition}" if Otto.debug
+      rescue Otto::RouteDefinitionError
+        raise
       rescue StandardError => e
         Otto.logger.error "[MCP] Failed to parse TOOL route: #{definition} - #{e.message}"
       end

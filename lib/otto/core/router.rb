@@ -32,10 +32,32 @@ class Otto
             next
           end
 
-          route                                   = Otto::Route.new verb, path, definition
-          route.otto                              = self
-          path_clean                              = path.gsub(%r{/$}, '')
-          @route_definitions[route.definition]    = route
+          route      = Otto::Route.new verb, path, definition
+          route.otto = self
+          path_clean = path.gsub(%r{/$}, '')
+
+          # A definition string is not unique (the same handler can be mounted
+          # at several verb/path pairs), so @route_definitions keeps the
+          # first-loaded route per definition — deterministic, instead of the
+          # last-loaded route silently winning — and @routes_by_definition
+          # keeps them all for uri() disambiguation (issue #190).
+          if (existing = @route_definitions[route.definition])
+            # Mounting one handler at several paths is a fully supported
+            # pattern (issue #190) — uri() disambiguates by params, so this
+            # is informational, not a problem. Debug-gated like other
+            # routing diagnostics rather than warning on every boot for
+            # valid configs (e.g. `/users/:id` and `/me` aliases).
+            Otto.structured_log(:debug, 'Duplicate route definition',
+              {
+                definition: route.definition,
+                kept: "#{existing.verb} #{existing.path}",
+                also: "#{route.verb} #{route.path}",
+                hint: 'uri() picks the route whose path params match the given params',
+              })
+          else
+            @route_definitions[route.definition] = route
+          end
+          (@routes_by_definition[route.definition] ||= []) << route
           if Otto.debug
             Otto.structured_log(:debug, 'Route loaded',
               {

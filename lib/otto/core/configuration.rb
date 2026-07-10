@@ -284,6 +284,7 @@ class Otto
         deep_freeze_value(@routes_literal) if @routes_literal
         deep_freeze_value(@routes_static) if @routes_static
         deep_freeze_value(@route_definitions) if @route_definitions
+        deep_freeze_value(@routes_by_definition) if @routes_by_definition
 
         @configuration_frozen = true
 

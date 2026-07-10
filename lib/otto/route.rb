@@ -110,29 +110,38 @@ class Otto
     def call(env, extra_params = {})
       extra_params ||= {}
 
-      # Make security config available to response helpers
-      env['otto.security_config'] = otto.security_config if otto.respond_to?(:security_config) && otto.security_config
-
-      # Make route definition and options available to middleware and handlers.
-      # Set before delegating so wrappers that run ahead of the handler's own
-      # setup (RouteAuthWrapper, the centralized error handler) can see them.
-      env['otto.route_definition'] = @route_definition
-      env['otto.route_options'] = @route_definition.options
-
       # Pluggable route handler factory (Phase 4). The handler owns
       # request/response construction and decoration — param merging,
       # indifferent access, security headers, CSRF/validation helpers all
       # happen once in BaseHandler#setup_request_response. Building them here
       # too would duplicate that work on objects that get discarded (issue #189).
       if otto&.route_handler_factory
+        # Make security config, route definition, and options available to
+        # middleware and handlers before delegating, so wrappers that run
+        # ahead of the handler's own setup (RouteAuthWrapper, the centralized
+        # error handler) can see them.
+        env['otto.security_config'] = otto.security_config if otto.respond_to?(:security_config) && otto.security_config
+        env['otto.route_definition'] = @route_definition
+        env['otto.route_options'] = @route_definition.options
+
         handler = otto.route_handler_factory.create_handler(@route_definition, otto)
         return handler.call(env, extra_params)
       end
 
-      # Fallback to legacy behavior for backward compatibility
+      # Fallback to legacy behavior for backward compatibility. Build req/res
+      # before touching env, preserving the exact ordering this path always
+      # had — a custom request_class/response_class#initialize that reads env
+      # must keep seeing it unpopulated, same as before #189 (review follow-up).
       req         = otto.request_class.new(env)
       res         = otto.response_class.new
       res.request = req
+
+      # Make security config available to response helpers
+      env['otto.security_config'] = otto.security_config if otto.respond_to?(:security_config) && otto.security_config
+
+      # Make route definition and options available to middleware and handlers
+      env['otto.route_definition'] = @route_definition
+      env['otto.route_options'] = @route_definition.options
 
       # Process parameters through security layer
       req.params.merge! extra_params

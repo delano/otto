@@ -71,4 +71,23 @@ RSpec.describe 'Route dispatch single setup (issue #189)' do
       expect(captured_env['otto.route_options']).to eq({})
     end
   end
+
+  describe 'legacy fallback ordering (review follow-up)' do
+    it 'builds req/res before populating env route keys, same as before #189' do
+      # With no route_handler_factory, Route#call takes the legacy path.
+      # A custom request_class#initialize reading env must keep seeing it
+      # unpopulated, exactly as it did before the #189 refactor.
+      otto.instance_variable_set(:@route_handler_factory, nil)
+
+      route_definition_at_construction = :not_called
+      allow(otto.request_class).to receive(:new).and_wrap_original do |original, env|
+        route_definition_at_construction = env['otto.route_definition']
+        original.call(env)
+      end
+
+      otto.call(mock_rack_env(method: 'GET', path: '/'))
+
+      expect(route_definition_at_construction).to be_nil
+    end
+  end
 end

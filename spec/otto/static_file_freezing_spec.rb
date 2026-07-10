@@ -45,4 +45,26 @@ RSpec.describe Otto, 'static file serving after configuration freeze' do
 
     expect { otto.routes_static[:GET]['/manual.txt'] = '/manual.txt' }.not_to raise_error
   end
+
+  it 'survives concurrent requests for distinct uncached files without error or lost writes' do
+    file_count = 50
+    file_count.times { |i| File.write("/tmp/test_static_freezing/concurrent_#{i}.txt", "content #{i}") }
+    otto.freeze_configuration!
+
+    errors = Queue.new
+    threads = Array.new(file_count) do |i|
+      Thread.new do
+        status, = otto.call(Rack::MockRequest.env_for("/concurrent_#{i}.txt"))
+        errors << "unexpected status #{status} for concurrent_#{i}.txt" unless status == 200
+      rescue StandardError => e
+        errors << "#{e.class}: #{e.message}"
+      end
+    end
+    threads.each(&:join)
+
+    expect(errors).to be_empty
+    file_count.times do |i|
+      expect(otto.routes_static[:GET].key?("/concurrent_#{i}.txt")).to be true
+    end
+  end
 end

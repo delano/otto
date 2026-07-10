@@ -14,4 +14,8 @@ Added
   bundler-emitted workers, WASM loaders) — without vendoring the gem. Output
   is byte-identical to Otto's historical policy when no overrides are set; the
   default ``worker-src 'self' data:`` is unchanged so the production policy is
-  not relaxed for every consumer.
+  not relaxed for every consumer. Directive names and source tokens are
+  validated — a value containing ``;``, a newline, or a carriage return raises
+  ``ArgumentError`` rather than injecting extra directives (a footgun when
+  overrides come from env/config files) — and override keys are normalized on
+  store so mixed key styles never accumulate duplicate entries.

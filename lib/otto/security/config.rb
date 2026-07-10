@@ -390,9 +390,12 @@ class Otto
       def enable_csp_with_nonce!(debug: false, directives: {})
         ensure_not_frozen!
 
+        # Apply overrides before toggling state so a bad +directives+ argument
+        # raises without leaving the config half-updated (nonce enabled but
+        # overrides not merged).
+        merge_csp_directives(directives) unless directives.nil? || directives.empty?
         @csp_nonce_enabled = true
         @debug_csp         = debug
-        merge_csp_directives(directives) unless directives.nil? || directives.empty?
       end
 
       # Replace the per-directive overrides applied to the nonce CSP policy.
@@ -404,6 +407,15 @@ class Otto
       # are the source list as a String (`"'self' blob:"`) or Array
       # (`%w['self' blob:]`), or nil/false to REMOVE the directive.
       #
+      # Keys are normalized on store (lowercased, hyphenated) via
+      # {Otto::Security::CSP::Policy.normalize_overrides}, so the stored hash
+      # never accumulates logically-identical entries under different key styles
+      # (`'WORKER-SRC'` and `:worker_src` both read back as `'worker-src'`).
+      #
+      # @note Replacing `script-src` without keeping the per-request nonce token
+      #   in the source list defeats nonce protection — see
+      #   {Otto::Security::CSP::Policy.merge_directives}.
+      #
       # @param overrides [Hash] directive name => source list / nil
       # @return [void]
       # @raise [FrozenError] if configuration is frozen
@@ -413,7 +425,7 @@ class Otto
       def csp_directive_overrides=(overrides)
         ensure_not_frozen!
 
-        @csp_directive_overrides = (overrides || {}).dup
+        @csp_directive_overrides = Otto::Security::CSP::Policy.normalize_overrides(overrides || {})
       end
 
       # Merge additional per-directive overrides into the existing set, leaving
@@ -427,7 +439,8 @@ class Otto
       def merge_csp_directives(overrides)
         ensure_not_frozen!
 
-        @csp_directive_overrides = @csp_directive_overrides.merge(overrides || {})
+        normalized = Otto::Security::CSP::Policy.normalize_overrides(overrides || {})
+        @csp_directive_overrides = @csp_directive_overrides.merge(normalized)
       end
 
       # Disable CSP nonce support

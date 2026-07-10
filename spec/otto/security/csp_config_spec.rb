@@ -218,6 +218,20 @@ RSpec.describe Otto::Security::Config, 'CSP reporting' do
       expect(csp).to include("media-src 'self';")
     end
 
+    it 'normalizes keys on store so mixed key styles do not accumulate duplicates' do
+      config.merge_csp_directives('WORKER-SRC' => "'self' data:")
+      config.merge_csp_directives(worker_src: "'self' blob:")
+      expect(config.csp_directive_overrides.keys).to eq(['worker-src'])
+      expect(config.csp_directive_overrides['worker-src']).to eq("'self' blob:")
+      expect(config.generate_nonce_csp('N')).to include("worker-src 'self' blob:;")
+    end
+
+    it 'normalizes keys stored via csp_directive_overrides=' do
+      config.enable_csp_with_nonce!
+      config.csp_directive_overrides = { worker_src: "'self' blob:" }
+      expect(config.csp_directive_overrides.keys).to eq(['worker-src'])
+    end
+
     it 'raises when overrides are set on a frozen configuration' do
       config.deep_freeze!
       expect { config.csp_directive_overrides = { 'worker-src' => "'self' blob:" } }

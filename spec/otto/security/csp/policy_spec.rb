@@ -94,6 +94,24 @@ RSpec.describe Otto::Security::CSP::Policy do
       expect(described_class.merge_directives(base, { 'WORKER-SRC' => "'self' blob:" }))
         .to eq(["worker-src 'self' blob:;"])
     end
+
+    it 'rejects a source token that would inject another directive' do
+      base = ["worker-src 'self' data:;"]
+      expect { described_class.merge_directives(base, { 'worker-src' => "'self'; script-src *" }) }
+        .to raise_error(ArgumentError, /contains a ';'/)
+    end
+
+    it 'rejects a source token containing a newline' do
+      base = ["worker-src 'self' data:;"]
+      expect { described_class.merge_directives(base, { 'worker-src' => "'self'\nscript-src *" }) }
+        .to raise_error(ArgumentError, /newline/)
+    end
+
+    it 'rejects a directive name containing a separator' do
+      base = ["default-src 'none';"]
+      expect { described_class.merge_directives(base, { 'media-src; script-src *' => "'self'" }) }
+        .to raise_error(ArgumentError)
+    end
   end
 
   describe '.static_policy' do

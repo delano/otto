@@ -112,9 +112,18 @@ class Otto
         # Directive names are matched case-insensitively (CSP directive names are
         # case-insensitive) and may be given as Strings or Symbols.
         #
+        # @note Replacing `script-src` (or `default-src`, which `script-src`
+        #   falls back to) without re-including the per-request nonce
+        #   (`'nonce-<value>'`) removes the nonce from the emitted header and
+        #   DEFEATS nonce protection: the browser then accepts any inline script
+        #   the page carries the nonce attribute on. Only override `script-src`
+        #   if you understand this, and keep the nonce token in your source list.
+        #
         # @param directives [Array<String>] base directive strings, each `;`-terminated
         # @param overrides [Hash, nil] directive name => source list / nil
         # @return [Array<String>] merged directive strings, each `;`-terminated
+        # @raise [ArgumentError] if an override name or source token contains a
+        #   `;`, newline, or carriage return (see {.build_directive})
         def merge_directives(directives, overrides)
           return directives if overrides.nil? || overrides.empty?
 
@@ -166,14 +175,46 @@ class Otto
         # Build a single `;`-terminated directive string from a name and an
         # override value, or nil when the value signals removal (nil/false).
         #
+        # The directive name and each source token are validated against CSP's
+        # separator characters: a name or token containing `;` (which separates
+        # directives), a newline, or a carriage return raises {ArgumentError}
+        # rather than silently injecting extra directives — a real footgun when
+        # overrides come from env/config files. (The `false` removal sentinel is
+        # checked before {Array} so a bare `false` never becomes a `[false]`
+        # source list.)
+        #
         # @param name [String] directive name
         # @param value [String, Array, nil, false] source list, or nil/false to remove
         # @return [String, nil]
+        # @raise [ArgumentError] if the name or a source token contains a `;`,
+        #   newline, or carriage return
         def build_directive(name, value)
           return nil if value.nil? || value == false
 
-          sources = Array(value).map { |token| token.to_s.strip }.reject(&:empty?).join(' ')
+          reject_injection!('directive name', name)
+          sources = Array(value).filter_map do |token|
+            str = token.to_s.strip
+            next if str.empty?
+
+            reject_injection!("source for #{name}", str)
+            str
+          end.join(' ')
           sources.empty? ? "#{name};" : "#{name} #{sources};"
+        end
+
+        # Raise {ArgumentError} when +text+ carries a CSP directive/token
+        # separator (`;`, newline, or carriage return) that would let an
+        # override break out of its directive and inject another.
+        #
+        # @param label [String] what is being validated (for the error message)
+        # @param text [String]
+        # @return [void]
+        # @raise [ArgumentError] if +text+ contains `;`, `\n`, or `\r`
+        def reject_injection!(label, text)
+          return unless text.match?(/[;\r\n]/)
+
+          raise ArgumentError,
+                "invalid CSP #{label}: #{text.inspect} contains a ';', newline, or carriage return"
         end
 
         # CSP directives for the development environment.

@@ -112,12 +112,14 @@ class Otto
         # Directive names are matched case-insensitively (CSP directive names are
         # case-insensitive) and may be given as Strings or Symbols.
         #
-        # @note Replacing `script-src` (or `default-src`, which `script-src`
-        #   falls back to) without re-including the per-request nonce
-        #   (`'nonce-<value>'`) removes the nonce from the emitted header and
+        # @note The per-request nonce is embedded in `script-src` (production)
+        #   and cannot be reproduced in a static override, so replacing (or
+        #   removing) `script-src` strips the nonce from the emitted header and
         #   DEFEATS nonce protection: the browser then accepts any inline script
-        #   the page carries the nonce attribute on. Only override `script-src`
-        #   if you understand this, and keep the nonce token in your source list.
+        #   the page carries the nonce attribute on. Overriding `script-src`
+        #   while nonce mode is enabled therefore disables nonce enforcement;
+        #   {Otto::Security::Config} logs a warning when such an override is
+        #   configured. Override other directives freely.
         #
         # @param directives [Array<String>] base directive strings, each `;`-terminated
         # @param overrides [Hash, nil] directive name => source list / nil

@@ -18,4 +18,7 @@ Added
   validated — a value containing ``;``, a newline, or a carriage return raises
   ``ArgumentError`` rather than injecting extra directives (a footgun when
   overrides come from env/config files) — and override keys are normalized on
-  store so mixed key styles never accumulate duplicate entries.
+  store so mixed key styles never accumulate duplicate entries. Overriding
+  ``script-src`` while nonce mode is enabled logs a warning: the per-request
+  nonce cannot be reproduced in a static override, so such an override disables
+  nonce-based script protection for that policy.

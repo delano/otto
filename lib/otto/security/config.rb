@@ -102,6 +102,7 @@ class Otto
         @csp_report_to_url      = nil
         @csp_violation_callback = nil
         @csp_directive_overrides = {}
+        @csp_script_src_override_warned = false
         @rate_limiting_config   = { custom_rules: {} }
         @ip_privacy_config      = Otto::Privacy::Config.new
 
@@ -412,9 +413,11 @@ class Otto
       # never accumulates logically-identical entries under different key styles
       # (`'WORKER-SRC'` and `:worker_src` both read back as `'worker-src'`).
       #
-      # @note Replacing `script-src` without keeping the per-request nonce token
-      #   in the source list defeats nonce protection — see
-      #   {Otto::Security::CSP::Policy.merge_directives}.
+      # @note Overriding `script-src` while nonce mode is enabled disables
+      #   nonce-based script protection: the per-request nonce cannot be
+      #   included in a static override, so it is stripped from the emitted
+      #   header. A warning is logged when a `script-src` override is stored.
+      #   See {Otto::Security::CSP::Policy.merge_directives}.
       #
       # @param overrides [Hash] directive name => source list / nil
       # @return [void]
@@ -425,7 +428,9 @@ class Otto
       def csp_directive_overrides=(overrides)
         ensure_not_frozen!
 
-        @csp_directive_overrides = Otto::Security::CSP::Policy.normalize_overrides(overrides || {})
+        normalized = Otto::Security::CSP::Policy.normalize_overrides(overrides || {})
+        warn_if_script_src_overridden(normalized)
+        @csp_directive_overrides = normalized
       end
 
       # Merge additional per-directive overrides into the existing set, leaving
@@ -440,6 +445,7 @@ class Otto
         ensure_not_frozen!
 
         normalized = Otto::Security::CSP::Policy.normalize_overrides(overrides || {})
+        warn_if_script_src_overridden(normalized)
         @csp_directive_overrides = @csp_directive_overrides.merge(normalized)
       end
 
@@ -882,6 +888,29 @@ class Otto
           generated per-process secret; they will not survive restarts or be
           valid across workers. Set OTTO_CSRF_SECRET (or config.csrf_secret=)
           for stable CSRF tokens in multi-process deployments.
+        MSG
+      end
+
+      # Warn once per config instance when a `script-src` override is stored for
+      # the nonce CSP policy. The per-request nonce is generated at response time
+      # and therefore cannot be present in a static override, so replacing (or
+      # removing) `script-src` necessarily strips the nonce from the emitted
+      # header — the browser then accepts any inline script the page carries the
+      # nonce attribute on, voiding nonce-based protection. Overriding any other
+      # directive (e.g. `worker-src`) is unaffected and stays silent.
+      #
+      # @param normalized [Hash] normalized (lowercased/hyphenated) overrides
+      # @return [void]
+      def warn_if_script_src_overridden(normalized)
+        return unless normalized.key?('script-src')
+        return if @csp_script_src_override_warned
+
+        @csp_script_src_override_warned = true
+        Otto.structured_log(:warn, <<~MSG.gsub(/\s+/, ' ').strip, directive: 'script-src')
+          [Otto::CSP] A script-src override was configured while nonce mode is in
+          use. The per-request nonce cannot be included in a static override, so
+          nonce-based script protection is disabled for this policy. Remove the
+          script-src override to keep nonce enforcement.
         MSG
       end
 

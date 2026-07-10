@@ -3,7 +3,6 @@
 # frozen_string_literal: true
 
 require_relative '../config'
-require_relative '../csrf_validation'
 
 class Otto
   module Security
@@ -20,8 +19,6 @@ class Otto
       # forms and meta tags can carry it — which is method/content-type based
       # and correctly stays global.
       class CSRFMiddleware
-        include Otto::Security::CSRFValidation
-
         def initialize(app, config = nil)
           @app    = app
           @config = config || Otto::Security::Config.new

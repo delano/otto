@@ -19,6 +19,13 @@ class Otto
       # validation (RFC 7231 safe methods plus TRACE).
       SAFE_METHODS = %w[GET HEAD OPTIONS TRACE].freeze
 
+      # Static 403 body. Frozen once so a rejected request does not re-serialize
+      # the same JSON on every call.
+      CSRF_ERROR_BODY = {
+          error: 'CSRF token validation failed',
+        message: 'The request could not be authenticated. Please refresh the page and try again.',
+      }.to_json.freeze
+
       private
 
       def safe_method?(method)
@@ -27,9 +34,12 @@ class Otto
 
       def valid_csrf_token?(request)
         token = extract_csrf_token(request)
-        return false if token.nil? || token.empty?
+        # Reject nil / blank / whitespace-only tokens up front, before creating
+        # a session or running HMAC verification — obviously-malformed input
+        # should not cause session churn (#186 review).
+        return false if token.nil? || token.strip.empty?
 
-        session_id = @config.get_or_create_session_id(request)
+        session_id = extract_session_id(request)
         @config.verify_csrf_token(token, session_id)
       end
 
@@ -55,17 +65,10 @@ class Otto
           403,
           {
             'content-type' => 'application/json',
-            'content-length' => csrf_error_body.bytesize.to_s,
+            'content-length' => CSRF_ERROR_BODY.bytesize.to_s,
           },
-          [csrf_error_body],
+          [CSRF_ERROR_BODY],
         ]
-      end
-
-      def csrf_error_body
-        {
-            error: 'CSRF token validation failed',
-          message: 'The request could not be authenticated. Please refresh the page and try again.',
-        }.to_json
       end
     end
   end

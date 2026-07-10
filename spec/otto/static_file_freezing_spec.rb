@@ -46,6 +46,13 @@ RSpec.describe Otto, 'static file serving after configuration freeze' do
     expect { otto.routes_static[:GET]['/manual.txt'] = '/manual.txt' }.not_to raise_error
   end
 
+  it 'shallow-freezes the outer routes_static hash so its verb-key structure cannot change' do
+    otto.freeze_configuration!
+
+    expect(otto.routes_static).to be_frozen
+    expect { otto.routes_static[:DELETE] = {} }.to raise_error(FrozenError)
+  end
+
   it 'survives concurrent requests for distinct uncached files without error or lost writes' do
     file_count = 50
     file_count.times { |i| File.write("/tmp/test_static_freezing/concurrent_#{i}.txt", "content #{i}") }

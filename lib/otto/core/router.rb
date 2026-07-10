@@ -124,6 +124,20 @@ class Otto
         literal_routes = routes_literal[http_verb] || {}
         literal_routes.merge! routes_literal[:GET] if http_verb == :HEAD
 
+        # Dynamic-route and static-file dispatch match against the SAME
+        # normalized path the literal table and the LocalhostGuard use, so all
+        # dispatch paths share one normalization (issue #187). Without this,
+        # dynamic routes matched the raw (unescape-only) path: they were
+        # stricter about trailing slashes than literal routes (equivalent URLs
+        # matched or missed depending on route kind), and invalid-UTF-8 bytes
+        # scrubbed for the guard and literal matching survived into the dynamic
+        # matcher and safe_file? — the guard-bypass class normalize_path exists
+        # to close. normalize_path collapses root to '' after stripping the
+        # trailing slash; the regex matcher and safe_file? need a leading slash
+        # to be structural (a catch-all `/*` still matches `/`), so restore '/'
+        # for them. Literal lookup keeps '' — it already keys root that way.
+        dispatch_path = path_info_clean.empty? ? '/' : path_info_clean
+
         if static_route && http_verb == :GET && routes_static[:GET].member?(base_path)
           Otto.structured_log(:debug, 'Route matched',
             Otto::LoggingHelpers.request_context(env).merge(
@@ -144,7 +158,7 @@ class Otto
             @route_matched_callbacks.each { |cb| cb.call(env, route.route_definition) }
           end
           route.call(env)
-        elsif static_route && http_verb == :GET && safe_file?(path_info)
+        elsif static_route && http_verb == :GET && safe_file?(dispatch_path)
           Otto.structured_log(:debug, 'Route matched',
             Otto::LoggingHelpers.request_context(env).merge(
               type: 'static_new',
@@ -153,7 +167,7 @@ class Otto
           routes_static[:GET][base_path] = base_path
           static_route.call(env)
         else
-          match_dynamic_route(env, path_info, http_verb, literal_routes)
+          match_dynamic_route(env, dispatch_path, http_verb, literal_routes)
         end
       end
 
@@ -177,14 +191,18 @@ class Otto
 
       private
 
-      def match_dynamic_route(env, path_info, http_verb, literal_routes)
+      # +dispatch_path+ is the normalized path from #handle_request (see the
+      # +dispatch_path+ comment there): +Otto::Utils.normalize_path+ output with
+      # root's empty string mapped back to '/' so the anchored route regexes can
+      # match. It is deliberately NOT the raw +normalize_path+ value.
+      def match_dynamic_route(env, dispatch_path, http_verb, literal_routes)
         extra_params  = {}
         found_route   = nil
         valid_routes  = routes[http_verb] || []
         valid_routes.push(*routes[:GET]) if http_verb == :HEAD
 
         valid_routes.each do |route|
-          next unless (match = route.pattern.match(path_info))
+          next unless (match = route.pattern.match(dispatch_path))
 
           values = match.captures.to_a
           # The first capture returned is the entire matched string b/c

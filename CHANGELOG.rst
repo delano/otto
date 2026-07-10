@@ -7,6 +7,123 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.6.0:
+
+2.6.0 — 2026-07-10
+==================
+
+Added
+-----
+
+- ``Otto::Privacy::UserAgentPrivacy.anonymize(ua, max_length:)`` — a public
+  User-Agent anonymization surface (the analogue of ``Otto::Privacy::IPPrivacy``
+  for the User-Agent header). Strips build identifiers and version numbers and
+  truncates, preserving browser/OS family text; idempotent, so re-anonymizing
+  already-anonymized output is a no-op. (delano/otto#194)
+
+- IP privacy: a stable-keyed correlation hash of the full client IP, computed
+  pre-masking and exposed as ``req.ip_correlation_hash`` /
+  ``env['otto.privacy.correlation_hash']``. Unlike the daily-rotating
+  ``hashed_ip``, it's keyed with a caller-configured stable secret
+  (``configure_ip_privacy(correlation_secret:)``), so the same host correlates
+  across days for long-lived records without the raw IP ever reaching the app.
+  Returns ``nil`` when privacy is disabled or no secret is configured. (#192)
+
+- CSP nonce policies can now be customized per-directive (#201).
+  ``Otto::Security::Config#enable_csp_with_nonce!`` accepts a ``directives:``
+  hash, and the new ``#csp_directive_overrides=`` / ``#merge_csp_directives``
+  setters let a consuming app override, add, or remove any directive rather
+  than only ``report-uri``/``report-to``. A String or Array value replaces a
+  directive's source list; ``nil``/``false`` removes it. Directive names and
+  source tokens are validated — a value containing ``;`` or a newline raises
+  ``ArgumentError`` instead of injecting extra directives. Overriding
+  ``script-src`` while nonce mode is enabled logs a warning, since a static
+  override can't reproduce the per-request nonce.
+
+Changed
+-------
+
+- ``Otto::Privacy::RedactedFingerprint#anonymize_user_agent`` now delegates to
+  ``Otto::Privacy::UserAgentPrivacy.anonymize``, making the public class the
+  single source of truth for User-Agent reduction. Behavior is unchanged.
+  (delano/otto#194)
+
+- The nonce CSP's default ``worker-src`` directive now emits ``'self' blob:``
+  instead of ``'self' data:`` (#201). Browsers instantiate Web Workers from
+  ``blob:`` URLs — the mechanism used by Sentry Replay, VueUse
+  ``useWebWorkerFn``, bundler-emitted workers, and WASM loaders — so the
+  previous default blocked mainstream worker libraries while granting
+  ``data:``, a riskier token under content injection. Apps that rely on
+  ``data:`` workers can restore the old behavior:
+  ``enable_csp_with_nonce!(directives: { worker_src: "'self' data: blob:" })``.
+
+Fixed
+-----
+
+- Reverse URI generation (``Otto#uri``) no longer corrupts when the same
+  handler/target is mounted at multiple paths (#190). All routes per
+  definition are now kept (exposed via ``Otto#routes_by_definition``), and
+  ``uri()`` picks the route whose path placeholders match the params given —
+  e.g. with ``GET /users/:id Account#show`` and ``GET /me Account#show``,
+  ``uri('Account#show', id: 5)`` returns ``/users/5`` and
+  ``uri('Account#show')`` returns ``/me``. Loading a duplicate route
+  definition now logs at ``:debug`` rather than ``:warn``, since mounting one
+  handler at several paths is a supported pattern.
+
+- ``Route#call`` no longer builds and decorates a request/response pair that
+  is immediately discarded when the route handler factory is present (#189).
+  The handler (``BaseHandler#setup_request_response``) now owns all
+  request/response construction — param merging, indifferent access,
+  security headers, and CSRF/validation helpers each run exactly once per
+  dispatch instead of twice on different objects. The legacy no-factory path
+  is unchanged.
+
+- Dynamic static-file serving no longer raises ``FrozenError`` in production
+  (delano/otto#185). ``routes_static[:GET]`` is now a ``Concurrent::Map`` and
+  is excluded from ``freeze_configuration!``'s deep freeze, so lazy
+  static-file discovery can still write into it at request time — and stays
+  safe under concurrent request threads — after configuration is otherwise
+  locked down.
+
+Security
+--------
+
+- Route loading no longer fails open on malformed input (#191). A route line
+  with a missing handler or any unparseable option token now emits a warning
+  unconditionally. A malformed or mismatched-case security-gating option — a
+  bare, empty, or wrong-case ``auth``, ``role``, or ``csrf`` token (e.g.
+  ``csrf exempt`` or ``CSRF=exempt``) — now raises
+  ``Otto::RouteDefinitionError`` at load, in both plaintext routes and
+  ``MCP``/``TOOL`` handler definitions, so the app fails at boot instead of
+  quietly serving a route without its intended protection.
+
+- ``Otto::Route::ClassMethods#otto=`` no longer stores the current ``Otto``
+  instance in a plain class-level accessor (#188). Two ``Otto`` instances
+  sharing a controller/logic class — or concurrent threads/fibers serving
+  requests under different ``Otto`` instances — could race and clobber it,
+  letting a handler observe the wrong ``security_config``/``auth_config``.
+  The accessor is now backed by a ``Concurrent::FiberLocalVar`` keyed by the
+  target class, scoping each assignment to the thread/fiber actually serving
+  that request. The public ``klass.otto`` / ``klass.otto=`` API is unchanged.
+
+- Dynamic-route and static-file dispatch now normalize the request path the
+  same way literal matching and ``Otto::CaddyTLS::LocalhostGuard`` do (#187).
+  Previously dynamic routes were stricter about trailing slashes than literal
+  routes, and invalid UTF-8 bytes scrubbed for the guard could survive into
+  the dynamic matcher and static branch. All dispatch paths now share the
+  single normalization.
+
+- ``csrf=exempt`` is now enforced (#186). CSRF validation moved from the
+  global ``CSRFMiddleware`` — which runs ahead of route matching and
+  couldn't see per-route options, making ``csrf=exempt`` a silent no-op — to
+  a handler-layer ``Otto::Security::CSRFEnforcementWrapper`` applied after a
+  route is matched. A tokenless unsafe request to an exempt route is now
+  served; the same request to a non-exempt route is still rejected with 403.
+  Token mechanics are shared via the new ``Otto::Security::CSRFValidation``
+  module. **Behavior change**: ``Otto::Security::Middleware::CSRFMiddleware``
+  used standalone no longer blocks unsafe requests on its own — enforcement
+  is applied by Otto's route handler pipeline.
+
 .. _changelog-2.5.0:
 
 2.5.0 — 2026-07-02

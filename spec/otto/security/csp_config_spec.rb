@@ -177,6 +177,56 @@ RSpec.describe Otto::Security::Config, 'CSP reporting' do
     end
   end
 
+  describe 'CSP directive overrides' do
+    it 'defaults to an empty override set with byte-identical nonce output' do
+      config.enable_csp_with_nonce!
+      expect(config.csp_directive_overrides).to eq({})
+      expect(config.generate_nonce_csp('N')).to end_with("worker-src 'self' data:;")
+    end
+
+    it 'accepts directive overrides through enable_csp_with_nonce!' do
+      config.enable_csp_with_nonce!(directives: { 'worker-src' => "'self' blob:" })
+      csp = config.generate_nonce_csp('N')
+      expect(csp).to include("worker-src 'self' blob:;")
+      expect(csp).not_to include("worker-src 'self' data:;")
+    end
+
+    it 'applies overrides in development mode too' do
+      config.enable_csp_with_nonce!(directives: { 'worker-src' => "'self' blob:" })
+      expect(config.generate_nonce_csp('N', development_mode: true)).to include("worker-src 'self' blob:;")
+    end
+
+    it 'merges overrides alongside reporting directives' do
+      config.enable_csp_with_nonce!(directives: { 'worker-src' => "'self' blob:" })
+      config.csp_report_uri = '/_/csp-report'
+      csp = config.generate_nonce_csp('N')
+      expect(csp).to include("worker-src 'self' blob:;")
+      expect(csp).to include('report-uri /_/csp-report;')
+    end
+
+    it 'replaces the override set via csp_directive_overrides=' do
+      config.enable_csp_with_nonce!
+      config.csp_directive_overrides = { 'worker-src' => "'self' blob:" }
+      expect(config.generate_nonce_csp('N')).to include("worker-src 'self' blob:;")
+    end
+
+    it 'accumulates overrides via merge_csp_directives' do
+      config.enable_csp_with_nonce!(directives: { 'worker-src' => "'self' blob:" })
+      config.merge_csp_directives('media-src' => "'self'")
+      csp = config.generate_nonce_csp('N')
+      expect(csp).to include("worker-src 'self' blob:;")
+      expect(csp).to include("media-src 'self';")
+    end
+
+    it 'raises when overrides are set on a frozen configuration' do
+      config.deep_freeze!
+      expect { config.csp_directive_overrides = { 'worker-src' => "'self' blob:" } }
+        .to raise_error(FrozenError)
+      expect { config.merge_csp_directives('worker-src' => "'self' blob:") }
+        .to raise_error(FrozenError)
+    end
+  end
+
   describe '#on_csp_violation / #dispatch_csp_violation' do
     let(:report) { Otto::Security::CSP::Report.from_raw('violated-directive' => 'script-src') }
 

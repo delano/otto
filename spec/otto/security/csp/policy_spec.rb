@@ -45,6 +45,55 @@ RSpec.describe Otto::Security::CSP::Policy do
     it 'omits reporting directives for nil/blank values' do
       expect(described_class.nonce_policy('N', report_uri: '', report_to_url: nil)).to eq(production)
     end
+
+    it 'is byte-identical when directive_overrides is nil or empty' do
+      expect(described_class.nonce_policy('N', directive_overrides: nil)).to eq(production)
+      expect(described_class.nonce_policy('N', directive_overrides: {})).to eq(production)
+    end
+
+    it 'replaces a directive in place with a String override (preserving order)' do
+      csp = described_class.nonce_policy('N', directive_overrides: { 'worker-src' => "'self' blob:" })
+      expect(csp).to include("worker-src 'self' blob:;")
+      expect(csp).not_to include("worker-src 'self' data:;")
+      expect(csp).to end_with("worker-src 'self' blob:;")
+    end
+
+    it 'accepts an Array source list and a Symbol key (underscore maps to hyphen)' do
+      csp = described_class.nonce_policy('N', directive_overrides: { worker_src: ["'self'", 'blob:'] })
+      expect(csp).to include("worker-src 'self' blob:;")
+      expect(csp).not_to include("worker-src 'self' data:;")
+    end
+
+    it 'appends a directive that is not in the base set' do
+      csp = described_class.nonce_policy('N', directive_overrides: { 'media-src' => "'self'" })
+      expect(csp).to include("media-src 'self';")
+    end
+
+    it 'removes a directive when the override value is nil or false' do
+      csp = described_class.nonce_policy('N', directive_overrides: { 'worker-src' => nil })
+      expect(csp).not_to include('worker-src')
+    end
+
+    it 'appends reporting directives after merged overrides' do
+      csp = described_class.nonce_policy(
+        'N', report_uri: '/r', directive_overrides: { 'worker-src' => "'self' blob:" }
+      )
+      expect(csp).to eq("#{production.sub("worker-src 'self' data:;", "worker-src 'self' blob:;")} report-uri /r;")
+    end
+  end
+
+  describe '.merge_directives' do
+    it 'returns the base set unchanged for nil/empty overrides' do
+      base = ["default-src 'none';", "worker-src 'self' data:;"]
+      expect(described_class.merge_directives(base, nil)).to eq(base)
+      expect(described_class.merge_directives(base, {})).to eq(base)
+    end
+
+    it 'matches directive names case-insensitively' do
+      base = ["worker-src 'self' data:;"]
+      expect(described_class.merge_directives(base, { 'WORKER-SRC' => "'self' blob:" }))
+        .to eq(["worker-src 'self' blob:;"])
+    end
   end
 
   describe '.static_policy' do

@@ -42,7 +42,12 @@ class Otto
           # last-loaded route silently winning — and @routes_by_definition
           # keeps them all for uri() disambiguation (issue #190).
           if (existing = @route_definitions[route.definition])
-            Otto.structured_log(:warn, 'Duplicate route definition',
+            # Mounting one handler at several paths is a fully supported
+            # pattern (issue #190) — uri() disambiguates by params, so this
+            # is informational, not a problem. Debug-gated like other
+            # routing diagnostics rather than warning on every boot for
+            # valid configs (e.g. `/users/:id` and `/me` aliases).
+            Otto.structured_log(:debug, 'Duplicate route definition',
               {
                 definition: route.definition,
                 kept: "#{existing.verb} #{existing.path}",

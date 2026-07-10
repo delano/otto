@@ -11,4 +11,5 @@ Fixed
   Account#show`` and ``GET /me Account#show``, ``uri('Account#show', id: 5)``
   returns ``/users/5`` and ``uri('Account#show')`` returns ``/me``.
   ``Otto#route_definitions`` now deterministically keeps the first-loaded
-  route per definition, and loading a duplicate definition logs a warning.
+  route per definition, and loading a duplicate definition logs at debug
+  level.

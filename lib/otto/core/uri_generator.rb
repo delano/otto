@@ -57,13 +57,21 @@ class Otto
         return candidates.first || @route_definitions[route_definition] if candidates.size <= 1
 
         param_keys = params.keys.map(&:to_s)
-        satisfied  = candidates.select { |route| (route.keys - param_keys).empty? }
+        satisfied  = candidates.select { |route| (required_keys(route) - param_keys).empty? }
         pool       = satisfied.empty? ? candidates : satisfied
         pool.max_by { |route| (route.keys & param_keys).size }
       end
 
       def routes_for_definition(route_definition)
         (@routes_by_definition && @routes_by_definition[route_definition]) || []
+      end
+
+      # `splat` is a positional catch-all captured from a `*` in the path,
+      # not a named parameter a caller would ever pass to uri(). Requiring
+      # it before a wildcard route counts as "satisfied" would exclude that
+      # route from selection unconditionally (issue #190 review follow-up).
+      def required_keys(route)
+        route.keys - ['splat']
       end
     end
   end

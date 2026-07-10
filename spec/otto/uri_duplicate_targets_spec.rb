@@ -55,10 +55,13 @@ RSpec.describe 'Otto#uri with duplicate targets (issue #190)' do
   end
 
   describe 'load-time diagnostics' do
-    it 'warns when a definition string is loaded more than once' do
+    it 'logs (at debug level) when a definition string is loaded more than once' do
+      # Mounting one handler at several paths is a fully supported pattern,
+      # not a problem — debug-gated so valid configs (like this one) don't
+      # warn on every boot.
       allow(Otto).to receive(:structured_log)
       expect(Otto).to receive(:structured_log)
-        .with(:warn, 'Duplicate route definition',
+        .with(:debug, 'Duplicate route definition',
           hash_including(definition: 'TestApp.show', kept: 'GET /users/:id', also: 'GET /me'))
 
       Otto.new(routes_file)
@@ -83,6 +86,44 @@ RSpec.describe 'Otto#uri with duplicate targets (issue #190)' do
 
       expect(otto.call(env_me)[0]).to eq(200)
       expect(otto.call(env_users)[0]).to eq(200)
+    end
+  end
+
+  describe 'three-way tie-breaking (review follow-up)' do
+    let(:tied_routes) do
+      [
+        'GET /a/:id TestApp.show',
+        'GET /b/:id TestApp.show',
+        'GET /c/:id TestApp.show',
+      ]
+    end
+    let(:routes_file) { create_test_routes_file('test_routes_tied.txt', tied_routes) }
+
+    it 'keeps first-loaded-wins when multiple candidates consume the same number of params' do
+      # Enumerable#max_by returns the first element among ties, so this
+      # already matches the "ties keep load order" contract documented on
+      # select_uri_route -- this spec locks that behavior in explicitly.
+      expect(otto.uri('TestApp.show', id: '1')).to eq('/a/1')
+    end
+  end
+
+  describe 'wildcard (splat) routes sharing a definition (review follow-up)' do
+    let(:wildcard_routes) do
+      [
+        'GET /files/*   TestApp.show',
+        'GET /files/:id TestApp.show',
+      ]
+    end
+    let(:routes_file) { create_test_routes_file('test_routes_wildcard.txt', wildcard_routes) }
+
+    it 'is still selectable when no candidate has its named params satisfied' do
+      # `splat` is not a param callers would pass, so the wildcard route
+      # must not be permanently excluded from the "satisfied" pool.
+      expect(otto.uri('TestApp.show')).to eq('/files/*')
+    end
+
+    it 'prefers the route whose named param is actually satisfied' do
+      expect(otto.uri('TestApp.show', id: '42')).to eq('/files/42')
     end
   end
 end

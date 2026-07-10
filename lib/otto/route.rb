@@ -40,7 +40,7 @@ class Otto
     # actually serving that request instead.
     #
     # NOTE (Otto v3): this whole class-level accessor is ambient per-request
-    # state and exists only as an ergonomic so handler code can reach otto via
+    # state and exists only as a convenience so handler code can reach otto via
     # `self.class.otto`. The clean design carries no ambient state at all —
     # the handler instance already receives its `Otto` explicitly
     # (`BaseHandler.new(route_definition, otto_instance)`), so app code should

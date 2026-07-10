@@ -7,6 +7,71 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.6.0:
+
+2.6.0 — 2026-07-10
+==================
+
+Added
+-----
+
+- ``Otto::Privacy::UserAgentPrivacy.anonymize(ua, max_length:)`` — public
+  User-Agent anonymization, mirroring ``Otto::Privacy::IPPrivacy``. Strips
+  build/version identifiers while preserving browser/OS family; idempotent.
+  (delano/otto#194)
+
+- Stable-keyed IP correlation hash: ``req.ip_correlation_hash`` /
+  ``env['otto.privacy.correlation_hash']``, keyed via
+  ``configure_ip_privacy(correlation_secret:)`` so the same host correlates
+  across days without exposing the raw IP. (#192)
+
+- CSP nonce policies can now be customized per-directive via
+  ``enable_csp_with_nonce!(directives:)`` and ``#csp_directive_overrides=`` /
+  ``#merge_csp_directives``, not just ``report-uri``/``report-to``. (#201)
+
+Changed
+-------
+
+- ``RedactedFingerprint#anonymize_user_agent`` now delegates to
+  ``UserAgentPrivacy.anonymize``; behavior is unchanged. (delano/otto#194)
+
+- Default CSP ``worker-src`` now emits ``'self' blob:`` instead of
+  ``'self' data:``. Restore the old value with
+  ``directives: { worker_src: "'self' data: blob:" }``. (#201)
+
+Fixed
+-----
+
+- ``Otto#uri`` no longer corrupts when the same handler is mounted at
+  multiple paths — all routes per definition are kept, and ``uri()`` matches
+  on the params given. (#190)
+
+- ``Route#call`` no longer builds a duplicate, discarded request/response
+  pair when a route handler factory is present. (#189)
+
+- Dynamic static-file serving no longer raises ``FrozenError`` in production
+  on the first request for an uncached asset. (delano/otto#185)
+
+Security
+--------
+
+- Route loading now fails closed on malformed input: unparseable options
+  warn, and malformed or mismatched-case ``auth``/``role``/``csrf`` tokens
+  raise ``Otto::RouteDefinitionError`` at load instead of silently serving
+  an unprotected route. (#191)
+
+- ``klass.otto`` is no longer a shared mutable class accessor — it's now
+  fiber-local, preventing concurrent requests across ``Otto`` instances from
+  racing and observing the wrong security config. (#188)
+
+- Dynamic-route and static-file dispatch now normalize request paths the
+  same way literal routing does, closing a trailing-slash and
+  invalid-UTF-8 divergence. (#187)
+
+- ``csrf=exempt`` is now actually enforced at the handler layer; previously
+  it was a silent no-op. **Behavior change**: ``CSRFMiddleware`` used
+  standalone no longer blocks unsafe requests on its own. (#186)
+
 .. _changelog-2.5.0:
 
 2.5.0 — 2026-07-02

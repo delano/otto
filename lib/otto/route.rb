@@ -2,6 +2,8 @@
 #
 # frozen_string_literal: true
 
+require 'concurrent'
+
 require_relative 'security/constant_resolver'
 
 class Otto
@@ -34,15 +36,23 @@ class Otto
     # requests under different `Otto` instances, would race and clobber
     # `klass.otto`, leaking one request's security_config/auth_config into
     # another's handler (issue #188). Backing the accessor with a
-    # fiber-local `Thread.current` slot scopes each assignment to the
-    # fiber/thread actually serving that request instead.
+    # `Concurrent::FiberLocalVar` scopes each assignment to the fiber/thread
+    # actually serving that request instead.
     module ClassMethods
+      # Per-fiber storage keyed by target class. Deliberately
+      # `FiberLocalVar`, not `ThreadLocalVar`: fiber-per-request schedulers
+      # (Falcon/Async) run many requests as fibers in one thread, so
+      # thread-scoped storage would let those fibers clobber each other's
+      # `klass.otto` — the same race, one level down. The default block gives
+      # each fiber its own class => otto hash on first access.
+      OTTO_INSTANCES = Concurrent::FiberLocalVar.new { {} }
+
       def otto=(instance)
-        (Thread.current[:otto_route_class_instances] ||= {})[self] = instance
+        OTTO_INSTANCES.value[self] = instance
       end
 
       def otto
-        Thread.current[:otto_route_class_instances]&.[](self)
+        OTTO_INSTANCES.value[self]
       end
     end
     # @return [Otto::RouteDefinition] The immutable route definition

@@ -7,7 +7,8 @@ Security
   controller/logic class — or concurrent threads/fibers serving requests
   under different ``Otto`` instances — could race and clobber it, letting
   a handler observe the wrong ``security_config``/``auth_config`` for the
-  duration of a request. The accessor is now backed by a fiber-local
-  ``Thread.current`` slot keyed by the target class, scoping each
-  assignment to the thread/fiber actually serving that request. The public
-  ``klass.otto`` / ``klass.otto=`` API is unchanged.
+  duration of a request. The accessor is now backed by a
+  ``Concurrent::FiberLocalVar`` keyed by the target class, scoping each
+  assignment to the thread/fiber actually serving that request (fiber-local,
+  so fiber-per-request schedulers like Falcon/Async are isolated too). The
+  public ``klass.otto`` / ``klass.otto=`` API is unchanged.

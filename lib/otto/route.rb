@@ -2,6 +2,8 @@
 #
 # frozen_string_literal: true
 
+require 'concurrent'
+
 require_relative 'security/constant_resolver'
 
 class Otto
@@ -24,9 +26,44 @@ class Otto
   #
   #
   class Route
-    # Class methods for Route providing Otto instance access
+    # Class methods for Route providing Otto instance access.
+    #
+    # `route.rb` and `route_handlers/base.rb` `extend` this onto the target
+    # class on every request and set `.otto = otto_instance` so app code can
+    # read `self.class.otto` from within a handler method. A plain class
+    # ivar here would be shared, mutable state: two `Otto` instances sharing
+    # a controller/logic class, or concurrent threads/fibers serving
+    # requests under different `Otto` instances, would race and clobber
+    # `klass.otto`, leaking one request's security_config/auth_config into
+    # another's handler (issue #188). Backing the accessor with a
+    # `Concurrent::FiberLocalVar` scopes each assignment to the fiber/thread
+    # actually serving that request instead.
+    #
+    # NOTE (Otto v3): this whole class-level accessor is ambient per-request
+    # state and exists only as a convenience so handler code can reach otto via
+    # `self.class.otto`. The clean design carries no ambient state at all —
+    # the handler instance already receives its `Otto` explicitly
+    # (`BaseHandler.new(route_definition, otto_instance)`), so app code should
+    # read it from an instance-level `#otto` reader instead. Recommended for
+    # Otto v3: expose `otto` on the handler instance, deprecate
+    # `self.class.otto`, and drop `ClassMethods` — then there is no shared slot
+    # to race, reset, or leak, and this fiber-local workaround goes away.
     module ClassMethods
-      attr_accessor :otto
+      # Per-fiber storage keyed by target class. Deliberately
+      # `FiberLocalVar`, not `ThreadLocalVar`: fiber-per-request schedulers
+      # (Falcon/Async) run many requests as fibers in one thread, so
+      # thread-scoped storage would let those fibers clobber each other's
+      # `klass.otto` — the same race, one level down. The default block gives
+      # each fiber its own class => otto hash on first access.
+      OTTO_INSTANCES = Concurrent::FiberLocalVar.new { {} }
+
+      def otto=(instance)
+        OTTO_INSTANCES.value[self] = instance
+      end
+
+      def otto
+        OTTO_INSTANCES.value[self]
+      end
     end
     # @return [Otto::RouteDefinition] The immutable route definition
     attr_reader :route_definition

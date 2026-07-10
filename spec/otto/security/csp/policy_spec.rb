@@ -13,7 +13,7 @@ RSpec.describe Otto::Security::CSP::Policy do
     "default-src 'none'; script-src 'nonce-N'; style-src 'self' 'unsafe-inline'; " \
       "connect-src 'self' wss: https:; img-src 'self' data:; font-src 'self'; " \
       "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; " \
-      "manifest-src 'self'; worker-src 'self' data:;"
+      "manifest-src 'self'; worker-src 'self' blob:;"
   end
 
   describe '.nonce_policy' do
@@ -52,16 +52,16 @@ RSpec.describe Otto::Security::CSP::Policy do
     end
 
     it 'replaces a directive in place with a String override (preserving order)' do
-      csp = described_class.nonce_policy('N', directive_overrides: { 'worker-src' => "'self' blob:" })
-      expect(csp).to include("worker-src 'self' blob:;")
-      expect(csp).not_to include("worker-src 'self' data:;")
-      expect(csp).to end_with("worker-src 'self' blob:;")
+      csp = described_class.nonce_policy('N', directive_overrides: { 'worker-src' => "'self' data:" })
+      expect(csp).to include("worker-src 'self' data:;")
+      expect(csp).not_to include("worker-src 'self' blob:;")
+      expect(csp).to end_with("worker-src 'self' data:;")
     end
 
     it 'accepts an Array source list and a Symbol key (underscore maps to hyphen)' do
-      csp = described_class.nonce_policy('N', directive_overrides: { worker_src: ["'self'", 'blob:'] })
-      expect(csp).to include("worker-src 'self' blob:;")
-      expect(csp).not_to include("worker-src 'self' data:;")
+      csp = described_class.nonce_policy('N', directive_overrides: { worker_src: ["'self'", 'data:'] })
+      expect(csp).to include("worker-src 'self' data:;")
+      expect(csp).not_to include("worker-src 'self' blob:;")
     end
 
     it 'appends a directive that is not in the base set' do
@@ -76,9 +76,9 @@ RSpec.describe Otto::Security::CSP::Policy do
 
     it 'appends reporting directives after merged overrides' do
       csp = described_class.nonce_policy(
-        'N', report_uri: '/r', directive_overrides: { 'worker-src' => "'self' blob:" }
+        'N', report_uri: '/r', directive_overrides: { 'worker-src' => "'self' data:" }
       )
-      expect(csp).to eq("#{production.sub("worker-src 'self' data:;", "worker-src 'self' blob:;")} report-uri /r;")
+      expect(csp).to eq("#{production.sub("worker-src 'self' blob:;", "worker-src 'self' data:;")} report-uri /r;")
     end
   end
 

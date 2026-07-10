@@ -52,7 +52,7 @@ RSpec.describe Otto::Security::Config, 'CSP reporting' do
 
     it 'is byte-identical to the historical output when no report URI is set' do
       expect(config.generate_nonce_csp('N')).not_to include('report-uri')
-      expect(config.generate_nonce_csp('N')).to end_with("worker-src 'self' data:;")
+      expect(config.generate_nonce_csp('N')).to end_with("worker-src 'self' blob:;")
     end
 
     it 'appends a report-uri directive when a report URI is set' do
@@ -181,49 +181,49 @@ RSpec.describe Otto::Security::Config, 'CSP reporting' do
     it 'defaults to an empty override set with byte-identical nonce output' do
       config.enable_csp_with_nonce!
       expect(config.csp_directive_overrides).to eq({})
-      expect(config.generate_nonce_csp('N')).to end_with("worker-src 'self' data:;")
+      expect(config.generate_nonce_csp('N')).to end_with("worker-src 'self' blob:;")
     end
 
     it 'accepts directive overrides through enable_csp_with_nonce!' do
-      config.enable_csp_with_nonce!(directives: { 'worker-src' => "'self' blob:" })
+      config.enable_csp_with_nonce!(directives: { 'worker-src' => "'self' data:" })
       csp = config.generate_nonce_csp('N')
-      expect(csp).to include("worker-src 'self' blob:;")
-      expect(csp).not_to include("worker-src 'self' data:;")
+      expect(csp).to include("worker-src 'self' data:;")
+      expect(csp).not_to include("worker-src 'self' blob:;")
     end
 
     it 'applies overrides in development mode too' do
-      config.enable_csp_with_nonce!(directives: { 'worker-src' => "'self' blob:" })
-      expect(config.generate_nonce_csp('N', development_mode: true)).to include("worker-src 'self' blob:;")
+      config.enable_csp_with_nonce!(directives: { 'worker-src' => "'self' data:" })
+      expect(config.generate_nonce_csp('N', development_mode: true)).to include("worker-src 'self' data:;")
     end
 
     it 'merges overrides alongside reporting directives' do
-      config.enable_csp_with_nonce!(directives: { 'worker-src' => "'self' blob:" })
+      config.enable_csp_with_nonce!(directives: { 'worker-src' => "'self' data:" })
       config.csp_report_uri = '/_/csp-report'
       csp = config.generate_nonce_csp('N')
-      expect(csp).to include("worker-src 'self' blob:;")
+      expect(csp).to include("worker-src 'self' data:;")
       expect(csp).to include('report-uri /_/csp-report;')
     end
 
     it 'replaces the override set via csp_directive_overrides=' do
       config.enable_csp_with_nonce!
-      config.csp_directive_overrides = { 'worker-src' => "'self' blob:" }
-      expect(config.generate_nonce_csp('N')).to include("worker-src 'self' blob:;")
+      config.csp_directive_overrides = { 'worker-src' => "'self' data:" }
+      expect(config.generate_nonce_csp('N')).to include("worker-src 'self' data:;")
     end
 
     it 'accumulates overrides via merge_csp_directives' do
-      config.enable_csp_with_nonce!(directives: { 'worker-src' => "'self' blob:" })
+      config.enable_csp_with_nonce!(directives: { 'worker-src' => "'self' data:" })
       config.merge_csp_directives('media-src' => "'self'")
       csp = config.generate_nonce_csp('N')
-      expect(csp).to include("worker-src 'self' blob:;")
+      expect(csp).to include("worker-src 'self' data:;")
       expect(csp).to include("media-src 'self';")
     end
 
     it 'normalizes keys on store so mixed key styles do not accumulate duplicates' do
-      config.merge_csp_directives('WORKER-SRC' => "'self' data:")
-      config.merge_csp_directives(worker_src: "'self' blob:")
+      config.merge_csp_directives('WORKER-SRC' => "'self' blob:")
+      config.merge_csp_directives(worker_src: "'self' data:")
       expect(config.csp_directive_overrides.keys).to eq(['worker-src'])
-      expect(config.csp_directive_overrides['worker-src']).to eq("'self' blob:")
-      expect(config.generate_nonce_csp('N')).to include("worker-src 'self' blob:;")
+      expect(config.csp_directive_overrides['worker-src']).to eq("'self' data:")
+      expect(config.generate_nonce_csp('N')).to include("worker-src 'self' data:;")
     end
 
     it 'normalizes keys stored via csp_directive_overrides=' do

@@ -96,8 +96,9 @@ class Otto
         # Merge per-directive overrides into a base directive set.
         #
         # This is the customization seam the hardcoded directive sets previously
-        # lacked: a consuming app can adjust ANY directive (e.g. opt into
-        # `worker-src 'self' blob:`) without vendoring the gem. Order is
+        # lacked: a consuming app can adjust ANY directive (e.g. re-allow
+        # `data:` workers via `worker-src 'self' data: blob:`) without
+        # vendoring the gem. Order is
         # preserved — an override that matches an existing directive replaces it
         # in place; an override for a directive not in the base set is appended
         # after the base directives (before any reporting directives).
@@ -239,7 +240,7 @@ class Otto
             "form-action 'self';",
             "frame-ancestors 'none';",
             "manifest-src 'self';",
-            "worker-src 'self' data:;",
+            "worker-src 'self' blob:;",
           ]
         end
 
@@ -263,7 +264,7 @@ class Otto
             "form-action 'self';",                     # Restrict form submissions to same origin
             "frame-ancestors 'none';",                 # Prevent site from being embedded in frames
             "manifest-src 'self';",                    # Allow web app manifests from same origin
-            "worker-src 'self' data:;",                # Allow Workers from same origin and data blobs
+            "worker-src 'self' blob:;",                # Allow Workers from same origin and blob: URLs
           ]
         end
       end

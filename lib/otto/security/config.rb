@@ -386,8 +386,8 @@ class Otto
       # @example
       #   config.enable_csp_with_nonce!(debug: true)
       #
-      # @example Allow blob: workers (Sentry Replay, VueUse useWebWorkerFn, …)
-      #   config.enable_csp_with_nonce!(directives: { 'worker-src' => "'self' blob:" })
+      # @example Restore data: workers (blob: is the default worker-src token)
+      #   config.enable_csp_with_nonce!(directives: { 'worker-src' => "'self' data: blob:" })
       def enable_csp_with_nonce!(debug: false, directives: {})
         ensure_not_frozen!
 
@@ -424,7 +424,7 @@ class Otto
       # @raise [FrozenError] if configuration is frozen
       #
       # @example
-      #   config.csp_directive_overrides = { 'worker-src' => "'self' blob:" }
+      #   config.csp_directive_overrides = { 'worker-src' => "'self' data: blob:" }
       def csp_directive_overrides=(overrides)
         ensure_not_frozen!
 

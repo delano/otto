@@ -138,7 +138,7 @@ class Otto
         # for them. Literal lookup keeps '' — it already keys root that way.
         dispatch_path = path_info_clean.empty? ? '/' : path_info_clean
 
-        if static_route && http_verb == :GET && routes_static[:GET].member?(base_path)
+        if static_route && http_verb == :GET && routes_static[:GET].key?(base_path)
           Otto.structured_log(:debug, 'Route matched',
             Otto::LoggingHelpers.request_context(env).merge(
               type: 'static_cached',

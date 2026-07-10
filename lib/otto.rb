@@ -2,6 +2,7 @@
 #
 # frozen_string_literal: true
 
+require 'concurrent'
 require 'json'
 require 'logger'
 require 'securerandom'
@@ -171,7 +172,16 @@ class Otto
   private
 
   def initialize_core_state
-    @routes_static     = { GET: {} }
+    # The GET cache is a Concurrent::Map, not a plain Hash: lazy static-file
+    # discovery (Core::Router#handle_request, Core::FileSafety#add_static_path)
+    # writes into it at request time, after freeze_configuration! has already
+    # deep-frozen the rest of the routing state. Deep-freezing this cache too
+    # would turn every as-yet-uncached static file request into a 500
+    # (FrozenError) in production (issue #185), so it is intentionally excluded
+    # from deep_freeze_value in Configuration#freeze_configuration! and kept as
+    # a structure that is both mutable post-freeze and safe under concurrent
+    # request threads.
+    @routes_static     = { GET: Concurrent::Map.new }
     @routes            = { GET: [] }
     @routes_literal    = { GET: {} }
     @route_definitions = {}

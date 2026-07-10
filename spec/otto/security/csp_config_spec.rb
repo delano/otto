@@ -52,7 +52,7 @@ RSpec.describe Otto::Security::Config, 'CSP reporting' do
 
     it 'is byte-identical to the historical output when no report URI is set' do
       expect(config.generate_nonce_csp('N')).not_to include('report-uri')
-      expect(config.generate_nonce_csp('N')).to end_with("worker-src 'self' data:;")
+      expect(config.generate_nonce_csp('N')).to end_with("worker-src 'self' blob:;")
     end
 
     it 'appends a report-uri directive when a report URI is set' do
@@ -174,6 +174,96 @@ RSpec.describe Otto::Security::Config, 'CSP reporting' do
     it 'is byte-identical to historical output when no reporting endpoint is set' do
       config.enable_csp_with_nonce!
       expect(config.generate_nonce_csp('N')).not_to include('report-to')
+    end
+  end
+
+  describe 'CSP directive overrides' do
+    it 'defaults to an empty override set with byte-identical nonce output' do
+      config.enable_csp_with_nonce!
+      expect(config.csp_directive_overrides).to eq({})
+      expect(config.generate_nonce_csp('N')).to end_with("worker-src 'self' blob:;")
+    end
+
+    it 'accepts directive overrides through enable_csp_with_nonce!' do
+      config.enable_csp_with_nonce!(directives: { 'worker-src' => "'self' data:" })
+      csp = config.generate_nonce_csp('N')
+      expect(csp).to include("worker-src 'self' data:;")
+      expect(csp).not_to include("worker-src 'self' blob:;")
+    end
+
+    it 'applies overrides in development mode too' do
+      config.enable_csp_with_nonce!(directives: { 'worker-src' => "'self' data:" })
+      expect(config.generate_nonce_csp('N', development_mode: true)).to include("worker-src 'self' data:;")
+    end
+
+    it 'merges overrides alongside reporting directives' do
+      config.enable_csp_with_nonce!(directives: { 'worker-src' => "'self' data:" })
+      config.csp_report_uri = '/_/csp-report'
+      csp = config.generate_nonce_csp('N')
+      expect(csp).to include("worker-src 'self' data:;")
+      expect(csp).to include('report-uri /_/csp-report;')
+    end
+
+    it 'replaces the override set via csp_directive_overrides=' do
+      config.enable_csp_with_nonce!
+      config.csp_directive_overrides = { 'worker-src' => "'self' data:" }
+      expect(config.generate_nonce_csp('N')).to include("worker-src 'self' data:;")
+    end
+
+    it 'accumulates overrides via merge_csp_directives' do
+      config.enable_csp_with_nonce!(directives: { 'worker-src' => "'self' data:" })
+      config.merge_csp_directives('media-src' => "'self'")
+      csp = config.generate_nonce_csp('N')
+      expect(csp).to include("worker-src 'self' data:;")
+      expect(csp).to include("media-src 'self';")
+    end
+
+    it 'normalizes keys on store so mixed key styles do not accumulate duplicates' do
+      config.merge_csp_directives('WORKER-SRC' => "'self' blob:")
+      config.merge_csp_directives(worker_src: "'self' data:")
+      expect(config.csp_directive_overrides.keys).to eq(['worker-src'])
+      expect(config.csp_directive_overrides['worker-src']).to eq("'self' data:")
+      expect(config.generate_nonce_csp('N')).to include("worker-src 'self' data:;")
+    end
+
+    it 'normalizes keys stored via csp_directive_overrides=' do
+      config.enable_csp_with_nonce!
+      config.csp_directive_overrides = { worker_src: "'self' blob:" }
+      expect(config.csp_directive_overrides.keys).to eq(['worker-src'])
+    end
+
+    it 'warns when a script-src override is stored (nonce protection is voided)' do
+      expect(Otto).to receive(:structured_log)
+        .with(:warn, /script-src override/i, hash_including(directive: 'script-src'))
+      config.enable_csp_with_nonce!(directives: { 'script-src' => "'self' 'unsafe-inline'" })
+    end
+
+    it 'warns for a script-src override given with a Symbol key' do
+      expect(Otto).to receive(:structured_log)
+        .with(:warn, /nonce/i, hash_including(directive: 'script-src'))
+      config.csp_directive_overrides = { script_src: "'self'" }
+    end
+
+    it 'warns only once across repeated script-src overrides' do
+      expect(Otto).to receive(:structured_log)
+        .with(:warn, anything, hash_including(directive: 'script-src')).once
+      config.merge_csp_directives('script-src' => "'self'")
+      config.merge_csp_directives('script-src' => "'self' 'unsafe-inline'")
+    end
+
+    it 'does not warn for overrides that leave script-src untouched' do
+      expect(Otto).not_to receive(:structured_log)
+        .with(:warn, anything, hash_including(directive: 'script-src'))
+      config.enable_csp_with_nonce!(directives: { 'worker-src' => "'self' blob:" })
+      config.merge_csp_directives('media-src' => "'self'")
+    end
+
+    it 'raises when overrides are set on a frozen configuration' do
+      config.deep_freeze!
+      expect { config.csp_directive_overrides = { 'worker-src' => "'self' blob:" } }
+        .to raise_error(FrozenError)
+      expect { config.merge_csp_directives('worker-src' => "'self' blob:") }
+        .to raise_error(FrozenError)
     end
   end
 

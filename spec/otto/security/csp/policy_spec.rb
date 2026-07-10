@@ -13,7 +13,7 @@ RSpec.describe Otto::Security::CSP::Policy do
     "default-src 'none'; script-src 'nonce-N'; style-src 'self' 'unsafe-inline'; " \
       "connect-src 'self' wss: https:; img-src 'self' data:; font-src 'self'; " \
       "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; " \
-      "manifest-src 'self'; worker-src 'self' data:;"
+      "manifest-src 'self'; worker-src 'self' blob:;"
   end
 
   describe '.nonce_policy' do
@@ -44,6 +44,73 @@ RSpec.describe Otto::Security::CSP::Policy do
 
     it 'omits reporting directives for nil/blank values' do
       expect(described_class.nonce_policy('N', report_uri: '', report_to_url: nil)).to eq(production)
+    end
+
+    it 'is byte-identical when directive_overrides is nil or empty' do
+      expect(described_class.nonce_policy('N', directive_overrides: nil)).to eq(production)
+      expect(described_class.nonce_policy('N', directive_overrides: {})).to eq(production)
+    end
+
+    it 'replaces a directive in place with a String override (preserving order)' do
+      csp = described_class.nonce_policy('N', directive_overrides: { 'worker-src' => "'self' data:" })
+      expect(csp).to include("worker-src 'self' data:;")
+      expect(csp).not_to include("worker-src 'self' blob:;")
+      expect(csp).to end_with("worker-src 'self' data:;")
+    end
+
+    it 'accepts an Array source list and a Symbol key (underscore maps to hyphen)' do
+      csp = described_class.nonce_policy('N', directive_overrides: { worker_src: ["'self'", 'data:'] })
+      expect(csp).to include("worker-src 'self' data:;")
+      expect(csp).not_to include("worker-src 'self' blob:;")
+    end
+
+    it 'appends a directive that is not in the base set' do
+      csp = described_class.nonce_policy('N', directive_overrides: { 'media-src' => "'self'" })
+      expect(csp).to include("media-src 'self';")
+    end
+
+    it 'removes a directive when the override value is nil or false' do
+      csp = described_class.nonce_policy('N', directive_overrides: { 'worker-src' => nil })
+      expect(csp).not_to include('worker-src')
+    end
+
+    it 'appends reporting directives after merged overrides' do
+      csp = described_class.nonce_policy(
+        'N', report_uri: '/r', directive_overrides: { 'worker-src' => "'self' data:" }
+      )
+      expect(csp).to eq("#{production.sub("worker-src 'self' blob:;", "worker-src 'self' data:;")} report-uri /r;")
+    end
+  end
+
+  describe '.merge_directives' do
+    it 'returns the base set unchanged for nil/empty overrides' do
+      base = ["default-src 'none';", "worker-src 'self' data:;"]
+      expect(described_class.merge_directives(base, nil)).to eq(base)
+      expect(described_class.merge_directives(base, {})).to eq(base)
+    end
+
+    it 'matches directive names case-insensitively' do
+      base = ["worker-src 'self' data:;"]
+      expect(described_class.merge_directives(base, { 'WORKER-SRC' => "'self' blob:" }))
+        .to eq(["worker-src 'self' blob:;"])
+    end
+
+    it 'rejects a source token that would inject another directive' do
+      base = ["worker-src 'self' data:;"]
+      expect { described_class.merge_directives(base, { 'worker-src' => "'self'; script-src *" }) }
+        .to raise_error(ArgumentError, /contains a ';'/)
+    end
+
+    it 'rejects a source token containing a newline' do
+      base = ["worker-src 'self' data:;"]
+      expect { described_class.merge_directives(base, { 'worker-src' => "'self'\nscript-src *" }) }
+        .to raise_error(ArgumentError, /newline/)
+    end
+
+    it 'rejects a directive name containing a separator' do
+      base = ["default-src 'none';"]
+      expect { described_class.merge_directives(base, { 'media-src; script-src *' => "'self'" }) }
+        .to raise_error(ArgumentError)
     end
   end
 

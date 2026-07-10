@@ -38,6 +38,16 @@ class Otto
     # another's handler (issue #188). Backing the accessor with a
     # `Concurrent::FiberLocalVar` scopes each assignment to the fiber/thread
     # actually serving that request instead.
+    #
+    # NOTE (Otto v3): this whole class-level accessor is ambient per-request
+    # state and exists only as an ergonomic so handler code can reach otto via
+    # `self.class.otto`. The clean design carries no ambient state at all —
+    # the handler instance already receives its `Otto` explicitly
+    # (`BaseHandler.new(route_definition, otto_instance)`), so app code should
+    # read it from an instance-level `#otto` reader instead. Recommended for
+    # Otto v3: expose `otto` on the handler instance, deprecate
+    # `self.class.otto`, and drop `ClassMethods` — then there is no shared slot
+    # to race, reset, or leak, and this fiber-local workaround goes away.
     module ClassMethods
       # Per-fiber storage keyed by target class. Deliberately
       # `FiberLocalVar`, not `ThreadLocalVar`: fiber-per-request schedulers

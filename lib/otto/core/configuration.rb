@@ -282,7 +282,16 @@ class Otto
         # Deep freeze route structures (prevent modification of nested hashes/arrays)
         deep_freeze_value(@routes) if @routes
         deep_freeze_value(@routes_literal) if @routes_literal
-        deep_freeze_value(@routes_static) if @routes_static
+        # @routes_static is intentionally NOT deep-frozen: its :GET entry is a
+        # Concurrent::Map that lazy static-file discovery writes into at
+        # request time (Core::Router#handle_request, Core::FileSafety#add_static_path),
+        # after this method has already run. Deep-freezing it would turn the
+        # first request for any as-yet-uncached static file into a
+        # FrozenError / 500 in production (issue #185). The outer hash is
+        # still shallow-frozen so its verb-key structure (currently just
+        # :GET) can't be altered post-freeze, while the Concurrent::Map value
+        # stays writable.
+        @routes_static.freeze if @routes_static && !@routes_static.frozen?
         deep_freeze_value(@route_definitions) if @route_definitions
         deep_freeze_value(@routes_by_definition) if @routes_by_definition
 

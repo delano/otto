@@ -24,9 +24,26 @@ class Otto
   #
   #
   class Route
-    # Class methods for Route providing Otto instance access
+    # Class methods for Route providing Otto instance access.
+    #
+    # `route.rb` and `route_handlers/base.rb` `extend` this onto the target
+    # class on every request and set `.otto = otto_instance` so app code can
+    # read `self.class.otto` from within a handler method. A plain class
+    # ivar here would be shared, mutable state: two `Otto` instances sharing
+    # a controller/logic class, or concurrent threads/fibers serving
+    # requests under different `Otto` instances, would race and clobber
+    # `klass.otto`, leaking one request's security_config/auth_config into
+    # another's handler (issue #188). Backing the accessor with a
+    # fiber-local `Thread.current` slot scopes each assignment to the
+    # fiber/thread actually serving that request instead.
     module ClassMethods
-      attr_accessor :otto
+      def otto=(instance)
+        (Thread.current[:otto_route_class_instances] ||= {})[self] = instance
+      end
+
+      def otto
+        Thread.current[:otto_route_class_instances]&.[](self)
+      end
     end
     # @return [Otto::RouteDefinition] The immutable route definition
     attr_reader :route_definition

@@ -52,6 +52,15 @@ RSpec.describe Otto, 'router path normalization (issue #187)' do
 
       expect(with_slash[2].join).to eq(without_slash[2].join)
     end
+
+    it 'applies the same normalization to HEAD (which is served by the GET dynamic route)' do
+      # match_dynamic_route folds :GET routes into :HEAD, so a HEAD with a
+      # trailing slash must normalize and match exactly like the GET route.
+      env = mock_rack_env(method: 'HEAD', path: '/show/123/')
+      response = app.call(env)
+
+      expect(response[0]).to eq(200)
+    end
   end
 
   describe 'root path handling after trailing-slash stripping' do
@@ -96,6 +105,34 @@ RSpec.describe Otto, 'router path normalization (issue #187)' do
 
       expect(response[0]).to eq(200)
       expect(response[2].join).to eq('Showing abc')
+    end
+  end
+
+  describe 'the static-file branch matches against the normalized path' do
+    # The other half of the fix: safe_file? must receive the normalized
+    # dispatch path, not the raw unescape-only path, so the static gate shares
+    # the literal/guard normalization (trailing slash stripped, invalid bytes
+    # scrubbed). safe_file? is stubbed to isolate the argument it is handed.
+    let(:public_dir) { Dir.mktmpdir('otto_public') }
+
+    let(:static_app) do
+      File.write(File.join(public_dir, 'asset.txt'), 'body')
+      otto = Otto.new(create_test_routes_file('static_norm.txt', ['GET / TestApp.index']),
+                      public: public_dir)
+      Otto.unfreeze_for_testing(otto)
+      otto
+    end
+
+    after { FileUtils.remove_entry(public_dir) if File.directory?(public_dir) }
+
+    it 'passes the trailing-slash-stripped path to safe_file?' do
+      expect(static_app).to receive(:safe_file?).with('/asset.txt').and_return(false)
+      static_app.call(mock_rack_env(method: 'GET', path: '/asset.txt/'))
+    end
+
+    it 'passes the invalid-byte-scrubbed path to safe_file?' do
+      expect(static_app).to receive(:safe_file?).with('/asset.txt').and_return(false)
+      static_app.call(mock_rack_env(method: 'GET', path: '/asset.txt%FF'))
     end
   end
 end

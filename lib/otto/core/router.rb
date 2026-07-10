@@ -191,14 +191,18 @@ class Otto
 
       private
 
-      def match_dynamic_route(env, path_info_clean, http_verb, literal_routes)
+      # +dispatch_path+ is the normalized path from #handle_request (see the
+      # +dispatch_path+ comment there): +Otto::Utils.normalize_path+ output with
+      # root's empty string mapped back to '/' so the anchored route regexes can
+      # match. It is deliberately NOT the raw +normalize_path+ value.
+      def match_dynamic_route(env, dispatch_path, http_verb, literal_routes)
         extra_params  = {}
         found_route   = nil
         valid_routes  = routes[http_verb] || []
         valid_routes.push(*routes[:GET]) if http_verb == :HEAD
 
         valid_routes.each do |route|
-          next unless (match = route.pattern.match(path_info_clean))
+          next unless (match = route.pattern.match(dispatch_path))
 
           values = match.captures.to_a
           # The first capture returned is the entire matched string b/c

@@ -227,11 +227,11 @@ Otto automatically masks public IP addresses and anonymizes user agents to compl
 app = Otto.new("./routes")
 
 # User agents: versions stripped for privacy
-# Geo-location: country-level only, no external APIs or databases
+# Geo-location: country-level only
 # IP hashing: daily-rotating hashes enable analytics without tracking
 ```
 
-Private and localhost IPs are exempted by default for development convenience, but this behavior can be customized via `configure_ip_privacy()` method. Geolocation uses CDN headers (Cloudflare, AWS, etc.) with fallback to IP ranges—no external services required. See [CLAUDE.md](CLAUDE.md) for detailed configuration options.
+Private and localhost IPs are exempted by default for development convenience, but this behavior can be customized via `configure_ip_privacy()` method. Geo-country resolution checks, in order, an app-configured header, known CDN/provider headers (Cloudflare, CloudFront, Fastly, Akamai, Azure, Vercel), a custom resolver hook, then an optional local MaxMind-DB (MMDB) country database — the lookup runs on the masked IP, and spoofable headers are only trusted behind a configured trusted proxy. No external services are required. See **[docs/geo-country.md](docs/geo-country.md)** for configuration (`geo_header:`, `geo_db_path:`, `geo: false`) and data-file setup, and [CLAUDE.md](CLAUDE.md) for other options.
 
 ## Internationalization Support
 

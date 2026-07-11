@@ -36,7 +36,14 @@ class Otto
         @timestamp = Time.now.utc
         @masked_ip = IPPrivacy.mask_ip(remote_ip, config.octet_precision)
         @hashed_ip = IPPrivacy.hash_ip(remote_ip, config.rotation_key)
-        @country = config.geo_enabled ? GeoResolver.resolve(remote_ip, env) : nil
+        # Geo resolution receives the MASKED IP as its address argument, so the
+        # database lookup — and any custom resolver that uses that argument —
+        # never sees the real address. Country-level MMDB networks are almost
+        # always >= /24, so the /24-masked value resolves to the same country.
+        # (env is passed through unchanged; a custom resolver that instead reads
+        # env['REMOTE_ADDR'] / forwarded headers can still observe pre-masking
+        # values, so it should prefer the ip argument.)
+        @country = config.geo_enabled ? GeoResolver.resolve(@masked_ip, env) : nil
         @anonymized_ua = anonymize_user_agent(env['HTTP_USER_AGENT'])
         @request_path = env['PATH_INFO']
         @request_method = env['REQUEST_METHOD']

@@ -1,11 +1,15 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Otto GeoResolver Extension Guide
+# Otto GeoResolver Guide
 #
-# This guide shows two approaches to extend Otto's IP geolocation:
-# 1. Configuration-based (simple, inline)
-# 2. Subclass-based (full control)
+# GeoResolver resolves an ISO country code, first hit wins:
+#   1. configured header (geo_header)  2. provider headers (Cloudflare, Vercel,
+#   ...)  3. custom_resolver  4. local MMDB database (geo_db_path)  5. '**'
+#
+# This guide covers the extension points: a configured header, a custom
+# resolver, and the local MMDB database. See docs/geo-country.md for the full
+# reference (trust gating, config, data files).
 
 require 'bundler/setup'
 require 'otto'
@@ -22,7 +26,7 @@ custom_resolver = lambda do |ip, _env|
   case ip
   when '1.2.3.4' then 'US'
   when '5.6.7.8' then 'GB'
-  else nil # nil = use Otto's built-in resolver
+  else nil # nil = continue with the remaining resolution steps
   end
 end
 
@@ -31,7 +35,7 @@ Otto::Privacy::GeoResolver.custom_resolver = custom_resolver
 
 # Step 3: Test it
 puts "1.2.3.4 -> #{Otto::Privacy::GeoResolver.resolve('1.2.3.4', {})}"
-puts "8.8.8.8 -> #{Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})} (fallback)"
+puts "8.8.8.8 -> #{Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})} (no match -> '**')"
 
 # Reset for next example
 Otto::Privacy::GeoResolver.custom_resolver = nil
@@ -85,6 +89,29 @@ puts "1.2.3.4 -> #{Otto::Privacy::GeoResolver.resolve('1.2.3.4', {})} (cached)"
 Otto::Privacy::GeoResolver.custom_resolver = nil
 
 # =============================================================================
+# Configured header + local MMDB database (the built-in extension points)
+# =============================================================================
+
+puts "\nConfigured header and local MMDB database"
+puts '-' * 40
+
+# An application-trusted header outranks the built-in provider headers. Give
+# either the HTTP name or the CGI env key; Otto canonicalizes it.
+Otto::Privacy::GeoResolver.geo_header = 'X-Client-Country'
+env = { 'HTTP_X_CLIENT_COUNTRY' => 'PT', 'HTTP_CF_IPCOUNTRY' => 'US' }
+puts "configured header wins -> #{Otto::Privacy::GeoResolver.resolve('1.2.3.4', env)}"
+Otto::Privacy::GeoResolver.geo_header = nil
+
+# The local MMDB fallback needs the optional `maxmind-db` gem and a country
+# database on disk (see docs/geo-country.md and examples/update_geo_database.rb).
+# Enable it via configure_ip_privacy so a bad path fails fast at boot:
+#
+#   otto.configure_ip_privacy(geo_db_path: 'data/geo-whois-asn-country.mmdb')
+#   Otto::Privacy::GeoResolver.resolve('8.8.8.0', {})  # => 'US' (masked IP)
+#
+# `geo: false` short-circuits geo entirely and unloads any database from memory.
+
+# =============================================================================
 # Performance Tips
 # =============================================================================
 
@@ -92,9 +119,9 @@ puts "\nPerformance Tips"
 puts '-' * 40
 
 puts '• Cache API results to avoid repeated calls'
-puts "• Return nil from custom resolver to use Otto's fast fallback"
-puts '• Use CloudFlare headers when available (fastest)'
-puts '• Consider async/background geo updates for heavy traffic'
+puts '• Return nil from a custom resolver to fall through to the MMDB database'
+puts '• Prefer CDN/provider headers when available (fastest, no lookup)'
+puts '• Load the MMDB once at boot (MODE_MEMORY); refresh the datafile out-of-band'
 
 puts "\nProduction Pattern: Valkey/Redis Bloom Filters"
 puts '-' * 40

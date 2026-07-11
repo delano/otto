@@ -50,7 +50,20 @@ class Otto
       #
       # @param octet_precision [Integer] Number of octets to mask (1 or 2, default: 1)
       # @param hash_rotation [Integer] Seconds between key rotation (default: 86400)
-      # @param geo [Boolean] Enable geo-location resolution (default: true)
+      # @param geo [Boolean] Enable geo-location resolution (default: true). When
+      #   set to false, geo resolution is short-circuited entirely (no header
+      #   reads) and any loaded geo database is unloaded from memory.
+      # @param geo_header [String] Name of an application-trusted geo header
+      #   (e.g. 'X-Client-Country' or the CGI key 'HTTP_X_CLIENT_COUNTRY'). When
+      #   present and trusted (see trusted-proxy gating), it takes priority over
+      #   the built-in CDN provider headers. Process-global (boot-time only),
+      #   matching the custom_resolver contract. Pass '' to clear.
+      # @param geo_db_path [String] Path to a MaxMind-DB (.mmdb) country
+      #   database used as the local fallback when no header/custom resolver
+      #   yields a country. Loaded once into memory at boot (MODE_MEMORY); a
+      #   missing/invalid path (or a missing `maxmind-db` gem) raises here, not
+      #   per-request. Ignored/unloaded when geo is disabled. Pass '' to unload.
+      #   Process-global (boot-time only).
       # @param redis [Redis] Redis connection for multi-server atomic key generation
       # @param correlation_secret [String] A secret string that turns on IP
       #   correlation: it lets you tell whether two requests, even months apart,
@@ -66,6 +79,12 @@ class Otto
       # @example Disable geo-location
       #   otto.configure_ip_privacy(geo: false)
       #
+      # @example Trust an application geo header, with an MMDB fallback
+      #   otto.configure_ip_privacy(
+      #     geo_header: 'X-Client-Country',
+      #     geo_db_path: 'data/geo-whois-asn-country.mmdb'
+      #   )
+      #
       # @example Custom hash rotation
       #   otto.configure_ip_privacy(hash_rotation: 24.hours)
       #
@@ -75,7 +94,11 @@ class Otto
       # @example Multi-server with Redis
       #   redis = Redis.new(url: ENV['REDIS_URL'])
       #   otto.configure_ip_privacy(redis: redis)
-      def configure_ip_privacy(octet_precision: nil, hash_rotation: nil, geo: nil, redis: nil,
+      # rubocop:disable Metrics/ParameterLists -- self-documenting keyword args
+      # keep a single configure_ip_privacy entry point rather than an opaque
+      # options hash.
+      def configure_ip_privacy(octet_precision: nil, hash_rotation: nil, geo: nil,
+                               geo_header: nil, geo_db_path: nil, redis: nil,
                                correlation_secret: nil)
         ensure_not_frozen!
         config = @security_config.ip_privacy_config
@@ -91,8 +114,34 @@ class Otto
         config.correlation_secret = correlation_secret unless correlation_secret.nil?
         config.instance_variable_set(:@redis, redis) if redis
 
+        # Geo header/database are process-global (boot-time only), matching the
+        # GeoResolver.custom_resolver contract. nil means "leave unchanged".
+        Otto::Privacy::GeoResolver.geo_header = geo_header unless geo_header.nil?
+        configure_geo_database(config, geo_db_path)
+
         # Validate configuration
         config.validate!
+      end
+      # rubocop:enable Metrics/ParameterLists
+
+      private
+
+      # Apply the geo database side of configure_ip_privacy.
+      #
+      # When geo is enabled, a provided geo_db_path is loaded at boot (fail-fast
+      # on a bad path / missing gem). When geo is disabled, any loaded database
+      # is unloaded so `geo: false` truly means "no database in memory" — a bad
+      # geo_db_path is not even opened. A nil geo_db_path leaves the existing
+      # database untouched while geo stays enabled.
+      #
+      # @param config [Otto::Privacy::Config]
+      # @param geo_db_path [String, nil]
+      def configure_geo_database(config, geo_db_path)
+        if config.geo_enabled
+          Otto::Privacy::GeoResolver.geo_db_path = geo_db_path unless geo_db_path.nil?
+        else
+          Otto::Privacy::GeoResolver.unload_database!
+        end
       end
     end
   end

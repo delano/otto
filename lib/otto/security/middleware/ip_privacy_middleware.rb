@@ -58,6 +58,15 @@ class Otto
           # downstream OneTimeSecret behavior).
           env['otto.via_trusted_proxy'] = trusted_proxy?(env['REMOTE_ADDR'])
 
+          # Record whether identity-based trusted proxies are configured at all.
+          # GeoResolver gates spoofable geo headers on this: with proxies
+          # configured it only trusts geo headers from a request that actually
+          # arrived via one (otto.via_trusted_proxy); with none configured there
+          # is nothing to gate against, so headers stay trusted (legacy). This
+          # mirrors the identity-based via_trusted_proxy contract and, like it,
+          # is independent of count-based depth mode.
+          env['otto.trusted_proxies_configured'] = trusted_proxies_configured?
+
           if @privacy_enabled
             apply_privacy(env)
           else
@@ -272,6 +281,20 @@ class Otto
           return false unless @security_config
 
           @security_config.trusted_proxy?(ip)
+        end
+
+        # Whether any identity-based trusted proxies are configured.
+        #
+        # Used to decide whether spoofable geo headers can be trusted (see the
+        # note where env['otto.trusted_proxies_configured'] is set). Count-based
+        # depth mode is deliberately NOT treated as "configured" here — depth
+        # never grants proxy identity trust, matching via_trusted_proxy.
+        #
+        # @return [Boolean]
+        def trusted_proxies_configured?
+          return false unless @security_config
+
+          !@security_config.trusted_proxies.empty?
         end
 
         # Apply no-privacy settings (privacy explicitly disabled)

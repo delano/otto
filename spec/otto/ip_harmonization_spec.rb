@@ -357,15 +357,18 @@ RSpec.describe 'IP resolution harmonization (otto#58 / OTS#3436)' do
       # Regression: these helpers previously read un-namespaced keys
       # (otto.redacted_fingerprint / otto.geo_country / otto.hashed_ip) that the
       # middleware never sets, so they always returned nil.
-      def run_privacy(remote_addr)
-        env = { 'REMOTE_ADDR' => remote_addr }
+      def run_privacy(remote_addr, extra = {})
+        env = { 'REMOTE_ADDR' => remote_addr }.merge(extra)
         Otto::Security::Middleware::IPPrivacyMiddleware
           .new(app, Otto::Security::Config.new).call(env)
         described_class.new(env)
       end
 
       it 'populates redacted_fingerprint, masked_ip, hashed_ip and geo_country' do
-        req = run_privacy('8.8.8.8') # public IP; geo range -> US
+        # Drive geo via a Cloudflare header (trusted: no proxies configured, so
+        # nothing to gate against). This asserts geo_country reads the canonical
+        # otto.privacy.geo_country key, without depending on any geo database.
+        req = run_privacy('8.8.8.8', 'HTTP_CF_IPCOUNTRY' => 'US')
 
         expect(req.redacted_fingerprint).to be_a(Otto::Privacy::RedactedFingerprint)
         expect(req.masked_ip).to eq('8.8.8.0')

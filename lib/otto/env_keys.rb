@@ -82,6 +82,16 @@ class Otto
     #   without depending on the (masked) REMOTE_ADDR
     VIA_TRUSTED_PROXY = 'otto.via_trusted_proxy'
 
+    # Whether any identity-based trusted proxies are configured for the app.
+    # Type: Boolean
+    # Set by: IPPrivacyMiddleware (every request, alongside VIA_TRUSTED_PROXY)
+    # Used by: Otto::Privacy::GeoResolver to gate trust in spoofable geo
+    #   headers — with proxies configured, geo headers are only trusted for a
+    #   request that arrived via one (VIA_TRUSTED_PROXY); with none configured
+    #   there is nothing to gate against, so headers stay trusted. Independent
+    #   of count-based depth mode, matching VIA_TRUSTED_PROXY.
+    TRUSTED_PROXIES_CONFIGURED = 'otto.trusted_proxies_configured'
+
     # =========================================================================
     # LOCALIZATION (I18N)
     # =========================================================================
@@ -142,9 +152,13 @@ class Otto
       MASKED_IP = 'otto.privacy.masked_ip'
 
       # Geo-location country code
-      # Type: String (ISO 3166-1 alpha-2)
-      # Set by: IPPrivacyMiddleware
+      # Type: String (ISO 3166-1 alpha-2, or '**' for unknown)
+      # Set by: IPPrivacyMiddleware (via RedactedFingerprint#country)
+      # Resolved by: Otto::Privacy::GeoResolver, in priority order —
+      #   configured header -> provider headers -> custom_resolver ->
+      #   local MMDB lookup of the MASKED IP -> '**'
       # Used by: Analytics, localization
+      # Read via: Otto::Request#geo_country
       GEO_COUNTRY = 'otto.privacy.geo_country'
 
       # Daily-rotating IP hash for session correlation

@@ -18,7 +18,9 @@ require_relative 'privacy/redacted_fingerprint'
 # Features:
 # - Configurable IP masking (1 or 2 octets for IPv4, 80 or 96 bits for IPv6)
 # - Daily-rotating IP hashing for session correlation without tracking
-# - Geo-location resolution (country-level only, via CloudFlare headers)
+# - Geo-location resolution (country-level only): configurable/provider headers,
+#   a custom resolver hook, and an optional local MMDB database fallback that
+#   operates on the masked IP. See docs/geo-country.md.
 # - User agent anonymization (removes version numbers)
 #
 # Privacy is ENABLED BY DEFAULT. To disable:

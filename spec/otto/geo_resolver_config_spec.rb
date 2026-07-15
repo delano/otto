@@ -67,7 +67,7 @@ RSpec.describe 'Configurable geo resolution' do
         expect(config.geo_db_reader).to be_nil
       end
 
-      it 'survives deep_freeze! and stays usable (reader held at class level)' do
+      it 'survives deep_freeze! and stays usable (shallow-frozen reader)' do
         reader = recording_reader('1.2.3.0' => { 'country' => { 'iso_code' => 'US' } })
         config = described_class.new(geo_db_reader: reader)
         config.deep_freeze!
@@ -157,11 +157,13 @@ RSpec.describe 'Configurable geo resolution' do
         expect(described_class.resolve('5.5.5.0', {}, config)).to eq('FR')
       end
 
-      it 'ignores an invalid database code and falls through to range detection' do
+      it 'treats an invalid database code as unknown (authoritative DB)' do
         reader = recording_reader('8.8.8.0' => { 'country' => { 'iso_code' => 'ZZZ' } })
         config = Otto::Privacy::Config.new(geo_db_reader: reader)
-        # ZZZ is not a valid 2-letter code -> range detection (8.8.8.0/24 -> US)
-        expect(described_class.resolve('8.8.8.0', {}, config)).to eq('US')
+        # ZZZ is not a valid 2-letter code. With a database configured, the DB is
+        # authoritative: an unusable result is '**', not a range-table guess
+        # (8.8.8.0/24 would otherwise be coerced to US).
+        expect(described_class.resolve('8.8.8.0', {}, config)).to eq('**')
       end
 
       it 'returns ** on a database miss for an otherwise unknown IP' do
@@ -170,15 +172,16 @@ RSpec.describe 'Configurable geo resolution' do
         expect(described_class.resolve('203.0.113.0', {}, config)).to eq('**')
       end
 
-      it 'never crashes a request when the reader raises' do
+      it 'returns ** (not a range guess) when the reader raises' do
         exploding = Class.new do
           def get(_ip)
             raise 'db exploded'
           end
         end.new
         config = Otto::Privacy::Config.new(geo_db_reader: exploding)
-        # Falls through to range detection (8.8.8.0/24 -> US)
-        expect(described_class.resolve('8.8.8.0', {}, config)).to eq('US')
+        # The lookup error is swallowed (no crash); with an authoritative DB
+        # configured, the honest answer is '**' rather than a toy-table guess.
+        expect(described_class.resolve('8.8.8.0', {}, config)).to eq('**')
       end
     end
 
@@ -268,6 +271,21 @@ RSpec.describe 'Configurable geo resolution' do
         env = run(Otto::Security::Config.new, { 'REMOTE_ADDR' => '8.8.8.8', 'HTTP_CF_IPCOUNTRY' => 'GB' })
         expect(env['otto.privacy.geo_country']).to eq('GB')
       end
+
+      it 'ignores geo headers in count-based depth mode (edge unverifiable)' do
+        sc = Otto::Security::Config.new
+        sc.trusted_proxy_depth = 1
+
+        # Depth mode can't verify the hop that set CF-IPCountry is a geo-CDN, so
+        # the forged GB header is ignored; masked 8.8.8.0 resolves to US.
+        env = run(sc, {
+                    'REMOTE_ADDR' => '10.0.0.1',
+                    'HTTP_X_FORWARDED_FOR' => '8.8.8.8',
+                    'HTTP_CF_IPCOUNTRY' => 'GB',
+                  })
+
+        expect(env['otto.privacy.geo_country']).to eq('US')
+      end
     end
 
     context 'database fallback' do
@@ -295,6 +313,43 @@ RSpec.describe 'Configurable geo resolution' do
 
         expect(env['otto.privacy.geo_country']).to be_nil
         expect(reader.seen).to be_empty
+      end
+    end
+
+    context 'custom resolver sealing' do
+      after { Otto::Privacy::GeoResolver.custom_resolver = nil }
+
+      it 'hands the custom resolver the masked IP in both the argument and env' do
+        seen = {}
+        Otto::Privacy::GeoResolver.custom_resolver = lambda do |ip, resolver_env|
+          seen[:ip] = ip
+          seen[:remote_addr] = resolver_env['REMOTE_ADDR']
+          seen[:xff] = resolver_env['HTTP_X_FORWARDED_FOR']
+          'PT'
+        end
+
+        env = run(Otto::Security::Config.new,
+                  { 'REMOTE_ADDR' => '8.8.8.8', 'HTTP_X_FORWARDED_FOR' => '8.8.8.8' })
+
+        expect(env['otto.privacy.geo_country']).to eq('PT')
+        # The precise host is never exposed to the resolver, by argument or env.
+        expect(seen[:ip]).to eq('8.8.8.0')
+        expect(seen[:remote_addr]).to eq('8.8.8.0')
+        expect(seen[:xff]).to eq('8.8.8.0')
+        expect(seen.values).not_to include('8.8.8.8')
+      end
+
+      it 'does not leak resolver env mutations back into the request env' do
+        Otto::Privacy::GeoResolver.custom_resolver = lambda do |_ip, resolver_env|
+          resolver_env['REMOTE_ADDR'] = 'tampered' # mutate the masked COPY
+          'PT'
+        end
+
+        env = { 'REMOTE_ADDR' => '8.8.8.8' }
+        Otto::Privacy::RedactedFingerprint.new(env, Otto::Privacy::Config.new)
+
+        # geo_env hands the resolver a dup, so the request env is untouched.
+        expect(env['REMOTE_ADDR']).to eq('8.8.8.8')
       end
     end
   end
@@ -329,6 +384,63 @@ RSpec.describe 'Configurable geo resolution' do
 
       otto.configure_ip_privacy(geo: false)
       expect(otto.security_config.ip_privacy_config.geo_db_reader).to be_nil
+    end
+  end
+
+  # Exercises the real MaxMind::DB reader against a generated fixture (see
+  # spec/support/mmdb_fixture.rb), so the geo_db_path -> reader -> get path is
+  # verified against the genuine library, not only a duck-typed fake. Skipped
+  # when the optional maxmind-db gem is unavailable.
+  describe 'real maxmind-db reader integration', :maxmind do
+    before(:all) do
+      require 'maxmind/db'
+    rescue LoadError
+      skip 'maxmind-db gem not installed'
+    end
+
+    let(:db_path) do
+      MmdbFixture.country_db_file([
+                                    ['1.2.3.0', 24, 'US'],
+                                    ['5.5.5.0', 24, 'FR'],
+                                    ['2.0.0.0', 8, 'GB'],
+                                  ])
+    end
+
+    it 'opens a database by path and resolves via the real reader' do
+      config = Otto::Privacy::Config.new(geo_db_path: db_path)
+
+      expect(config.geo_db_reader).to be_a(MaxMind::DB)
+      expect(Otto::Privacy::GeoResolver.resolve('1.2.3.4', {}, config)).to eq('US')
+      expect(Otto::Privacy::GeoResolver.resolve('5.5.5.9', {}, config)).to eq('FR')
+      expect(Otto::Privacy::GeoResolver.resolve('2.9.9.9', {}, config)).to eq('GB')
+    end
+
+    it 'returns ** for an address absent from the real database (authoritative)' do
+      config = Otto::Privacy::Config.new(geo_db_path: db_path)
+      expect(Otto::Privacy::GeoResolver.resolve('9.9.9.9', {}, config)).to eq('**')
+    end
+
+    it 'keeps the real reader usable after the config is deep-frozen' do
+      config = Otto::Privacy::Config.new(geo_db_path: db_path)
+      config.deep_freeze!
+
+      expect(config).to be_frozen
+      expect(config.geo_db_reader).to be_frozen
+      expect(Otto::Privacy::GeoResolver.resolve('1.2.3.4', {}, config)).to eq('US')
+    end
+
+    it 'resolves the masked /24 identically to the real host address' do
+      config = Otto::Privacy::Config.new(geo_db_path: db_path)
+      # The middleware would pass 1.2.3.0; a direct real IP masks to the same.
+      expect(Otto::Privacy::GeoResolver.resolve('1.2.3.255', {}, config)).to eq('US')
+      expect(Otto::Privacy::GeoResolver.resolve('1.2.3.0', {}, config)).to eq('US')
+    end
+
+    it 'raises a clear error at boot for a non-mmdb file' do
+      not_mmdb = MmdbFixture.country_db_file([]) # will be truncated below
+      File.write(not_mmdb, 'this is not an mmdb')
+      expect { Otto::Privacy::Config.new(geo_db_path: not_mmdb) }
+        .to raise_error(ArgumentError, /Failed to open geo_db_path/)
     end
   end
 end

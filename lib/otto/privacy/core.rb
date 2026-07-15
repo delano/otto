@@ -87,9 +87,14 @@ class Otto
       # @example Multi-server with Redis
       #   redis = Redis.new(url: ENV['REDIS_URL'])
       #   otto.configure_ip_privacy(redis: redis)
+      #
+      # rubocop:disable Metrics/ParameterLists -- a keyword-only configuration
+      # method; the options are self-documenting at the call site and grouping
+      # them into a hash would only obscure the supported settings.
       def configure_ip_privacy(octet_precision: nil, hash_rotation: nil, geo: nil, redis: nil,
                                correlation_secret: nil, geo_header: nil, geo_db_path: nil,
                                geo_db_reader: nil)
+        # rubocop:enable Metrics/ParameterLists
         ensure_not_frozen!
         config = @security_config.ip_privacy_config
 

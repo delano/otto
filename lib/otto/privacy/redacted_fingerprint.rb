@@ -25,6 +25,16 @@ class Otto
                   :country, :anonymized_ua, :request_path,
                   :request_method, :referer
 
+      # IP-bearing forwarded headers to mask in the geo-resolution env view.
+      # Mirrors the set IPPrivacyMiddleware#mask_forwarded_headers rewrites, so a
+      # custom resolver reading env sees masked values everywhere the middleware
+      # would otherwise have masked them.
+      GEO_MASKED_FORWARDED_HEADERS = %w[
+        HTTP_X_FORWARDED_FOR
+        HTTP_X_REAL_IP
+        HTTP_X_CLIENT_IP
+      ].freeze
+
       # Create a new RedactedFingerprint from a Rack environment
       #
       # @param env [Hash] Rack environment hash
@@ -40,11 +50,13 @@ class Otto
         @timestamp = Time.now.utc
         @masked_ip = IPPrivacy.mask_ip(remote_ip, config.octet_precision)
         @hashed_ip = IPPrivacy.hash_ip(remote_ip, config.rotation_key)
-        # Geo resolves on the MASKED IP so the unmasked address never reaches the
-        # resolver (custom resolver / MMDB). Country-level networks are >= /24,
-        # so a /24-masked address resolves to the same country as the real one.
+        # hashed_ip is computed above from the real IP; geo resolution then runs
+        # against a MASKED view — the masked IP AND an env with the IP-bearing
+        # headers masked — so neither a custom resolver nor the database can see
+        # the unmasked address, via the argument or via env. Country-level
+        # networks are >= /24, so the /24-masked IP resolves to the same country.
         @country = if config.geo_enabled
-                     GeoResolver.resolve(@masked_ip, env, config, headers_trusted: geo_headers_trusted)
+                     GeoResolver.resolve(@masked_ip, geo_env(env), config, headers_trusted: geo_headers_trusted)
                    end
         @anonymized_ua = anonymize_user_agent(env['HTTP_USER_AGENT'])
         @request_path = env['PATH_INFO']
@@ -98,6 +110,28 @@ class Otto
       end
 
       private
+
+      # A shallow copy of env with the client-IP fields masked, for geo
+      # resolution. Country-level geo needs nothing finer than the masked /24,
+      # so a custom resolver (arbitrary app code that might log or forward what
+      # it receives) is handed only the masked address here — never the raw host
+      # IP that env['REMOTE_ADDR'] and the forwarded headers still carry at this
+      # point in the middleware. Non-IP keys (including geo headers like
+      # CF-IPCountry) are preserved. Returns env unchanged when there is no
+      # masked IP (nothing to hide, and geo resolution short-circuits anyway).
+      #
+      # @param env [Hash] Rack environment
+      # @return [Hash] masked env view
+      def geo_env(env)
+        return env if @masked_ip.nil?
+
+        masked = env.dup
+        masked['REMOTE_ADDR'] = @masked_ip
+        GEO_MASKED_FORWARDED_HEADERS.each do |key|
+          masked[key] = @masked_ip if masked.key?(key)
+        end
+        masked
+      end
 
       # Anonymize user agent string by removing version numbers and build identifiers
       #

@@ -77,12 +77,6 @@ Metrics/ModuleLength:
   Max: 250
   CountAsOne: ["method_call"]
 
-# Keyword arguments are self-documenting at the call site, so they don't incur
-# the positional-argument readability cost this cop guards against. Config
-# methods like configure_ip_privacy legitimately take many keyword options.
-Metrics/ParameterLists:
-  CountKeywordArgs: false
-
 Performance/Size:
   Enabled: true
   Exclude:

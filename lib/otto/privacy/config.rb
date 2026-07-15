@@ -34,32 +34,12 @@ class Otto
       # This is stored at the class level so it persists across frozen config instances
       @rotation_keys_store = nil
 
-      # Class-level geo database (MMDB reader) storage.
-      #
-      # Held at the class level for the SAME reason as rotation_keys_store: a
-      # Config instance is deep-frozen after the first request (see
-      # Otto::Core::Freezable), and deep-freezing recurses into every instance
-      # variable. An MMDB reader (e.g. MaxMind::DB in MODE_MEMORY) is a live
-      # object whose #get may use internal buffers, so freezing it risks a
-      # FrozenError per request. Keeping the reader here — and storing only a
-      # String lookup key on the instance — keeps the frozen Config free of any
-      # live reader reference. Keying by path also de-duplicates: the same mmdb
-      # file is opened once and shared across Config instances.
-      @geo_db_store = nil
-
       class << self
         # Get the class-level rotation keys store
         # @return [Concurrent::Map] Thread-safe map for rotation keys
         def rotation_keys_store
           @rotation_keys_store = Concurrent::Map.new unless defined?(@rotation_keys_store) && @rotation_keys_store
           @rotation_keys_store
-        end
-
-        # Get the class-level geo database store (key => MMDB reader).
-        # @return [Concurrent::Map] Thread-safe map of readers
-        def geo_db_store
-          @geo_db_store = Concurrent::Map.new unless defined?(@geo_db_store) && @geo_db_store
-          @geo_db_store
         end
       end
 
@@ -109,8 +89,8 @@ class Otto
         @redis = options[:redis] # Optional Redis connection for multi-server environments
 
         # Geo-location fallback configuration (all opt-in, boot-time only).
-        @geo_db_key = nil # class-store lookup key for the effective MMDB reader
-        @geo_db_override_key = nil # set when a reader is injected via geo_db_reader=
+        @geo_db_reader = nil # effective MMDB reader (built from path or injected)
+        @geo_db_override = nil # reader injected via geo_db_reader= (wins over path)
         self.geo_header = options[:geo_header] # canonicalized to an HTTP_* env key (or nil)
         self.geo_db_reader = options[:geo_db_reader] if options.key?(:geo_db_reader)
         @geo_db_path = normalize_geo_db_path(options[:geo_db_path])
@@ -165,65 +145,57 @@ class Otto
       # This keeps the reader choice independent of Otto (MaxMind::DB, yhirose's
       # maxminddb, or a custom object all work) and is the seam used by tests.
       # When set, it takes precedence over {#geo_db_path}. Passing nil clears the
-      # override. The reader is stored at the class level (never on this frozen-
-      # able instance); only a lookup key is kept here.
+      # override. Takes effect on the next {#load_geo_database!}.
       #
       # @param reader [#get, nil] MMDB-compatible reader, or nil to clear
       # @raise [ArgumentError] if reader does not respond to :get
       def geo_db_reader=(reader)
-        if reader.nil?
-          @geo_db_override_key = nil
-          return
+        unless reader.nil? || reader.respond_to?(:get)
+          raise ArgumentError, "geo_db_reader must respond to :get, got: #{reader.class}"
         end
 
-        raise ArgumentError, "geo_db_reader must respond to :get, got: #{reader.class}" unless reader.respond_to?(:get)
-
-        key = "reader:#{reader.object_id}"
-        self.class.geo_db_store[key] = reader
-        @geo_db_override_key = key
+        @geo_db_override = reader
       end
 
       # The effective MMDB reader for this config, or nil.
       #
       # Returns nil when geo is disabled (so `geo: false` consults no database
       # even if one was previously configured) or when neither a reader override
-      # nor a database path is set. Reads from the class-level store, so it is
-      # safe to call on a frozen Config.
+      # nor a database path is set.
+      #
+      # The reader is a plain instance variable — no class-level store. A
+      # MaxMind::DB reader computes its IPv4 start node eagerly at construction
+      # and performs no instance mutation on #get, so it is thread-safe under
+      # concurrency and unaffected by the shallow freeze deep_freeze! applies to
+      # it. That removes the only reason to hold it off-instance, and avoids an
+      # unbounded, never-evicted process-lifetime cache — important for a
+      # long-running server.
       #
       # @return [#get, nil] the reader, or nil
       def geo_db_reader
-        return nil unless @geo_enabled
-        return nil unless @geo_db_key
-
-        self.class.geo_db_store[@geo_db_key]
+        @geo_enabled ? @geo_db_reader : nil
       end
 
       # Build/attach the geo database reader for the current configuration.
       #
       # Boot-time only. Resolves the effective reader (injected override wins
-      # over a path) and records its class-store key on this instance. A String
-      # path is opened eagerly here so an unreadable path or a missing
-      # 'maxmind-db' gem raises now, at configuration time, rather than on the
-      # first request that needs a lookup. When geo is disabled, no database is
-      # loaded and no key is retained.
+      # over a path). A String path is opened eagerly here so an unreadable path
+      # or a missing 'maxmind-db' gem raises now, at configuration time, rather
+      # than on the first request that needs a lookup. When geo is disabled, no
+      # database is loaded and no reader is retained.
       #
       # @return [void]
       # @raise [ArgumentError] if the path is unreadable or maxmind-db is absent
       def load_geo_database!
-        @geo_db_key = nil
+        @geo_db_reader = nil
         return unless @geo_enabled
 
-        if @geo_db_override_key
-          @geo_db_key = @geo_db_override_key
-        elsif @geo_db_path
-          # compute_if_absent opens the file once per path across all Config
-          # instances; a failure in the block propagates (nothing is cached),
-          # so a bad path raises here at boot.
-          self.class.geo_db_store.compute_if_absent(@geo_db_path) do
+        @geo_db_reader =
+          if @geo_db_override
+            @geo_db_override
+          elsif @geo_db_path
             build_maxmind_reader(@geo_db_path)
           end
-          @geo_db_key = @geo_db_path
-        end
       end
 
       # Canonicalize a geo header name to a Rack CGI env key ('HTTP_*').

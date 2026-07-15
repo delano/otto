@@ -283,20 +283,29 @@ class Otto
         #
         # Geo headers (CF-IPCountry and friends, plus any app-configured header)
         # are client-spoofable unless the request actually arrived through the
-        # CDN/proxy that sets them. So:
-        # - When trusted proxies ARE configured, trust geo headers only if this
-        #   request came via one (env['otto.via_trusted_proxy']).
-        # - When NO trusted proxies are configured, Otto cannot tell a real CDN
-        #   from a spoofer, so it preserves the legacy behavior and trusts them.
-        #   (This keeps existing header-only deployments working unchanged.)
+        # CDN/proxy that sets them. Trust mirrors Otto's proxy model, per mode:
+        #
+        # - CIDR trusted-proxy mode: trust only a request that arrived via a
+        #   trusted proxy (identity verified against REMOTE_ADDR).
+        # - Count-based depth mode: NOT trusted. Depth resolves the client IP by
+        #   peeling a fixed number of hops but cannot verify that the hop setting
+        #   a geo header is a real geo-CDN (depth proxies are often plain load
+        #   balancers that pass a spoofed header straight through). Geo then
+        #   falls to the local database / range detection.
+        # - No trusted-proxy configuration: Otto cannot tell a real CDN from a
+        #   spoofer, so it preserves legacy behavior and trusts geo headers.
+        #   Deployments exposed to spoofing should configure trusted_proxies or
+        #   rely on a local database.
         #
         # @param env [Hash] Rack environment
         # @return [Boolean]
         def geo_headers_trusted?(env)
-          return true unless @security_config.respond_to?(:trusted_proxies_configured?)
-          return true unless @security_config.trusted_proxies_configured?
+          sc = @security_config
+          return true unless sc.respond_to?(:trusted_proxies_configured?)
+          return false if sc.respond_to?(:trusted_proxy_depth_mode?) && sc.trusted_proxy_depth_mode?
+          return env['otto.via_trusted_proxy'] == true if sc.trusted_proxies_configured?
 
-          env['otto.via_trusted_proxy'] == true
+          true
         end
 
         # Apply no-privacy settings (privacy explicitly disabled)

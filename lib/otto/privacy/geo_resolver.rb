@@ -8,10 +8,23 @@ class Otto
   module Privacy
     # Lightweight geo-location resolution for IP addresses
     #
-    # Provides country-level geo-location without requiring external
-    # databases or API calls. Supports headers from major CDN/infrastructure
-    # providers (Cloudflare, AWS CloudFront, Fastly, Akamai, Azure) with
-    # fallback to basic IP range detection.
+    # Provides country-level geo-location. Headers from major CDN/infrastructure
+    # providers are checked first; an optional local MaxMind-format (.mmdb)
+    # database gives an offline fallback that operates on Otto's already-MASKED
+    # IP (no external API calls, and the unmasked address never reaches the
+    # resolver).
+    #
+    # Resolution order (first hit wins), when a privacy Config is supplied:
+    # 1. App-configured trusted header (Config#geo_header), e.g. 'X-Client-Country'
+    # 2. Built-in CDN/infrastructure provider headers (see below)
+    # 3. Custom resolver hook ({.custom_resolver})
+    # 4. Local MMDB lookup of the masked IP (Config#geo_db_reader)
+    # 5. Built-in IP-range detection (a tiny best-effort table)
+    # 6. '**' (unknown)
+    #
+    # Steps 1 and 2 are SKIPPED when the request's geo headers are not trusted
+    # (a non-trusted-proxy request while trusted proxies are configured) — every
+    # geo header is client-spoofable unless you are actually behind that CDN.
     #
     # Supported CDN/Infrastructure Headers:
     # - Cloudflare: CF-IPCountry
@@ -19,6 +32,7 @@ class Otto
     # - Fastly: Fastly-Client-IP-Country
     # - Akamai: X-Akamai-Edgescape (country_code=XX format)
     # - Azure Front Door: X-Azure-ClientIP-Country
+    # - Vercel: X-Vercel-IP-Country
     # - Semi-standard: X-Geo-Country, X-Country-Code, Country-Code
     #
     # @example Resolve country from Cloudflare header
@@ -54,14 +68,17 @@ class Otto
     #
     # Resolution flow
     #
-    #    Request → Has familiar HTTP Header?
-    #              ├─ Yes → Return country (Cloudflare, AWS, etc.)
-    #              └─ No → Custom Resolver?
-    #                      ├─ Configured → Call & validate
-    #                      │               ├─ Valid → Return country
-    #                      │               └─ Invalid/Error → Continue
-    #                      └─ Not configured → Built-in range detection
-    #                                          └─ Unknown ('**')
+    #    Request → Headers trusted?
+    #              ├─ Yes → Config#geo_header set & valid? → Return country
+    #              │        └─ Provider header present & valid? → Return country
+    #              └─ (headers skipped when not trusted)
+    #                 → Custom Resolver configured?
+    #                   ├─ Valid → Return country
+    #                   └─ Invalid/Error → Continue
+    #                 → Local MMDB reader configured?
+    #                   ├─ Hit → Return country
+    #                   └─ Miss → Built-in range detection
+    #                             └─ Unknown ('**')
     #
     class GeoResolver
       # Unknown country code (not ISO 3166-1 alpha-2, intentionally distinct)
@@ -114,25 +131,46 @@ class Otto
         end
       end
 
-      # Resolve country code for an IP address
+      # Resolve country code for an IP address.
       #
-      # Resolution priority:
-      # 1. CDN/infrastructure provider headers (Cloudflare, AWS, Fastly, etc.)
-      # 2. Basic IP range detection for major countries/providers
-      # 3. Return '**' for unknown
+      # Resolution order (first hit wins). Header steps (1–2) are skipped when
+      # +headers_trusted+ is false, since geo headers are client-spoofable
+      # unless the request actually arrived through the trusted CDN/proxy:
+      # 1. App-configured trusted header (+config.geo_header+)
+      # 2. Built-in CDN/infrastructure provider headers
+      # 3. Custom resolver hook ({.custom_resolver})
+      # 4. Local MMDB lookup (+config.geo_db_reader+) — expects a MASKED IP
+      # 5. Built-in IP-range detection
+      # 6. '**' for unknown
       #
-      # @param ip [String] IP address to resolve
+      # +ip+ SHOULD be the privacy-masked address when called from the Otto
+      # middleware: country-level MMDB networks are almost always >= /24, so the
+      # /24-masked +x.y.z.0+ resolves to the same country as the real IP, and the
+      # unmasked address never reaches the resolver.
+      #
+      # @param ip [String] IP address to resolve (masked, in the framework path)
       # @param env [Hash] Rack environment (may contain geo headers)
+      # @param config [Otto::Privacy::Config, nil] privacy config supplying the
+      #   configured header and MMDB reader. When nil, only the built-in provider
+      #   headers, custom resolver and range detection are used (legacy behavior).
+      # @param headers_trusted [Boolean] whether request geo headers may be
+      #   trusted for this request (default true; the middleware computes this
+      #   from the trusted-proxy decision).
       # @return [String] ISO 3166-1 alpha-2 country code or '**'
-      def self.resolve(ip, env = {})
+      def self.resolve(ip, env = {}, config = nil, headers_trusted: true)
         return UNKNOWN if ip.nil? || ip.empty?
 
-        # Check CDN/infrastructure headers in priority order
-        # Priority based on reliability and deployment frequency
-        country = check_geo_headers(env)
-        return country if country
+        if headers_trusted
+          # 1. App-configured trusted header wins over provider headers.
+          country = check_configured_header(env, config)
+          return country if country
 
-        # Try custom resolver if configured
+          # 2. Built-in CDN/infrastructure headers, in priority order.
+          country = check_geo_headers(env)
+          return country if country
+        end
+
+        # 3. Custom resolver hook, if configured.
         if @custom_resolver
           begin
             country = @custom_resolver.call(ip, env)
@@ -143,11 +181,69 @@ class Otto
           end
         end
 
-        # Fallback: Basic range detection
+        # 4. Local MMDB database lookup on the (masked) IP.
+        country = check_geo_database(ip, config)
+        return country if country
+
+        # 5. Fallback: Basic range detection.
         detect_by_range(ip)
       rescue IPAddr::InvalidAddressError
         UNKNOWN
       end
+
+      # Check the app-configured trusted geo header, if any.
+      #
+      # @param env [Hash] Rack environment
+      # @param config [Otto::Privacy::Config, nil]
+      # @return [String, nil] valid country code from the configured header, or nil
+      # @api private
+      def self.check_configured_header(env, config)
+        header = config&.geo_header
+        return nil unless header
+
+        country = env[header]
+        valid_country_code?(country) ? country : nil
+      end
+      private_class_method :check_configured_header
+
+      # Look up the country for an IP in the configured MMDB database.
+      #
+      # No-op (returns nil) when no config or reader is available. The reader is
+      # any object responding to +#get(ip)+; result shapes from both
+      # GeoLite2-Country-compatible ('country' => {'iso_code' => ...}) and flat
+      # ('country_code' => ...) mmdb builds are handled.
+      #
+      # @param ip [String] IP address (masked, in the framework path)
+      # @param config [Otto::Privacy::Config, nil]
+      # @return [String, nil] valid country code, or nil on miss/error
+      # @api private
+      def self.check_geo_database(ip, config)
+        reader = config&.geo_db_reader
+        return nil unless reader
+
+        country = extract_db_country(reader.get(ip))
+        valid_country_code?(country) ? country : nil
+      rescue StandardError => e
+        # A DB read must never crash a request; fall through to range detection.
+        warn "GeoResolver database lookup error: #{e.message}" if $DEBUG
+        nil
+      end
+      private_class_method :check_geo_database
+
+      # Extract an ISO country code from an MMDB lookup result.
+      #
+      # @param result [Object] whatever the reader returned for the IP
+      # @return [String, nil] country code string, or nil
+      # @api private
+      def self.extract_db_country(result)
+        return nil unless result.is_a?(Hash)
+
+        code = result.dig('country', 'iso_code') ||
+               result['country_code'] ||
+               result['country']
+        code.is_a?(String) ? code : nil
+      end
+      private_class_method :extract_db_country
 
       # Check CDN/infrastructure provider geo headers
       #
@@ -157,7 +253,8 @@ class Otto
       # 3. Fastly (Fastly-Client-IP-Country)
       # 4. Akamai (X-Akamai-Edgescape) - Complex format, extract country
       # 5. Azure Front Door (X-Azure-ClientIP-Country)
-      # 6. Semi-standard headers (X-Geo-Country, X-Country-Code, Country-Code)
+      # 6. Vercel (X-Vercel-IP-Country)
+      # 7. Semi-standard headers (X-Geo-Country, X-Country-Code, Country-Code)
       #
       # @param env [Hash] Rack environment
       # @return [String, nil] ISO 3166-1 alpha-2 country code or nil
@@ -183,6 +280,10 @@ class Otto
 
         # Azure Front Door
         country = env['HTTP_X_AZURE_CLIENTIP_COUNTRY']
+        return country if valid_country_code?(country)
+
+        # Vercel
+        country = env['HTTP_X_VERCEL_IP_COUNTRY']
         return country if valid_country_code?(country)
 
         # Semi-standard headers (least reliable, check last)

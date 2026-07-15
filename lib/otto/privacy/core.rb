@@ -50,7 +50,19 @@ class Otto
       #
       # @param octet_precision [Integer] Number of octets to mask (1 or 2, default: 1)
       # @param hash_rotation [Integer] Seconds between key rotation (default: 86400)
-      # @param geo [Boolean] Enable geo-location resolution (default: true)
+      # @param geo [Boolean] Enable geo-location resolution (default: true). When
+      #   false, geo short-circuits entirely: no headers are read and no database
+      #   is loaded or consulted.
+      # @param geo_header [String] Trusted, app-configured request header checked
+      #   FIRST for the country code (e.g. 'X-Client-Country'). Accepts the HTTP
+      #   or 'HTTP_*' CGI form; both canonicalize to the env key. Pass '' to clear.
+      # @param geo_db_path [String] Path to a MaxMind-format (.mmdb) country
+      #   database for the local IP->country fallback (looked up on the MASKED
+      #   IP). Requires the optional 'maxmind-db' gem. A bad path raises at boot,
+      #   not per-request. Pass '' to clear.
+      # @param geo_db_reader [#get] Bring-your-own MMDB reader (any object
+      #   responding to #get); overrides geo_db_path. Omitted/nil leaves any
+      #   existing reader unchanged; use geo: false to stop consulting a database.
       # @param redis [Redis] Redis connection for multi-server atomic key generation
       # @param correlation_secret [String] A secret string that turns on IP
       #   correlation: it lets you tell whether two requests, even months apart,
@@ -76,7 +88,8 @@ class Otto
       #   redis = Redis.new(url: ENV['REDIS_URL'])
       #   otto.configure_ip_privacy(redis: redis)
       def configure_ip_privacy(octet_precision: nil, hash_rotation: nil, geo: nil, redis: nil,
-                               correlation_secret: nil)
+                               correlation_secret: nil, geo_header: nil, geo_db_path: nil,
+                               geo_db_reader: nil)
         ensure_not_frozen!
         config = @security_config.ip_privacy_config
 
@@ -93,6 +106,29 @@ class Otto
 
         # Validate configuration
         config.validate!
+
+        apply_geo_config(config, geo: geo, geo_header: geo_header,
+                                 geo_db_path: geo_db_path, geo_db_reader: geo_db_reader)
+      end
+
+      private
+
+      # Apply the geo-fallback settings and (re)load the database when needed.
+      #
+      # nil means "leave unchanged"; '' clears a header or path. Any geo-affecting
+      # change triggers a boot-time (re)load so a bad geo_db_path fails here, not
+      # on the first request that needs a lookup.
+      #
+      # @param config [Otto::Privacy::Config] the privacy config to mutate
+      # @api private
+      def apply_geo_config(config, geo:, geo_header:, geo_db_path:, geo_db_reader:)
+        geo_touched = [geo, geo_header, geo_db_path, geo_db_reader].any? { |v| !v.nil? }
+
+        config.geo_header = geo_header unless geo_header.nil?
+        config.geo_db_reader = geo_db_reader unless geo_db_reader.nil?
+        config.geo_db_path = geo_db_path unless geo_db_path.nil?
+
+        config.load_geo_database! if geo_touched
       end
     end
   end

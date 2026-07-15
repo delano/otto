@@ -3,15 +3,46 @@
 
 # Otto GeoResolver Extension Guide
 #
-# This guide shows two approaches to extend Otto's IP geolocation:
-# 1. Configuration-based (simple, inline)
-# 2. Subclass-based (full control)
+# Otto resolves a country code in this order (first hit wins):
+#   1. App-configured trusted header  (configure_ip_privacy(geo_header:))
+#   2. Built-in CDN/provider headers  (Cloudflare, AWS, Vercel, ...)
+#   3. Custom resolver hook           (GeoResolver.custom_resolver = ...)
+#   4. Local MMDB database            (configure_ip_privacy(geo_db_path:/geo_db_reader:))
+#   5. Built-in IP-range detection    ('**' when nothing matches)
+#
+# This guide shows the extension points:
+# A. Built-in configuration (trusted header + local database) — no code
+# B. Custom resolver hook (inline or a callable object)
+# C. Subclass-based (full control)
 
 require 'bundler/setup'
 require 'otto'
 
 # =============================================================================
-# Quick Start: Configuration-based Extension
+# A. Built-in configuration: trusted header + local country database
+# =============================================================================
+#
+# No custom code needed — just configure the Otto instance. The database is
+# looked up on the already-MASKED IP, and a bad geo_db_path fails at boot.
+#
+#   otto = Otto.new('routes.txt')
+#   otto.configure_ip_privacy(
+#     geo_header: 'X-Client-Country',   # trusted header checked before CDN headers
+#     geo_db_path: 'data/country.mmdb'  # offline fallback (needs the maxmind-db gem)
+#   )
+#
+# Prefer to bring your own reader (any object responding to #get)? Inject it —
+# this keeps the reader/data-source choice independent of Otto:
+#
+#   reader = MaxMind::DB.new('data/country.mmdb', mode: MaxMind::DB::MODE_MEMORY)
+#   otto.configure_ip_privacy(geo_db_reader: reader)
+#
+# Security note: geo headers are only trusted for requests that arrive via a
+# configured trusted proxy (add_trusted_proxy), since they are client-spoofable
+# otherwise. configure_ip_privacy(geo: false) disables geo entirely.
+
+# =============================================================================
+# B. Quick Start: Custom resolver hook
 # =============================================================================
 
 puts 'Simple Custom Geo Resolution'

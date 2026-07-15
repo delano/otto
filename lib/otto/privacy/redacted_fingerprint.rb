@@ -29,14 +29,23 @@ class Otto
       #
       # @param env [Hash] Rack environment hash
       # @param config [Otto::Privacy::Config] Privacy configuration
-      def initialize(env, config)
+      # @param geo_headers_trusted [Boolean] whether request geo headers may be
+      #   trusted for this request. The middleware passes false for a
+      #   non-trusted-proxy request when trusted proxies are configured, so
+      #   spoofed geo headers are ignored. Defaults to true for standalone use.
+      def initialize(env, config, geo_headers_trusted: true)
         remote_ip = env['REMOTE_ADDR']
 
         @session_id = SecureRandom.uuid
         @timestamp = Time.now.utc
         @masked_ip = IPPrivacy.mask_ip(remote_ip, config.octet_precision)
         @hashed_ip = IPPrivacy.hash_ip(remote_ip, config.rotation_key)
-        @country = config.geo_enabled ? GeoResolver.resolve(remote_ip, env) : nil
+        # Geo resolves on the MASKED IP so the unmasked address never reaches the
+        # resolver (custom resolver / MMDB). Country-level networks are >= /24,
+        # so a /24-masked address resolves to the same country as the real one.
+        @country = if config.geo_enabled
+                     GeoResolver.resolve(@masked_ip, env, config, headers_trusted: geo_headers_trusted)
+                   end
         @anonymized_ua = anonymize_user_agent(env['HTTP_USER_AGENT'])
         @request_path = env['PATH_INFO']
         @request_method = env['REQUEST_METHOD']

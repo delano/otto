@@ -28,11 +28,24 @@ class Otto
       include Otto::Core::Freezable
 
       attr_accessor :octet_precision, :hash_rotation_period, :geo_enabled, :mask_private_ips
-      attr_reader :disabled, :correlation_secret
+      attr_reader :disabled, :correlation_secret, :geo_header, :geo_db_path
 
       # Class-level rotation key storage (mutable, not frozen with instances)
       # This is stored at the class level so it persists across frozen config instances
       @rotation_keys_store = nil
+
+      # Class-level geo database (MMDB reader) storage.
+      #
+      # Held at the class level for the SAME reason as rotation_keys_store: a
+      # Config instance is deep-frozen after the first request (see
+      # Otto::Core::Freezable), and deep-freezing recurses into every instance
+      # variable. An MMDB reader (e.g. MaxMind::DB in MODE_MEMORY) is a live
+      # object whose #get may use internal buffers, so freezing it risks a
+      # FrozenError per request. Keeping the reader here — and storing only a
+      # String lookup key on the instance — keeps the frozen Config free of any
+      # live reader reference. Keying by path also de-duplicates: the same mmdb
+      # file is opened once and shared across Config instances.
+      @geo_db_store = nil
 
       class << self
         # Get the class-level rotation keys store
@@ -40,6 +53,13 @@ class Otto
         def rotation_keys_store
           @rotation_keys_store = Concurrent::Map.new unless defined?(@rotation_keys_store) && @rotation_keys_store
           @rotation_keys_store
+        end
+
+        # Get the class-level geo database store (key => MMDB reader).
+        # @return [Concurrent::Map] Thread-safe map of readers
+        def geo_db_store
+          @geo_db_store = Concurrent::Map.new unless defined?(@geo_db_store) && @geo_db_store
+          @geo_db_store
         end
       end
 
@@ -49,6 +69,17 @@ class Otto
       # @option options [Integer] :octet_precision Number of trailing octets to mask (1 or 2, default: 1)
       # @option options [Integer] :hash_rotation_period Seconds between key rotation (default: 86400)
       # @option options [Boolean] :geo_enabled Enable geo-location resolution (default: true)
+      # @option options [String] :geo_header Trusted, app-configured request header to read the
+      #   country code from FIRST (before the built-in CDN provider headers). Accepts either
+      #   the HTTP form ('X-Client-Country') or the Rack CGI form ('HTTP_X_CLIENT_COUNTRY');
+      #   both canonicalize to the 'HTTP_*' env key. Default nil (no app-configured header).
+      # @option options [String] :geo_db_path Filesystem path to a MaxMind-format (.mmdb)
+      #   country database used as the local IP->country fallback (looked up on the already
+      #   MASKED IP). Requires the 'maxmind-db' gem. A bad/unreadable path raises at boot,
+      #   not per-request. Default nil (no local database fallback).
+      # @option options [#get] :geo_db_reader Bring-your-own MMDB reader (any object responding
+      #   to #get, e.g. a MaxMind::DB or a compatible reader). Overrides :geo_db_path when set,
+      #   so the reader choice stays independent of Otto. Default nil.
       # @option options [Boolean] :disabled Disable privacy entirely (default: false)
       # @option options [Boolean] :mask_private_ips Mask private/localhost IPs (default: false)
       # @option options [String] :correlation_secret A secret string that turns
@@ -76,6 +107,14 @@ class Otto
         @mask_private_ips = options.fetch(:mask_private_ips, false) # Don't mask private/localhost by default
         self.correlation_secret = options.fetch(:correlation_secret, nil) # Opt-in stable IP-correlation secret
         @redis = options[:redis] # Optional Redis connection for multi-server environments
+
+        # Geo-location fallback configuration (all opt-in, boot-time only).
+        @geo_db_key = nil # class-store lookup key for the effective MMDB reader
+        @geo_db_override_key = nil # set when a reader is injected via geo_db_reader=
+        self.geo_header = options[:geo_header] # canonicalized to an HTTP_* env key (or nil)
+        self.geo_db_reader = options[:geo_db_reader] if options.key?(:geo_db_reader)
+        @geo_db_path = normalize_geo_db_path(options[:geo_db_path])
+        load_geo_database! # build/attach the reader now so a bad path fails at boot
       end
 
       # Set the stable correlation secret, validating its type up front.
@@ -95,6 +134,110 @@ class Otto
         end
 
         @correlation_secret = value
+      end
+
+      # Set the trusted, app-configured geo header.
+      #
+      # Canonicalizes to a Rack CGI env key ('HTTP_*'): 'X-Client-Country',
+      # 'x-client-country' and 'HTTP_X_CLIENT_COUNTRY' all become
+      # 'HTTP_X_CLIENT_COUNTRY'. nil / blank clears it. Rack 3's lowercase rule
+      # applies to RESPONSE headers; request headers remain 'HTTP_*' env keys,
+      # so this is the correct form to read from the request env.
+      #
+      # @param value [String, nil] header name in either HTTP or CGI form
+      def geo_header=(value)
+        @geo_header = self.class.canonicalize_geo_header(value)
+      end
+
+      # Set the geo database path (MMDB file) used for the local fallback.
+      #
+      # Does not build the reader on its own — call {#load_geo_database!} (which
+      # {Otto::Privacy::Core#configure_ip_privacy} does for you) so a bad path
+      # fails at boot rather than per-request.
+      #
+      # @param value [String, nil] filesystem path to a .mmdb file, or nil
+      def geo_db_path=(value)
+        @geo_db_path = normalize_geo_db_path(value)
+      end
+
+      # Inject a ready-made MMDB reader (any object responding to #get).
+      #
+      # This keeps the reader choice independent of Otto (MaxMind::DB, yhirose's
+      # maxminddb, or a custom object all work) and is the seam used by tests.
+      # When set, it takes precedence over {#geo_db_path}. Passing nil clears the
+      # override. The reader is stored at the class level (never on this frozen-
+      # able instance); only a lookup key is kept here.
+      #
+      # @param reader [#get, nil] MMDB-compatible reader, or nil to clear
+      # @raise [ArgumentError] if reader does not respond to :get
+      def geo_db_reader=(reader)
+        if reader.nil?
+          @geo_db_override_key = nil
+          return
+        end
+
+        raise ArgumentError, "geo_db_reader must respond to :get, got: #{reader.class}" unless reader.respond_to?(:get)
+
+        key = "reader:#{reader.object_id}"
+        self.class.geo_db_store[key] = reader
+        @geo_db_override_key = key
+      end
+
+      # The effective MMDB reader for this config, or nil.
+      #
+      # Returns nil when geo is disabled (so `geo: false` consults no database
+      # even if one was previously configured) or when neither a reader override
+      # nor a database path is set. Reads from the class-level store, so it is
+      # safe to call on a frozen Config.
+      #
+      # @return [#get, nil] the reader, or nil
+      def geo_db_reader
+        return nil unless @geo_enabled
+        return nil unless @geo_db_key
+
+        self.class.geo_db_store[@geo_db_key]
+      end
+
+      # Build/attach the geo database reader for the current configuration.
+      #
+      # Boot-time only. Resolves the effective reader (injected override wins
+      # over a path) and records its class-store key on this instance. A String
+      # path is opened eagerly here so an unreadable path or a missing
+      # 'maxmind-db' gem raises now, at configuration time, rather than on the
+      # first request that needs a lookup. When geo is disabled, no database is
+      # loaded and no key is retained.
+      #
+      # @return [void]
+      # @raise [ArgumentError] if the path is unreadable or maxmind-db is absent
+      def load_geo_database!
+        @geo_db_key = nil
+        return unless @geo_enabled
+
+        if @geo_db_override_key
+          @geo_db_key = @geo_db_override_key
+        elsif @geo_db_path
+          # compute_if_absent opens the file once per path across all Config
+          # instances; a failure in the block propagates (nothing is cached),
+          # so a bad path raises here at boot.
+          self.class.geo_db_store.compute_if_absent(@geo_db_path) do
+            build_maxmind_reader(@geo_db_path)
+          end
+          @geo_db_key = @geo_db_path
+        end
+      end
+
+      # Canonicalize a geo header name to a Rack CGI env key ('HTTP_*').
+      #
+      # @param value [String, nil] header in HTTP ('X-Client-Country') or CGI form
+      # @return [String, nil] 'HTTP_*' env key, or nil for nil/blank input
+      def self.canonicalize_geo_header(value)
+        return nil if value.nil?
+
+        key = value.to_s.strip
+        return nil if key.empty?
+
+        key = key.upcase.tr('-', '_')
+        key.start_with?('HTTP_') ? key : "HTTP_#{key}"
       end
 
       # Check if privacy is enabled
@@ -166,6 +309,47 @@ class Otto
       end
 
       private
+
+      # Normalize a geo_db_path option to a non-empty String or nil.
+      #
+      # @param value [String, nil] raw path option
+      # @return [String, nil]
+      def normalize_geo_db_path(value)
+        return nil if value.nil?
+
+        path = value.to_s.strip
+        path.empty? ? nil : path
+      end
+
+      # Open an MMDB file into an in-memory reader, failing fast on problems.
+      #
+      # The 'maxmind-db' gem is an OPTIONAL dependency: it is required lazily
+      # here, only when a database path is actually configured, so Otto stays
+      # dependency-light for the (common) header-only geo setups. Callers who
+      # prefer a different reader can inject one via {#geo_db_reader=} and never
+      # trigger this path.
+      #
+      # @param path [String] filesystem path to a .mmdb file
+      # @return [MaxMind::DB] in-memory reader
+      # @raise [ArgumentError] if the path is unreadable or the gem is missing
+      def build_maxmind_reader(path)
+        raise ArgumentError, "geo_db_path is not readable: #{path.inspect}" unless File.readable?(path)
+
+        begin
+          require 'maxmind/db'
+        rescue LoadError
+          raise ArgumentError,
+                "geo_db_path is set (#{path.inspect}) but the 'maxmind-db' gem is not available. " \
+                "Add `gem 'maxmind-db'` to your Gemfile, or inject your own reader via " \
+                'configure_ip_privacy(geo_db_reader: ...).'
+        end
+
+        begin
+          MaxMind::DB.new(path, mode: MaxMind::DB::MODE_MEMORY)
+        rescue StandardError => e
+          raise ArgumentError, "Failed to open geo_db_path #{path.inspect}: #{e.class}: #{e.message}"
+        end
+      end
 
       # Redis-based rotation key (atomic across multiple servers)
       #

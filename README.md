@@ -231,7 +231,16 @@ app = Otto.new("./routes")
 # IP hashing: daily-rotating hashes enable analytics without tracking
 ```
 
-Private and localhost IPs are exempted by default for development convenience, but this behavior can be customized via `configure_ip_privacy()` method. Geolocation uses CDN headers (Cloudflare, AWS, etc.) with fallback to IP ranges—no external services required. See [CLAUDE.md](CLAUDE.md) for detailed configuration options.
+Private and localhost IPs are exempted by default for development convenience, but this behavior can be customized via `configure_ip_privacy()` method. Geolocation checks CDN headers (Cloudflare, AWS, Vercel, etc.) first, then an optional local country database—no external services required. You can name a trusted header to check first, plug in a MaxMind-format `.mmdb` file for an offline fallback, or bring your own reader:
+
+```ruby
+otto.configure_ip_privacy(
+  geo_header: 'X-Client-Country',        # trusted app header, checked first
+  geo_db_path: 'data/country.mmdb'       # offline fallback (needs the maxmind-db gem)
+)
+```
+
+Geo headers are only trusted for requests that arrive via a configured trusted proxy (they are client-spoofable otherwise), the database is looked up on the already-masked IP, and `configure_ip_privacy(geo: false)` disables geo entirely. See [CLAUDE.md](CLAUDE.md) for detailed configuration options.
 
 ## Internationalization Support
 

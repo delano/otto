@@ -96,7 +96,10 @@ class Otto
           # un-anonymized User-Agent or Referer.
           if client_ip.to_s.empty?
             Otto.logger.debug '[IPPrivacyMiddleware] No resolvable client IP; skipping IP masking' if Otto.debug
-            scrub_sensitive_headers(env, Otto::Privacy::RedactedFingerprint.new(env, @config))
+            scrub_sensitive_headers(
+              env,
+              Otto::Privacy::RedactedFingerprint.new(env, @config, geo_headers_trusted: geo_headers_trusted?(env))
+            )
             return
           end
 
@@ -128,7 +131,9 @@ class Otto
           # We temporarily set REMOTE_ADDR to the client IP for fingerprint creation
           original_remote_addr = env['REMOTE_ADDR']
           env['REMOTE_ADDR'] = client_ip
-          fingerprint = Otto::Privacy::RedactedFingerprint.new(env, @config)
+          fingerprint = Otto::Privacy::RedactedFingerprint.new(
+            env, @config, geo_headers_trusted: geo_headers_trusted?(env)
+          )
           env['REMOTE_ADDR'] = original_remote_addr
 
           # Set privacy-safe values in environment
@@ -272,6 +277,26 @@ class Otto
           return false unless @security_config
 
           @security_config.trusted_proxy?(ip)
+        end
+
+        # Whether request geo headers may be trusted for this request.
+        #
+        # Geo headers (CF-IPCountry and friends, plus any app-configured header)
+        # are client-spoofable unless the request actually arrived through the
+        # CDN/proxy that sets them. So:
+        # - When trusted proxies ARE configured, trust geo headers only if this
+        #   request came via one (env['otto.via_trusted_proxy']).
+        # - When NO trusted proxies are configured, Otto cannot tell a real CDN
+        #   from a spoofer, so it preserves the legacy behavior and trusts them.
+        #   (This keeps existing header-only deployments working unchanged.)
+        #
+        # @param env [Hash] Rack environment
+        # @return [Boolean]
+        def geo_headers_trusted?(env)
+          return true unless @security_config.respond_to?(:trusted_proxies_configured?)
+          return true unless @security_config.trusted_proxies_configured?
+
+          env['otto.via_trusted_proxy'] == true
         end
 
         # Apply no-privacy settings (privacy explicitly disabled)

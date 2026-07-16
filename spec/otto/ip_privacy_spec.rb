@@ -108,6 +108,21 @@ RSpec.describe 'IP Privacy Features' do
         expect(Otto::Privacy::IPPrivacy.valid_ip?(nil)).to be false
       end
     end
+
+    describe '.forwarded_header_for' do
+      it 'builds an unquoted for= element for IPv4' do
+        expect(Otto::Privacy::IPPrivacy.forwarded_header_for('192.0.2.0')).to eq('for=192.0.2.0')
+      end
+
+      it 'brackets and quotes IPv6 per RFC 7239' do
+        expect(Otto::Privacy::IPPrivacy.forwarded_header_for('2001:db8::')).to eq('for="[2001:db8::]"')
+      end
+
+      it 'returns nil for nil/empty input' do
+        expect(Otto::Privacy::IPPrivacy.forwarded_header_for(nil)).to be_nil
+        expect(Otto::Privacy::IPPrivacy.forwarded_header_for('')).to be_nil
+      end
+    end
   end
 
   describe Otto::Privacy::GeoResolver do
@@ -488,6 +503,32 @@ RSpec.describe 'IP Privacy Features' do
           middleware.call(env)
 
           expect(env['otto.original_ip']).to be_nil
+        end
+      end
+
+      context 'RFC 7239 Forwarded header masking' do
+        it 'rewrites HTTP_FORWARDED to hold only the masked IP' do
+          env = { 'REMOTE_ADDR' => '203.0.113.77', 'HTTP_FORWARDED' => 'for=203.0.113.77;proto=https;by=10.0.0.1' }
+          middleware.call(env)
+
+          expect(env['HTTP_FORWARDED']).to eq('for=203.0.113.0')
+          expect(env['HTTP_FORWARDED']).not_to include('203.0.113.77')
+        end
+
+        it 'brackets and quotes a masked IPv6 for= value (valid RFC 7239)' do
+          env = { 'REMOTE_ADDR' => '2001:db8:85a3::8a2e:370:7334', 'HTTP_FORWARDED' => 'for="[2001:db8:85a3::8a2e:370:7334]"' }
+          middleware.call(env)
+
+          # /48-masked (octet_precision 1 -> last 80 bits) IPv6, bracketed+quoted
+          expect(env['HTTP_FORWARDED']).to match(/\Afor="\[2001:db8:85a3:[0:]*\]"\z/)
+          expect(env['HTTP_FORWARDED']).not_to include('8a2e')
+        end
+
+        it 'leaves HTTP_FORWARDED untouched for exempt private IPs' do
+          env = { 'REMOTE_ADDR' => '192.168.1.100', 'HTTP_FORWARDED' => 'for=192.168.1.100' }
+          middleware.call(env)
+
+          expect(env['HTTP_FORWARDED']).to eq('for=192.168.1.100')
         end
       end
 

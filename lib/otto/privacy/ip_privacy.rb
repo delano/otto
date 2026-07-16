@@ -119,6 +119,24 @@ class Otto
         false
       end
 
+      # Build an RFC 7239 Forwarded header value carrying only the masked IP.
+      #
+      # The Forwarded header (unlike X-Forwarded-For) is structured, so it can't
+      # be swapped wholesale for a bare IP without producing invalid syntax.
+      # This collapses it to a single, syntactically valid `for=` element with
+      # the masked address — the same "discard the chain, keep the masked IP"
+      # treatment the middleware applies to X-Forwarded-For. IPv6 is bracketed
+      # and quoted as the RFC requires.
+      #
+      # @param masked_ip [String, nil] the masked client IP
+      # @return [String, nil] e.g. 'for=192.0.2.0' or 'for="[2001:db8::]"', or
+      #   nil when there is no masked IP
+      def self.forwarded_header_for(masked_ip)
+        return nil if masked_ip.nil? || masked_ip.empty?
+
+        masked_ip.include?(':') ? %(for="[#{masked_ip}]") : "for=#{masked_ip}"
+      end
+
       # Mask IPv4 address
       #
       # @param addr [IPAddr] IPAddr object (must be IPv4)

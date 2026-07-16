@@ -45,6 +45,16 @@ Security
   trusted proxies are configured, behavior is unchanged. Every geo header is
   client-spoofable unless you are actually behind that CDN. (#206)
 
+Fixed
+-----
+
+- IP privacy now masks the RFC 7239 ``Forwarded`` header (``HTTP_FORWARDED``),
+  which Otto reads as an authoritative client-IP source in count-based depth
+  mode. Previously it was left intact while ``X-Forwarded-For`` and friends
+  were masked, so downstream code (and, before the geo seal, a custom geo
+  resolver) could still read the real client IP from its ``for=`` token. It is
+  now rewritten to a valid Forwarded value holding only the masked IP. (#206)
+
 AI Assistance
 -------------
 

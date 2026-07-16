@@ -266,6 +266,13 @@ class Otto
           env['HTTP_X_REAL_IP'] = masked_ip if env['HTTP_X_REAL_IP']
           env['HTTP_X_CLIENT_IP'] = masked_ip if env['HTTP_X_CLIENT_IP']
 
+          # RFC 7239 Forwarded carries the client IP in a structured `for=`
+          # token, and Otto reads it as an authoritative client-IP source in
+          # count-based depth mode (trusted_proxy_header 'Forwarded'/'Both').
+          # Left as-is it would leak the real IP to downstream code, so rewrite
+          # it to a valid Forwarded value holding only the masked IP.
+          env['HTTP_FORWARDED'] = Otto::Privacy::IPPrivacy.forwarded_header_for(masked_ip) if env['HTTP_FORWARDED']
+
           Otto.logger.debug "[IPPrivacyMiddleware] Masked forwarded headers" if Otto.debug
         end
 

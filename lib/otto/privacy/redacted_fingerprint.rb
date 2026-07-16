@@ -25,10 +25,12 @@ class Otto
                   :country, :anonymized_ua, :request_path,
                   :request_method, :referer
 
-      # IP-bearing forwarded headers to mask in the geo-resolution env view.
-      # Mirrors the set IPPrivacyMiddleware#mask_forwarded_headers rewrites, so a
-      # custom resolver reading env sees masked values everywhere the middleware
-      # would otherwise have masked them.
+      # IP-bearing forwarded headers overwritten with the masked IP in the
+      # geo-resolution env view. Mirrors the set
+      # IPPrivacyMiddleware#mask_forwarded_headers rewrites, so a custom resolver
+      # reading env sees masked values everywhere the middleware would. The
+      # structured RFC 7239 Forwarded header (HTTP_FORWARDED) is handled
+      # separately in {#geo_env} (dropped, not swapped, to keep valid syntax).
       GEO_MASKED_FORWARDED_HEADERS = %w[
         HTTP_X_FORWARDED_FOR
         HTTP_X_REAL_IP
@@ -130,6 +132,13 @@ class Otto
         GEO_MASKED_FORWARDED_HEADERS.each do |key|
           masked[key] = @masked_ip if masked.key?(key)
         end
+        # HTTP_FORWARDED (RFC 7239) carries the client IP in a structured `for=`
+        # token — and Otto reads it as an authoritative client-IP source in
+        # depth mode with trusted_proxy_header 'Forwarded'/'Both'. A wholesale
+        # swap would produce invalid Forwarded syntax, and geo resolution needs
+        # nothing from it, so drop it from the geo view entirely rather than
+        # leak the raw address to a custom resolver.
+        masked.delete('HTTP_FORWARDED')
         masked
       end
 

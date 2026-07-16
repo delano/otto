@@ -265,15 +265,25 @@ class Otto
 
       # Extract an ISO country code from an MMDB lookup result.
       #
+      # Handles the shapes country databases actually use: GeoLite2-Country
+      # style ('country' => {'iso_code' => 'US'}), the flat 'country_code' =>
+      # 'US', and a bare 'country' => 'US'. The nested case is checked with an
+      # explicit Hash guard rather than Hash#dig so a bare-String 'country'
+      # value does not raise (String has no #dig).
+      #
       # @param result [Object] whatever the reader returned for the IP
       # @return [String, nil] country code string, or nil
       # @api private
       def self.extract_db_country(result)
         return nil unless result.is_a?(Hash)
 
-        code = result.dig('country', 'iso_code') ||
-               result['country_code'] ||
-               result['country']
+        country = result['country']
+        code =
+          if country.is_a?(Hash)
+            country['iso_code']
+          else
+            result['country_code'] || country
+          end
         code.is_a?(String) ? code : nil
       end
       private_class_method :extract_db_country

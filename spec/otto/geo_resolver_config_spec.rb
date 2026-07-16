@@ -157,6 +157,13 @@ RSpec.describe 'Configurable geo resolution' do
         expect(described_class.resolve('5.5.5.0', {}, config)).to eq('FR')
       end
 
+      it 'reads a bare country-string result without raising' do
+        # A reader returning {'country' => 'US'} must not trip String#dig.
+        reader = recording_reader('5.5.5.0' => { 'country' => 'US' })
+        config = Otto::Privacy::Config.new(geo_db_reader: reader)
+        expect(described_class.resolve('5.5.5.0', {}, config)).to eq('US')
+      end
+
       it 'treats an invalid database code as unknown (authoritative DB)' do
         reader = recording_reader('8.8.8.0' => { 'country' => { 'iso_code' => 'ZZZ' } })
         config = Otto::Privacy::Config.new(geo_db_reader: reader)
@@ -350,6 +357,28 @@ RSpec.describe 'Configurable geo resolution' do
 
         # geo_env hands the resolver a dup, so the request env is untouched.
         expect(env['REMOTE_ADDR']).to eq('8.8.8.8')
+      end
+
+      it 'strips the RFC 7239 Forwarded header from the resolver env view' do
+        captured = {}
+        Otto::Privacy::GeoResolver.custom_resolver = lambda do |ip, resolver_env|
+          captured[:ip] = ip
+          captured[:has_forwarded] = resolver_env.key?('HTTP_FORWARDED')
+          captured[:values] = resolver_env.values
+          'PT'
+        end
+
+        # HTTP_FORWARDED carries the real client IP in its `for=` token; Otto
+        # reads it as authoritative in depth mode. It must not reach the resolver.
+        env = { 'REMOTE_ADDR' => '203.0.113.77', 'HTTP_FORWARDED' => 'for=203.0.113.77;proto=https' }
+        Otto::Privacy::RedactedFingerprint.new(env, Otto::Privacy::Config.new)
+
+        expect(captured[:ip]).to eq('203.0.113.0')
+        expect(captured[:has_forwarded]).to be false
+        leaked = captured[:values].any? { |v| v.is_a?(String) && v.include?('203.0.113.77') }
+        expect(leaked).to be false
+        # The real request env is untouched (the resolver saw a masked dup).
+        expect(env['HTTP_FORWARDED']).to eq('for=203.0.113.77;proto=https')
       end
     end
   end

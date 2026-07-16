@@ -373,7 +373,9 @@ class Otto
       # @return [Boolean] true if valid ISO 3166-1 alpha-2 code
       # @api private
       def self.valid_country_code?(code)
-        code.is_a?(String) && code.length == 2 && code.match?(/^[A-Z]{2}$/)
+        # \A / \z (string anchors), not ^ / $ (line anchors), so an embedded
+        # newline can never satisfy the pattern.
+        code.is_a?(String) && code.length == 2 && code.match?(/\A[A-Z]{2}\z/)
       end
       private_class_method :valid_country_code?
     end

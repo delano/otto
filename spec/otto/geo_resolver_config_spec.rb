@@ -283,6 +283,15 @@ RSpec.describe 'Configurable geo resolution' do
         expect(env['otto.privacy.geo_country']).to eq('GB')
       end
 
+      it 'trusts geo headers when the security config lacks trusted_proxies_configured?' do
+        # Safe legacy default: a config object that does not implement the
+        # trusted-proxy introspection method falls through to trusting headers.
+        middleware = Otto::Security::Middleware::IPPrivacyMiddleware.new(app, nil)
+        middleware.instance_variable_set(:@security_config, Object.new)
+
+        expect(middleware.send(:geo_headers_trusted?, {})).to be true
+      end
+
       it 'ignores geo headers in count-based depth mode (edge unverifiable)' do
         sc = Otto::Security::Config.new
         sc.trusted_proxy_depth = 1

@@ -365,12 +365,13 @@ RSpec.describe 'IP resolution harmonization (otto#58 / OTS#3436)' do
       end
 
       it 'populates redacted_fingerprint, masked_ip, hashed_ip and geo_country' do
-        req = run_privacy('8.8.8.8') # public IP; geo range -> US
+        req = run_privacy('8.8.8.8') # public IP; no geo source configured
 
         expect(req.redacted_fingerprint).to be_a(Otto::Privacy::RedactedFingerprint)
         expect(req.masked_ip).to eq('8.8.8.0')
         expect(req.hashed_ip).to match(/\A[0-9a-f]{64}\z/)
-        expect(req.geo_country).to eq('US')
+        # No header/resolver/db configured -> honest unknown (not a range guess).
+        expect(req.geo_country).to eq('**')
       end
 
       it 'returns nil from redacted_fingerprint/hashed_ip when privacy is disabled' do

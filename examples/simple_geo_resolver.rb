@@ -8,7 +8,7 @@
 #   2. Built-in CDN/provider headers  (Cloudflare, AWS, Vercel, ...)
 #   3. Custom resolver hook           (GeoResolver.custom_resolver = ...)
 #   4. Local MMDB database            (configure_ip_privacy(geo_db_path:/geo_db_reader:))
-#   5. Built-in IP-range detection    ('**' when nothing matches)
+#   5. '**' (unknown)                 Otto does not guess from a hardcoded table
 #
 # This guide shows the extension points:
 # A. Built-in configuration (trusted header + local database) — no code
@@ -62,7 +62,9 @@ Otto::Privacy::GeoResolver.custom_resolver = custom_resolver
 
 # Step 3: Test it
 puts "1.2.3.4 -> #{Otto::Privacy::GeoResolver.resolve('1.2.3.4', {})}"
-puts "8.8.8.8 -> #{Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})} (fallback)"
+# Resolver returns nil for 8.8.8.8, and there is no header or database, so the
+# honest answer is '**' (unknown) — Otto does not guess.
+puts "8.8.8.8 -> #{Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})} (unknown)"
 
 # Reset for next example
 Otto::Privacy::GeoResolver.custom_resolver = nil

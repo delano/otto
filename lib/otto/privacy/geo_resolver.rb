@@ -2,8 +2,6 @@
 #
 # frozen_string_literal: true
 
-require 'ipaddr'
-
 class Otto
   module Privacy
     # Lightweight geo-location resolution for IP addresses
@@ -19,15 +17,16 @@ class Otto
     # 2. Built-in CDN/infrastructure provider headers (see below)
     # 3. Custom resolver hook ({.custom_resolver})
     # 4. Local MMDB lookup, masked before lookup (Config#geo_db_reader)
-    # 5. Built-in IP-range detection (a tiny best-effort table)
-    # 6. '**' (unknown)
+    # 5. '**' (unknown)
     #
     # Steps 1 and 2 are SKIPPED when the request's geo headers are not trusted
     # (a non-trusted-proxy request while trusted proxies are configured) — every
     # geo header is client-spoofable unless you are actually behind that CDN.
     #
-    # When a database is configured it is authoritative: step 4 missing means
-    # step 5 is skipped and the result is '**' (no best-effort range guess).
+    # Resolution is HONEST: when no header, custom resolver, or database resolves
+    # a country, the answer is '**' (unknown). Otto does not guess from a
+    # hardcoded IP-range table — configure a database or an edge header for real
+    # geo-location.
     #
     # Supported CDN/Infrastructure Headers:
     # - Cloudflare: CF-IPCountry
@@ -48,9 +47,9 @@ class Otto
     #   GeoResolver.resolve('1.2.3.4', env)
     #   # => 'GB'
     #
-    # @example Resolve without CDN headers
+    # @example Resolve without any header, resolver, or database
     #   GeoResolver.resolve('8.8.8.8', {})
-    #   # => 'US' (Google DNS via range detection)
+    #   # => '**' (unknown — Otto does not guess)
     #
     # @example Using a custom resolver (MaxMind)
     #   GeoResolver.custom_resolver = ->(ip, env) {
@@ -62,7 +61,7 @@ class Otto
     #
     # @example Extending via subclass
     #   class MyGeoResolver < Otto::Privacy::GeoResolver
-    #     def self.detect_by_range(ip)
+    #     def self.check_geo_database(ip, config)
     #       # Custom logic here
     #       super  # Fall back to parent
     #     end
@@ -80,8 +79,7 @@ class Otto
     #                   └─ Invalid/Error → Continue
     #                 → Local MMDB reader configured?
     #                   ├─ Hit → Return country
-    #                   └─ Miss → Built-in range detection
-    #                             └─ Unknown ('**')
+    #                   └─ Miss → Unknown ('**')
     #
     class GeoResolver
       # Unknown country code (not ISO 3166-1 alpha-2, intentionally distinct)
@@ -143,8 +141,7 @@ class Otto
       # 2. Built-in CDN/infrastructure provider headers
       # 3. Custom resolver hook ({.custom_resolver})
       # 4. Local MMDB lookup (+config.geo_db_reader+), masked before lookup
-      # 5. Built-in IP-range detection (skipped when a database is configured)
-      # 6. '**' for unknown
+      # 5. '**' for unknown (no guessing)
       #
       # Country-level MMDB networks are almost always >= /24, so a /24-masked
       # +x.y.z.0+ resolves to the same country as the real IP. The database
@@ -161,7 +158,7 @@ class Otto
       #   masked), so a custom resolver never sees the raw IP through env either.
       # @param config [Otto::Privacy::Config, nil] privacy config supplying the
       #   configured header and MMDB reader. When nil, only the built-in provider
-      #   headers, custom resolver and range detection are used (legacy behavior).
+      #   headers and the custom resolver are consulted.
       # @param headers_trusted [Boolean] whether request geo headers may be
       #   trusted for this request (default true; the middleware computes this
       #   from the trusted-proxy decision).
@@ -169,17 +166,9 @@ class Otto
       def self.resolve(ip, env = {}, config = nil, headers_trusted: true)
         return UNKNOWN if ip.nil? || ip.empty?
 
-        country = resolve_from_sources(ip, env, config, headers_trusted)
-        return country if country
-
-        # A configured database is authoritative: a miss resolves to unknown
-        # rather than falling back to the coarse built-in range table (which
-        # could otherwise return a confident-but-wrong guess).
-        return UNKNOWN if config&.geo_db_reader
-
-        detect_by_range(ip)
-      rescue IPAddr::InvalidAddressError
-        UNKNOWN
+        # Resolution is honest: when no header, custom resolver, or database
+        # resolves a country, the answer is '**' (unknown) — never a guess.
+        resolve_from_sources(ip, env, config, headers_trusted) || UNKNOWN
       end
 
       # Walk the ordered resolution sources and return the first country found.
@@ -377,61 +366,6 @@ class Otto
         match ? match[1] : nil
       end
       private_class_method :extract_akamai_country
-
-      # Detect country by IP range (basic implementation)
-      #
-      # Detects major cloud providers and well-known IP ranges.
-      # This is intentionally limited - for comprehensive geo-location,
-      # use CDN headers or configure a custom resolver.
-      #
-      # @param ip [String] IP address
-      # @return [String] Country code or '**'
-      # @api private
-      def self.detect_by_range(ip)
-        addr = IPAddr.new(ip)
-
-        # Private/local addresses
-        return UNKNOWN if IPPrivacy.private_or_localhost?(ip)
-
-        # Check against known ranges
-        KNOWN_RANGES.each do |range, country|
-          return country if range.include?(addr)
-        end
-
-        UNKNOWN
-      end
-      private_class_method :detect_by_range
-
-      # Known IP ranges for major providers (limited set for basic detection)
-      # For comprehensive geo-location, use CDN headers or custom resolver
-      KNOWN_RANGES = {
-        # Google Public DNS
-        IPAddr.new('8.8.8.0/24') => 'US',
-        IPAddr.new('8.8.4.0/24') => 'US',
-
-        # Cloudflare DNS
-        IPAddr.new('1.1.1.0/24') => 'US',
-        IPAddr.new('1.0.0.0/24') => 'US',
-
-        # AWS US-East
-        IPAddr.new('52.0.0.0/11') => 'US',
-        IPAddr.new('54.0.0.0/8') => 'US',
-
-        # AWS EU-West
-        IPAddr.new('34.240.0.0/13') => 'IE',
-        IPAddr.new('52.16.0.0/14') => 'IE',
-
-        # AWS AP-Southeast
-        IPAddr.new('13.210.0.0/15') => 'AU',
-        IPAddr.new('52.62.0.0/15') => 'AU',
-
-        # Quad9 DNS (Switzerland)
-        IPAddr.new('9.9.9.0/24') => 'CH',
-
-        # OpenDNS
-        IPAddr.new('208.67.222.0/24') => 'US',
-        IPAddr.new('208.67.220.0/24') => 'US',
-      }.freeze
 
       # Validate country code format
       #

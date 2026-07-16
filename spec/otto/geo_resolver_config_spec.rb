@@ -114,8 +114,8 @@ RSpec.describe 'Configurable geo resolution' do
         expect(described_class.resolve('9.9.9.0', env, config)).to eq('US')
       end
 
-      it 'falls through to range detection when no header matches' do
-        expect(described_class.resolve('8.8.8.0', {}, config)).to eq('US')
+      it 'returns ** when no header matches and nothing else resolves' do
+        expect(described_class.resolve('8.8.8.0', {}, config)).to eq('**')
       end
     end
 
@@ -130,10 +130,12 @@ RSpec.describe 'Configurable geo resolution' do
       let(:config) { Otto::Privacy::Config.new(geo_header: 'X-Client-Country') }
 
       it 'skips both configured and provider headers when headers are untrusted' do
+        # A database gives a definitive non-header answer, proving neither
+        # spoofable header (JP / GB) was consulted.
+        reader = recording_reader('9.9.9.0' => { 'country' => { 'iso_code' => 'CH' } })
+        cfg = Otto::Privacy::Config.new(geo_header: 'X-Client-Country', geo_db_reader: reader)
         env = { 'HTTP_X_CLIENT_COUNTRY' => 'JP', 'HTTP_CF_IPCOUNTRY' => 'GB' }
-        # 9.9.9.0 (Quad9) resolves to CH by range detection, proving neither
-        # spoofable header was consulted.
-        expect(described_class.resolve('9.9.9.0', env, config, headers_trusted: false)).to eq('CH')
+        expect(described_class.resolve('9.9.9.0', env, cfg, headers_trusted: false)).to eq('CH')
       end
 
       it 'still consults the database when headers are untrusted' do
@@ -210,10 +212,10 @@ RSpec.describe 'Configurable geo resolution' do
       end
     end
 
-    describe '.resolve backward compatibility' do
-      it 'behaves as before when no config is supplied' do
+    describe '.resolve with no config supplied' do
+      it 'uses provider headers and otherwise returns unknown' do
         expect(described_class.resolve('8.8.8.8', { 'HTTP_CF_IPCOUNTRY' => 'GB' })).to eq('GB')
-        expect(described_class.resolve('8.8.8.8', {})).to eq('US')
+        expect(described_class.resolve('8.8.8.8', {})).to eq('**')
         expect(described_class.resolve('240.0.0.1', {})).to eq('**')
       end
     end
@@ -265,12 +267,14 @@ RSpec.describe 'Configurable geo resolution' do
       it 'ignores a spoofed provider header from a non-trusted-proxy request' do
         sc = Otto::Security::Config.new
         sc.add_trusted_proxy('10.0.0.1')
+        # A database gives the true country; the forged CF-IPCountry: GB is a lie.
+        sc.ip_privacy_config.geo_db_reader = recording_reader('8.8.8.0' => { 'country' => { 'iso_code' => 'US' } })
+        sc.ip_privacy_config.load_geo_database!
 
-        # Direct connection from 8.8.8.8 with a forged CF-IPCountry: GB is a lie.
         env = run(sc, { 'REMOTE_ADDR' => '8.8.8.8', 'HTTP_CF_IPCOUNTRY' => 'GB' })
 
         expect(env['otto.via_trusted_proxy']).to be false
-        # Header ignored; masked 8.8.8.0 resolves to US by range detection.
+        # Spoofed header ignored; the DB (masked 8.8.8.0) answers US, not GB.
         expect(env['otto.privacy.geo_country']).to eq('US')
       end
 
@@ -282,9 +286,11 @@ RSpec.describe 'Configurable geo resolution' do
       it 'ignores geo headers in count-based depth mode (edge unverifiable)' do
         sc = Otto::Security::Config.new
         sc.trusted_proxy_depth = 1
-
         # Depth mode can't verify the hop that set CF-IPCountry is a geo-CDN, so
-        # the forged GB header is ignored; masked 8.8.8.0 resolves to US.
+        # the forged GB header is ignored; the DB answers the true country.
+        sc.ip_privacy_config.geo_db_reader = recording_reader('8.8.8.0' => { 'country' => { 'iso_code' => 'US' } })
+        sc.ip_privacy_config.load_geo_database!
+
         env = run(sc, {
                     'REMOTE_ADDR' => '10.0.0.1',
                     'HTTP_X_FORWARDED_FOR' => '8.8.8.8',

@@ -137,11 +137,11 @@ RSpec.describe 'IP Privacy Features' do
           expect(result).to eq('**')
         end
 
-        it 'falls back to range detection when custom resolver returns nil' do
+        it 'returns ** when custom resolver returns nil and nothing else resolves' do
           Otto::Privacy::GeoResolver.custom_resolver = ->(ip, _env) { nil }
 
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
-          expect(result).to eq('US')  # From range detection
+          expect(result).to eq('**')  # Honest unknown; no guessing
         end
 
         it 'handles custom resolver errors gracefully' do
@@ -150,8 +150,8 @@ RSpec.describe 'IP Privacy Features' do
           }
 
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
-          # Falls back to range detection
-          expect(result).to eq('US')
+          # Error is swallowed; no other source resolves -> unknown
+          expect(result).to eq('**')
         end
 
         it 'prefers CDN headers over custom resolver' do
@@ -185,7 +185,7 @@ RSpec.describe 'IP Privacy Features' do
           Otto::Privacy::GeoResolver.custom_resolver = nil
 
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
-          expect(result).to eq('US')  # Uses range detection
+          expect(result).to eq('**')  # No resolver, header, or db -> unknown
         end
       end
 
@@ -305,16 +305,16 @@ RSpec.describe 'IP Privacy Features' do
           env = { 'HTTP_X_AKAMAI_EDGESCAPE' => 'invalid_format' }
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
 
-          # Falls back to range detection (Google DNS -> US)
-          expect(result).to eq('US')
+          # Unparseable header is ignored; nothing else resolves -> unknown
+          expect(result).to eq('**')
         end
 
         it 'handles Edgescape with invalid country code' do
           env = { 'HTTP_X_AKAMAI_EDGESCAPE' => 'country_code=INVALID' }
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
 
-          # Falls back to range detection
-          expect(result).to eq('US')
+          # Invalid code is ignored -> unknown
+          expect(result).to eq('**')
         end
 
         it 'handles trailing comma edge cases' do
@@ -338,53 +338,48 @@ RSpec.describe 'IP Privacy Features' do
       end
 
       context 'header validation' do
-        it 'ignores invalid Cloudflare header and falls back to range detection' do
+        it 'ignores an invalid Cloudflare header' do
           env = { 'HTTP_CF_IPCOUNTRY' => 'invalid' }
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
 
-          # Should ignore invalid CF header and fall back to range detection
-          expect(result).to eq('US')
+          # Invalid CF header is ignored; nothing else resolves -> unknown
+          expect(result).to eq('**')
         end
 
         it 'ignores lowercase country codes' do
           env = { 'HTTP_CF_IPCOUNTRY' => 'us' }
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
 
-          # Falls back to range detection
-          expect(result).to eq('US')
+          expect(result).to eq('**')
         end
 
         it 'ignores 3-letter codes' do
           env = { 'HTTP_CF_IPCOUNTRY' => 'USA' }
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
 
-          # Falls back to range detection
-          expect(result).to eq('US')
+          expect(result).to eq('**')
         end
 
         it 'ignores single-letter codes' do
           env = { 'HTTP_CF_IPCOUNTRY' => 'U' }
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
 
-          # Falls back to range detection
-          expect(result).to eq('US')
+          expect(result).to eq('**')
         end
 
         it 'ignores non-string values' do
           env = { 'HTTP_CF_IPCOUNTRY' => 123 }
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
 
-          # Falls back to range detection
-          expect(result).to eq('US')
+          expect(result).to eq('**')
         end
       end
 
-      it 'resolves country using IP range detection' do
-        # Test with Google DNS (8.8.8.8) which should resolve to US
+      it 'returns ** when no header, resolver, or database resolves' do
+        # No hardcoded IP-range guessing: an unrecognized address is unknown.
         result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
 
-        # Should resolve to US via range detection
-        expect(result).to eq('US')
+        expect(result).to eq('**')
       end
 
       it 'falls back to ** for truly unknown IPs' do

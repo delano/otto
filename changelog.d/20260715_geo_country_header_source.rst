@@ -24,10 +24,15 @@ Changed
   the masked IP (and masked env); direct ``GeoResolver.resolve`` callers are
   unchanged. (#206)
 
-- A configured geo database is authoritative: a lookup miss (or an unusable
-  result) resolves to ``'**'`` rather than falling back to the built-in
-  best-effort IP-range table, which is only consulted when no database is
-  configured. (#206)
+Removed
+-------
+
+- The built-in ``KNOWN_RANGES`` IP-range guess table (and ``detect_by_range``).
+  Geo resolution is now honest: when no header, custom resolver, or database
+  resolves a country, the result is ``'**'`` (unknown) rather than a guess from
+  a hardcoded ~14-entry table that mislabeled whole cloud regions. Configure a
+  database or an edge header for real geo-location. Callers that relied on the
+  table (e.g. ``8.8.8.8`` -> ``US``) now get ``'**'``. (#206)
 
 Security
 --------

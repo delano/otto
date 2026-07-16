@@ -130,8 +130,19 @@ class Otto
         geo_touched = [geo, geo_header, geo_db_path, geo_db_reader].any? { |v| !v.nil? }
 
         config.geo_header = geo_header unless geo_header.nil?
-        config.geo_db_reader = geo_db_reader unless geo_db_reader.nil?
-        config.geo_db_path = geo_db_path unless geo_db_path.nil?
+
+        # A newly supplied reader or path replaces the other database source. A
+        # reader given in this call wins over a path (documented precedence); a
+        # path given on its own clears any prior injected reader so it actually
+        # takes effect — otherwise the stale override would silently shadow the
+        # new path (leaving lookups pointed at a closed/old reader).
+        if !geo_db_reader.nil?
+          config.geo_db_reader = geo_db_reader
+          config.geo_db_path = geo_db_path unless geo_db_path.nil?
+        elsif !geo_db_path.nil?
+          config.geo_db_reader = nil
+          config.geo_db_path = geo_db_path
+        end
 
         config.load_geo_database! if geo_touched
       end

@@ -429,6 +429,17 @@ RSpec.describe 'Configurable geo resolution' do
       otto.configure_ip_privacy(geo: false)
       expect(otto.security_config.ip_privacy_config.geo_db_reader).to be_nil
     end
+
+    it 'lets a later geo_db_path replace an injected reader' do
+      reader = recording_reader({})
+      otto = create_minimal_otto(['GET / TestApp.index'])
+      otto.configure_ip_privacy(geo_db_reader: reader)
+
+      # The new path must actually take effect — a bad one now raises at boot
+      # instead of being silently shadowed by the stale reader override.
+      expect { otto.configure_ip_privacy(geo_db_path: '/no/such/geo.mmdb') }
+        .to raise_error(ArgumentError, /not readable/)
+    end
   end
 
   # Exercises the real MaxMind::DB reader against a generated fixture (see

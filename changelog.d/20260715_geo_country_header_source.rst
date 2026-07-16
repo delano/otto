@@ -48,12 +48,15 @@ Security
 Fixed
 -----
 
-- IP privacy now masks the RFC 7239 ``Forwarded`` header (``HTTP_FORWARDED``),
+- IP privacy now redacts the RFC 7239 ``Forwarded`` header (``HTTP_FORWARDED``),
   which Otto reads as an authoritative client-IP source in count-based depth
-  mode. Previously it was left intact while ``X-Forwarded-For`` and friends
-  were masked, so downstream code (and, before the geo seal, a custom geo
-  resolver) could still read the real client IP from its ``for=`` token. It is
-  now rewritten to a valid Forwarded value holding only the masked IP. (#206)
+  mode. Previously it was left intact while ``X-Forwarded-For`` and friends were
+  masked, so downstream code (and, before the geo seal, a custom geo resolver)
+  could read the real client IP from its ``for=`` token. Only the ``for=``
+  value is now replaced with the masked IP; ``proto=``/``host=``/``by=`` and the
+  header structure are preserved. When no client IP can be resolved (no usable
+  ``REMOTE_ADDR``), the forwarded headers are dropped rather than left to leak a
+  raw address. (#206)
 
 AI Assistance
 -------------

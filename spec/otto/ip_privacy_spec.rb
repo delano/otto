@@ -109,18 +109,34 @@ RSpec.describe 'IP Privacy Features' do
       end
     end
 
-    describe '.forwarded_header_for' do
-      it 'builds an unquoted for= element for IPv4' do
-        expect(Otto::Privacy::IPPrivacy.forwarded_header_for('192.0.2.0')).to eq('for=192.0.2.0')
+    describe '.mask_forwarded_for' do
+      it 'redacts for= while preserving proto/host/by metadata' do
+        value = 'for=203.0.113.77;proto=https;host=example.com;by=10.0.0.1'
+        expect(Otto::Privacy::IPPrivacy.mask_forwarded_for(value, '203.0.113.0'))
+          .to eq('for=203.0.113.0;proto=https;host=example.com;by=10.0.0.1')
       end
 
-      it 'brackets and quotes IPv6 per RFC 7239' do
-        expect(Otto::Privacy::IPPrivacy.forwarded_header_for('2001:db8::')).to eq('for="[2001:db8::]"')
+      it 'redacts every for= element in a chain' do
+        value = 'for=203.0.113.77, for=198.51.100.9;proto=https'
+        expect(Otto::Privacy::IPPrivacy.mask_forwarded_for(value, '203.0.113.0'))
+          .to eq('for=203.0.113.0, for=203.0.113.0;proto=https')
       end
 
-      it 'returns nil for nil/empty input' do
-        expect(Otto::Privacy::IPPrivacy.forwarded_header_for(nil)).to be_nil
-        expect(Otto::Privacy::IPPrivacy.forwarded_header_for('')).to be_nil
+      it 'brackets and quotes a masked IPv6 for= value' do
+        value = 'for="[2001:db8:85a3::8a2e:370:7334]";proto=https'
+        expect(Otto::Privacy::IPPrivacy.mask_forwarded_for(value, '2001:db8::'))
+          .to eq('for="[2001:db8::]";proto=https')
+      end
+
+      it 'does not touch a parameter merely ending in "for"' do
+        value = 'secret_for=203.0.113.77;proto=https'
+        expect(Otto::Privacy::IPPrivacy.mask_forwarded_for(value, '203.0.113.0'))
+          .to eq('secret_for=203.0.113.77;proto=https')
+      end
+
+      it 'returns the value unchanged when there is nothing to mask' do
+        expect(Otto::Privacy::IPPrivacy.mask_forwarded_for('for=1.2.3.4', nil)).to eq('for=1.2.3.4')
+        expect(Otto::Privacy::IPPrivacy.mask_forwarded_for(nil, '1.2.3.0')).to be_nil
       end
     end
   end
@@ -507,20 +523,23 @@ RSpec.describe 'IP Privacy Features' do
       end
 
       context 'RFC 7239 Forwarded header masking' do
-        it 'rewrites HTTP_FORWARDED to hold only the masked IP' do
-          env = { 'REMOTE_ADDR' => '203.0.113.77', 'HTTP_FORWARDED' => 'for=203.0.113.77;proto=https;by=10.0.0.1' }
+        it 'redacts for= but preserves proto/host/by metadata' do
+          env = { 'REMOTE_ADDR' => '203.0.113.77',
+                  'HTTP_FORWARDED' => 'for=203.0.113.77;proto=https;host=example.com;by=10.0.0.1' }
           middleware.call(env)
 
-          expect(env['HTTP_FORWARDED']).to eq('for=203.0.113.0')
+          expect(env['HTTP_FORWARDED']).to eq('for=203.0.113.0;proto=https;host=example.com;by=10.0.0.1')
           expect(env['HTTP_FORWARDED']).not_to include('203.0.113.77')
         end
 
         it 'brackets and quotes a masked IPv6 for= value (valid RFC 7239)' do
-          env = { 'REMOTE_ADDR' => '2001:db8:85a3::8a2e:370:7334', 'HTTP_FORWARDED' => 'for="[2001:db8:85a3::8a2e:370:7334]"' }
+          env = { 'REMOTE_ADDR' => '2001:db8:85a3::8a2e:370:7334',
+                  'HTTP_FORWARDED' => 'for="[2001:db8:85a3::8a2e:370:7334]";proto=https' }
           middleware.call(env)
 
-          # /48-masked (octet_precision 1 -> last 80 bits) IPv6, bracketed+quoted
-          expect(env['HTTP_FORWARDED']).to match(/\Afor="\[2001:db8:85a3:[0:]*\]"\z/)
+          # /48-masked (octet_precision 1 -> last 80 bits) IPv6, bracketed+quoted,
+          # with proto= preserved.
+          expect(env['HTTP_FORWARDED']).to match(%r{\Afor="\[2001:db8:85a3:[0:]*\]";proto=https\z})
           expect(env['HTTP_FORWARDED']).not_to include('8a2e')
         end
 
@@ -529,6 +548,17 @@ RSpec.describe 'IP Privacy Features' do
           middleware.call(env)
 
           expect(env['HTTP_FORWARDED']).to eq('for=192.168.1.100')
+        end
+
+        it 'deletes forwarded headers when there is no resolvable client IP' do
+          # No REMOTE_ADDR to anchor resolution, but forwarded headers carry a
+          # raw client address. With no masked IP to rewrite them to, they must
+          # be dropped, not left to leak downstream.
+          env = { 'HTTP_X_FORWARDED_FOR' => '203.0.113.99', 'HTTP_FORWARDED' => 'for=203.0.113.99' }
+          middleware.call(env)
+
+          expect(env).not_to have_key('HTTP_X_FORWARDED_FOR')
+          expect(env).not_to have_key('HTTP_FORWARDED')
         end
       end
 

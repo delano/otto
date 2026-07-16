@@ -119,22 +119,28 @@ class Otto
         false
       end
 
-      # Build an RFC 7239 Forwarded header value carrying only the masked IP.
+      # Redact the client identifier(s) in an RFC 7239 Forwarded header value.
       #
-      # The Forwarded header (unlike X-Forwarded-For) is structured, so it can't
-      # be swapped wholesale for a bare IP without producing invalid syntax.
-      # This collapses it to a single, syntactically valid `for=` element with
-      # the masked address — the same "discard the chain, keep the masked IP"
-      # treatment the middleware applies to X-Forwarded-For. IPv6 is bracketed
-      # and quoted as the RFC requires.
+      # Only the `for=` node value is replaced with the masked IP; `proto=`,
+      # `host=`, `by=` and the overall structure are preserved so downstream
+      # scheme/host/proxy decisions (absolute URLs, redirects, secure cookies)
+      # still work. Every `for=` element in the chain is redacted. IPv6 is
+      # bracketed and quoted as the RFC requires. This is the structured-header
+      # counterpart to the wholesale X-Forwarded-For swap.
       #
+      # @param value [String, nil] the Forwarded header value
       # @param masked_ip [String, nil] the masked client IP
-      # @return [String, nil] e.g. 'for=192.0.2.0' or 'for="[2001:db8::]"', or
-      #   nil when there is no masked IP
-      def self.forwarded_header_for(masked_ip)
-        return nil if masked_ip.nil? || masked_ip.empty?
+      # @return [String, nil] the header with every `for=` value redacted, or
+      #   the value unchanged when there is nothing to mask
+      def self.mask_forwarded_for(value, masked_ip)
+        return value if value.nil? || masked_ip.nil? || masked_ip.empty?
 
-        masked_ip.include?(':') ? %(for="[#{masked_ip}]") : "for=#{masked_ip}"
+        replacement = masked_ip.include?(':') ? %("[#{masked_ip}]") : masked_ip
+        # Match `for=` only at an element/pair boundary (start, comma, or
+        # semicolon) so a parameter merely ending in "for" is never touched.
+        value.gsub(/(\A|[,;]\s*)for\s*=\s*("[^"]*"|[^;,]+)/i) do
+          "#{Regexp.last_match(1)}for=#{replacement}"
+        end
       end
 
       # Mask IPv4 address

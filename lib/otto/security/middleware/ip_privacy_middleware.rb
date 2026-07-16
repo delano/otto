@@ -94,12 +94,18 @@ class Otto
           # original sensitive data. So still scrub those headers before
           # bailing — a request with no resolvable IP must not leak an
           # un-anonymized User-Agent or Referer.
+          #
+          # Likewise, forwarded headers may still carry raw client addresses
+          # (e.g. an X-Forwarded-For / Forwarded value with no usable REMOTE_ADDR
+          # to anchor resolution). There is no masked IP to rewrite them to, so
+          # DELETE them — leaving them would leak the raw address downstream.
           if client_ip.to_s.empty?
             Otto.logger.debug '[IPPrivacyMiddleware] No resolvable client IP; skipping IP masking' if Otto.debug
             scrub_sensitive_headers(
               env,
               Otto::Privacy::RedactedFingerprint.new(env, @config, geo_headers_trusted: geo_headers_trusted?(env))
             )
+            scrub_forwarded_headers(env)
             return
           end
 
@@ -244,6 +250,21 @@ class Otto
           Otto::Utils.resolve_client_ip(env, @security_config)
         end
 
+        # Delete forwarded IP headers outright.
+        #
+        # Used on the no-resolvable-client-IP path, where there is no masked IP
+        # to rewrite these to. Leaving them would leak a raw client address (in
+        # X-Forwarded-For / X-Real-IP / X-Client-IP / RFC 7239 Forwarded)
+        # downstream. Deleting is Rack-SPEC-safe: an absent CGI key is valid.
+        #
+        # @param env [Hash] Rack environment
+        def scrub_forwarded_headers(env)
+          env.delete('HTTP_X_FORWARDED_FOR')
+          env.delete('HTTP_X_REAL_IP')
+          env.delete('HTTP_X_CLIENT_IP')
+          env.delete('HTTP_FORWARDED')
+        end
+
         # Mask X-Forwarded-For and related proxy headers
         #
         # Replaces forwarded IP headers with the masked IP to prevent leakage
@@ -269,9 +290,11 @@ class Otto
           # RFC 7239 Forwarded carries the client IP in a structured `for=`
           # token, and Otto reads it as an authoritative client-IP source in
           # count-based depth mode (trusted_proxy_header 'Forwarded'/'Both').
-          # Left as-is it would leak the real IP to downstream code, so rewrite
-          # it to a valid Forwarded value holding only the masked IP.
-          env['HTTP_FORWARDED'] = Otto::Privacy::IPPrivacy.forwarded_header_for(masked_ip) if env['HTTP_FORWARDED']
+          # Left as-is it would leak the real IP to downstream code. Redact only
+          # the `for=` value(s) so proto=/host=/by= metadata survives.
+          if env['HTTP_FORWARDED']
+            env['HTTP_FORWARDED'] = Otto::Privacy::IPPrivacy.mask_forwarded_for(env['HTTP_FORWARDED'], masked_ip)
+          end
 
           Otto.logger.debug "[IPPrivacyMiddleware] Masked forwarded headers" if Otto.debug
         end

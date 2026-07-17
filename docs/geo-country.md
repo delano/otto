@@ -67,10 +67,10 @@ otto.configure_ip_privacy(
 - **`geo_header:`** accepts either the HTTP header name (`X-Client-Country`) or
   the Rack CGI env key (`HTTP_X_CLIENT_COUNTRY`), in any case, and is
   canonicalized to the env-key form. Pass `''` to clear.
-- **`geo_db_path:`** is loaded once at boot in `MODE_MEMORY`. A missing/invalid
-  path (or a missing `maxmind-db` gem) raises
-  `Otto::Privacy::GeoResolver::DatabaseError` **at configuration time**, not
-  per-request. Pass `''` to unload.
+- **`geo_db_path:`** is loaded once at boot in `MODE_MEMORY`. An unreadable
+  path, a corrupt/non-MMDB file, or a missing `maxmind-db` gem raises
+  `ArgumentError` **at configuration time**, not per-request. Pass `''` to
+  unload.
 - **`geo_db_reader:`** injects any object responding to `#get(ip)` (a
   preconfigured `MaxMind::DB` reader or a test double), keeping the reader and
   data-source choice independent of Otto. It **overrides** `geo_db_path` when

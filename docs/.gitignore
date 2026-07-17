@@ -3,5 +3,6 @@
 !migrating/
 !migrating/*.md
 !ipaddr-encoding-quirk.md
+!geo-country.md
 !modern-authentication-authorization-landscape.md
 !multi-strategy-authentication-design.md

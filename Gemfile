@@ -29,7 +29,7 @@ group :development do
   gem 'debug'
   gem 'rackup' # Used to boot examples/ apps; not needed by specs
   gem 'rake', '~> 13.4', require: false # Provides `rake release` for release-gem.yml
-  gem 'rubocop', '~> 1.88.1', require: false
+  gem 'rubocop', '~> 1.88.2', require: false
   gem 'rubocop-performance', require: false
   gem 'rubocop-rspec', require: false
   gem 'rubocop-thread_safety', require: false

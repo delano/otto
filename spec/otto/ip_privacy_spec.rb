@@ -108,6 +108,37 @@ RSpec.describe 'IP Privacy Features' do
         expect(Otto::Privacy::IPPrivacy.valid_ip?(nil)).to be false
       end
     end
+
+    describe '.mask_forwarded_for' do
+      it 'redacts for= while preserving proto/host/by metadata' do
+        value = 'for=203.0.113.77;proto=https;host=example.com;by=10.0.0.1'
+        expect(Otto::Privacy::IPPrivacy.mask_forwarded_for(value, '203.0.113.0'))
+          .to eq('for=203.0.113.0;proto=https;host=example.com;by=10.0.0.1')
+      end
+
+      it 'redacts every for= element in a chain' do
+        value = 'for=203.0.113.77, for=198.51.100.9;proto=https'
+        expect(Otto::Privacy::IPPrivacy.mask_forwarded_for(value, '203.0.113.0'))
+          .to eq('for=203.0.113.0, for=203.0.113.0;proto=https')
+      end
+
+      it 'brackets and quotes a masked IPv6 for= value' do
+        value = 'for="[2001:db8:85a3::8a2e:370:7334]";proto=https'
+        expect(Otto::Privacy::IPPrivacy.mask_forwarded_for(value, '2001:db8::'))
+          .to eq('for="[2001:db8::]";proto=https')
+      end
+
+      it 'does not touch a parameter merely ending in "for"' do
+        value = 'secret_for=203.0.113.77;proto=https'
+        expect(Otto::Privacy::IPPrivacy.mask_forwarded_for(value, '203.0.113.0'))
+          .to eq('secret_for=203.0.113.77;proto=https')
+      end
+
+      it 'returns the value unchanged when there is nothing to mask' do
+        expect(Otto::Privacy::IPPrivacy.mask_forwarded_for('for=1.2.3.4', nil)).to eq('for=1.2.3.4')
+        expect(Otto::Privacy::IPPrivacy.mask_forwarded_for(nil, '1.2.3.0')).to be_nil
+      end
+    end
   end
 
   describe Otto::Privacy::GeoResolver do
@@ -137,11 +168,11 @@ RSpec.describe 'IP Privacy Features' do
           expect(result).to eq('**')
         end
 
-        it 'falls back to range detection when custom resolver returns nil' do
+        it 'returns ** when custom resolver returns nil and nothing else resolves' do
           Otto::Privacy::GeoResolver.custom_resolver = ->(ip, _env) { nil }
 
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
-          expect(result).to eq('US')  # From range detection
+          expect(result).to eq('**')  # Honest unknown; no guessing
         end
 
         it 'handles custom resolver errors gracefully' do
@@ -150,8 +181,8 @@ RSpec.describe 'IP Privacy Features' do
           }
 
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
-          # Falls back to range detection
-          expect(result).to eq('US')
+          # Error is swallowed; no other source resolves -> unknown
+          expect(result).to eq('**')
         end
 
         it 'prefers CDN headers over custom resolver' do
@@ -185,7 +216,7 @@ RSpec.describe 'IP Privacy Features' do
           Otto::Privacy::GeoResolver.custom_resolver = nil
 
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
-          expect(result).to eq('US')  # Uses range detection
+          expect(result).to eq('**')  # No resolver, header, or db -> unknown
         end
       end
 
@@ -305,16 +336,16 @@ RSpec.describe 'IP Privacy Features' do
           env = { 'HTTP_X_AKAMAI_EDGESCAPE' => 'invalid_format' }
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
 
-          # Falls back to range detection (Google DNS -> US)
-          expect(result).to eq('US')
+          # Unparseable header is ignored; nothing else resolves -> unknown
+          expect(result).to eq('**')
         end
 
         it 'handles Edgescape with invalid country code' do
           env = { 'HTTP_X_AKAMAI_EDGESCAPE' => 'country_code=INVALID' }
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
 
-          # Falls back to range detection
-          expect(result).to eq('US')
+          # Invalid code is ignored -> unknown
+          expect(result).to eq('**')
         end
 
         it 'handles trailing comma edge cases' do
@@ -338,53 +369,48 @@ RSpec.describe 'IP Privacy Features' do
       end
 
       context 'header validation' do
-        it 'ignores invalid Cloudflare header and falls back to range detection' do
+        it 'ignores an invalid Cloudflare header' do
           env = { 'HTTP_CF_IPCOUNTRY' => 'invalid' }
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
 
-          # Should ignore invalid CF header and fall back to range detection
-          expect(result).to eq('US')
+          # Invalid CF header is ignored; nothing else resolves -> unknown
+          expect(result).to eq('**')
         end
 
         it 'ignores lowercase country codes' do
           env = { 'HTTP_CF_IPCOUNTRY' => 'us' }
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
 
-          # Falls back to range detection
-          expect(result).to eq('US')
+          expect(result).to eq('**')
         end
 
         it 'ignores 3-letter codes' do
           env = { 'HTTP_CF_IPCOUNTRY' => 'USA' }
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
 
-          # Falls back to range detection
-          expect(result).to eq('US')
+          expect(result).to eq('**')
         end
 
         it 'ignores single-letter codes' do
           env = { 'HTTP_CF_IPCOUNTRY' => 'U' }
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
 
-          # Falls back to range detection
-          expect(result).to eq('US')
+          expect(result).to eq('**')
         end
 
         it 'ignores non-string values' do
           env = { 'HTTP_CF_IPCOUNTRY' => 123 }
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
 
-          # Falls back to range detection
-          expect(result).to eq('US')
+          expect(result).to eq('**')
         end
       end
 
-      it 'resolves country using IP range detection' do
-        # Test with Google DNS (8.8.8.8) which should resolve to US
+      it 'returns ** when no header, resolver, or database resolves' do
+        # No hardcoded IP-range guessing: an unrecognized address is unknown.
         result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
 
-        # Should resolve to US via range detection
-        expect(result).to eq('US')
+        expect(result).to eq('**')
       end
 
       it 'falls back to ** for truly unknown IPs' do
@@ -493,6 +519,46 @@ RSpec.describe 'IP Privacy Features' do
           middleware.call(env)
 
           expect(env['otto.original_ip']).to be_nil
+        end
+      end
+
+      context 'RFC 7239 Forwarded header masking' do
+        it 'redacts for= but preserves proto/host/by metadata' do
+          env = { 'REMOTE_ADDR' => '203.0.113.77',
+                  'HTTP_FORWARDED' => 'for=203.0.113.77;proto=https;host=example.com;by=10.0.0.1' }
+          middleware.call(env)
+
+          expect(env['HTTP_FORWARDED']).to eq('for=203.0.113.0;proto=https;host=example.com;by=10.0.0.1')
+          expect(env['HTTP_FORWARDED']).not_to include('203.0.113.77')
+        end
+
+        it 'brackets and quotes a masked IPv6 for= value (valid RFC 7239)' do
+          env = { 'REMOTE_ADDR' => '2001:db8:85a3::8a2e:370:7334',
+                  'HTTP_FORWARDED' => 'for="[2001:db8:85a3::8a2e:370:7334]";proto=https' }
+          middleware.call(env)
+
+          # /48-masked (octet_precision 1 -> last 80 bits) IPv6, bracketed+quoted,
+          # with proto= preserved.
+          expect(env['HTTP_FORWARDED']).to match(%r{\Afor="\[2001:db8:85a3:[0:]*\]";proto=https\z})
+          expect(env['HTTP_FORWARDED']).not_to include('8a2e')
+        end
+
+        it 'leaves HTTP_FORWARDED untouched for exempt private IPs' do
+          env = { 'REMOTE_ADDR' => '192.168.1.100', 'HTTP_FORWARDED' => 'for=192.168.1.100' }
+          middleware.call(env)
+
+          expect(env['HTTP_FORWARDED']).to eq('for=192.168.1.100')
+        end
+
+        it 'deletes forwarded headers when there is no resolvable client IP' do
+          # No REMOTE_ADDR to anchor resolution, but forwarded headers carry a
+          # raw client address. With no masked IP to rewrite them to, they must
+          # be dropped, not left to leak downstream.
+          env = { 'HTTP_X_FORWARDED_FOR' => '203.0.113.99', 'HTTP_FORWARDED' => 'for=203.0.113.99' }
+          middleware.call(env)
+
+          expect(env).not_to have_key('HTTP_X_FORWARDED_FOR')
+          expect(env).not_to have_key('HTTP_FORWARDED')
         end
       end
 

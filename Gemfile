@@ -19,6 +19,7 @@ end
 group :development, :test, optional: true do
   # Keep gems that need to be in both environments
   gem 'json_schemer'
+  gem 'maxmind-db', '~> 1.2' # Optional geo DB reader; exercised by geo specs
   gem 'rack-attack'
   gem 'reek', '~> 6.5'
 end

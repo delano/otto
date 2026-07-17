@@ -119,6 +119,30 @@ class Otto
         false
       end
 
+      # Redact the client identifier(s) in an RFC 7239 Forwarded header value.
+      #
+      # Only the `for=` node value is replaced with the masked IP; `proto=`,
+      # `host=`, `by=` and the overall structure are preserved so downstream
+      # scheme/host/proxy decisions (absolute URLs, redirects, secure cookies)
+      # still work. Every `for=` element in the chain is redacted. IPv6 is
+      # bracketed and quoted as the RFC requires. This is the structured-header
+      # counterpart to the wholesale X-Forwarded-For swap.
+      #
+      # @param value [String, nil] the Forwarded header value
+      # @param masked_ip [String, nil] the masked client IP
+      # @return [String, nil] the header with every `for=` value redacted, or
+      #   the value unchanged when there is nothing to mask
+      def self.mask_forwarded_for(value, masked_ip)
+        return value if value.nil? || masked_ip.nil? || masked_ip.empty?
+
+        replacement = masked_ip.include?(':') ? %("[#{masked_ip}]") : masked_ip
+        # Match `for=` only at an element/pair boundary (start, comma, or
+        # semicolon) so a parameter merely ending in "for" is never touched.
+        value.gsub(/(\A|[,;]\s*)for\s*=\s*("[^"]*"|[^;,]+)/i) do
+          "#{Regexp.last_match(1)}for=#{replacement}"
+        end
+      end
+
       # Mask IPv4 address
       #
       # @param addr [IPAddr] IPAddr object (must be IPv4)

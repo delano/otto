@@ -45,10 +45,11 @@ Security
   verified as a geo-CDN) and — a behavior change — deployments with **no**
   trusted-proxy configuration. Previously any client could pick its own country
   by sending ``CF-IPCountry``/``X-Client-Country``. **Migration:** to keep
-  header-based geo, configure ``trusted_proxies`` (or ``trusted_proxy_depth``)
-  so Otto can verify the proxy origin, or set ``geo_db_path`` for a local
-  database; otherwise resolution now returns ``'**'`` for header-only setups.
-  (#206)
+  header-based geo, configure ``trusted_proxies`` (CIDR matchers) so Otto can
+  verify the proxy origin. Count-based ``trusted_proxy_depth`` does NOT enable
+  header trust — the header-setting hop can't be verified as a geo-CDN — so
+  depth-mode and header-only setups should set ``geo_db_path`` for a local
+  database instead. Otherwise resolution now returns ``'**'``. (#206)
 
 Fixed
 -----

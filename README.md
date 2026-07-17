@@ -240,7 +240,7 @@ otto.configure_ip_privacy(
 )
 ```
 
-Geo headers are only trusted for requests that arrive via a configured trusted proxy (they are client-spoofable otherwise), the database is looked up on the already-masked IP, and `configure_ip_privacy(geo: false)` disables geo entirely. See [CLAUDE.md](CLAUDE.md) for detailed configuration options.
+Geo headers are only trusted for requests that arrive via a configured trusted proxy (they are client-spoofable otherwise), the database is looked up on the already-masked IP, and `configure_ip_privacy(geo: false)` disables geo entirely. See [AGENTS.md](AGENTS.md) for detailed configuration options.
 
 ## Internationalization Support
 
@@ -366,7 +366,7 @@ gem install otto
 
 ## Documentation
 
-- **[CLAUDE.md](CLAUDE.md)** - Comprehensive developer guidance covering authentication architecture, configuration freezing, IP privacy, structured logging, and multi-app patterns
+- **[AGENTS.md](AGENTS.md)** - Comprehensive developer guidance covering authentication architecture, configuration freezing, IP privacy, structured logging, and multi-app patterns
 - **[docs/](docs/)** - Technical guides and migration guides
 - **[CHANGELOG.rst](CHANGELOG.rst)** - Version history, breaking changes, and upgrade notes
 

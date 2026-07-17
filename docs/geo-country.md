@@ -15,6 +15,8 @@ region lookup.
    (`X-Vercel-IP-Country`), and a few semi-standard names
    (`X-Geo-Country`, `X-Country-Code`, `Country-Code`).
 3. **Custom resolver** (`GeoResolver.custom_resolver`) — your own callable.
+   Unlike the other geo settings, this is **class-level** (see
+   [Configuration](#configuration)).
 4. **Local MMDB database** (`geo_db_path:` / `geo_db_reader:`) — a MaxMind-DB
    country database.
 5. **`'**'`** — the unknown sentinel, when nothing else matches.
@@ -50,8 +52,16 @@ IP out of `env` either — use the `ip` argument (already masked), not `env`.
 
 All geo configuration is **boot-time only** (set once during single-threaded
 initialization, before serving requests), matching `custom_resolver`'s
-contract. It is stored on the instance's `Otto::Privacy::Config`, so separate
-Otto instances hold independent geo configuration.
+contract. `geo_header`, `geo_db_path`, and `geo_db_reader` are stored on the
+instance's `Otto::Privacy::Config`, so separate Otto instances hold independent
+geo configuration.
+
+> **`custom_resolver` is the exception — it is class-level, not per-instance.**
+> `GeoResolver.custom_resolver=` sets a singleton on the `GeoResolver` class, so
+> it is **shared across every Otto instance in the process** (last write wins).
+> If you run multiple Otto instances that need different resolver strategies,
+> the custom resolver cannot distinguish them — branch inside a single resolver
+> on `env`, or use per-instance `geo_db_reader` instead.
 
 ```ruby
 otto.configure_ip_privacy(
@@ -117,8 +127,9 @@ curl -fsSL -o data/geo-whois-asn-country.mmdb \
 
 Refresh it on your own schedule (e.g. a daily cron job running the same curl).
 Any MMDB country database works — GeoLite2-Country, DB-IP Country Lite,
-iplocate, etc. — since `GeoResolver` tolerates the common record schemas
-(`country.iso_code`, `registered_country.iso_code`, and flat `country_code`).
+iplocate, etc. — since `GeoResolver` tolerates the record shapes country
+databases actually use: nested `country.iso_code` (GeoLite2-Country style), a
+flat `country_code` string, and a bare-string `country`.
 
 > **Note on GeoLite2:** its EULA requires a MaxMind account/license key and
 > obliges consumers to refresh within 30 days of each release. A PDDL dataset

@@ -25,18 +25,41 @@ class Otto
                   :country, :anonymized_ua, :request_path,
                   :request_method, :referer
 
+      # IP-bearing forwarded headers overwritten with the masked IP in the
+      # geo-resolution env view. Mirrors the set
+      # IPPrivacyMiddleware#mask_forwarded_headers rewrites, so a custom resolver
+      # reading env sees masked values everywhere the middleware would. The
+      # structured RFC 7239 Forwarded header (HTTP_FORWARDED) is handled
+      # separately in {#geo_env} (dropped, not swapped, to keep valid syntax).
+      GEO_MASKED_FORWARDED_HEADERS = %w[
+        HTTP_X_FORWARDED_FOR
+        HTTP_X_REAL_IP
+        HTTP_X_CLIENT_IP
+      ].freeze
+
       # Create a new RedactedFingerprint from a Rack environment
       #
       # @param env [Hash] Rack environment hash
       # @param config [Otto::Privacy::Config] Privacy configuration
-      def initialize(env, config)
+      # @param geo_headers_trusted [Boolean] whether request geo headers may be
+      #   trusted for this request. The middleware passes false for a
+      #   non-trusted-proxy request when trusted proxies are configured, so
+      #   spoofed geo headers are ignored. Defaults to true for standalone use.
+      def initialize(env, config, geo_headers_trusted: true)
         remote_ip = env['REMOTE_ADDR']
 
         @session_id = SecureRandom.uuid
         @timestamp = Time.now.utc
         @masked_ip = IPPrivacy.mask_ip(remote_ip, config.octet_precision)
         @hashed_ip = IPPrivacy.hash_ip(remote_ip, config.rotation_key)
-        @country = config.geo_enabled ? GeoResolver.resolve(remote_ip, env) : nil
+        # hashed_ip is computed above from the real IP; geo resolution then runs
+        # against a MASKED view — the masked IP AND an env with the IP-bearing
+        # headers masked — so neither a custom resolver nor the database can see
+        # the unmasked address, via the argument or via env. Country-level
+        # networks are >= /24, so the /24-masked IP resolves to the same country.
+        @country = if config.geo_enabled
+                     GeoResolver.resolve(@masked_ip, geo_env(env), config, headers_trusted: geo_headers_trusted)
+                   end
         @anonymized_ua = anonymize_user_agent(env['HTTP_USER_AGENT'])
         @request_path = env['PATH_INFO']
         @request_method = env['REQUEST_METHOD']
@@ -90,32 +113,45 @@ class Otto
 
       private
 
+      # A shallow copy of env with the client-IP fields masked, for geo
+      # resolution. Country-level geo needs nothing finer than the masked /24,
+      # so a custom resolver (arbitrary app code that might log or forward what
+      # it receives) is handed only the masked address here — never the raw host
+      # IP that env['REMOTE_ADDR'] and the forwarded headers still carry at this
+      # point in the middleware. Non-IP keys (including geo headers like
+      # CF-IPCountry) are preserved. Returns env unchanged when there is no
+      # masked IP (nothing to hide, and geo resolution short-circuits anyway).
+      #
+      # @param env [Hash] Rack environment
+      # @return [Hash] masked env view
+      def geo_env(env)
+        return env if @masked_ip.nil?
+
+        masked = env.dup
+        masked['REMOTE_ADDR'] = @masked_ip
+        GEO_MASKED_FORWARDED_HEADERS.each do |key|
+          masked[key] = @masked_ip if masked.key?(key)
+        end
+        # HTTP_FORWARDED (RFC 7239) carries the client IP in a structured `for=`
+        # token — and Otto reads it as an authoritative client-IP source in
+        # depth mode with trusted_proxy_header 'Forwarded'/'Both'. A wholesale
+        # swap would produce invalid Forwarded syntax, and geo resolution needs
+        # nothing from it, so drop it from the geo view entirely rather than
+        # leak the raw address to a custom resolver.
+        masked.delete('HTTP_FORWARDED')
+        masked
+      end
+
       # Anonymize user agent string by removing version numbers and build identifiers
       #
-      # Removes specific version numbers (*.*.* pattern) and build identifiers
-      # (e.g., Build/MRA58N) to reduce fingerprinting granularity while maintaining
-      # browser/OS info.
+      # Delegates to the public {UserAgentPrivacy.anonymize} so there is a single
+      # source of truth for the reduction (removes version numbers and build
+      # identifiers, preserving browser/OS info) shared with downstream consumers.
       #
       # @param ua [String, nil] User agent string
       # @return [String, nil] Anonymized user agent or nil
       def anonymize_user_agent(ua)
-        return nil if ua.nil? || ua.empty?
-
-        # Remove build identifiers (e.g., Build/MRA58N, Build/MPJ24.139-64)
-        # This must run BEFORE version stripping to avoid partial matches.
-        # If we strip versions first, Build/MPJ24.139-64 becomes Build/MPJ*.*-64,
-        # and the regex won't match properly (asterisks not in [\w.-] class).
-        anonymized = ua.gsub(/Build\/[\w.-]+/, 'Build/*')
-
-        # Remove version patterns (*.*.*.*, *.*.*, *.*)
-        # Support both dot and underscore separators (e.g., 10.15.7 and 10_15_7)
-        anonymized = anonymized
-                     .gsub(/\d+[._]\d+[._]\d+[._]\d+/, '*.*.*.*')
-                     .gsub(/\d+[._]\d+[._]\d+/, '*.*.*')
-                     .gsub(/\d+[._]\d+/, '*.*')
-
-        # Truncate if too long (prevent DoS via huge UA strings)
-        anonymized.length > 500 ? anonymized[0..499] : anonymized
+        UserAgentPrivacy.anonymize(ua)
       end
 
       # Anonymize referer URL

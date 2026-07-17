@@ -7,6 +7,200 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.6.0:
+
+2.6.0 — 2026-07-10
+==================
+
+Added
+-----
+
+- ``Otto::Privacy::UserAgentPrivacy.anonymize(ua, max_length:)`` — public
+  User-Agent anonymization, mirroring ``Otto::Privacy::IPPrivacy``. Strips
+  build/version identifiers while preserving browser/OS family; idempotent.
+  (delano/otto#194)
+
+- Stable-keyed IP correlation hash: ``req.ip_correlation_hash`` /
+  ``env['otto.privacy.correlation_hash']``, keyed via
+  ``configure_ip_privacy(correlation_secret:)`` so the same host correlates
+  across days without exposing the raw IP. (#192)
+
+- CSP nonce policies can now be customized per-directive via
+  ``enable_csp_with_nonce!(directives:)`` and ``#csp_directive_overrides=`` /
+  ``#merge_csp_directives``, not just ``report-uri``/``report-to``. (#201)
+
+Changed
+-------
+
+- ``RedactedFingerprint#anonymize_user_agent`` now delegates to
+  ``UserAgentPrivacy.anonymize``; behavior is unchanged. (delano/otto#194)
+
+- Default CSP ``worker-src`` now emits ``'self' blob:`` instead of
+  ``'self' data:``. Restore the old value with
+  ``directives: { worker_src: "'self' data: blob:" }``. (#201)
+
+Fixed
+-----
+
+- ``Otto#uri`` no longer corrupts when the same handler is mounted at
+  multiple paths — all routes per definition are kept, and ``uri()`` matches
+  on the params given. (#190)
+
+- ``Route#call`` no longer builds a duplicate, discarded request/response
+  pair when a route handler factory is present. (#189)
+
+- Dynamic static-file serving no longer raises ``FrozenError`` in production
+  on the first request for an uncached asset. (delano/otto#185)
+
+Security
+--------
+
+- Route loading now fails closed on malformed input: unparseable options
+  warn, and malformed or mismatched-case ``auth``/``role``/``csrf`` tokens
+  raise ``Otto::RouteDefinitionError`` at load instead of silently serving
+  an unprotected route. (#191)
+
+- ``klass.otto`` is no longer a shared mutable class accessor — it's now
+  fiber-local, preventing concurrent requests across ``Otto`` instances from
+  racing and observing the wrong security config. (#188)
+
+- Dynamic-route and static-file dispatch now normalize request paths the
+  same way literal routing does, closing a trailing-slash and
+  invalid-UTF-8 divergence. (#187)
+
+- ``csrf=exempt`` is now actually enforced at the handler layer; previously
+  it was a silent no-op. **Behavior change**: ``CSRFMiddleware`` used
+  standalone no longer blocks unsafe requests on its own. (#186)
+
+.. _changelog-2.5.0:
+
+2.5.0 — 2026-07-02
+==================
+
+Added
+-----
+
+- ``Otto::Security::CSP::Writer.apply(headers, nonce, config:, mode:,
+  development_mode:)`` — the single structural apply core for nonce-based CSP
+  emission. Writes are in-place and key-scoped (case-variant keys are corrected
+  to Rack 3's lowercase in the caller's hash; a frozen headers hash fails loud).
+  Returns a ``Result`` (``applied?``, ``policy``, ``skip_reason`` of
+  ``:disabled`` / ``:blank_nonce`` / ``:non_html`` / ``:existing_csp``). Named
+  modes ``:override`` (deliberate, replaces) and ``:backstop`` (passive,
+  defers). (delano/otto#180)
+
+- Framework-owned lazy nonce: ``Otto::Request#csp_nonce`` /
+  ``Otto::Security::CSP.nonce(env)`` generate on first access and memoize into
+  ``env['otto.nonce']`` (registered as ``Otto::EnvKeys::NONCE``), so views and
+  the header read one value. Configurable env key via
+  ``Otto::Security::Config#csp_nonce_key`` for apps with an existing convention.
+
+- ``Otto::Security::CSP::EmitMiddleware`` and ``Otto#enable_csp_emission!`` — a
+  passive backstop that emits a nonce CSP for HTML responses whose request
+  consumed a nonce (emit-if-consumed default), never clobbering an existing
+  policy. Optional ``eager:`` mode and a per-request ``development_mode:``
+  callable.
+
+- ``Otto::Response#apply_csp(nonce, mode: :override)`` — the one emission helper,
+  routed through the apply core.
+
+- ``Otto::Security::CSP::Policy`` — CSP policy building (directive sets,
+  report-uri/report-to assembly) extracted from ``Otto::Security::Config`` into
+  its own home beside the parser and middlewares; ``Config`` delegates with
+  byte-identical output.
+
+Deprecated
+----------
+
+- ``Otto::Response#send_csp_headers`` — use ``#apply_csp`` or
+  ``#enable_csp_emission!``. Retained as a thin shim over the apply core (logs a
+  one-time ``Otto.logger`` deprecation notice).
+
+Fixed
+-----
+
+- ``#send_csp_headers`` no longer emits a broken ``script-src 'nonce-'`` for a
+  blank/nil nonce (it skips) and no longer emits a CSP for non-HTML responses —
+  both via the shared apply core. Its bare ``warn`` to stderr when overwriting an
+  existing CSP is also gone: replacement is deliberate in ``:override`` mode, and
+  the shim instead logs a one-time deprecation notice through ``Otto.logger``.
+
+Security
+--------
+
+- Nonce-CSP emission now detects and normalizes CSP / Content-Type headers
+  case-insensitively, so a canonical-/mixed-cased header from a downstream layer
+  is recognized (and the CSP key rewritten to lowercase) rather than silently
+  duplicated — de-duplicating the hand-rolled, case-sensitive guards adopters
+  previously re-implemented at each raw-tuple boundary. (delano/otto#180)
+
+AI Assistance
+-------------
+
+- The nonce-CSP emission redesign — the ``Writer`` apply core, the
+  framework-owned lazy nonce, the ``EmitMiddleware`` backstop, and the
+  ``Policy`` extraction — was designed and implemented with AI assistance.
+  (delano/otto#180)
+
+.. _changelog-2.4.0:
+
+2.4.0 — 2026-07-01
+==================
+
+Added
+-----
+
+- ``Otto#enable_csp_reporting!(report_uri, endpoint_url: nil, &block)`` —
+  turnkey CSP violation reporting. Emits a ``report-uri`` directive and, with
+  ``endpoint_url:``, a ``report-to`` directive plus ``Reporting-Endpoints``
+  header. Parses legacy ``application/csp-report`` and Reporting API
+  ``application/reports+json`` payloads into ``Otto::Security::CSP::Report``
+  and invokes the callback per violation. Opt-in. (delano/otto#174)
+
+- ``MiddlewareStack`` ``:outermost`` position, for middleware that must run
+  ahead of all others regardless of registration order.
+
+- ``Otto::CaddyTLS``: an opt-in Caddy on-demand TLS permission endpoint,
+  enabled with ``otto.enable_caddy_tls! { |domain| ... }``. (delano/otto#175)
+
+Fixed
+-----
+
+- ``IPPrivacyMiddleware`` no longer writes ``nil`` into CGI-style Rack env
+  keys (e.g. ``HTTP_REFERER``, ``HTTP_USER_AGENT``, ``REMOTE_ADDR``) when
+  redacting request data, which violated the Rack SPEC and tripped
+  ``Rack::Lint``. Empty anonymized values now delete the key instead of
+  setting it to ``nil``, and a request with no resolvable client IP no
+  longer gets a ``nil`` ``REMOTE_ADDR``. (delano/otto#167)
+
+- ``Otto::Security::CSP::ReportMiddleware`` no longer turns a downstream
+  error on a non-report request into an empty ``204``.
+
+Security
+--------
+
+- The ``Otto::CaddyTLS`` permission endpoint is loopback-only by default and
+  fails closed. (delano/otto#175)
+
+- Security middleware registered through the ``otto.security.*``
+  Configurator after ``Otto.new`` now actually runs on the request chain —
+  previously CSRF, request validation, rate limiting, and CSP reporting
+  silently went unenforced.
+
+AI Assistance
+-------------
+
+- CSP violation reporting (``report-uri`` / ``report-to``), the
+  ``:outermost`` middleware position, and the Configurator
+  middleware-registration fix were designed and implemented with AI
+  assistance.
+
+- ``Otto::CaddyTLS`` designed, implemented, and reviewed with AI assistance.
+
+- The Rack SPEC ``nil``-into-CGI-key fix — including the sibling
+  ``REMOTE_ADDR`` masking bug and ``Rack::Lint`` test coverage — diagnosed
+  and fixed with AI assistance.
+
 .. _changelog-2.3.1:
 
 2.3.1 — 2026-06-22

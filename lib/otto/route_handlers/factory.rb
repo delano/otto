@@ -4,6 +4,7 @@
 
 require_relative 'base'
 require_relative '../security/authentication/route_auth_wrapper'
+require_relative '../security/csrf_enforcement_wrapper'
 
 class Otto
   module RouteHandlers
@@ -19,6 +20,7 @@ class Otto
                         when :logic then LogicClassHandler
                         when :instance then InstanceMethodHandler
                         when :class then ClassMethodHandler
+                        when :lambda then LambdaHandler
                         else
                           raise ArgumentError, "Unknown handler kind: #{route_definition.kind}"
                         end
@@ -33,6 +35,19 @@ class Otto
             handler,
             route_definition,
             otto_instance.auth_config,
+            otto_instance.security_config
+          )
+        end
+
+        # Enforce CSRF at the handler layer, where `csrf=exempt` is visible
+        # (the global CSRFMiddleware runs ahead of route matching and cannot
+        # honor per-route exemption — issue #186). Wrapped OUTSIDE
+        # RouteAuthWrapper so a forged unsafe request is rejected before any
+        # authentication work runs. Only added when protection is enabled.
+        if otto_instance&.security_config&.csrf_enabled?
+          handler = Otto::Security::CSRFEnforcementWrapper.new(
+            handler,
+            route_definition,
             otto_instance.security_config
           )
         end

@@ -2,6 +2,7 @@
 #
 # frozen_string_literal: true
 
+require 'concurrent'
 require 'json'
 require 'logger'
 require 'securerandom'
@@ -22,6 +23,7 @@ require_relative 'otto/route_handlers'
 require_relative 'otto/errors'
 require_relative 'otto/locale'
 require_relative 'otto/mcp'
+require_relative 'otto/caddy_tls'
 require_relative 'otto/core'
 require_relative 'otto/privacy'
 require_relative 'otto/security'
@@ -62,6 +64,7 @@ class Otto
   include Otto::Security::Core
   include Otto::Privacy::Core
   include Otto::MCP::Core
+  include Otto::CaddyTLS::Core
 
   LIB_HOME = __dir__ unless defined?(Otto::LIB_HOME)
 
@@ -73,9 +76,10 @@ class Otto
            end
   @logger = Logger.new($stdout, Logger::INFO)
 
-  attr_reader :routes, :routes_literal, :routes_static, :route_definitions, :option,
+  attr_reader :routes, :routes_literal, :routes_static, :route_definitions,
+              :routes_by_definition, :option,
               :static_route, :security_config, :locale_config, :auth_config,
-              :route_handler_factory, :mcp_server, :security, :middleware,
+              :route_handler_factory, :mcp_server, :caddy_tls_server, :security, :middleware,
               :error_handlers, :request_class, :response_class
   attr_accessor :not_found, :server_error
 
@@ -105,10 +109,19 @@ class Otto
   end
   alias options option
 
+  # Read-only view of assembled instance options. LambdaHandler resolves its
+  # registry via otto_instance.config[:lambda_handlers].
+  alias config option
+
   # Main Rack application interface
   def call(env)
-    # Freeze configuration on first request (thread-safe)
-    # Skip in test environment to allow test flexibility
+    # Freeze configuration on first request (thread-safe).
+    # Skipped under RSpec so specs can mutate configuration after construction.
+    # Because of this skip, behavior that depends on a genuinely frozen config
+    # (e.g. CSP violation dispatch through a frozen Config) is NOT exercised by
+    # the normal request path in tests — cover it with specs that freeze
+    # explicitly (see spec/otto/security/csp_reporting_frozen_spec.rb and
+    # spec/otto/configuration_freezing_spec.rb).
     unless defined?(RSpec) || @configuration_frozen
       Otto.logger.debug '[Otto] Lazy freezing check: configuration not yet frozen' if Otto.debug
 
@@ -159,16 +172,46 @@ class Otto
   private
 
   def initialize_core_state
-    @routes_static     = { GET: {} }
+    # The GET cache is a Concurrent::Map, not a plain Hash: lazy static-file
+    # discovery (Core::Router#handle_request, Core::FileSafety#add_static_path)
+    # writes into it at request time, after freeze_configuration! has already
+    # deep-frozen the rest of the routing state. Deep-freezing this cache too
+    # would turn every as-yet-uncached static file request into a 500
+    # (FrozenError) in production (issue #185), so it is intentionally excluded
+    # from deep_freeze_value in Configuration#freeze_configuration! and kept as
+    # a structure that is both mutable post-freeze and safe under concurrent
+    # request threads.
+    @routes_static     = { GET: Concurrent::Map.new }
     @routes            = { GET: [] }
     @routes_literal    = { GET: {} }
     @route_definitions = {}
+    # All routes per definition string, in load order. A definition string is
+    # not unique — the same handler can be mounted at several verb/path pairs —
+    # so reverse lookups (Otto#uri) consult this index instead of the
+    # single-route @route_definitions entry (issue #190).
+    @routes_by_definition = {}
     @security_config   = Otto::Security::Config.new
     @middleware        = Otto::Core::MiddlewareStack.new
     # Initialize @auth_config first so it can be shared with the configurator
     @auth_config       = { auth_strategies: {}, default_auth_strategy: 'noauth' }
     @security          = Otto::Security::Configurator.new(@security_config, @middleware, @auth_config)
     @app               = nil # Pre-built middleware app (built after initialization)
+
+    # Keep the running Rack app in sync with the middleware stack. This is the
+    # SINGLE rebuild trigger: any add/remove/clear — whether via Otto#use,
+    # otto.enable_*!, or the otto.security.* Configurator surface — rebuilds @app
+    # once it exists. Without it, middleware added through the Configurator after
+    # Otto.new would register in the stack but never enter the running request
+    # chain, silently disabling CSRF, request validation, rate limiting, and CSP
+    # reporting configured that way.
+    #
+    # The `if @app` guard makes stack mutations during initialization (e.g. the
+    # IP-privacy add below) no-ops until the first build_app! runs. A rebuild
+    # during a live request could swap @app mid-flight under multi-threaded
+    # serving; Otto's contract is to configure before the first request, which
+    # the lazy configuration freeze enforces in production.
+    @middleware.on_change { build_app! if @app }
+
     @request_complete_callbacks = [] # Instance-level request completion callbacks
     @route_matched_callbacks    = [] # Instance-level route matched callbacks
     @handler_wrappers           = [] # Instance-level handler wrapper factories
@@ -211,6 +254,10 @@ class Otto
 
     # Initialize MCP server
     configure_mcp(opts)
+
+    # Validate and freeze the lambda handler registry (issue #41).
+    # Runs last so misconfiguration fails fast at construction.
+    configure_lambda_handlers(opts)
   end
 
   class << self

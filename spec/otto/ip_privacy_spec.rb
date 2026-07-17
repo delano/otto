@@ -108,6 +108,37 @@ RSpec.describe 'IP Privacy Features' do
         expect(Otto::Privacy::IPPrivacy.valid_ip?(nil)).to be false
       end
     end
+
+    describe '.mask_forwarded_for' do
+      it 'redacts for= while preserving proto/host/by metadata' do
+        value = 'for=203.0.113.77;proto=https;host=example.com;by=10.0.0.1'
+        expect(Otto::Privacy::IPPrivacy.mask_forwarded_for(value, '203.0.113.0'))
+          .to eq('for=203.0.113.0;proto=https;host=example.com;by=10.0.0.1')
+      end
+
+      it 'redacts every for= element in a chain' do
+        value = 'for=203.0.113.77, for=198.51.100.9;proto=https'
+        expect(Otto::Privacy::IPPrivacy.mask_forwarded_for(value, '203.0.113.0'))
+          .to eq('for=203.0.113.0, for=203.0.113.0;proto=https')
+      end
+
+      it 'brackets and quotes a masked IPv6 for= value' do
+        value = 'for="[2001:db8:85a3::8a2e:370:7334]";proto=https'
+        expect(Otto::Privacy::IPPrivacy.mask_forwarded_for(value, '2001:db8::'))
+          .to eq('for="[2001:db8::]";proto=https')
+      end
+
+      it 'does not touch a parameter merely ending in "for"' do
+        value = 'secret_for=203.0.113.77;proto=https'
+        expect(Otto::Privacy::IPPrivacy.mask_forwarded_for(value, '203.0.113.0'))
+          .to eq('secret_for=203.0.113.77;proto=https')
+      end
+
+      it 'returns the value unchanged when there is nothing to mask' do
+        expect(Otto::Privacy::IPPrivacy.mask_forwarded_for('for=1.2.3.4', nil)).to eq('for=1.2.3.4')
+        expect(Otto::Privacy::IPPrivacy.mask_forwarded_for(nil, '1.2.3.0')).to be_nil
+      end
+    end
   end
 
   describe Otto::Privacy::GeoResolver do
@@ -137,11 +168,11 @@ RSpec.describe 'IP Privacy Features' do
           expect(result).to eq('**')
         end
 
-        it 'falls back to range detection when custom resolver returns nil' do
+        it 'returns ** when custom resolver returns nil and nothing else resolves' do
           Otto::Privacy::GeoResolver.custom_resolver = ->(ip, _env) { nil }
 
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
-          expect(result).to eq('US')  # From range detection
+          expect(result).to eq('**')  # Honest unknown; no guessing
         end
 
         it 'handles custom resolver errors gracefully' do
@@ -150,8 +181,8 @@ RSpec.describe 'IP Privacy Features' do
           }
 
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
-          # Falls back to range detection
-          expect(result).to eq('US')
+          # Error is swallowed; no other source resolves -> unknown
+          expect(result).to eq('**')
         end
 
         it 'prefers CDN headers over custom resolver' do
@@ -185,7 +216,7 @@ RSpec.describe 'IP Privacy Features' do
           Otto::Privacy::GeoResolver.custom_resolver = nil
 
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
-          expect(result).to eq('US')  # Uses range detection
+          expect(result).to eq('**')  # No resolver, header, or db -> unknown
         end
       end
 
@@ -305,16 +336,16 @@ RSpec.describe 'IP Privacy Features' do
           env = { 'HTTP_X_AKAMAI_EDGESCAPE' => 'invalid_format' }
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
 
-          # Falls back to range detection (Google DNS -> US)
-          expect(result).to eq('US')
+          # Unparseable header is ignored; nothing else resolves -> unknown
+          expect(result).to eq('**')
         end
 
         it 'handles Edgescape with invalid country code' do
           env = { 'HTTP_X_AKAMAI_EDGESCAPE' => 'country_code=INVALID' }
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
 
-          # Falls back to range detection
-          expect(result).to eq('US')
+          # Invalid code is ignored -> unknown
+          expect(result).to eq('**')
         end
 
         it 'handles trailing comma edge cases' do
@@ -338,53 +369,48 @@ RSpec.describe 'IP Privacy Features' do
       end
 
       context 'header validation' do
-        it 'ignores invalid Cloudflare header and falls back to range detection' do
+        it 'ignores an invalid Cloudflare header' do
           env = { 'HTTP_CF_IPCOUNTRY' => 'invalid' }
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
 
-          # Should ignore invalid CF header and fall back to range detection
-          expect(result).to eq('US')
+          # Invalid CF header is ignored; nothing else resolves -> unknown
+          expect(result).to eq('**')
         end
 
         it 'ignores lowercase country codes' do
           env = { 'HTTP_CF_IPCOUNTRY' => 'us' }
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
 
-          # Falls back to range detection
-          expect(result).to eq('US')
+          expect(result).to eq('**')
         end
 
         it 'ignores 3-letter codes' do
           env = { 'HTTP_CF_IPCOUNTRY' => 'USA' }
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
 
-          # Falls back to range detection
-          expect(result).to eq('US')
+          expect(result).to eq('**')
         end
 
         it 'ignores single-letter codes' do
           env = { 'HTTP_CF_IPCOUNTRY' => 'U' }
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
 
-          # Falls back to range detection
-          expect(result).to eq('US')
+          expect(result).to eq('**')
         end
 
         it 'ignores non-string values' do
           env = { 'HTTP_CF_IPCOUNTRY' => 123 }
           result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', env)
 
-          # Falls back to range detection
-          expect(result).to eq('US')
+          expect(result).to eq('**')
         end
       end
 
-      it 'resolves country using IP range detection' do
-        # Test with Google DNS (8.8.8.8) which should resolve to US
+      it 'returns ** when no header, resolver, or database resolves' do
+        # No hardcoded IP-range guessing: an unrecognized address is unknown.
         result = Otto::Privacy::GeoResolver.resolve('8.8.8.8', {})
 
-        # Should resolve to US via range detection
-        expect(result).to eq('US')
+        expect(result).to eq('**')
       end
 
       it 'falls back to ** for truly unknown IPs' do
@@ -496,6 +522,46 @@ RSpec.describe 'IP Privacy Features' do
         end
       end
 
+      context 'RFC 7239 Forwarded header masking' do
+        it 'redacts for= but preserves proto/host/by metadata' do
+          env = { 'REMOTE_ADDR' => '203.0.113.77',
+                  'HTTP_FORWARDED' => 'for=203.0.113.77;proto=https;host=example.com;by=10.0.0.1' }
+          middleware.call(env)
+
+          expect(env['HTTP_FORWARDED']).to eq('for=203.0.113.0;proto=https;host=example.com;by=10.0.0.1')
+          expect(env['HTTP_FORWARDED']).not_to include('203.0.113.77')
+        end
+
+        it 'brackets and quotes a masked IPv6 for= value (valid RFC 7239)' do
+          env = { 'REMOTE_ADDR' => '2001:db8:85a3::8a2e:370:7334',
+                  'HTTP_FORWARDED' => 'for="[2001:db8:85a3::8a2e:370:7334]";proto=https' }
+          middleware.call(env)
+
+          # /48-masked (octet_precision 1 -> last 80 bits) IPv6, bracketed+quoted,
+          # with proto= preserved.
+          expect(env['HTTP_FORWARDED']).to match(%r{\Afor="\[2001:db8:85a3:[0:]*\]";proto=https\z})
+          expect(env['HTTP_FORWARDED']).not_to include('8a2e')
+        end
+
+        it 'leaves HTTP_FORWARDED untouched for exempt private IPs' do
+          env = { 'REMOTE_ADDR' => '192.168.1.100', 'HTTP_FORWARDED' => 'for=192.168.1.100' }
+          middleware.call(env)
+
+          expect(env['HTTP_FORWARDED']).to eq('for=192.168.1.100')
+        end
+
+        it 'deletes forwarded headers when there is no resolvable client IP' do
+          # No REMOTE_ADDR to anchor resolution, but forwarded headers carry a
+          # raw client address. With no masked IP to rewrite them to, they must
+          # be dropped, not left to leak downstream.
+          env = { 'HTTP_X_FORWARDED_FOR' => '203.0.113.99', 'HTTP_FORWARDED' => 'for=203.0.113.99' }
+          middleware.call(env)
+
+          expect(env).not_to have_key('HTTP_X_FORWARDED_FOR')
+          expect(env).not_to have_key('HTTP_FORWARDED')
+        end
+      end
+
       context 'User-Agent and Referer anonymization' do
         it 'replaces HTTP_USER_AGENT with anonymized version' do
           env = {
@@ -545,11 +611,29 @@ RSpec.describe 'IP Privacy Features' do
           expect(env['HTTP_USER_AGENT']).to be_nil
         end
 
+        it 'deletes the key (rather than writing nil) when there is no User-Agent' do
+          # Rack SPEC requires CGI-style keys to hold String values; a
+          # present-but-nil HTTP_USER_AGENT trips Rack::Lint (issue #167).
+          env = { 'REMOTE_ADDR' => '9.9.9.9' }
+          middleware.call(env)
+
+          expect(env).not_to have_key('HTTP_USER_AGENT')
+        end
+
         it 'handles nil Referer gracefully' do
           env = { 'REMOTE_ADDR' => '9.9.9.9' }
           middleware.call(env)
 
           expect(env['HTTP_REFERER']).to be_nil
+        end
+
+        it 'deletes the key (rather than writing nil) when there is no Referer' do
+          # Rack SPEC requires CGI-style keys to hold String values; a
+          # present-but-nil HTTP_REFERER trips Rack::Lint (issue #167).
+          env = { 'REMOTE_ADDR' => '9.9.9.9' }
+          middleware.call(env)
+
+          expect(env).not_to have_key('HTTP_REFERER')
         end
 
         it 'clears original User-Agent when anonymization returns empty string' do
@@ -559,8 +643,9 @@ RSpec.describe 'IP Privacy Features' do
           }
           middleware.call(env)
 
-          # CRITICAL: env['HTTP_USER_AGENT'] should be nil (cleared), not empty string
+          # CRITICAL: the key must be deleted, not left present-but-nil (Rack SPEC)
           expect(env['HTTP_USER_AGENT']).to be_nil
+          expect(env).not_to have_key('HTTP_USER_AGENT')
           expect(env).not_to have_key('otto.original_user_agent')
         end
 
@@ -571,8 +656,9 @@ RSpec.describe 'IP Privacy Features' do
           }
           middleware.call(env)
 
-          # CRITICAL: env['HTTP_REFERER'] should be nil (cleared), not empty string
+          # CRITICAL: the key must be deleted, not left present-but-nil (Rack SPEC)
           expect(env['HTTP_REFERER']).to be_nil
+          expect(env).not_to have_key('HTTP_REFERER')
           expect(env).not_to have_key('otto.original_referer')
         end
 
@@ -925,6 +1011,123 @@ RSpec.describe 'IP Privacy Features' do
         # Original values available for legitimate use cases
         expect(env['otto.original_user_agent']).to eq('Mozilla/5.0 Chrome/141.0')
         expect(env['otto.original_referer']).to eq('https://example.com/page?secret=value')
+      end
+    end
+
+    # Rack SPEC compliance (issue #167): every CGI-style env key (one without a
+    # period) must hold a String value. The middleware must never leave a
+    # present-but-nil CGI key behind when clearing/masking request data, or it
+    # trips Rack::Lint and breaks spec-strict downstream middleware.
+    context 'Rack SPEC compliance (no nil-valued CGI keys)' do
+      require 'rack/lint'
+
+      # Build a minimal but fully Rack-SPEC-valid env. rack.input must be
+      # opened in binary mode (ASCII-8BIT) or Rack::Lint rejects it.
+      def lint_valid_env(overrides = {})
+        {
+          'REQUEST_METHOD'  => 'GET',
+          'SCRIPT_NAME'     => '',
+          'PATH_INFO'       => '/some/path',
+          'QUERY_STRING'    => '',
+          'SERVER_NAME'     => 'app.example',
+          'SERVER_PORT'     => '443',
+          'SERVER_PROTOCOL' => 'HTTP/1.1',
+          'rack.input'      => StringIO.new(''.b),
+          'rack.errors'     => StringIO.new,
+          'rack.url_scheme' => 'https'
+        }.merge(overrides)
+      end
+
+      # Wrap a passthrough app in Rack::Lint so that the env the middleware
+      # forwards downstream is validated against the Rack SPEC.
+      def lint_middleware
+        downstream = ->(_env) { [200, { 'content-type' => 'text/plain' }, ['OK']] }
+        Otto::Security::Middleware::IPPrivacyMiddleware.new(
+          Rack::Lint.new(downstream), security_config
+        )
+      end
+
+      it 'does not write a nil REMOTE_ADDR when REMOTE_ADDR is absent' do
+        env = { 'PATH_INFO' => '/x' }  # no REMOTE_ADDR at all
+        middleware.call(env)
+
+        # Must not introduce a present-but-nil REMOTE_ADDR key
+        expect(env).not_to have_key('REMOTE_ADDR')
+      end
+
+      it 'does not corrupt an empty REMOTE_ADDR into nil' do
+        env = { 'REMOTE_ADDR' => '' }
+        middleware.call(env)
+
+        # Empty string is a valid String per the Rack SPEC; must stay a String
+        expect(env['REMOTE_ADDR']).to eq('')
+        expect(env['REMOTE_ADDR']).not_to be_nil
+      end
+
+      it 'passes Rack::Lint with no Referer or User-Agent (public IP)' do
+        env = lint_valid_env('REMOTE_ADDR' => '9.9.9.9')
+
+        expect { lint_middleware.call(env) }.not_to raise_error
+      end
+
+      it 'passes Rack::Lint with empty Referer and User-Agent (public IP)' do
+        env = lint_valid_env(
+          'REMOTE_ADDR'     => '9.9.9.9',
+          'HTTP_USER_AGENT' => '',
+          'HTTP_REFERER'    => ''
+        )
+
+        expect { lint_middleware.call(env) }.not_to raise_error
+      end
+
+      it 'passes Rack::Lint when REMOTE_ADDR is absent' do
+        env = lint_valid_env  # no REMOTE_ADDR
+
+        expect { lint_middleware.call(env) }.not_to raise_error
+      end
+
+      it 'passes Rack::Lint with real Referer and User-Agent (still masked)' do
+        env = lint_valid_env(
+          'REMOTE_ADDR'     => '9.9.9.9',
+          'HTTP_USER_AGENT' => 'Mozilla/5.0 Chrome/141.0',
+          'HTTP_REFERER'    => 'https://example.com/page?token=secret'
+        )
+
+        expect { lint_middleware.call(env) }.not_to raise_error
+        # And the values were still anonymized
+        expect(env['HTTP_REFERER']).to eq('https://example.com/page')
+        expect(env['HTTP_USER_AGENT']).to include('*.*')
+      end
+
+      # Regression (PR #168 review): the no-resolvable-IP guard skips IP
+      # masking, but User-Agent / Referer redaction is independent of the IP
+      # and must still happen — otherwise a request with no REMOTE_ADDR would
+      # leak an un-anonymized User-Agent and a query-bearing Referer.
+      it 'still anonymizes Referer and User-Agent when REMOTE_ADDR is absent' do
+        env = lint_valid_env(  # no REMOTE_ADDR
+          'HTTP_USER_AGENT' => 'Mozilla/5.0 Chrome/141.0',
+          'HTTP_REFERER'    => 'https://example.com/page?token=secret'
+        )
+
+        expect { lint_middleware.call(env) }.not_to raise_error
+        # IP masking is skipped (no IP to mask), but sensitive headers are scrubbed
+        expect(env).not_to have_key('REMOTE_ADDR')
+        expect(env['HTTP_REFERER']).to eq('https://example.com/page')
+        expect(env['HTTP_USER_AGENT']).to include('*.*')
+        expect(env['HTTP_USER_AGENT']).not_to include('141.0')
+      end
+
+      it 'deletes empty Referer / User-Agent when REMOTE_ADDR is absent' do
+        env = lint_valid_env(  # no REMOTE_ADDR
+          'HTTP_USER_AGENT' => '',
+          'HTTP_REFERER'    => ''
+        )
+
+        expect { lint_middleware.call(env) }.not_to raise_error
+        # Anonymizing an empty header yields nil; the key must be deleted, not
+        # left present-but-nil (Rack SPEC / issue #167).
+        expect(env).not_to have_key('HTTP_USER_AGENT')
+        expect(env).not_to have_key('HTTP_REFERER')
       end
     end
   end
@@ -2046,6 +2249,232 @@ RSpec.describe 'IP Privacy Features' do
 
       # CommonLogger should log the original localhost IP (not masked)
       expect(log_line).to include('127.0.0.1')
+    end
+  end
+
+  describe 'Stable-keyed IP correlation hash (otto#192)' do
+    let(:app) { ->(env) { [200, {}, ['OK']] } }
+    let(:security_config) { Otto::Security::Config.new }
+    let(:correlation_secret) { 'stable-correlation-secret-v1' }
+    let(:middleware) do
+      security_config.ip_privacy_config.correlation_secret = correlation_secret
+      Otto::Security::Middleware::IPPrivacyMiddleware.new(app, security_config)
+    end
+
+    # Run one request through the middleware and return the correlation hash.
+    def correlation_hash_for(remote_addr)
+      env = { 'REMOTE_ADDR' => remote_addr }
+      middleware.call(env)
+      env['otto.privacy.correlation_hash']
+    end
+
+    it 'computes an HMAC-SHA256 hex digest over the FULL client IP' do
+      hash = correlation_hash_for('9.9.9.9')
+
+      expect(hash).to match(/^[0-9a-f]{64}$/)
+      # Keyed with the configured stable secret over the full address...
+      expect(hash).to eq(Otto::Privacy::IPPrivacy.hash_ip('9.9.9.9', correlation_secret))
+      # ...NOT over the masked /24 the app is otherwise left with.
+      expect(hash).not_to eq(Otto::Privacy::IPPrivacy.hash_ip('9.9.9.0', correlation_secret))
+    end
+
+    it 'is stable for the same IP + secret across requests' do
+      expect(correlation_hash_for('9.9.9.9')).to eq(correlation_hash_for('9.9.9.9'))
+    end
+
+    it 'remains stable across daily key rotations (unlike hashed_ip)' do
+      env1 = { 'REMOTE_ADDR' => '9.9.9.9' }
+      middleware.call(env1)
+
+      # Simulate crossing into a new "day": the daily rotation-key store is
+      # regenerated, so the next request's hashed_ip is keyed differently.
+      Otto::Privacy::Config.rotation_keys_store.clear
+
+      env2 = { 'REMOTE_ADDR' => '9.9.9.9' }
+      middleware.call(env2)
+
+      # The daily session hash rotated away...
+      expect(env2['otto.privacy.hashed_ip']).not_to eq(env1['otto.privacy.hashed_ip'])
+      # ...but the stable correlation hash survived the boundary.
+      expect(env2['otto.privacy.correlation_hash']).to eq(env1['otto.privacy.correlation_hash'])
+    end
+
+    it 'diverges for different IPs' do
+      expect(correlation_hash_for('9.9.9.9')).not_to eq(correlation_hash_for('8.8.8.8'))
+    end
+
+    it 'supports IPv6 addresses' do
+      hash = correlation_hash_for('2606:4700:4700::1111')
+
+      expect(hash).to match(/^[0-9a-f]{64}$/)
+      expect(hash).to eq(Otto::Privacy::IPPrivacy.hash_ip('2606:4700:4700::1111', correlation_secret))
+    end
+
+    it 'is provably distinct from the daily-rotating hashed_ip for the same IP' do
+      env = { 'REMOTE_ADDR' => '9.9.9.9' }
+      middleware.call(env)
+
+      expect(env['otto.privacy.correlation_hash']).to match(/^[0-9a-f]{64}$/)
+      expect(env['otto.privacy.hashed_ip']).to match(/^[0-9a-f]{64}$/)
+      expect(env['otto.privacy.correlation_hash']).not_to eq(env['otto.privacy.hashed_ip'])
+    end
+
+    it 'never writes the raw IP into env (only the hash escapes)' do
+      env = { 'REMOTE_ADDR' => '9.9.9.9' }
+      middleware.call(env)
+
+      expect(env['REMOTE_ADDR']).to eq('9.9.9.0')     # masked in place
+      expect(env['otto.original_ip']).to be_nil        # raw never stored
+      expect(env.values).not_to include('9.9.9.9')     # raw absent everywhere
+    end
+
+    context 'when no correlation secret is configured' do
+      let(:correlation_secret) { nil }
+
+      it 'sets the correlation hash to nil (never hashes under an empty key)' do
+        env = { 'REMOTE_ADDR' => '9.9.9.9' }
+        middleware.call(env)
+
+        expect(env['otto.privacy.correlation_hash']).to be_nil
+        # The daily hash is still produced — only the correlation hash opts out.
+        expect(env['otto.privacy.hashed_ip']).to match(/^[0-9a-f]{64}$/)
+      end
+    end
+
+    context 'when the correlation secret is an empty string' do
+      let(:correlation_secret) { '' }
+
+      it 'sets the correlation hash to nil' do
+        env = { 'REMOTE_ADDR' => '9.9.9.9' }
+        middleware.call(env)
+
+        expect(env['otto.privacy.correlation_hash']).to be_nil
+      end
+    end
+
+    context 'when IP privacy is disabled' do
+      before { security_config.ip_privacy_config.disable! }
+
+      it 'does not compute a correlation hash' do
+        env = { 'REMOTE_ADDR' => '9.9.9.9' }
+        middleware.call(env)
+
+        expect(env['otto.privacy.correlation_hash']).to be_nil
+        expect(env['REMOTE_ADDR']).to eq('9.9.9.9') # unmasked (privacy off)
+      end
+    end
+
+    context 'for private / localhost IPs (exempt from masking by default)' do
+      # Private/localhost IPs take the early-return exempt path, which skips the
+      # whole fingerprint — masked_ip, hashed_ip AND correlation_hash. Assert it
+      # explicitly so this intentional "nil on the local dev path" behavior is
+      # documented and a future refactor can't silently change it.
+      it 'produces no correlation hash for a loopback IP, even with a secret configured' do
+        env = { 'REMOTE_ADDR' => '127.0.0.1' }
+        middleware.call(env)
+
+        expect(env['otto.privacy.correlation_hash']).to be_nil
+        expect(env['otto.privacy.hashed_ip']).to be_nil     # same exemption
+        expect(env['REMOTE_ADDR']).to eq('127.0.0.1')       # exempt: not masked
+      end
+
+      it 'produces no correlation hash for an RFC-1918 IP, even with a secret configured' do
+        env = { 'REMOTE_ADDR' => '192.168.1.100' }
+        middleware.call(env)
+
+        expect(env['otto.privacy.correlation_hash']).to be_nil
+      end
+
+      it 'DOES produce one for a private IP when mask_private_ips is enabled' do
+        security_config.ip_privacy_config.mask_private_ips = true
+        env = { 'REMOTE_ADDR' => '192.168.1.100' }
+        middleware.call(env)
+
+        # Now the private IP runs the full path: hash keyed over the FULL IP.
+        expect(env['otto.privacy.correlation_hash'])
+          .to eq(Otto::Privacy::IPPrivacy.hash_ip('192.168.1.100', correlation_secret))
+      end
+    end
+
+    describe 'Otto::Request#ip_correlation_hash' do
+      it 'reads env["otto.privacy.correlation_hash"]' do
+        env = { 'REMOTE_ADDR' => '9.9.9.9' }
+        middleware.call(env)
+        req = Otto::Request.new(env)
+
+        expect(req.ip_correlation_hash).to eq(env['otto.privacy.correlation_hash'])
+        expect(req.ip_correlation_hash).to match(/^[0-9a-f]{64}$/)
+      end
+
+      it 'returns nil when the middleware never computed one' do
+        req = Otto::Request.new({})
+
+        expect(req.ip_correlation_hash).to be_nil
+      end
+    end
+  end
+
+  describe 'Otto::Privacy::Config correlation_secret' do
+    it 'defaults to nil' do
+      expect(Otto::Privacy::Config.new.correlation_secret).to be_nil
+    end
+
+    it 'accepts a correlation secret at construction' do
+      config = Otto::Privacy::Config.new(correlation_secret: 'abc')
+      expect(config.correlation_secret).to eq('abc')
+    end
+
+    it 'is settable after construction' do
+      config = Otto::Privacy::Config.new
+      config.correlation_secret = 'later'
+      expect(config.correlation_secret).to eq('later')
+    end
+
+    it 'accepts an empty string (the feature-disabled sentinel)' do
+      expect(Otto::Privacy::Config.new(correlation_secret: '').correlation_secret).to eq('')
+    end
+
+    it 'rejects a non-String, non-nil secret at construction (fail fast)' do
+      expect { Otto::Privacy::Config.new(correlation_secret: 123) }
+        .to raise_error(ArgumentError, /correlation_secret must be a String or nil, got: Integer/)
+    end
+
+    it 'rejects a non-String, non-nil secret assigned after construction' do
+      config = Otto::Privacy::Config.new
+      expect { config.correlation_secret = :nope }
+        .to raise_error(ArgumentError, /correlation_secret must be a String or nil/)
+    end
+  end
+
+  describe 'Otto#configure_ip_privacy(correlation_secret:)' do
+    it 'stores the correlation secret on the privacy config' do
+      otto = create_minimal_otto(['GET / TestApp.index'])
+      otto.configure_ip_privacy(correlation_secret: 'stable-secret')
+
+      expect(otto.security_config.ip_privacy_config.correlation_secret).to eq('stable-secret')
+    end
+
+    it 'leaves an existing secret unchanged when omitted (nil means "no change")' do
+      otto = create_minimal_otto(['GET / TestApp.index'])
+      otto.configure_ip_privacy(correlation_secret: 'stable-secret')
+      otto.configure_ip_privacy(octet_precision: 2)
+
+      expect(otto.security_config.ip_privacy_config.correlation_secret).to eq('stable-secret')
+    end
+
+    it 'disables a previously configured secret when given an empty string' do
+      otto = create_minimal_otto(['GET / TestApp.index'])
+      otto.configure_ip_privacy(correlation_secret: 'stable-secret')
+      otto.configure_ip_privacy(correlation_secret: '')
+
+      expect(otto.security_config.ip_privacy_config.correlation_secret).to eq('')
+    end
+
+    it 'fails fast on a non-String secret' do
+      otto = create_minimal_otto(['GET / TestApp.index'])
+
+      expect { otto.configure_ip_privacy(correlation_secret: 123) }
+        .to raise_error(ArgumentError, /correlation_secret must be a String or nil/)
     end
   end
 end

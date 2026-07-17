@@ -84,6 +84,119 @@ app = Otto.new("./routes", {
 
 Security features include CSRF protection, input validation, security headers, and trusted proxy configuration.
 
+### Content Security Policy (nonce-based emission)
+
+Otto owns the nonce lifecycle so the header and your views can never drift. A
+request-scoped nonce is minted lazily on first access and memoized in the env;
+your views read it to stamp `<script>`/`<link>` tags, and the framework reads
+the *same* value to emit the `script-src 'nonce-…'` header.
+
+```ruby
+app = Otto.new("./routes")
+app.enable_csp_with_nonce!    # turn on nonce-based CSP
+app.enable_csp_emission!      # mount the backstop that writes the header
+
+# In a view/handler:
+def show(req, res)
+  res['content-type'] = 'text/html; charset=utf-8'
+  res.write(%(<script nonce="#{req.csp_nonce}">/* inline */</script>))
+end
+```
+
+`enable_csp_emission!` mounts `Otto::Security::CSP::EmitMiddleware`, a passive
+**backstop**:
+
+- **Emit-if-consumed** (default): it emits a policy only for a response whose
+  request actually consumed a nonce (a view called `req.csp_nonce`). A nonce-only
+  `script-src` on an HTML page that never stamped the nonce would block every
+  script, so "CSP responses whose request consumed a nonce" is the only safe
+  blanket default. Pass `eager: true` to mint-and-emit for every eligible HTML
+  response (see the caveat in the middleware docs).
+- **Never clobbers**: it defers to any CSP a route already set.
+- **HTML only**, and inert unless `enable_csp_with_nonce!` is on.
+- `development_mode:` accepts a per-request callable, e.g.
+  `->(env) { ENV['RACK_ENV'] == 'development' }`, to switch directive sets.
+
+To set a policy explicitly from a handler instead, use the one emission helper —
+it routes through the same apply core:
+
+```ruby
+res['content-type'] = 'text/html; charset=utf-8'
+result = res.apply_csp(req.csp_nonce)          # mode: :override by default
+result.applied?        # => true
+result.skip_reason     # => nil (or :disabled / :blank_nonce / :non_html / :existing_csp)
+```
+
+Apps with an existing nonce env-key convention can point the accessor at it with
+`app.security_config.csp_nonce_key = 'onetime.nonce'` — the views and the header
+still share one value.
+
+> [!NOTE]
+> `res.send_csp_headers(content_type, nonce)` is **deprecated** in favour of
+> `res.apply_csp` / `enable_csp_emission!`. It remains as a thin shim over the
+> same apply core (so its old quirks — a broken `'nonce-'` on a blank nonce, a
+> CSP on non-HTML responses, a `warn` to stderr — are now fixed) and logs a
+> one-time deprecation notice.
+
+### CSP Violation Reporting
+
+Otto can both emit Content-Security-Policy headers and receive the violation
+reports browsers post back. Point a policy at a report path and register a
+callback — Otto handles the HTTP ceremony (parsing both wire formats, the size
+cap, the CSRF bypass) and hands your callback a normalized report:
+
+```ruby
+app = Otto.new("./routes")
+app.enable_csp_with_nonce!            # emit a nonce-based CSP (see send_csp_headers)
+
+app.enable_csp_reporting!("/_/csp-report") do |report|
+  Otto.logger.warn("CSP violation: #{report.violated_directive} " \
+                   "blocked #{report.blocked_uri}")
+  # report also exposes: document_uri, source_file, line_number,
+  # column_number, disposition, effective_directive, ... and report.to_h
+end
+```
+
+`enable_csp_reporting!` does three things:
+
+1. Appends a `report-uri /_/csp-report` directive to every emitted CSP policy —
+   both the static `enable_csp!` policy and the per-request nonce policy — so
+   browsers know where to send violations.
+2. Registers your callback, invoked once per violation with an
+   `Otto::Security::CSP::Report`.
+3. Injects `Otto::Security::CSP::ReportMiddleware`, pinned **outermost** in the
+   stack, which intercepts `POST`s to the report path, parses both the legacy
+   `application/csp-report` and the Reporting API `application/reports+json`
+   formats, enforces a 64 KiB body cap, and always answers `204 No Content` —
+   without touching your routes.
+
+Because the middleware is pinned outermost, it short-circuits ahead of the CSRF
+middleware, so browsers can POST reports without a CSRF token — regardless of the
+order you enable security features in. A throwing callback can never break the
+receiver; it still answers `204`.
+
+Modern browsers (Chrome) have deprecated `report-uri` in favour of the Reporting
+API. Pass `endpoint_url:` — an **absolute** URL whose path is the report path —
+to also emit a `report-to` directive and a `Reporting-Endpoints` response header,
+so those browsers deliver `application/reports+json` to the same receiver:
+
+```ruby
+app.enable_csp_reporting!("/_/csp-report",
+                          endpoint_url: "https://example.com/_/csp-report") do |report|
+  Otto.logger.warn("CSP violation: #{report.violated_directive}")
+end
+```
+
+The legacy `report-uri` is always kept alongside `report-to`, so older browsers
+(Firefox, Safari) keep working. When `endpoint_url:` is omitted, output is
+byte-identical to `report-uri`-only.
+
+> [!IMPORTANT]
+> Report URL fields (`document_uri`, `blocked_uri`, `referrer`, `source_file`)
+> reflect the page the browser was on and may carry sensitive path/query data in
+> some applications. Otto does **not** redact them — normalize/redact in your
+> callback per your own privacy policy before logging or forwarding.
+
 ## Error Handling
 
 Otto provides base error classes that automatically return correct HTTP status codes:
@@ -118,7 +231,16 @@ app = Otto.new("./routes")
 # IP hashing: daily-rotating hashes enable analytics without tracking
 ```
 
-Private and localhost IPs are exempted by default for development convenience, but this behavior can be customized via `configure_ip_privacy()` method. Geolocation uses CDN headers (Cloudflare, AWS, etc.) with fallback to IP ranges—no external services required. See [CLAUDE.md](CLAUDE.md) for detailed configuration options.
+Private and localhost IPs are exempted by default for development convenience, but this behavior can be customized via `configure_ip_privacy()` method. Geolocation checks CDN headers (Cloudflare, AWS, Vercel, etc.) first, then an optional local country database—no external services required. You can name a trusted header to check first, plug in a MaxMind-format `.mmdb` file for an offline fallback, or bring your own reader:
+
+```ruby
+otto.configure_ip_privacy(
+  geo_header: 'X-Client-Country',        # trusted app header, checked first
+  geo_db_path: 'data/country.mmdb'       # offline fallback (needs the maxmind-db gem)
+)
+```
+
+Geo headers are only trusted for requests that arrive via a configured trusted proxy (they are client-spoofable otherwise), the database is looked up on the already-masked IP, and `configure_ip_privacy(geo: false)` disables geo entirely. See [AGENTS.md](AGENTS.md) for detailed configuration options.
 
 ## Internationalization Support
 
@@ -176,6 +298,42 @@ end
 
 The locale helper checks multiple sources in order of precedence and validates against your configured locales.
 
+## Network Service Integrations
+
+Otto ships small, opt-in integrations for endpoints that an external network
+component (a reverse proxy, a TLS layer) calls over a fixed HTTP contract. Each is
+a self-contained, feature-named module — loaded but inert until you enable it, like
+`Otto::MCP`. The app supplies a small decision; Otto owns the routing, the security
+guard, and the fail-safe behavior.
+
+The first integration, `Otto::CaddyTLS`, answers **Caddy's on-demand TLS** question — "may I obtain a
+certificate for this domain?":
+
+```ruby
+otto = Otto.new('routes.txt')
+
+otto.enable_caddy_tls! do |domain|
+  # The only app-specific part. Truthy => 200 (allow), falsy => 403 (deny).
+  # Any exception here is caught and denies (fail-closed).
+  MyApp::CustomDomain.verified?(domain)
+end
+```
+
+This serves `GET /_caddy/tls-permission?domain=<host>` and covers both Caddy's
+deprecated `ask` directive and its replacement `permission http` module (identical
+HTTP contract, so migration is config-only):
+
+```caddyfile
+on_demand_tls {
+  permission http { endpoint http://127.0.0.1:PORT/_caddy/tls-permission }
+}
+```
+
+Secure by default: the endpoint is restricted to the loopback interface (the guard
+authenticates the raw TCP peer, so a spoofed `X-Forwarded-For` cannot help), and
+every layer fails closed. See [docs/reverse-proxy-network-services.md](docs/reverse-proxy-network-services.md)
+for the design and deployment notes.
+
 ## Examples
 
 Otto includes comprehensive examples demonstrating different features:
@@ -185,6 +343,7 @@ Otto includes comprehensive examples demonstrating different features:
 - **[Authentication Strategies](examples/authentication_strategies/)** - Token, API key, and role-based authentication
 - **[Security Features](examples/security_features/)** - CSRF protection, input validation, file uploads, and security headers
 - **[MCP Demo](examples/mcp_demo/)** - JSON-RPC 2.0 endpoints for CLI automation and integrations
+- **[Caddy on-demand TLS](examples/caddy_tls_demo/)** - Reverse-proxy permission endpoint via `Otto::CaddyTLS`
 
 ### Standalone Tutorials
 
@@ -207,7 +366,7 @@ gem install otto
 
 ## Documentation
 
-- **[CLAUDE.md](CLAUDE.md)** - Comprehensive developer guidance covering authentication architecture, configuration freezing, IP privacy, structured logging, and multi-app patterns
+- **[AGENTS.md](AGENTS.md)** - Comprehensive developer guidance covering authentication architecture, configuration freezing, IP privacy, structured logging, and multi-app patterns
 - **[docs/](docs/)** - Technical guides and migration guides
 - **[CHANGELOG.rst](CHANGELOG.rst)** - Version history, breaking changes, and upgrade notes
 

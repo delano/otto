@@ -2,6 +2,8 @@
 #
 # frozen_string_literal: true
 
+require 'concurrent'
+
 require_relative 'security/constant_resolver'
 
 class Otto
@@ -24,9 +26,44 @@ class Otto
   #
   #
   class Route
-    # Class methods for Route providing Otto instance access
+    # Class methods for Route providing Otto instance access.
+    #
+    # `route.rb` and `route_handlers/base.rb` `extend` this onto the target
+    # class on every request and set `.otto = otto_instance` so app code can
+    # read `self.class.otto` from within a handler method. A plain class
+    # ivar here would be shared, mutable state: two `Otto` instances sharing
+    # a controller/logic class, or concurrent threads/fibers serving
+    # requests under different `Otto` instances, would race and clobber
+    # `klass.otto`, leaking one request's security_config/auth_config into
+    # another's handler (issue #188). Backing the accessor with a
+    # `Concurrent::FiberLocalVar` scopes each assignment to the fiber/thread
+    # actually serving that request instead.
+    #
+    # NOTE (Otto v3): this whole class-level accessor is ambient per-request
+    # state and exists only as a convenience so handler code can reach otto via
+    # `self.class.otto`. The clean design carries no ambient state at all —
+    # the handler instance already receives its `Otto` explicitly
+    # (`BaseHandler.new(route_definition, otto_instance)`), so app code should
+    # read it from an instance-level `#otto` reader instead. Recommended for
+    # Otto v3: expose `otto` on the handler instance, deprecate
+    # `self.class.otto`, and drop `ClassMethods` — then there is no shared slot
+    # to race, reset, or leak, and this fiber-local workaround goes away.
     module ClassMethods
-      attr_accessor :otto
+      # Per-fiber storage keyed by target class. Deliberately
+      # `FiberLocalVar`, not `ThreadLocalVar`: fiber-per-request schedulers
+      # (Falcon/Async) run many requests as fibers in one thread, so
+      # thread-scoped storage would let those fibers clobber each other's
+      # `klass.otto` — the same race, one level down. The default block gives
+      # each fiber its own class => otto hash on first access.
+      OTTO_INSTANCES = Concurrent::FiberLocalVar.new { {} }
+
+      def otto=(instance)
+        OTTO_INSTANCES.value[self] = instance
+      end
+
+      def otto
+        OTTO_INSTANCES.value[self]
+      end
     end
     # @return [Otto::RouteDefinition] The immutable route definition
     attr_reader :route_definition
@@ -52,8 +89,15 @@ class Otto
       # Create immutable route definition
       @route_definition = Otto::RouteDefinition.new(verb, path, definition, pattern: pattern, keys: keys)
 
-      # Resolve the class
-      @klass = Otto::Security::ConstantResolver.safe_const_get(@route_definition.klass_name)
+      # Resolve the class.
+      # Lambda routes carry a registry KEY in klass_name, not a Ruby constant.
+      # Skip constant resolution (it would raise on a lowercase/unregistered key
+      # and the loader would silently drop the route).
+      @klass = if @route_definition.kind == :lambda
+                 nil
+               else
+                 Otto::Security::ConstantResolver.safe_const_get(@route_definition.klass_name)
+               end
     end
 
     # Delegate common methods to route_definition for backward compatibility
@@ -102,14 +146,37 @@ class Otto
     # @return [Array] Rack response array [status, headers, body]
     def call(env, extra_params = {})
       extra_params ||= {}
-      req            = otto.request_class.new(env)
-      res            = otto.response_class.new
+
+      # Pluggable route handler factory (Phase 4). The handler owns
+      # request/response construction and decoration — param merging,
+      # indifferent access, security headers, CSRF/validation helpers all
+      # happen once in BaseHandler#setup_request_response. Building them here
+      # too would duplicate that work on objects that get discarded (issue #189).
+      if otto&.route_handler_factory
+        # Make security config, route definition, and options available to
+        # middleware and handlers before delegating, so wrappers that run
+        # ahead of the handler's own setup (RouteAuthWrapper, the centralized
+        # error handler) can see them.
+        env['otto.security_config'] = otto.security_config if otto.respond_to?(:security_config) && otto.security_config
+        env['otto.route_definition'] = @route_definition
+        env['otto.route_options'] = @route_definition.options
+
+        handler = otto.route_handler_factory.create_handler(@route_definition, otto)
+        return handler.call(env, extra_params)
+      end
+
+      # Fallback to legacy behavior for backward compatibility. Build req/res
+      # before touching env, preserving the exact ordering this path always
+      # had — a custom request_class/response_class#initialize that reads env
+      # must keep seeing it unpopulated, same as before #189 (review follow-up).
+      req         = otto.request_class.new(env)
+      res         = otto.response_class.new
       res.request = req
 
       # Make security config available to response helpers
       env['otto.security_config'] = otto.security_config if otto.respond_to?(:security_config) && otto.security_config
 
-      # NEW: Make route definition and options available to middleware and handlers
+      # Make route definition and options available to middleware and handlers
       env['otto.route_definition'] = @route_definition
       env['otto.route_options'] = @route_definition.options
 
@@ -124,8 +191,11 @@ class Otto
         end
       end
 
-      klass.extend Otto::Route::ClassMethods
-      klass.otto = otto
+      # No target class for lambda routes (klass is nil); skip class extension.
+      if klass
+        klass.extend Otto::Route::ClassMethods
+        klass.otto = otto
+      end
 
       # Add security helpers if CSRF is enabled
       if otto.respond_to?(:security_config) && otto.security_config&.csrf_enabled?
@@ -135,39 +205,31 @@ class Otto
       # Add validation helpers
       res.extend Otto::Security::ValidationHelpers
 
-      # NEW: Use the pluggable route handler factory (Phase 4)
-      # This replaces the hardcoded execution pattern with a factory approach
-      if otto&.route_handler_factory
-        handler = otto.route_handler_factory.create_handler(@route_definition, otto)
-        handler.call(env, extra_params)
-      else
-        # Fallback to legacy behavior for backward compatibility
-        inst = nil
-        result = case kind
-                 when :instance
-                   inst = klass.new req, res
-                   inst.send(name)
-                 when :class
-                   klass.send(name, req, res)
-                 else
-                   raise "Unsupported kind for #{definition}: #{kind}"
-                 end
+      inst = nil
+      result = case kind
+               when :instance
+                 inst = klass.new req, res
+                 inst.send(name)
+               when :class
+                 klass.send(name, req, res)
+               else
+                 raise "Unsupported kind for #{definition}: #{kind}"
+               end
 
-        # Handle response based on route options
-        response_type = @route_definition.response_type
-        if response_type != 'default'
-          context = {
-            logic_instance: (kind == :instance ? inst : nil),
-               status_code: nil,
-             redirect_path: nil,
-          }
+      # Handle response based on route options
+      response_type = @route_definition.response_type
+      if response_type != 'default'
+        context = {
+          logic_instance: (kind == :instance ? inst : nil),
+             status_code: nil,
+           redirect_path: nil,
+        }
 
-          Otto::ResponseHandlers::HandlerFactory.handle_response(result, res, response_type, context)
-        end
-
-        res.body = [res.body] unless res.body.respond_to?(:each)
-        res.finish
+        Otto::ResponseHandlers::HandlerFactory.handle_response(result, res, response_type, context)
       end
+
+      res.body = [res.body] unless res.body.respond_to?(:each)
+      res.finish
     end
 
     private

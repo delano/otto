@@ -14,8 +14,7 @@ class Otto
       #     Otto.default.path 'YourClass.somemethod'  #=> /some/path
       #
       def uri(route_definition, params = {})
-        # raise RuntimeError, "Not working"
-        route = @route_definitions[route_definition]
+        route = select_uri_route(route_definition, params)
         return if route.nil?
 
         local_params = params.clone
@@ -38,6 +37,41 @@ class Otto
           uri.query = query_string
         end
         uri.to_s
+      end
+
+      private
+
+      # Pick which route a reverse lookup means when one definition string is
+      # mounted at several verb/path pairs (issue #190). Routes whose path
+      # placeholders are all present in +params+ are preferred; among those,
+      # the route consuming the most params wins. Ties keep load order, so a
+      # single-route definition behaves exactly as before.
+      #
+      # e.g. with `GET /users/:id Account#show` and `GET /me Account#show`:
+      #   uri('Account#show', id: 5) #=> /users/5
+      #   uri('Account#show')        #=> /me
+      def select_uri_route(route_definition, params)
+        candidates = routes_for_definition(route_definition)
+        # @route_definitions fallback covers hand-assembled instances whose
+        # routes never went through Otto#load.
+        return candidates.first || @route_definitions[route_definition] if candidates.size <= 1
+
+        param_keys = params.keys.map(&:to_s)
+        satisfied  = candidates.select { |route| (required_keys(route) - param_keys).empty? }
+        pool       = satisfied.empty? ? candidates : satisfied
+        pool.max_by { |route| (route.keys & param_keys).size }
+      end
+
+      def routes_for_definition(route_definition)
+        (@routes_by_definition && @routes_by_definition[route_definition]) || []
+      end
+
+      # `splat` is a positional catch-all captured from a `*` in the path,
+      # not a named parameter a caller would ever pass to uri(). Requiring
+      # it before a wildcard route counts as "satisfied" would exclude that
+      # route from selection unconditionally (issue #190 review follow-up).
+      def required_keys(route)
+        route.keys - ['splat']
       end
     end
   end

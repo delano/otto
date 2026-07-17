@@ -2,10 +2,18 @@
 #
 # frozen_string_literal: true
 
+require_relative 'errors'
+
 class Otto
   # Immutable data class representing a complete route definition
   # This encapsulates all aspects of a route: path, target, and options
   class RouteDefinition
+    # Options that gate access to a route. A malformed token for one of these
+    # (e.g. `csrf` instead of `csrf=exempt`, or a bare `auth`) must not fall
+    # back to the default behavior silently — the route would serve without
+    # its intended protection (issue #191).
+    SECURITY_GATING_OPTIONS = %w[auth role csrf].freeze
+
     # @return [String] The HTTP verb (GET, POST, etc.)
     attr_reader :verb
 
@@ -112,6 +120,32 @@ class Otto
       option(:response, 'default')
     end
 
+    # Parse a single whitespace-delimited `key=value` option token, applying
+    # the security-gating fail-fast rule shared by normal routes and the MCP
+    # RouteParser (issue #191 and its MCP/TOOL follow-up).
+    # @param part [String] a single option token, e.g. "auth=session"
+    # @param context [String] human-readable source description for the
+    #   raised error message, e.g. "route definition \"GET /admin ...\""
+    # @return [Array(Symbol, String), nil] the [key, value] pair to store,
+    #   or nil if the token is malformed and should only be warned about
+    # @raise [Otto::RouteDefinitionError] if a security-gating option
+    #   (auth/role/csrf) is malformed
+    def self.parse_option_token(part, context)
+      key, value = part.split('=', 2)
+      normalized_key = key&.downcase
+
+      if SECURITY_GATING_OPTIONS.include?(normalized_key)
+        if key != normalized_key || value.nil? || value.empty?
+          raise Otto::RouteDefinitionError,
+                "Malformed security option #{part.inspect} in #{context}: " \
+                "expected #{normalized_key}=value"
+        end
+        [key.to_sym, value]
+      elsif key && !key.empty? && value
+        [key.to_sym, value]
+      end
+    end
+
     # Check if CSRF is exempt for this route
     # @return [Boolean]
     def csrf_exempt?
@@ -168,18 +202,21 @@ class Otto
     # Parse route definition into target and options
     # @param definition [String] The route definition
     # @return [Hash] Hash with :target and :options keys
+    # @raise [Otto::RouteDefinitionError] if a security-gating option token
+    #   (auth/role/csrf) has no value — failing fast instead of serving the
+    #   route with default (less safe) behavior
     def parse_definition(definition)
       parts   = definition.split(/\s+/)
       target  = parts.shift
       options = {}
 
       parts.each do |part|
-        key, value = part.split('=', 2)
-        if key && value
-          options[key.to_sym] = value
-        elsif Otto.debug
-          # Malformed parameter, log warning if debug enabled
-          Otto.logger.warn "Ignoring malformed route parameter: #{part}"
+        pair = self.class.parse_option_token(part, "route definition #{definition.inspect}")
+        if pair
+          options[pair[0]] = pair[1]
+        else
+          Otto.structured_log(:warn, 'Malformed route option ignored',
+            { option: part, definition: definition })
         end
       end
 
@@ -191,6 +228,19 @@ class Otto
     # @return [Hash] Hash with :klass_name, :method_name, and :kind
     def parse_target(target)
       case target
+      when /^&/
+        # Lambda handler: '&name' references a proc pre-registered in the
+        # lambda_handlers registry. The entire remainder after '&' is the exact
+        # O(1) Hash lookup key (may contain '.', '#', '::' — all inert here;
+        # resolution is string equality, never eval/const_get). Issue #41 security.
+        name = target[1..].to_s
+        if name.strip.empty?
+          raise ArgumentError,
+                "Invalid lambda handler target #{target.inspect}: handler name " \
+                "after '&' cannot be empty (expected '&handler_name')"
+        end
+        { klass_name: name, method_name: nil, kind: :lambda }
+
       when /^(.+)\.(.+)$/
         # Class.method - call class method directly
         { klass_name: ::Regexp.last_match(1), method_name: ::Regexp.last_match(2), kind: :class }

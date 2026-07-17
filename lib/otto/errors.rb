@@ -11,6 +11,13 @@
 #   otto.register_error_handler(MyApp::ResourceNotFound, status: 404, log_level: :info)
 #
 class Otto
+  # Raised at route-load time when a route definition is malformed in a way
+  # that must not be silently ignored — e.g. a security-gating option
+  # (auth/role/csrf) without a value. Unlike generic per-line load errors,
+  # this error propagates out of Otto#load so the app fails at boot instead
+  # of serving the route with default (less safe) behavior.
+  class RouteDefinitionError < StandardError; end
+
   # Base class for all Otto HTTP errors
   #
   # Provides default_status and default_log_level class methods that

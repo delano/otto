@@ -2,6 +2,8 @@
 #
 # frozen_string_literal: true
 
+require_relative '../route_definition'
+
 class Otto
   module MCP
     # Parser for MCP route definitions and resource URIs
@@ -64,10 +66,19 @@ class Otto
         parts   = handler_definition.split(/\s+/)
         options = {}
 
-        # First part is the handler class.method
-        parts[1..-1]&.each do |part|
-          key, value = part.split('=', 2)
-          options[key.to_sym] = value if key && value
+        # First part is the handler class.method. Delegate token parsing to
+        # Otto::RouteDefinition so a bare/empty auth|role|csrf token here
+        # fails fast exactly like it does for normal routes (issue #191
+        # MCP/TOOL follow-up), instead of silently registering the route
+        # without its intended protection.
+        parts[1..]&.each do |part|
+          pair = Otto::RouteDefinition.parse_option_token(part, "handler #{handler_definition.inspect}")
+          if pair
+            options[pair[0]] = pair[1]
+          else
+            Otto.structured_log(:warn, 'Malformed MCP/tool route option ignored',
+              { option: part, handler: handler_definition })
+          end
         end
 
         options

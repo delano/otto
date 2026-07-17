@@ -61,6 +61,16 @@ class Otto
     # Used by: All security middleware (CSRF, Headers, Validation)
     SECURITY_CONFIG = 'otto.security_config'
 
+    # Per-request CSP nonce, minted lazily on first access and memoized here.
+    # Type: String (base64)
+    # Set by: Otto::Security::CSP.nonce / Otto::Request#csp_nonce (first touch)
+    # Used by: views (stamping script/style nonces) and
+    #   Otto::Security::CSP::EmitMiddleware (emit-if-consumed)
+    # Note: this is the DEFAULT key. Apps with an existing convention can point
+    #   the accessor at their own key via Otto::Security::Config#csp_nonce_key
+    #   (e.g. 'onetime.nonce'), so the header and views still share one value.
+    NONCE = 'otto.nonce'
+
     # Whether the request arrived via a trusted proxy.
     # Type: Boolean
     # Set by: IPPrivacyMiddleware (every request, evaluated on the original
@@ -142,6 +152,17 @@ class Otto
       # Set by: IPPrivacyMiddleware
       # Used by: Session correlation without storing IPs
       HASHED_IP = 'otto.privacy.hashed_ip'
+
+      # Stable IP correlation hash: identifies the same visitor across days/months
+      # Type: String (hexadecimal), or nil when no correlation secret configured
+      # Set by: IPPrivacyMiddleware (computed over the FULL client IP,
+      #   pre-masking, keyed with the caller-configured stable
+      #   correlation_secret — NOT the daily rotation_key behind HASHED_IP)
+      # Used by: Correlating the same visitor across days/months (e.g. audit
+      #   trails) without ever storing or exposing the real IP
+      # Read via: Otto::Request#ip_correlation_hash
+      # Contrast: HASHED_IP rotates daily (session-scoped); this is stable.
+      CORRELATION_HASH = 'otto.privacy.correlation_hash'
 
       # Privacy fingerprint object
       # Type: Otto::Privacy::RedactedFingerprint

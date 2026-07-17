@@ -26,7 +26,7 @@ jobs:
       actions: read # Required for Claude to read CI results on PRs
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6.0.3
+        uses: actions/checkout@v7.0.0
         with:
           fetch-depth: 1
 
@@ -36,10 +36,12 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
-          # Fall back to Sonnet when the primary model is unavailable/overloaded.
-          # Without this, an unavailable primary surfaces as "Claude encountered
-          # an error" and fails the claude-review check.
-          fallback_model: "claude-sonnet-4-6"
+          # Primary model: set the CLAUDE_MODEL repo variable to override without
+          # editing this file. Pinning a current id avoids the action's frozen
+          # default, which 404s ("model: claude-sonnet-4-20250514"). Fall back to
+          # Sonnet if the primary is unavailable or overloaded.
+          model: "${{ vars.CLAUDE_MODEL || 'claude-opus-4-6' }}"
+          fallback_model: "${{ vars.CLAUDE_FALLBACK_MODEL || 'claude-sonnet-4-6' }}"
 
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |

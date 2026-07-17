@@ -37,6 +37,9 @@ jobs:
         # `require_relative 'file/write.rb'` against a file deleted in
         # the same release, the reason 2.0.2 exists.
         include:
+          - ruby: "3.2"
+            experimental: false
+            lockfile: "locked"
           - ruby: "3.3"
             experimental: false
             lockfile: "locked"
@@ -49,6 +52,9 @@ jobs:
           - ruby: "4.0"
             experimental: true
             lockfile: "locked"
+          - ruby: "3.2"
+            experimental: false
+            lockfile: "unlocked"
           - ruby: "3.3"
             experimental: false
             lockfile: "unlocked"
@@ -63,7 +69,7 @@ jobs:
             lockfile: "unlocked"
 
     steps:
-      - uses: actions/checkout@v6.0.3
+      - uses: actions/checkout@v7.0.0
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         continue-on-error: ${{ matrix.experimental }}

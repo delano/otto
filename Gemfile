@@ -19,6 +19,7 @@ end
 group :development, :test, optional: true do
   # Keep gems that need to be in both environments
   gem 'json_schemer'
+  gem 'maxmind-db', '~> 1.2' # Optional geo DB reader; exercised by geo specs
   gem 'rack-attack'
   gem 'reek', '~> 6.5'
 end
@@ -27,8 +28,8 @@ group :development do
   gem 'benchmark'
   gem 'debug'
   gem 'rackup' # Used to boot examples/ apps; not needed by specs
-  gem 'rake', '~> 13.0', require: false # Provides `rake release` for release-gem.yml
-  gem 'rubocop', '~> 1.86.2', require: false
+  gem 'rake', '~> 13.4', require: false # Provides `rake release` for release-gem.yml
+  gem 'rubocop', '~> 1.88.1', require: false
   gem 'rubocop-performance', require: false
   gem 'rubocop-rspec', require: false
   gem 'rubocop-thread_safety', require: false
@@ -36,4 +37,6 @@ group :development do
   gem 'stackprof', require: false
   gem 'syntax_tree', require: false
   gem 'tryouts', '~> 3.7.1', require: false
+  gem 'yard', '~> 0.9', require: false # API docs for yardoc.yml
+  gem 'kramdown', require: false # Markdown provider for YARD
 end

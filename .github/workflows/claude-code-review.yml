@@ -4,6 +4,16 @@ on:
   pull_request:
     types: [opened, synchronize, labeled]
   workflow_dispatch:
+    inputs:
+      model:
+        description: "Claude model for this run (overrides the CLAUDE_MODEL repo variable)"
+        type: choice
+        required: false
+        default: claude-opus-4-6
+        options:
+          - claude-opus-4-6
+          - claude-sonnet-4-6
+          - claude-haiku-4-5-20251001
 
 jobs:
   claude-review:
@@ -14,10 +24,21 @@ jobs:
     #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
 
     runs-on: ubuntu-latest
-    if: |
-      (github.event.action == 'opened') ||
-      (github.event.action == 'labeled' && github.event.label.name == 'claude-review') ||
-      (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'claude-review'))
+    # Run only when ALL of the following hold:
+    #   1. Author is not a bot (renovate, dependabot, etc. surface as 'name[bot]').
+    #   2. PR head is not from a fork. Fork PRs run without repository secrets, so
+    #      CLAUDE_CODE_OAUTH_TOKEN is empty and the action would fail.
+    #   3. The event is a freshly opened PR, a 'claude-review' label add, or a push
+    #      to a PR that already carries the 'claude-review' label.
+    if: ${{
+      !endsWith(github.actor, '[bot]') &&
+      !github.event.pull_request.head.repo.fork &&
+      (
+        (github.event.action == 'opened') ||
+        (github.event.action == 'labeled' && github.event.label.name == 'claude-review') ||
+        (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'claude-review'))
+      )
+      }}
 
     permissions:
       contents: read
@@ -27,7 +48,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6.0.3
+        uses: actions/checkout@v7.0.0
         with:
           fetch-depth: 1
 
@@ -37,10 +58,12 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
-          # Fall back to Sonnet when the primary model is unavailable/overloaded.
-          # Without this, an unavailable primary surfaces as "Claude encountered
-          # an error" and fails the claude-review check.
-          fallback_model: "claude-sonnet-4-6"
+          # Primary model precedence: the workflow_dispatch "model" input (manual
+          # runs) -> the CLAUDE_MODEL repo variable -> this built-in default.
+          # Pinning a current id avoids the action's frozen default, which 404s
+          # ("model: claude-sonnet-4-20250514"). Fall back to Sonnet on overload.
+          model: "${{ inputs.model || vars.CLAUDE_MODEL || 'claude-opus-4-6' }}"
+          fallback_model: "${{ vars.CLAUDE_FALLBACK_MODEL || 'claude-sonnet-4-6' }}"
 
           # Direct prompt for automated review (no @claude mention needed)
           direct_prompt: |

@@ -7,6 +7,7 @@ require 'digest'
 require 'openssl'
 require 'ipaddr'
 require_relative '../core/freezable'
+require_relative 'csp/policy'
 
 class Otto
   module Security
@@ -44,6 +45,13 @@ class Otto
       # depth mode; CIDR-walk is unaffected.
       TRUSTED_PROXY_HEADERS = %w[X-Forwarded-For Forwarded Both].freeze
 
+      # Endpoint group name shared by the CSP `report-to` directive and the
+      # `Reporting-Endpoints` response header (modern Reporting API). Browsers
+      # match the directive's group to the header's key, so both must agree.
+      # Aliases {Otto::Security::CSP::Policy::REPORTING_GROUP} — the one source
+      # the policy builder uses — so the header and the directive cannot drift.
+      CSP_REPORTING_GROUP = Otto::Security::CSP::Policy::REPORTING_GROUP
+
       # Error raised when CSRF protection is enabled in production without an
       # explicitly configured secret. A randomly-generated per-process secret
       # silently breaks token verification across workers and restarts, so we
@@ -62,8 +70,10 @@ class Otto
       attr_reader :csrf_protection,  :csrf_header_key,
                   :trusted_proxies, :require_secure_cookies,
                   :security_headers,
-                  :csp_nonce_enabled, :debug_csp, :mcp_auth,
-                  :ip_privacy_config, :trusted_proxy_depth, :trusted_proxy_header
+                  :csp_nonce_enabled, :debug_csp, :mcp_auth, :csp_nonce_key,
+                  :ip_privacy_config, :trusted_proxy_depth, :trusted_proxy_header,
+                  :csp_report_uri, :csp_report_to_url, :csp_violation_callback,
+                  :csp_directive_overrides
 
       # Initialize security configuration with safe defaults
       #
@@ -86,6 +96,13 @@ class Otto
         @input_validation       = true
         @csp_nonce_enabled      = false
         @debug_csp              = false
+        @csp_nonce_key          = 'otto.nonce'
+        @csp_policy             = nil
+        @csp_report_uri         = nil
+        @csp_report_to_url      = nil
+        @csp_violation_callback = nil
+        @csp_directive_overrides = {}
+        @csp_script_src_override_warned = false
         @rate_limiting_config   = { custom_rules: {} }
         @ip_privacy_config      = Otto::Privacy::Config.new
 
@@ -198,6 +215,20 @@ class Otto
             false
           end
         end
+      end
+
+      # Whether any trusted-proxy IP/CIDR/Regexp matchers are configured.
+      #
+      # This mirrors {#trusted_proxy?}, which consults the same matcher list, so
+      # the two answers stay consistent: a request can only be "via a trusted
+      # proxy" when matchers exist. It deliberately EXCLUDES count-based depth
+      # mode — depth resolves the client IP but never confers proxy identity
+      # trust (the same decoupling {Otto::Request#forwarded_by_trusted_proxy?}
+      # applies to X-Forwarded-Proto). Used to gate geo-header trust.
+      #
+      # @return [Boolean] true when at least one trusted-proxy matcher exists
+      def trusted_proxies_configured?
+        @trusted_proxy_matchers.any?
       end
 
       # Whether count-based ("trust the last N hops") proxy resolution is active.
@@ -343,7 +374,8 @@ class Otto
       def enable_csp!(policy = "default-src 'self'")
         ensure_not_frozen!
 
-        @security_headers['content-security-policy'] = policy
+        @csp_policy = policy
+        @security_headers['content-security-policy'] = build_static_csp(policy)
       end
 
       # Enable Content Security Policy (CSP) with nonce support
@@ -352,17 +384,83 @@ class Otto
       # Unlike enable_csp!, this doesn't set a static policy but enables the response
       # helper to generate CSP headers with nonces on a per-request basis.
       #
+      # Per-directive overrides may be supplied to customize the emitted nonce
+      # policy without vendoring the gem. They merge into Otto's base directive
+      # sets ({Otto::Security::CSP::Policy.development_directives} /
+      # {Otto::Security::CSP::Policy.production_directives}): a matching directive
+      # is replaced in place, a new directive is appended, and a nil/false value
+      # removes a directive. See {#csp_directive_overrides=} for the accepted
+      # shape.
+      #
       # @param debug [Boolean] Enable debug logging for CSP headers (default: false)
+      # @param directives [Hash] per-directive overrides merged into the base set
       # @return [void]
       # @raise [FrozenError] if configuration is frozen
       #
       # @example
       #   config.enable_csp_with_nonce!(debug: true)
-      def enable_csp_with_nonce!(debug: false)
+      #
+      # @example Restore data: workers (blob: is the default worker-src token)
+      #   config.enable_csp_with_nonce!(directives: { 'worker-src' => "'self' data: blob:" })
+      def enable_csp_with_nonce!(debug: false, directives: {})
         ensure_not_frozen!
 
+        # Apply overrides before toggling state so a bad +directives+ argument
+        # raises without leaving the config half-updated (nonce enabled but
+        # overrides not merged).
+        merge_csp_directives(directives) unless directives.nil? || directives.empty?
         @csp_nonce_enabled = true
         @debug_csp         = debug
+      end
+
+      # Replace the per-directive overrides applied to the nonce CSP policy.
+      #
+      # Overrides merge into Otto's base directive sets when
+      # {#generate_nonce_csp} builds the policy, so a consuming app can adjust
+      # ANY directive rather than only `report-uri`/`report-to`. Keys are
+      # directive names (String or Symbol, matched case-insensitively); values
+      # are the source list as a String (`"'self' blob:"`) or Array
+      # (`%w['self' blob:]`), or nil/false to REMOVE the directive.
+      #
+      # Keys are normalized on store (lowercased, hyphenated) via
+      # {Otto::Security::CSP::Policy.normalize_overrides}, so the stored hash
+      # never accumulates logically-identical entries under different key styles
+      # (`'WORKER-SRC'` and `:worker_src` both read back as `'worker-src'`).
+      #
+      # @note Overriding `script-src` while nonce mode is enabled disables
+      #   nonce-based script protection: the per-request nonce cannot be
+      #   included in a static override, so it is stripped from the emitted
+      #   header. A warning is logged when a `script-src` override is stored.
+      #   See {Otto::Security::CSP::Policy.merge_directives}.
+      #
+      # @param overrides [Hash] directive name => source list / nil
+      # @return [void]
+      # @raise [FrozenError] if configuration is frozen
+      #
+      # @example
+      #   config.csp_directive_overrides = { 'worker-src' => "'self' data: blob:" }
+      def csp_directive_overrides=(overrides)
+        ensure_not_frozen!
+
+        normalized = Otto::Security::CSP::Policy.normalize_overrides(overrides || {})
+        warn_if_script_src_overridden(normalized)
+        @csp_directive_overrides = normalized
+      end
+
+      # Merge additional per-directive overrides into the existing set, leaving
+      # untouched any directive not named in +overrides+ (last write wins for a
+      # repeated directive). Use this to accumulate overrides incrementally;
+      # use {#csp_directive_overrides=} to replace them wholesale.
+      #
+      # @param overrides [Hash] directive name => source list / nil
+      # @return [void]
+      # @raise [FrozenError] if configuration is frozen
+      def merge_csp_directives(overrides)
+        ensure_not_frozen!
+
+        normalized = Otto::Security::CSP::Policy.normalize_overrides(overrides || {})
+        warn_if_script_src_overridden(normalized)
+        @csp_directive_overrides = @csp_directive_overrides.merge(normalized)
       end
 
       # Disable CSP nonce support
@@ -382,6 +480,22 @@ class Otto
         @csp_nonce_enabled
       end
 
+      # Set the Rack env key the framework-owned lazy nonce is memoized under
+      # ({Otto::Security::CSP.nonce} / {Otto::Request#csp_nonce}). Defaults to
+      # `'otto.nonce'`; override it for an app with an existing convention (e.g.
+      # `'onetime.nonce'`) so the accessor adopts that app's env key without a
+      # rename. A blank value resets to the default.
+      #
+      # @param key [String] the env key
+      # @return [void]
+      # @raise [FrozenError] if configuration is frozen
+      def csp_nonce_key=(key)
+        ensure_not_frozen!
+
+        normalized     = key.to_s.strip
+        @csp_nonce_key = normalized.empty? ? 'otto.nonce' : normalized
+      end
+
       # Check if CSP debug logging is enabled
       #
       # @return [Boolean] true if CSP debug logging is enabled
@@ -389,14 +503,129 @@ class Otto
         @debug_csp
       end
 
+      # Configure the path browsers should POST CSP violation reports to.
+      #
+      # Setting this does two things:
+      # 1. A `report-uri <path>` directive is appended to every emitted CSP
+      #    policy — both the static policy from {#enable_csp!} and the per-request
+      #    nonce policy from {#generate_nonce_csp} — so browsers know where to
+      #    send violations.
+      # 2. {Otto::Security::CSP::ReportMiddleware} activates for that path (it is
+      #    inert until a report URI is set).
+      #
+      # When nil/empty (the default), NO reporting directive is emitted and the
+      # policy output is byte-identical to Otto's historical output.
+      #
+      # For the turnkey setup that also injects the receiving middleware, prefer
+      # {Otto::Security::Core#enable_csp_reporting!} on the Otto instance.
+      #
+      # @param uri [String, nil] path browsers POST reports to (matched against
+      #   `PATH_INFO`, e.g. `/_/csp-report`), or nil to disable reporting. A
+      #   value without a leading slash is coerced to an absolute path so it
+      #   matches the slash-prefixed `PATH_INFO` the middleware compares against.
+      # @return [void]
+      # @raise [FrozenError] if configuration is frozen
+      def csp_report_uri=(uri)
+        ensure_not_frozen!
+
+        @csp_report_uri = normalize_report_path(uri)
+        rebuild_static_csp_with_reporting!
+      end
+
+      # Configure the absolute URL browsers should POST CSP violation reports to
+      # via the modern Reporting API (Reporting-Endpoints header + `report-to`
+      # directive), complementing the legacy path-based {#csp_report_uri=}.
+      #
+      # Setting this does two things:
+      # 1. A `report-to #{CSP_REPORTING_GROUP}` directive is appended to every
+      #    emitted CSP policy (static and per-request nonce alike), and a
+      #    `Reporting-Endpoints` response header maps that group to this URL.
+      # 2. Modern browsers (which have deprecated `report-uri`) deliver reports
+      #    as `application/reports+json` to this endpoint — already parsed by
+      #    {Otto::Security::CSP::Parser}.
+      #
+      # The value MUST be an ABSOLUTE URL (Reporting-Endpoints does not accept a
+      # bare path). Point it at the same receiver as {#csp_report_uri=}: its path
+      # component should equal the report URI so {Otto::Security::CSP::ReportMiddleware}
+      # (which matches on PATH_INFO) intercepts modern reports too.
+      #
+      # When nil/empty (the default), NO `report-to` directive or
+      # `Reporting-Endpoints` header is emitted and policy output is
+      # byte-identical to Otto's historical output.
+      #
+      # @param url [String, nil] absolute URL for the Reporting API endpoint, or
+      #   nil to disable modern reporting.
+      # @return [void]
+      # @raise [FrozenError] if configuration is frozen
+      def csp_report_to_url=(url)
+        ensure_not_frozen!
+
+        @csp_report_to_url = normalize_report_uri(url)
+        if @csp_report_to_url
+          @security_headers['reporting-endpoints'] = reporting_endpoints_header
+        else
+          @security_headers.delete('reporting-endpoints')
+        end
+        rebuild_static_csp_with_reporting!
+      end
+
+      # Register the callback invoked once per parsed CSP violation report.
+      #
+      # The block receives an {Otto::Security::CSP::Report}. Your application
+      # decides what to do — log, emit a metric, store, forward, or ignore. Otto
+      # adds no storage or database coupling.
+      #
+      # Registering a second callback REPLACES the first (last registration
+      # wins), matching the singular `on_csp_violation` semantics. Calling this
+      # with NO block clears (unregisters) any previously-set callback.
+      #
+      # SECURITY NOTE: report URL fields may carry sensitive path/query data in
+      # some applications. Redact them in your callback before logging if needed;
+      # Otto passes them through un-redacted (see {Otto::Security::CSP::Report}).
+      #
+      # @yieldparam report [Otto::Security::CSP::Report] a normalized report
+      # @return [void]
+      # @raise [FrozenError] if configuration is frozen
+      def on_csp_violation(&block)
+        ensure_not_frozen!
+
+        @csp_violation_callback = block
+      end
+
+      # Invoke the registered violation callback for a report, isolating any
+      # error it raises. A misbehaving application callback must never break the
+      # report receiver (which always answers 204).
+      #
+      # @param report [Otto::Security::CSP::Report]
+      # @return [void]
+      def dispatch_csp_violation(report)
+        callback = @csp_violation_callback
+        return if callback.nil?
+
+        callback.call(report)
+      rescue StandardError => e
+        Otto.logger.error("[Otto::CSP] violation callback raised #{e.class}: #{e.message}")
+      end
+
       # Generate a CSP policy string with the provided nonce
+      #
+      # Thin facade over {Otto::Security::CSP::Policy.nonce_policy}; the directive
+      # sets and report-uri/report-to assembly live there now. Any configured
+      # {#csp_directive_overrides} are merged into the base directive set. Output
+      # is byte-identical to Otto's historical policy when no overrides or
+      # reporting are configured.
       #
       # @param nonce [String] The nonce value to include in the CSP
       # @param development_mode [Boolean] Whether to use development-friendly directives
       # @return [String] Complete CSP policy string
       def generate_nonce_csp(nonce, development_mode: false)
-        directives = development_mode ? development_csp_directives(nonce) : production_csp_directives(nonce)
-        directives.join(' ')
+        Otto::Security::CSP::Policy.nonce_policy(
+          nonce,
+          development_mode: development_mode,
+          report_uri: @csp_report_uri,
+          report_to_url: @csp_report_to_url,
+          directive_overrides: @csp_directive_overrides
+        )
       end
 
       # Enable X-Frame-Options header to prevent clickjacking
@@ -676,6 +905,29 @@ class Otto
         MSG
       end
 
+      # Warn once per config instance when a `script-src` override is stored for
+      # the nonce CSP policy. The per-request nonce is generated at response time
+      # and therefore cannot be present in a static override, so replacing (or
+      # removing) `script-src` necessarily strips the nonce from the emitted
+      # header — the browser then accepts any inline script the page carries the
+      # nonce attribute on, voiding nonce-based protection. Overriding any other
+      # directive (e.g. `worker-src`) is unaffected and stays silent.
+      #
+      # @param normalized [Hash] normalized (lowercased/hyphenated) overrides
+      # @return [void]
+      def warn_if_script_src_overridden(normalized)
+        return unless normalized.key?('script-src')
+        return if @csp_script_src_override_warned
+
+        @csp_script_src_override_warned = true
+        Otto.structured_log(:warn, <<~MSG.gsub(/\s+/, ' ').strip, directive: 'script-src')
+          [Otto::CSP] A script-src override was configured while nonce mode is in
+          use. The per-request nonce cannot be included in a static override, so
+          nonce-based script protection is disabled for this policy. Remove the
+          script-src override to keep nonce enforcement.
+        MSG
+      end
+
       # Freeze-time backstop: refuse to finalize a production configuration that
       # enables CSRF with a generated (non-configured) secret. Mirrors
       # #validate_trusted_proxy_config! so the failure surfaces at boot, before
@@ -705,52 +957,92 @@ class Otto
         defined?(Otto) && Otto.respond_to?(:env?) && Otto.env?(:production, :prod)
       end
 
-      # Generate CSP directives for development environment
+      # Normalize a configured report URI: strip surrounding whitespace and
+      # treat a blank string as "not configured" (nil).
       #
-      # Development mode allows inline scripts/styles and hot reloading connections
-      # for better developer experience with build tools like Vite.
-      #
-      # @param nonce [String] The nonce value to include in script-src
-      # @return [Array<String>] Array of CSP directive strings
-      def development_csp_directives(nonce)
-        [
-          "default-src 'none';",
-          "script-src 'nonce-#{nonce}' 'unsafe-inline';", # Allow inline scripts for development tools
-          "style-src 'self' 'unsafe-inline';",
-          "connect-src 'self' ws: wss: http: https:;", # Allow HTTP and all WebSocket connections for dev tools
-          "img-src 'self' data:;",
-          "font-src 'self';",
-          "object-src 'none';",
-          "base-uri 'self';",
-          "form-action 'self';",
-          "frame-ancestors 'none';",
-          "manifest-src 'self';",
-          "worker-src 'self' data:;",
-        ]
+      # @param uri [String, nil]
+      # @return [String, nil]
+      def normalize_report_uri(uri)
+        return nil if uri.nil?
+
+        stripped = uri.to_s.strip
+        stripped.empty? ? nil : stripped
       end
 
-      # Generate CSP directives for production environment
+      # Normalize a configured report PATH: the local endpoint the receiver
+      # matches on `PATH_INFO`. Same strip/blank-to-nil handling as
+      # {#normalize_report_uri}, but a bare relative value is coerced to an
+      # absolute path — a value like `"csp-report"` would otherwise (a) never
+      # equal the slash-prefixed `PATH_INFO` the middleware compares against, and
+      # (b) be resolved by browsers relative to the document URL. An absolute URL
+      # (contains a scheme) is left untouched.
       #
-      # Production mode is more restrictive, only allowing HTTPS connections
-      # and nonce-only scripts for enhanced XSS protection.
+      # @param uri [String, nil]
+      # @return [String, nil]
+      def normalize_report_path(uri)
+        normalized = normalize_report_uri(uri)
+        return nil if normalized.nil?
+        return normalized if normalized.start_with?('/') || normalized.include?('://')
+
+        "/#{normalized}"
+      end
+
+      # Recompute the stored static CSP header so the report-uri / report-to
+      # directives track the current settings, independent of the order in which
+      # {#enable_csp!} and the report setters were called.
       #
-      # @param nonce [String] The nonce value to include in script-src
-      # @return [Array<String>] Array of CSP directive strings
-      def production_csp_directives(nonce)
-        [
-          "default-src 'none';",                     # Restrict to same origin by default
-          "script-src 'nonce-#{nonce}';",            # Only allow scripts with valid nonce
-          "style-src 'self' 'unsafe-inline';",       # Allow inline styles and same-origin stylesheets
-          "connect-src 'self' wss: https:;",         # Only HTTPS and secure WebSockets
-          "img-src 'self' data:;",                   # Allow images from same origin and data URIs
-          "font-src 'self';",                        # Allow fonts from same origin only
-          "object-src 'none';",                      # Block <object>, <embed>, and <applet> elements
-          "base-uri 'self';",                        # Restrict <base> tag targets to same origin
-          "form-action 'self';",                     # Restrict form submissions to same origin
-          "frame-ancestors 'none';",                 # Prevent site from being embedded in frames
-          "manifest-src 'self';",                    # Allow web app manifests from same origin
-          "worker-src 'self' data:;",                # Allow Workers from same origin and data blobs
-        ]
+      # The base is normally @csp_policy (set by {#enable_csp!}). When a static
+      # CSP was instead injected directly through {#set_security_headers} (so
+      # @csp_policy is nil), adopt that header as the base the first time a report
+      # directive is configured — so reporting augments it too. Capturing it as
+      # the pristine base keeps later rebuilds idempotent. A static header set
+      # directly AFTER reporting is configured bypasses this and remains the
+      # application's to manage.
+      #
+      # @return [void]
+      def rebuild_static_csp_with_reporting!
+        @csp_policy ||= adoptable_static_csp_base
+        return if @csp_policy.nil?
+
+        @security_headers['content-security-policy'] = build_static_csp(@csp_policy)
+      end
+
+      # The current static CSP header when it can serve as a pristine base policy
+      # for reporting augmentation: present and not already carrying a report
+      # directive (adopting one that does would double-append). Otherwise nil —
+      # notably, the nonce path sets no static header, so nothing is adopted.
+      #
+      # @return [String, nil]
+      def adoptable_static_csp_base
+        existing = @security_headers['content-security-policy']
+        return nil if existing.nil? || existing.empty?
+        return nil if existing.include?('report-uri') || existing.include?('report-to')
+
+        existing
+      end
+
+      # The `Reporting-Endpoints` response header value mapping the CSP reporting
+      # group to the configured absolute endpoint URL, e.g.
+      # `otto-csp="https://example.com/_/csp-report"`.
+      #
+      # @return [String]
+      def reporting_endpoints_header
+        %(#{CSP_REPORTING_GROUP}="#{@csp_report_to_url}")
+      end
+
+      # Build the stored static-CSP header value: the base policy plus the
+      # optional report-uri and report-to directives. Thin facade over
+      # {Otto::Security::CSP::Policy.static_policy}; byte-identical to the bare
+      # policy when no reporting is configured.
+      #
+      # @param policy [String] the base policy passed to {#enable_csp!}
+      # @return [String]
+      def build_static_csp(policy)
+        Otto::Security::CSP::Policy.static_policy(
+          policy,
+          report_uri: @csp_report_uri,
+          report_to_url: @csp_report_to_url
+        )
       end
     end
 

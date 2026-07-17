@@ -1,0 +1,117 @@
+name: Generate and Deploy YARD Documentation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'lib/**/*'
+      - 'docs/**/*'
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'CHANGELOG.rst'
+      - 'LICENSE.txt'
+      - '.yardopts'
+      - '.github/workflows/yardoc.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment, skipping runs queued between the run
+# in-progress and latest queued. Do NOT cancel in-progress runs so production
+# deployments can complete.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-docs:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    name: Generate YARD Documentation
+    env:
+      # otto declares yard/kramdown in a `group :development` whose name also
+      # appears in an `optional: true` block, so Bundler treats `development`
+      # as optional and the default `bundle install` skips it (yard never
+      # installs -> `bundle exec yard` is "command not found"). Mirror otto's
+      # ci.yml convention so setup-ruby installs the dev/test gems.
+      BUNDLE_WITH: "development:test"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Set up Ruby environment
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+
+      - name: Generate documentation
+        # Uses the repository's committed .yardopts as the single source of
+        # truth for the output dir, includes/excludes, markup, and tags.
+        run: |
+          echo "::group::YARD Documentation Generation"
+          bundle exec yard stats --list-undoc || true
+          bundle exec yard doc
+          echo "::endgroup::"
+
+      - name: Disable Jekyll processing
+        # YARD emits files and directories that begin with underscores; the
+        # .nojekyll marker stops GitHub Pages from stripping them.
+        run: touch doc/.nojekyll
+
+      - name: Validate documentation output
+        run: |
+          echo "::group::Documentation Validation"
+          if [ ! -d "doc" ]; then
+            echo "Error: documentation directory 'doc' was not generated." >&2
+            echo "Ensure .yardopts sets '--output-dir doc'." >&2
+            exit 1
+          fi
+          if [ ! -f "doc/index.html" ]; then
+            echo "Warning: doc/index.html not found"
+          fi
+          echo "Generated HTML files: $(find doc -name '*.html' | wc -l)"
+          echo "Total documentation size: $(du -sh doc/ | cut -f1)"
+          echo "::endgroup::"
+
+      - name: Setup GitHub Pages configuration
+        uses: actions/configure-pages@v6
+
+      - name: Upload documentation artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: './doc'
+
+  deploy-pages:
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build-docs
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
+
+  notify-completion:
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    needs: [build-docs, deploy-pages]
+    if: success()
+
+    steps:
+      - name: Documentation deployment summary
+        run: |
+          echo "::notice title=Documentation Deployed::YARD documentation successfully deployed to GitHub Pages"
+          echo "::notice title=Access URL::Documentation available at: ${{ needs.deploy-pages.outputs.page_url }}"

@@ -279,4 +279,71 @@ RSpec.describe Otto::Security::Configurator do
       end
     end
   end
+
+  describe 'CSP violation reporting' do
+    describe '#enable_csp_reporting!' do
+      it 'sets the report URI, registers the callback, and injects the middleware pinned outermost' do
+        seen = []
+        configurator.enable_csp_reporting!('/_/csp-report') { |report| seen << report }
+
+        expect(security_config.csp_report_uri).to eq('/_/csp-report')
+        expect(middleware_stack.includes?(Otto::Security::CSP::ReportMiddleware)).to be true
+
+        report = Otto::Security::CSP::Report.from_raw('violated-directive' => 'script-src')
+        security_config.dispatch_csp_violation(report)
+        expect(seen).to eq([report])
+      end
+
+      it 'is idempotent — a second call does not add a duplicate middleware entry' do
+        configurator.enable_csp_reporting!('/_/csp-report')
+        configurator.enable_csp_reporting!('/_/csp-report')
+
+        expect(middleware_stack.count(Otto::Security::CSP::ReportMiddleware)).to eq(1)
+      end
+
+      it 'pins the middleware to run outermost regardless of other middleware' do
+        configurator.enable_csp_reporting!('/_/csp-report')
+        configurator.enable_csrf_protection! # added afterwards
+
+        base_app = ->(_env) { [200, {}, ['base']] }
+        app = middleware_stack.wrap(base_app, security_config)
+        expect(app).to be_a(Otto::Security::CSP::ReportMiddleware)
+      end
+    end
+
+    describe '#csp_report_uri=' do
+      it 'delegates to the security config without injecting middleware' do
+        configurator.csp_report_uri = '/reports'
+
+        expect(security_config.csp_report_uri).to eq('/reports')
+        expect(middleware_stack.includes?(Otto::Security::CSP::ReportMiddleware)).to be false
+      end
+    end
+  end
+
+  # The Configurator mutators reach a frozen Config (through a guarded method or
+  # a frozen ivar/hash), so they raise FrozenError after freeze just like the
+  # Core `otto.enable_*!` surface. This locks that parity so a future refactor
+  # cannot silently reintroduce post-freeze mutation on the Configurator surface.
+  describe 'post-freeze mutation raises (parity with the Core surface)' do
+    before { security_config.deep_freeze! }
+
+    {
+      'enable_csrf_protection!'   => ->(c) { c.enable_csrf_protection! },
+      'enable_request_validation!' => ->(c) { c.enable_request_validation! },
+      'enable_rate_limiting!'     => ->(c) { c.enable_rate_limiting! },
+      'enable_hsts!'              => ->(c) { c.enable_hsts! },
+      'enable_csp!'               => ->(c) { c.enable_csp! },
+      'enable_frame_protection!'  => ->(c) { c.enable_frame_protection! },
+      'enable_csp_with_nonce!'    => ->(c) { c.enable_csp_with_nonce! },
+      'csp_report_uri='           => ->(c) { c.csp_report_uri = '/r' },
+      'security_headers='         => ->(c) { c.security_headers = { 'x' => 'y' } },
+      'add_trusted_proxy'         => ->(c) { c.add_trusted_proxy('127.0.0.1') },
+      'enable_csp_reporting!'     => ->(c) { c.enable_csp_reporting!('/r') },
+    }.each do |name, mutate|
+      it "raises FrozenError from ##{name}" do
+        expect { mutate.call(configurator) }.to raise_error(FrozenError)
+      end
+    end
+  end
 end

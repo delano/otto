@@ -24,6 +24,20 @@ class Otto
       env['HTTP_USER_AGENT']
     end
 
+    # Framework-owned, request-scoped CSP nonce, generated lazily on first
+    # access and memoized into the request env. Views call this to stamp
+    # `nonce="…"` onto their inline `<script>`/`<link>` tags; the same value is
+    # what {Otto::Security::CSP::EmitMiddleware} writes into the `script-src
+    # 'nonce-…'` header — so the header and the views agree structurally, not by
+    # convention. An untouched request generates nothing.
+    #
+    # The env key is configurable via {Otto::Security::Config#csp_nonce_key}.
+    #
+    # @return [String] this request's nonce (base64)
+    def csp_nonce
+      Otto::Security::CSP.nonce(env)
+    end
+
     # Canonical client IP for the request.
     #
     # Prefers env['otto.client_ip'] — the value resolved once, early, by
@@ -117,6 +131,33 @@ class Otto
     #   req.hashed_ip  # => 'a3f8b2c4d5e6f7...'
     def hashed_ip
       redacted_fingerprint&.hashed_ip || env['otto.privacy.hashed_ip']
+    end
+
+    # Get the stable-keyed correlation hash of the client IP.
+    #
+    # Contrast with #hashed_ip: that value is keyed with a daily-rotating
+    # secret (great for correlating requests within a session, useless across
+    # days). This value is HMAC-SHA256 over the SAME full, pre-masking client
+    # IP but keyed with a caller-configured STABLE secret, so the same IP
+    # produces the same hash indefinitely — the granularity long-lived audit
+    # records need without ever handling the raw IP.
+    #
+    # Both are computed before masking, so both reflect the per-host address
+    # (not the /24 the app is otherwise left with); the raw IP itself never
+    # reaches the application — only the hash does.
+    #
+    # Returns nil when IP privacy is disabled, no correlation secret is
+    # configured (see Otto#configure_ip_privacy(correlation_secret:)), or the
+    # client IP is exempt from masking. By default private/localhost IPs are
+    # exempt (mask_private_ips is false), so this is nil for RFC-1918 and
+    # loopback addresses — including the common local dev path — just like
+    # #masked_ip and #hashed_ip. It targets public audit-trail traffic.
+    #
+    # @return [String, nil] Hexadecimal HMAC-SHA256 hash string or nil
+    # @example
+    #   req.ip_correlation_hash  # => 'b7e2...'  (stable across days)
+    def ip_correlation_hash
+      env['otto.privacy.correlation_hash']
     end
 
     def client_ipaddress

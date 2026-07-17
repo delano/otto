@@ -38,12 +38,17 @@ Security
 --------
 
 - Geo headers (``CF-IPCountry`` and friends, plus any configured
-  ``geo_header``) are ignored unless Otto can trust their origin: honored only
-  for a request that arrived via a configured trusted proxy (CIDR mode); never
-  trusted in count-based depth mode, where the header-setting hop can't be
-  verified as a geo-CDN (resolution falls to the local database). When no
-  trusted proxies are configured, behavior is unchanged. Every geo header is
-  client-spoofable unless you are actually behind that CDN. (#206)
+  ``geo_header``) are now trusted ONLY for a request that demonstrably arrived
+  via a configured CIDR trusted proxy. Every geo header is client-spoofable
+  unless you are actually behind the CDN that sets it, so an unverifiable origin
+  is not trusted: count-based depth mode (the header-setting hop can't be
+  verified as a geo-CDN) and — a behavior change — deployments with **no**
+  trusted-proxy configuration. Previously any client could pick its own country
+  by sending ``CF-IPCountry``/``X-Client-Country``. **Migration:** to keep
+  header-based geo, configure ``trusted_proxies`` (or ``trusted_proxy_depth``)
+  so Otto can verify the proxy origin, or set ``geo_db_path`` for a local
+  database; otherwise resolution now returns ``'**'`` for header-only setups.
+  (#206)
 
 Fixed
 -----

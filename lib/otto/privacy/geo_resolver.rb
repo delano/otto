@@ -19,9 +19,11 @@ class Otto
     # 4. Local MMDB lookup, masked before lookup (Config#geo_db_reader)
     # 5. '**' (unknown)
     #
-    # Steps 1 and 2 are SKIPPED when the request's geo headers are not trusted
-    # (a non-trusted-proxy request while trusted proxies are configured) — every
-    # geo header is client-spoofable unless you are actually behind that CDN.
+    # Steps 1 and 2 are SKIPPED when the request's geo headers are not trusted.
+    # Every geo header is client-spoofable unless you are actually behind the CDN
+    # that sets it, so the middleware trusts them only for a request that arrived
+    # via a configured trusted proxy; otherwise resolution falls straight to the
+    # custom resolver / database.
     #
     # Resolution is HONEST: when no header, custom resolver, or database resolves
     # a country, the answer is '**' (unknown). Otto does not guess from a

@@ -278,18 +278,20 @@ RSpec.describe 'Configurable geo resolution' do
         expect(env['otto.privacy.geo_country']).to eq('US')
       end
 
-      it 'trusts provider headers when no trusted proxies are configured (legacy)' do
+      it 'does NOT trust provider headers when no trusted proxies are configured' do
+        # Strict default: without a verified proxy origin the header is
+        # client-supplied and unverifiable, so the spoofable GB is ignored.
         env = run(Otto::Security::Config.new, { 'REMOTE_ADDR' => '8.8.8.8', 'HTTP_CF_IPCOUNTRY' => 'GB' })
-        expect(env['otto.privacy.geo_country']).to eq('GB')
+        expect(env['otto.privacy.geo_country']).to eq('**')
       end
 
-      it 'trusts geo headers when the security config lacks trusted_proxies_configured?' do
-        # Safe legacy default: a config object that does not implement the
-        # trusted-proxy introspection method falls through to trusting headers.
+      it 'does NOT trust geo headers when the security config lacks trusted_proxies_configured?' do
+        # Strict safe default: a config object that cannot report its
+        # trusted-proxy state is treated as unverifiable, so headers are ignored.
         middleware = Otto::Security::Middleware::IPPrivacyMiddleware.new(app, nil)
         middleware.instance_variable_set(:@security_config, Object.new)
 
-        expect(middleware.send(:geo_headers_trusted?, {})).to be true
+        expect(middleware.send(:geo_headers_trusted?, {})).to be false
       end
 
       it 'ignores geo headers in count-based depth mode (edge unverifiable)' do

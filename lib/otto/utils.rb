@@ -320,5 +320,47 @@ class Otto
     rescue IPAddr::InvalidAddressError, IPAddr::AddressFamilyError
       false
     end
+
+    # Whether an address falls inside any of the given CIDR ranges.
+    #
+    # The general-purpose CIDR-set matcher (allowlists, denylists, network
+    # zones), sharing the semantics of the trusted-proxy matcher: the client
+    # address is normalized (port stripped, validated) and folded via
+    # IPAddr#native so an IPv4-mapped IPv6 peer (::ffff:203.0.113.7) matches
+    # an IPv4 range; ranges of the other address family are skipped rather
+    # than raising.
+    #
+    # Asymmetric strictness, on purpose:
+    # - `ip` is runtime data — nil, blank, or malformed input returns false
+    #   (fail-closed for allowlist callers).
+    # - `cidrs` entries are configuration — an invalid CIDR string raises
+    #   IPAddr::InvalidAddressError, because silently skipping an entry
+    #   narrows an allowlist or widens a denylist. Validate entries at
+    #   write/boot time; pre-parsed IPAddr entries skip re-parsing here.
+    #
+    # @param ip [String, IPAddr, nil] address to test (runtime data)
+    # @param cidrs [Enumerable<String, IPAddr>, nil] CIDR ranges or host
+    #   addresses (configuration)
+    # @return [Boolean] true when ip is inside at least one range
+    # @raise [IPAddr::InvalidAddressError] if a cidrs entry is not a valid
+    #   IP or CIDR string
+    def ip_in_cidrs?(ip, cidrs)
+      return false if cidrs.nil?
+
+      client =
+        if ip.is_a?(IPAddr)
+          ip.native
+        else
+          candidate = normalize_ip(ip&.to_s)
+          return false unless candidate
+
+          IPAddr.new(candidate).native
+        end
+
+      cidrs.any? do |entry|
+        range = entry.is_a?(IPAddr) ? entry : IPAddr.new(entry.to_s)
+        range.family == client.family && range.include?(client)
+      end
+    end
   end
 end

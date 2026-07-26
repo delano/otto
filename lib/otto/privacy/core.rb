@@ -88,16 +88,26 @@ class Otto
       #   redis = Redis.new(url: ENV['REDIS_URL'])
       #   otto.configure_ip_privacy(redis: redis)
       #
+      # @example Declare the observability posture for a compliance deployment
+      #   otto.configure_ip_privacy(profile: :audit)
+      #
+      # @param profile [Symbol] Named privacy profile (:anonymous, :masked, or
+      #   :audit) applied FIRST as a preset over disabled/mask_private_ips, so
+      #   any other option in the same call overrides it. This declares the
+      #   deployment's observability posture in one reviewable word; see
+      #   Otto::Privacy::Config::PROFILES.
+      #
       # rubocop:disable Metrics/ParameterLists -- a keyword-only configuration
       # method; the options are self-documenting at the call site and grouping
       # them into a hash would only obscure the supported settings.
       def configure_ip_privacy(octet_precision: nil, hash_rotation: nil, geo: nil, redis: nil,
                                correlation_secret: nil, geo_header: nil, geo_db_path: nil,
-                               geo_db_reader: nil)
+                               geo_db_reader: nil, profile: nil)
         # rubocop:enable Metrics/ParameterLists
         ensure_not_frozen!
         config = @security_config.ip_privacy_config
 
+        config.profile = profile if profile
         config.octet_precision = octet_precision if octet_precision
         config.hash_rotation_period = hash_rotation if hash_rotation
         config.geo_enabled = geo unless geo.nil?

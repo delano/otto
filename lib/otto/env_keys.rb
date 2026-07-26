@@ -134,6 +134,23 @@ class Otto
     # Note: presence also acts as the idempotency guard for the middleware
     CLIENT_IP = 'otto.client_ip'
 
+    # Verdict-only CIDR membership check over the resolved, UNMASKED client IP
+    # Type: Proc — call with an Enumerable of CIDR strings or IPAddr objects,
+    #       returns true/false
+    # Set by: IPPrivacyMiddleware (every path that resolves an IP, all
+    #         privacy profiles)
+    # Used by: Downstream IP policy code (allowlists, denylists, network
+    #          zones) that needs full /32-/128 precision without changing the
+    #          observability posture — CLIENT_IP is masked under the default
+    #          profile, so it cannot express a single host
+    # Note: the unmasked IP never lands in env; only this closure does, and a
+    #       Proc serializes to nothing useful, so env dumps and loggers cannot
+    #       leak the address accidentally. Returns false when the request had
+    #       no resolvable client IP (fail-closed for allowlist callers);
+    #       raises IPAddr::InvalidAddressError for invalid CIDR entries
+    #       (configuration error). See Otto::Utils.ip_in_cidrs?.
+    IP_MATCH = 'otto.ip_match'
+
     # Privacy-safe masked IP address
     # Type: String (e.g., '192.168.1.0')
     # Set by: IPPrivacyMiddleware

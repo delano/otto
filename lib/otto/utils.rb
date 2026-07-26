@@ -379,8 +379,11 @@ class Otto
         # IPAddr#native builds its result with #clone, which carries frozen
         # state over and then fails to mutate it. Callers who freeze their
         # range configuration (or pass it through Ractor.make_shareable) would
-        # hit FrozenError, so unfreeze the one case that actually folds.
-        range = range.dup if range.frozen? && (range.ipv4_mapped? || range.ipv4_compat?)
+        # hit FrozenError, so hand #native an unfrozen receiver. Gating the dup
+        # on a foldable-range predicate would cost more than it saves:
+        # #ipv4_compat? is deprecated and warns under -w, and #native already
+        # short-circuits to self for anything that does not fold.
+        range = range.dup if range.frozen?
         range = range.native
         range.family == client.family && range.include?(client)
       end

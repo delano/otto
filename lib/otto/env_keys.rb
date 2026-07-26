@@ -149,6 +149,10 @@ class Otto
     #       no resolvable client IP (fail-closed for allowlist callers);
     #       raises IPAddr::InvalidAddressError for invalid CIDR entries
     #       (configuration error). See Otto::Utils.ip_in_cidrs?.
+    # Note: setting CLIENT_IP yourself is out of contract — it trips the
+    #       middleware's idempotency guard, so the unmasked address is never
+    #       captured and this capability degrades to a logged fail-closed
+    #       check that denies every range.
     IP_MATCH = 'otto.ip_match'
 
     # Privacy-safe masked IP address

@@ -319,6 +319,17 @@ RSpec.describe Otto::Security::Config do
         config.add_trusted_proxy('10.0.0.0/8')
         expect(config.trusted_proxy?('::1')).to be false
       end
+
+      it 'matches a plain IPv4 peer against an IPv4-mapped IPv6 proxy entry' do
+        # The client address is folded via IPAddr#native, so the entry must be
+        # folded too — otherwise the family check silently untrusts the proxy,
+        # which gates otto.via_trusted_proxy, secure?, and geo-header trust.
+        # /112 in mapped space is a /16 of IPv4.
+        config.add_trusted_proxy('::ffff:172.16.0.0/112')
+        expect(config.trusted_proxy?('172.16.0.1')).to be true
+        expect(config.trusted_proxy?('::ffff:172.16.0.1')).to be true
+        expect(config.trusted_proxy?('172.17.0.1')).to be false
+      end
     end
   end
 

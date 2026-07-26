@@ -330,6 +330,15 @@ class Otto
     # an IPv4 range; ranges of the other address family are skipped rather
     # than raising.
     #
+    # Ranges are folded through #native too, so the fold is symmetric: a
+    # mapped-IPv6 CIDR (::ffff:10.0.0.0/104) matches a plain IPv4 client just
+    # as a mapped client matches a plain IPv4 range. Folding only one side
+    # made the family check reject the pair and silently drop the entry —
+    # wrong verdict, not a raise. #native returns self for ranges that are
+    # not IPv4-mapped/compatible, so ordinary IPv4 and IPv6 CIDRs are
+    # untouched, and it returns a new IPAddr rather than mutating, so
+    # pre-parsed entries in a caller's configuration array stay intact.
+    #
     # Asymmetric strictness, on purpose:
     # - `ip` is runtime data — nil, blank, or malformed input returns false
     #   (fail-closed for allowlist callers).
@@ -358,7 +367,7 @@ class Otto
         end
 
       cidrs.any? do |entry|
-        range = entry.is_a?(IPAddr) ? entry : IPAddr.new(entry.to_s)
+        range = (entry.is_a?(IPAddr) ? entry : IPAddr.new(entry.to_s)).native
         range.family == client.family && range.include?(client)
       end
     end

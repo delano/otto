@@ -33,10 +33,37 @@ RSpec.describe 'IP precision capability and privacy profiles' do
       expect(Otto::Utils.ip_in_cidrs?('2001:db8::1', ['203.0.113.0/24'])).to be false
     end
 
+    it 'folds IPv4-mapped IPv6 ranges onto IPv4 clients (symmetric with the client fold)' do
+      expect(Otto::Utils.ip_in_cidrs?('10.1.2.3', ['::ffff:10.0.0.0/104'])).to be true
+      expect(Otto::Utils.ip_in_cidrs?('11.1.2.3', ['::ffff:10.0.0.0/104'])).to be false
+      # Host entry, and a mapped client against a mapped range.
+      expect(Otto::Utils.ip_in_cidrs?('203.0.113.7', ['::ffff:203.0.113.7/128'])).to be true
+      expect(Otto::Utils.ip_in_cidrs?('::ffff:10.1.2.3', ['::ffff:10.0.0.0/104'])).to be true
+    end
+
+    it 'leaves genuine IPv6 ranges unfolded' do
+      expect(Otto::Utils.ip_in_cidrs?('2001:db8::1', ['2001:db8::/32'])).to be true
+      expect(Otto::Utils.ip_in_cidrs?('10.1.2.3', ['2001:db8::/32'])).to be false
+    end
+
     it 'accepts pre-parsed IPAddr entries' do
       ranges = [IPAddr.new('203.0.113.0/24'), IPAddr.new('2001:db8::/32')]
       expect(Otto::Utils.ip_in_cidrs?('203.0.113.7', ranges)).to be true
       expect(Otto::Utils.ip_in_cidrs?('2001:db8::1', ranges)).to be true
+    end
+
+    it 'does not mutate pre-parsed IPAddr entries while folding' do
+      mapped = IPAddr.new('::ffff:10.0.0.0/104')
+      ranges = [mapped]
+
+      expect(Otto::Utils.ip_in_cidrs?('10.1.2.3', ranges)).to be true
+      expect(Otto::Utils.ip_in_cidrs?('10.1.2.3', ranges)).to be true
+
+      # The caller's configuration array is reusable across requests: still the
+      # same object, still IPv6, still mapped.
+      expect(ranges.first).to equal(mapped)
+      expect(mapped.family).to eq(Socket::AF_INET6)
+      expect(mapped.ipv4_mapped?).to be true
     end
 
     it 'accepts an IPAddr as the client address' do
@@ -215,6 +242,46 @@ RSpec.describe 'IP precision capability and privacy profiles' do
         expect(env['otto.client_ip']).to eq('203.0.113.7')
         expect(env['otto.ip_match'].call(['203.0.113.7/32'])).to be true
       end
+
+      it 'fails closed with no resolvable client IP, same as the privacy-enabled path' do
+        security_config.ip_privacy_config.profile = :audit
+        env = {}
+        middleware.call(env)
+
+        expect(env['otto.ip_match']).to be_a(Proc)
+        expect(env['otto.ip_match'].call(['0.0.0.0/0', '::/0'])).to be false
+        expect(env['REMOTE_ADDR']).to be_nil
+        expect(env['otto.original_ip']).to be_nil
+      end
+    end
+
+    context ':anonymous profile' do
+      it 'masks private IPs that the default profile exempts, without losing precision' do
+        security_config.ip_privacy_config.profile = :anonymous
+        env = { 'REMOTE_ADDR' => '192.168.1.50' }
+        middleware.call(env)
+
+        expect(env['otto.client_ip']).to eq('192.168.1.0')
+        expect(env['REMOTE_ADDR']).to eq('192.168.1.0')
+        expect(env['otto.original_ip']).to be_nil
+        expect(env['otto.ip_match'].call(['192.168.1.50/32'])).to be true
+        expect(env['otto.ip_match'].call(['192.168.1.51/32'])).to be false
+      end
+    end
+
+    context 'profile configured after the middleware stack is built' do
+      it 'honors a profile change made before the first request' do
+        # Otto builds its stack at the end of Otto.new, but configuration stays
+        # legal until the first request. A privacy flag cached at construction
+        # would keep masking here.
+        otto = Otto.new
+        otto.configure_ip_privacy(profile: :audit)
+        env = Rack::MockRequest.env_for('/', 'REMOTE_ADDR' => '203.0.113.7')
+        otto.call(env)
+
+        expect(env['otto.client_ip']).to eq('203.0.113.7')
+        expect(env['REMOTE_ADDR']).to eq('203.0.113.7')
+      end
     end
 
     context 'no resolvable client IP' do
@@ -228,11 +295,37 @@ RSpec.describe 'IP precision capability and privacy profiles' do
     end
 
     context 'idempotency guard' do
-      it 'does not install a second capability when otto.client_ip is pre-set' do
+      it 'does not re-resolve or re-mask when a prior pass already set otto.client_ip' do
         env = { 'REMOTE_ADDR' => '203.0.113.7', 'otto.client_ip' => '203.0.113.0' }
         middleware.call(env)
 
-        expect(env['otto.ip_match']).to be_nil
+        expect(env['REMOTE_ADDR']).to eq('203.0.113.7')
+        expect(env['otto.client_ip']).to eq('203.0.113.0')
+      end
+
+      it 'preserves the capability a prior middleware pass installed' do
+        env = { 'REMOTE_ADDR' => '203.0.113.7' }
+        middleware.call(env)
+        first = env['otto.ip_match']
+
+        # Second pass through a stacked instance: same closure, still precise.
+        middleware.call(env)
+        expect(env['otto.ip_match']).to equal(first)
+        expect(env['otto.ip_match'].call(['203.0.113.7/32'])).to be true
+      end
+
+      it 'installs a fail-closed capability when otto.client_ip was set out-of-contract' do
+        # An app or harness set otto.client_ip itself, so the unmasked address
+        # is unavailable. Deny rather than match against a possibly-masked
+        # value, which would produce false allows on narrow CIDRs.
+        allow(Otto.logger).to receive(:warn)
+        env = { 'REMOTE_ADDR' => '203.0.113.7', 'otto.client_ip' => '203.0.113.7' }
+        middleware.call(env)
+
+        expect(env['otto.ip_match']).to be_a(Proc)
+        expect(env['otto.ip_match'].call(['203.0.113.7/32'])).to be false
+        expect(env['otto.ip_match'].call(['0.0.0.0/0', '::/0'])).to be false
+        expect(Otto.logger).to have_received(:warn).with(/otto.client_ip was set outside/)
       end
     end
 

@@ -311,6 +311,24 @@ RSpec.describe 'IP resolution harmonization (otto#58 / OTS#3436)' do
         expect(request_for('HTTPS' => 'on').secure?).to be true
       end
 
+      it 'honors the canonical Rack scheme (rack.url_scheme) without a trusted proxy' do
+        # An upstream normalizer setting only rack.url_scheme (the idiomatic
+        # single-key Rack approach) must be visible to secure?, keeping it
+        # aligned with Rack::Request#scheme (issue #214).
+        req = request_for('REMOTE_ADDR' => '203.0.113.0')
+        req.env['rack.url_scheme'] = 'https'
+
+        expect(req.secure?).to be true
+        expect(Rack::Request.new(req.env).scheme).to eq('https')
+      end
+
+      it 'is not secure when rack.url_scheme is http and nothing else indicates TLS' do
+        req = request_for('REMOTE_ADDR' => '203.0.113.0')
+
+        expect(req.env['rack.url_scheme']).to eq('http')
+        expect(req.secure?).to be false
+      end
+
       it 'trusts X-Forwarded-Proto when the canonical trust flag is set' do
         req = request_for('REMOTE_ADDR' => '203.0.113.0', 'HTTP_X_FORWARDED_PROTO' => 'https')
         req.env['otto.via_trusted_proxy'] = true

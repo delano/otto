@@ -59,18 +59,26 @@ Fixed
   was silently ignored and the middleware kept masking.
 
 - ``IPPrivacyMiddleware`` no longer interpolates the resolved, unmasked client
-  IP into its debug log. Both masking paths logged the raw address when
-  ``Otto.debug`` was on — the pre-mask resolution line under ``:masked`` and
-  ``:anonymous``, and the private/localhost exemption line under ``:masked`` —
-  handing back through the log exactly what the profile withholds from env, and
-  to a destination that typically travels further than the process. The masked
-  value is still logged after masking. ``:audit`` is unaffected: it keeps the
-  raw IP in env by design and takes a path that never logged it.
+  IP into its debug log. Two lines logged the raw address when ``Otto.debug``
+  was on — the pre-mask resolution line (``:masked`` and ``:anonymous``) and
+  the private/localhost exemption line (``:masked``) — handing back through the
+  log exactly what the profile withholds from env, and to a destination that
+  typically travels further than the process. The resolution line is gone
+  entirely; the masking path still logs the masked IP once masking has
+  happened, and the exemption line now records only that the exemption fired
+  (that path masks nothing, so it has no derived value to log — but it also
+  leaves the address in ``REMOTE_ADDR`` and ``otto.client_ip``, where request
+  logging can still reach it). ``:audit`` is unaffected: it keeps the raw IP in
+  env by design and takes a path that logs nothing at all.
 
-- ``Otto::Privacy::Config.profile_presets`` raises ``ArgumentError`` for a
-  profile that is not a Symbol or String. ``profile: 123`` or an explicit
-  ``profile: nil`` previously raised ``NoMethodError`` on ``#to_sym``,
-  inconsistent with the rest of the class's input validation.
+- ``Otto::Privacy::Config#profile=`` raises ``ArgumentError`` for a value that
+  cannot name a profile, where ``config.profile = 123`` and
+  ``config.profile = nil`` previously raised ``NoMethodError`` on ``#to_sym``,
+  inconsistent with the rest of the class's input validation. The ``profile:``
+  option form (``Config.new`` / ``configure_ip_privacy``) is unchanged for
+  ``nil``, which has always meant "leave unchanged" and is skipped before it
+  reaches validation; a non-nameable value such as ``profile: 123`` now raises
+  there too, before any other option in the same call is applied.
 
 - ``IPPrivacyMiddleware``'s idempotency guard installs a fail-closed
   ``otto.ip_match`` when ``otto.client_ip`` was set outside the middleware

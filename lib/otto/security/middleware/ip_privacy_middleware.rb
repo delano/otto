@@ -131,13 +131,14 @@ class Otto
           # material is gone (REMOTE_ADDR and forwarded headers rewritten).
           install_ip_match(env, client_ip)
 
-          # Deliberately does not interpolate client_ip. This method only runs on
-          # the masking profiles (:masked / :anonymous), so echoing the resolved
-          # address here would hand back exactly what the profile just promised
-          # to withhold — and logs travel further than env does. The masked value
-          # is logged after masking instead; :audit keeps the raw IP in env by
-          # design and takes apply_no_privacy, which never reaches this line.
-          Otto.logger.debug '[IPPrivacyMiddleware] Resolved client IP (pre-mask)' if Otto.debug
+          # There is deliberately no debug line for the resolution itself. It
+          # used to interpolate client_ip, which handed back through the log
+          # exactly what these profiles withhold from env — and logs travel
+          # further than a process does. Stripped of the address it carried no
+          # information worth a line: this method only runs on the masking
+          # profiles (:masked / :anonymous), and every branch below already logs
+          # its own outcome. To trace resolution here, log a derived value (the
+          # masked IP, the family, the trusted-proxy verdict) — never the address.
 
           # No resolvable client IP (REMOTE_ADDR absent or blank, and no trusted
           # forwarded value). There is nothing to mask, and masking would derive
@@ -188,10 +189,12 @@ class Otto
               # localhost / RFC-1918 addresses (the default dev path) even when a
               # correlation_secret is configured. Set mask_private_ips to treat
               # private IPs as public and run them through the full path below.
-              # No address interpolated here either (see the pre-mask note
-              # above). Exempt IPs skip fingerprinting entirely, so there is no
-              # derived value to log — the line records only that the exemption
-              # fired.
+              # No address interpolated (see the resolution note at the top of
+              # this method). Exempt IPs skip fingerprinting entirely, so there
+              # is no derived value to log either — the line records only that
+              # the exemption fired. The address is not lost to debugging: this
+              # path leaves REMOTE_ADDR unmasked and sets otto.client_ip to the
+              # same value, so downstream request logs still carry it.
               Otto.logger.debug '[IPPrivacyMiddleware] Private/localhost IP exempted from masking' if Otto.debug
               return
             end

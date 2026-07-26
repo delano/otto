@@ -162,11 +162,19 @@ RSpec.describe 'IP precision capability and privacy profiles' do
       end
 
       it 'raises ArgumentError, not NoMethodError, for a profile that cannot be a name' do
-        # Neither responds to #to_sym.
+        # Neither Integer nor NilClass responds to #to_sym.
         expect { described_class.new.profile = 123 }
           .to raise_error(ArgumentError, /must be a Symbol or String, got: Integer/)
         expect { described_class.new.profile = nil }
           .to raise_error(ArgumentError, /must be a Symbol or String, got: NilClass/)
+        expect { described_class.new(profile: 123) }
+          .to raise_error(ArgumentError, /must be a Symbol or String, got: Integer/)
+      end
+
+      it 'treats profile: nil at construction as "leave unchanged", not an error' do
+        # The truthiness guard at the option site skips the preset entirely, so
+        # the nil never reaches profile_presets. Only the setter rejects nil.
+        expect(described_class.new(profile: nil).profile).to eq(:masked)
       end
 
       it 'derives the profile from live knob state, never a stale label' do
@@ -208,6 +216,14 @@ RSpec.describe 'IP precision capability and privacy profiles' do
         config = otto.security_config.ip_privacy_config
         expect(config.profile).to eq(:masked)
         expect(config.octet_precision).to eq(2)
+      end
+
+      it 'raises on a profile that cannot be a name' do
+        otto = Otto.new
+        expect { otto.configure_ip_privacy(profile: 123) }
+          .to raise_error(ArgumentError, /must be a Symbol or String, got: Integer/)
+        # Rejected before any other option is applied.
+        expect(otto.security_config.ip_privacy_config.profile).to eq(:masked)
       end
 
       it 'raises on an unknown profile' do
@@ -360,14 +376,19 @@ RSpec.describe 'IP precision capability and privacy profiles' do
         env = { 'REMOTE_ADDR' => '192.168.1.50' }
         middleware.call(env)
 
-        expect(lines.join("\n")).not_to include('192.168.1.50')
+        log = lines.join("\n")
+        expect(log).not_to be_empty # guards against a vacuous pass
+        expect(log).not_to include('192.168.1.50')
       end
 
-      it 'still logs the resolved address under :audit, which keeps it in env by design' do
+      it 'emits nothing at all under :audit, which keeps the raw IP in env by design' do
         security_config.ip_privacy_config.profile = :audit
         env = { 'REMOTE_ADDR' => '203.0.113.7' }
         middleware.call(env)
 
+        # apply_no_privacy has no logging statements; the raw address stays in
+        # env, so there is nothing for a log line to disclose that env does not.
+        expect(lines).to be_empty
         expect(env['otto.client_ip']).to eq('203.0.113.7')
       end
     end

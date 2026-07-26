@@ -201,7 +201,7 @@ GEM
       unicode-emoji (~> 4.1)
     unicode-emoji (4.2.0)
     user_agent_parser (2.21.0)
-    yard (0.9.44)
+    yard (0.9.45)
     zeitwerk (2.7.3)
 
 PLATFORMS

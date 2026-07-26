@@ -228,8 +228,17 @@ class Otto
       #
       # @param profile [Symbol, String] one of the {PROFILES} keys
       # @return [Hash] frozen preset hash
-      # @raise [ArgumentError] for an unknown profile name
+      # @raise [ArgumentError] for an unknown profile name or an un-nameable type
       def self.profile_presets(profile)
+        # Neither Integer nor NilClass responds to #to_sym, so an unguarded
+        # conversion raises NoMethodError for `profile: 123` or an explicit
+        # `profile: nil` — an opaque failure inconsistent with the ArgumentError
+        # the rest of this class raises for bad input (cf. correlation_secret=).
+        unless profile.respond_to?(:to_sym)
+          raise ArgumentError,
+                "Privacy profile must be a Symbol or String, got: #{profile.class}"
+        end
+
         PROFILES.fetch(profile.to_sym) do
           raise ArgumentError,
                 "Unknown privacy profile: #{profile.inspect} (valid: #{PROFILES.keys.join(', ')})"
@@ -240,6 +249,14 @@ class Otto
       #
       # Sets only the knobs the profile names (see {PROFILES}); other settings
       # (octet_precision, geo, correlation_secret, ...) are untouched.
+      #
+      # Presets are applied, not reset: a knob a profile does not name keeps its
+      # previous value. Switching :anonymous -> :audit therefore leaves
+      # mask_private_ips true, because :audit names only `disabled`. That is
+      # inert rather than wrong — `disabled` short-circuits privacy_enabled?
+      # before mask_private_ips is ever read, and #profile below tests @disabled
+      # first, so the derived label stays accurate. Switching on to :masked
+      # re-sets both knobs explicitly. Only surprising if you read the raw ivars.
       #
       # @param profile [Symbol, String] :anonymous, :masked, or :audit
       # @raise [ArgumentError] for an unknown profile name

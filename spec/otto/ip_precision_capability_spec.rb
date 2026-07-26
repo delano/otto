@@ -147,6 +147,28 @@ RSpec.describe 'IP precision capability and privacy profiles' do
         expect(config.profile).to eq(:masked)
       end
 
+      it 'round-trips through all three profiles' do
+        # :audit names only `disabled`, so it leaves mask_private_ips set from
+        # the :anonymous pass. :masked must re-set both knobs to land clean.
+        config = described_class.new
+        config.profile = :anonymous
+        config.profile = :audit
+        expect(config.profile).to eq(:audit)
+
+        config.profile = :masked
+        expect(config.enabled?).to be true
+        expect(config.mask_private_ips).to be false
+        expect(config.profile).to eq(:masked)
+      end
+
+      it 'raises ArgumentError, not NoMethodError, for a profile that cannot be a name' do
+        # Neither responds to #to_sym.
+        expect { described_class.new.profile = 123 }
+          .to raise_error(ArgumentError, /must be a Symbol or String, got: Integer/)
+        expect { described_class.new.profile = nil }
+          .to raise_error(ArgumentError, /must be a Symbol or String, got: NilClass/)
+      end
+
       it 'derives the profile from live knob state, never a stale label' do
         config = described_class.new
         config.profile = :masked
@@ -290,6 +312,63 @@ RSpec.describe 'IP precision capability and privacy profiles' do
         expect(env['otto.original_ip']).to be_nil
         expect(env['otto.ip_match'].call(['192.168.1.50/32'])).to be true
         expect(env['otto.ip_match'].call(['192.168.1.51/32'])).to be false
+      end
+    end
+
+    context 'debug logging' do
+      let(:lines) { [] }
+      let(:capturing_logger) do
+        Class.new do
+          def initialize(sink)
+            @sink = sink
+          end
+
+          def debug(message = nil)
+            @sink << (message || yield).to_s
+          end
+
+          def method_missing(_name, *_args) = nil
+
+          def respond_to_missing?(_name, _include_private = false) = true
+        end.new(lines)
+      end
+
+      # Otto.debug and Otto.logger are process globals; restore both so an
+      # enabled spec cannot bleed into the rest of the suite.
+      around do |example|
+        original_debug  = Otto.debug
+        original_logger = Otto.logger
+        Otto.debug  = true
+        Otto.logger = capturing_logger
+        example.run
+      ensure
+        Otto.debug  = original_debug
+        Otto.logger = original_logger
+      end
+
+      it 'never writes the unmasked address to the log on the masked path' do
+        env = { 'REMOTE_ADDR' => '203.0.113.7' }
+        middleware.call(env)
+
+        log = lines.join("\n")
+        expect(log).not_to be_empty
+        expect(log).not_to include('203.0.113.7')
+        expect(log).to include('203.0.113.0') # the masked value is still logged
+      end
+
+      it 'never writes the address to the log on the private-exempt path' do
+        env = { 'REMOTE_ADDR' => '192.168.1.50' }
+        middleware.call(env)
+
+        expect(lines.join("\n")).not_to include('192.168.1.50')
+      end
+
+      it 'still logs the resolved address under :audit, which keeps it in env by design' do
+        security_config.ip_privacy_config.profile = :audit
+        env = { 'REMOTE_ADDR' => '203.0.113.7' }
+        middleware.call(env)
+
+        expect(env['otto.client_ip']).to eq('203.0.113.7')
       end
     end
 

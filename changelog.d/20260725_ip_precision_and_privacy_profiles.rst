@@ -58,6 +58,20 @@ Fixed
   request, so a post-construction ``configure_ip_privacy(profile: :audit)``
   was silently ignored and the middleware kept masking.
 
+- ``IPPrivacyMiddleware`` no longer interpolates the resolved, unmasked client
+  IP into its debug log. Both masking paths logged the raw address when
+  ``Otto.debug`` was on — the pre-mask resolution line under ``:masked`` and
+  ``:anonymous``, and the private/localhost exemption line under ``:masked`` —
+  handing back through the log exactly what the profile withholds from env, and
+  to a destination that typically travels further than the process. The masked
+  value is still logged after masking. ``:audit`` is unaffected: it keeps the
+  raw IP in env by design and takes a path that never logged it.
+
+- ``Otto::Privacy::Config.profile_presets`` raises ``ArgumentError`` for a
+  profile that is not a Symbol or String. ``profile: 123`` or an explicit
+  ``profile: nil`` previously raised ``NoMethodError`` on ``#to_sym``,
+  inconsistent with the rest of the class's input validation.
+
 - ``IPPrivacyMiddleware``'s idempotency guard installs a fail-closed
   ``otto.ip_match`` when ``otto.client_ip`` was set outside the middleware
   (out of contract, but previously left the advertised capability ``nil`` and

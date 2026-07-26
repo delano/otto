@@ -339,6 +339,14 @@ class Otto
     # untouched, and it returns a new IPAddr rather than mutating, so
     # pre-parsed entries in a caller's configuration array stay intact.
     #
+    # The fold needs the prefix to cover the mapped marker — /96 or longer.
+    # ::ffff:10.0.0.0/104 folds to 10.0.0.0/8; ::ffff:10.0.0.0/64 does not
+    # fold at all, because masking zeroes the ffff marker, and so matches
+    # neither an IPv4 client nor a mapped one. Write mapped ranges at /96+,
+    # or just write the IPv4 CIDR. ::ffff:0:0/96 is the whole mapped space
+    # and therefore matches every IPv4 address. Deprecated IPv4-compatible
+    # notation (::a.b.c.d) folds on the same terms, on both sides.
+    #
     # Asymmetric strictness, on purpose:
     # - `ip` is runtime data — nil, blank, or malformed input returns false
     #   (fail-closed for allowlist callers).
@@ -367,7 +375,13 @@ class Otto
         end
 
       cidrs.any? do |entry|
-        range = (entry.is_a?(IPAddr) ? entry : IPAddr.new(entry.to_s)).native
+        range = entry.is_a?(IPAddr) ? entry : IPAddr.new(entry.to_s)
+        # IPAddr#native builds its result with #clone, which carries frozen
+        # state over and then fails to mutate it. Callers who freeze their
+        # range configuration (or pass it through Ractor.make_shareable) would
+        # hit FrozenError, so unfreeze the one case that actually folds.
+        range = range.dup if range.frozen? && (range.ipv4_mapped? || range.ipv4_compat?)
+        range = range.native
         range.family == client.family && range.include?(client)
       end
     end

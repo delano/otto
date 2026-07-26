@@ -52,6 +52,30 @@ RSpec.describe 'IP precision capability and privacy profiles' do
       expect(Otto::Utils.ip_in_cidrs?('2001:db8::1', ranges)).to be true
     end
 
+    it 'folds frozen pre-parsed entries without raising' do
+      # IPAddr#native builds its result with #clone, which carries frozen state
+      # over; a caller freezing their range config must not hit FrozenError.
+      frozen_mapped = IPAddr.new('::ffff:10.0.0.0/104').freeze
+      frozen_plain = IPAddr.new('10.0.0.0/8').freeze
+
+      expect(Otto::Utils.ip_in_cidrs?('10.1.2.3', [frozen_mapped])).to be true
+      expect(Otto::Utils.ip_in_cidrs?('11.1.2.3', [frozen_mapped])).to be false
+      expect(Otto::Utils.ip_in_cidrs?('10.1.2.3', [frozen_plain])).to be true
+    end
+
+    it 'needs /96 or longer for a mapped range to fold' do
+      # Masking at /64 zeroes the ffff marker, so the entry is no longer
+      # recognizable as mapped and stays IPv6 — matching neither form.
+      expect(Otto::Utils.ip_in_cidrs?('10.1.2.3', ['::ffff:10.0.0.0/64'])).to be false
+      expect(Otto::Utils.ip_in_cidrs?('::ffff:10.1.2.3', ['::ffff:10.0.0.0/64'])).to be false
+    end
+
+    it 'treats ::ffff:0:0/96 as the whole IPv4 space' do
+      expect(Otto::Utils.ip_in_cidrs?('10.1.2.3', ['::ffff:0:0/96'])).to be true
+      expect(Otto::Utils.ip_in_cidrs?('203.0.113.7', ['::ffff:0:0/96'])).to be true
+      expect(Otto::Utils.ip_in_cidrs?('2001:db8::1', ['::ffff:0:0/96'])).to be false
+    end
+
     it 'does not mutate pre-parsed IPAddr entries while folding' do
       mapped = IPAddr.new('::ffff:10.0.0.0/104')
       ranges = [mapped]
@@ -304,6 +328,7 @@ RSpec.describe 'IP precision capability and privacy profiles' do
       end
 
       it 'preserves the capability a prior middleware pass installed' do
+        allow(Otto.logger).to receive(:warn)
         env = { 'REMOTE_ADDR' => '203.0.113.7' }
         middleware.call(env)
         first = env['otto.ip_match']
@@ -312,6 +337,8 @@ RSpec.describe 'IP precision capability and privacy profiles' do
         middleware.call(env)
         expect(env['otto.ip_match']).to equal(first)
         expect(env['otto.ip_match'].call(['203.0.113.7/32'])).to be true
+        # The normal path must never reach the fail-closed repair branch.
+        expect(Otto.logger).not_to have_received(:warn)
       end
 
       it 'installs a fail-closed capability when otto.client_ip was set out-of-contract' do

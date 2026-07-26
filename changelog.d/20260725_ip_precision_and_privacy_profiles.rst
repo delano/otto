@@ -44,8 +44,13 @@ Fixed
   trusted-proxy entries, where an unmatched proxy silently withheld
   ``otto.via_trusted_proxy`` and with it ``Request#secure?`` and geo-header
   trust. Behavior change for anyone who configured a mapped-IPv6 range: it
-  now matches the IPv4 clients it names. Plain IPv4 and IPv6 ranges are
-  unaffected, and pre-parsed ``IPAddr`` entries are not mutated.
+  now matches the IPv4 clients it names — including ``::ffff:0:0/96``, which
+  is the whole mapped space and so matches every IPv4 address. Deprecated
+  IPv4-compatible notation (``::a.b.c.d``) folds on the same terms. The
+  prefix must cover the mapped marker (``/96`` or longer); a shorter one
+  such as ``::ffff:10.0.0.0/64`` masks the marker away and still matches
+  neither form. Plain IPv4 and IPv6 ranges are unaffected, and pre-parsed
+  ``IPAddr`` entries are not mutated (frozen ones included).
 
 - ``IPPrivacyMiddleware`` reads the privacy setting per request instead of
   caching it at construction. Otto builds its middleware stack at the end of

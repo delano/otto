@@ -222,8 +222,15 @@ class Otto
       # Check direct HTTPS connection
       return true if env['HTTPS'] == 'on' || env['SERVER_PORT'] == '443'
 
+      # rack.url_scheme is server-/middleware-set (never a client header), so a
+      # scheme normalized upstream the canonical Rack way counts as authoritative
+      # — keeping this answer aligned with Rack::Request#scheme, which the
+      # session Secure-cookie gate and CSRF middleware read.
+      return true if env['rack.url_scheme'] == 'https'
+
       # Only trust forwarded proto headers when the request actually arrived via
-      # a trusted proxy.
+      # a trusted proxy. Stricter than Rack::Request#scheme, which honors
+      # X-Forwarded-Proto unconditionally.
       return false unless forwarded_by_trusted_proxy?
 
       # X-Scheme is set by nginx; X-Forwarded-Proto by elastic load balancer

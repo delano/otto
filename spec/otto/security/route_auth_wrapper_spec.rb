@@ -952,15 +952,29 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
         described_class.new(mock_handler, noauth_route, multi_auth_config)
       end
 
-      it 'succeeds with first strategy (noauth) without trying others' do
+      it 'wins with the anonymous fallback (noauth) when the other strategies fail' do
         env = mock_rack_env
-        # No session, no API key - noauth always succeeds
+        # No session, no API key - noauth's anonymous success is held as a
+        # fallback while session/apikey run, then wins when neither succeeds
 
         status, _headers, body = noauth_wrapper.call(env)
 
         expect(status).to eq(200)
         expect(body).to eq(['handler called'])
         expect(env['otto.strategy_result'].strategy_name).to eq('noauth')
+      end
+
+      it 'lets a later authenticated strategy win over an earlier anonymous success' do
+        env = mock_rack_env(headers: { 'X-Api-Key' => 'valid_key' })
+        # noauth (first) yields an anonymous result, but apikey (last)
+        # authenticates - the authenticated result wins over the fallback
+
+        status, _headers, body = noauth_wrapper.call(env)
+
+        expect(status).to eq(200)
+        expect(body).to eq(['handler called'])
+        expect(env['otto.strategy_result']).to be_authenticated
+        expect(env['otto.strategy_result'].strategy_name).to eq('apikey')
       end
     end
   end
@@ -1365,6 +1379,345 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
         env = mock_rack_env(headers: { 'Accept' => 'application/json' })
         status, = multi_wrapper.call(env)
         expect(status).to eq(401)
+      end
+    end
+  end
+
+  describe 'terminal authentication failure (fail-closed chains)' do
+    # A credentialed strategy: plain (non-terminal) failure when no credentials
+    # were presented, terminal failure when explicitly presented credentials
+    # are examined and rejected. This is the contract that lets mixed
+    # credentialed/anonymous chains fail closed on invalid credentials while
+    # header-less requests still fall through to noauth.
+    let(:credentialed_strategy) do
+      Class.new(Otto::Security::Authentication::AuthStrategy) do
+        def authenticate(env, _requirement)
+          header = env['HTTP_AUTHORIZATION']
+          return failure('No credentials presented') unless header
+
+          if header == 'Basic valid'
+            success(user: { id: 'api-user' }, auth_method: 'basicauth')
+          else
+            failure('Invalid credentials', terminal: true)
+          end
+        end
+      end.new
+    end
+
+    let(:noauth_calls) { [] }
+
+    # NoAuthStrategy stand-in that records every invocation so specs can
+    # assert whether the chain consulted it after a terminal failure.
+    let(:counting_noauth) do
+      calls = noauth_calls
+      Class.new(Otto::Security::Authentication::AuthStrategy) do
+        define_method(:authenticate) do |_env, requirement|
+          calls << requirement
+          Otto::Security::Authentication::StrategyResult.anonymous(metadata: {})
+        end
+      end.new
+    end
+
+    let(:terminal_auth_config) do
+      {
+        auth_strategies: {
+          'basicauth' => credentialed_strategy,
+          'noauth' => counting_noauth,
+        },
+        login_path: '/signin',
+      }
+    end
+
+    context 'credentialed strategy first (auth=basicauth,noauth)' do
+      let(:route) do
+        Otto::RouteDefinition.new('POST', '/secret/conceal', 'Api#conceal auth=basicauth,noauth response=json')
+      end
+
+      let(:chain_wrapper) { described_class.new(mock_handler, route, terminal_auth_config) }
+
+      it 'falls through to noauth when no credentials are presented' do
+        env = mock_rack_env
+
+        status, _headers, body = chain_wrapper.call(env)
+
+        expect(status).to eq(200)
+        expect(body).to eq(['handler called'])
+        expect(env['otto.strategy_result'].anonymous?).to be true
+        expect(env['otto.strategy_result'].strategy_name).to eq('noauth')
+      end
+
+      it 'authenticates with valid credentials' do
+        env = mock_rack_env(headers: { 'Authorization' => 'Basic valid' })
+
+        status, _headers, _body = chain_wrapper.call(env)
+
+        expect(status).to eq(200)
+        expect(env['otto.strategy_result']).to be_authenticated
+      end
+
+      it 'fails closed with 401 on invalid credentials instead of degrading to anonymous' do
+        env = mock_rack_env(headers: { 'Authorization' => 'Basic bogus' })
+
+        status, headers, body = chain_wrapper.call(env)
+
+        expect(status).to eq(401)
+        expect(headers['content-type']).to eq('application/json')
+        data = JSON.parse(body.first)
+        expect(data['error']).to eq('Authentication Required')
+        expect(data['message']).to eq('Invalid credentials')
+      end
+
+      it 'does not consult later strategies after a terminal failure' do
+        env = mock_rack_env(headers: { 'Authorization' => 'Basic bogus' })
+
+        chain_wrapper.call(env)
+
+        expect(noauth_calls).to be_empty
+      end
+
+      it 'records the terminal halt in the strategy result metadata' do
+        env = mock_rack_env(headers: { 'Authorization' => 'Basic bogus' })
+
+        chain_wrapper.call(env)
+
+        result = env['otto.strategy_result']
+        expect(result.anonymous?).to be true
+        expect(result.metadata[:auth_failure]).to eq('Authentication halted by terminal failure')
+        expect(result.metadata[:terminal_failure]).to be true
+        expect(result.metadata[:attempted_strategies]).to eq(['basicauth'])
+        expect(result.metadata[:failure_reasons]).to eq(['Invalid credentials'])
+      end
+    end
+
+    context 'anonymous-capable strategy first (auth=noauth,basicauth)' do
+      # The ordering-independence guarantee: even when the anonymous-capable
+      # strategy is declared first (and produces its anonymous result before
+      # the credentialed strategy runs), a terminal failure still fails the
+      # chain closed.
+      let(:route) do
+        Otto::RouteDefinition.new('POST', '/secret/conceal', 'Api#conceal auth=noauth,basicauth response=json')
+      end
+
+      let(:chain_wrapper) { described_class.new(mock_handler, route, terminal_auth_config) }
+
+      it 'still fails closed with 401 on invalid credentials' do
+        env = mock_rack_env(headers: { 'Authorization' => 'Basic bogus' })
+
+        status, _headers, body = chain_wrapper.call(env)
+
+        expect(status).to eq(401)
+        expect(JSON.parse(body.first)['message']).to eq('Invalid credentials')
+        expect(noauth_calls).not_to be_empty # noauth ran first, its anonymous result did not rescue the request
+      end
+
+      it 'reports every executed strategy in attempted_strategies, not just failures' do
+        env = mock_rack_env(headers: { 'Authorization' => 'Basic bogus' })
+
+        chain_wrapper.call(env)
+
+        result = env['otto.strategy_result']
+        # noauth executed (its anonymous success was held, then overruled by
+        # the terminal failure) so it must appear alongside basicauth
+        expect(result.metadata[:attempted_strategies]).to eq(%w[noauth basicauth])
+        expect(result.metadata[:failure_reasons]).to eq(['Invalid credentials'])
+      end
+
+      it 'still proceeds as anonymous when no credentials are presented' do
+        env = mock_rack_env
+
+        status, _headers, _body = chain_wrapper.call(env)
+
+        expect(status).to eq(200)
+        expect(env['otto.strategy_result'].anonymous?).to be true
+        expect(env['otto.strategy_result'].strategy_name).to eq('noauth')
+      end
+
+      it 'still authenticates with valid credentials' do
+        env = mock_rack_env(headers: { 'Authorization' => 'Basic valid' })
+
+        status, _headers, _body = chain_wrapper.call(env)
+
+        expect(status).to eq(200)
+        expect(env['otto.strategy_result']).to be_authenticated
+      end
+    end
+
+    context 'noauth-only route' do
+      # Routes that deliberately ignore Authorization headers (reverse proxies,
+      # cached browser Basic credentials) must keep working: no credentialed
+      # strategy runs, so nothing can fail terminally.
+      let(:route) do
+        Otto::RouteDefinition.new('GET', '/guest/thing', 'Guest#thing auth=noauth response=json')
+      end
+
+      let(:noauth_wrapper) { described_class.new(mock_handler, route, terminal_auth_config) }
+
+      it 'ignores an Authorization header entirely' do
+        env = mock_rack_env(headers: { 'Authorization' => 'Basic bogus' })
+
+        status, _headers, _body = noauth_wrapper.call(env)
+
+        expect(status).to eq(200)
+        expect(env['otto.strategy_result'].anonymous?).to be true
+      end
+    end
+
+    context 'HTML routes' do
+      let(:route) do
+        Otto::RouteDefinition.new('POST', '/secret/conceal', 'Api#conceal auth=basicauth,noauth')
+      end
+
+      let(:chain_wrapper) { described_class.new(mock_handler, route, terminal_auth_config) }
+
+      it 'renders the terminal failure through the standard auth-failure path (302 to login)' do
+        env = mock_rack_env(headers: { 'Authorization' => 'Basic bogus', 'Accept' => 'text/html' })
+
+        status, headers, _body = chain_wrapper.call(env)
+
+        expect(status).to eq(302)
+        expect(headers['location']).to eq('/signin')
+      end
+    end
+
+    context 'precedence against an authorization denial' do
+      # An earlier AuthorizationFailure (valid credential, denied -> 403) still
+      # wins the response over a later terminal AuthFailure (401), while the
+      # terminal failure still halts the chain before any anonymous-capable
+      # strategy runs.
+      let(:authz_denying_strategy) do
+        Class.new(Otto::Security::Authentication::AuthStrategy) do
+          def authenticate(_env, _requirement)
+            authorization_failure('Requires role: admin')
+          end
+        end.new
+      end
+
+      let(:precedence_config) do
+        {
+          auth_strategies: {
+            'roletoken' => authz_denying_strategy,
+            'basicauth' => credentialed_strategy,
+            'noauth' => counting_noauth,
+          },
+          login_path: '/signin',
+        }
+      end
+
+      let(:route) do
+        Otto::RouteDefinition.new('GET', '/api/admin', 'Api#admin auth=roletoken,basicauth,noauth response=json')
+      end
+
+      let(:chain_wrapper) { described_class.new(mock_handler, route, precedence_config) }
+
+      it 'renders the earlier 403 authorization denial over the later terminal 401' do
+        env = mock_rack_env(headers: { 'Authorization' => 'Basic bogus' })
+
+        status, _headers, body = chain_wrapper.call(env)
+
+        expect(status).to eq(403)
+        data = JSON.parse(body.first)
+        expect(data['error']).to eq('Forbidden')
+        expect(data['message']).to eq('Requires role: admin')
+      end
+
+      it 'still halts the chain at the terminal failure' do
+        env = mock_rack_env(headers: { 'Authorization' => 'Basic bogus' })
+
+        chain_wrapper.call(env)
+
+        expect(noauth_calls).to be_empty
+      end
+    end
+
+    context 'unexpected strategy return types' do
+      # A strategy returning something that is neither a StrategyResult nor a
+      # failure type is a strategy-author bug: the chain skips it (logging a
+      # warning) and continues, so the rest of the chain still decides the
+      # outcome.
+      let(:broken_strategy) do
+        Class.new(Otto::Security::Authentication::AuthStrategy) do
+          def authenticate(_env, _requirement)
+            :not_a_result
+          end
+        end.new
+      end
+
+      let(:broken_config) do
+        {
+          auth_strategies: {
+            'broken' => broken_strategy,
+            'basicauth' => credentialed_strategy,
+            'noauth' => counting_noauth,
+          },
+          login_path: '/signin',
+        }
+      end
+
+      it 'continues past the unexpected result to the rest of the chain' do
+        route = Otto::RouteDefinition.new('GET', '/thing', 'App#thing auth=broken,noauth response=json')
+        chain_wrapper = described_class.new(mock_handler, route, broken_config)
+
+        status, _headers, _body = chain_wrapper.call(mock_rack_env)
+
+        expect(status).to eq(200)
+        expect(noauth_calls.size).to eq(1)
+      end
+
+      it 'still fails closed when a later strategy rejects terminally' do
+        route = Otto::RouteDefinition.new('GET', '/thing', 'App#thing auth=broken,basicauth,noauth response=json')
+        chain_wrapper = described_class.new(mock_handler, route, broken_config)
+
+        env = mock_rack_env(headers: { 'Authorization' => 'Basic bogus' })
+        status, _headers, body = chain_wrapper.call(env)
+
+        expect(status).to eq(401)
+        expect(JSON.parse(body.first)['message']).to eq('Invalid credentials')
+      end
+
+      it 'returns 401 when the unexpected result is the whole chain' do
+        route = Otto::RouteDefinition.new('GET', '/thing', 'App#thing auth=broken response=json')
+        chain_wrapper = described_class.new(mock_handler, route, broken_config)
+
+        status, _headers, body = chain_wrapper.call(mock_rack_env)
+
+        expect(status).to eq(401)
+        expect(JSON.parse(body.first)['message']).to eq('Authentication required')
+      end
+    end
+
+    context 'backward compatibility' do
+      it 'defaults AuthFailure#terminal to false when constructed without it' do
+        legacy = Otto::Security::Authentication::AuthFailure.new(
+          failure_reason: 'nope',
+          auth_method: 'basicauth'
+        )
+
+        expect(legacy.terminal).to be false
+        expect(legacy.terminal?).to be false
+      end
+
+      it 'defaults AuthStrategy#failure to non-terminal' do
+        strategy = Class.new(Otto::Security::Authentication::AuthStrategy) do
+          def authenticate(_env, _requirement)
+            failure('nope')
+          end
+        end.new
+
+        result = strategy.authenticate({}, nil)
+        expect(result.terminal?).to be false
+      end
+
+      it 'builds a terminal AuthFailure via AuthStrategy#failure(reason, terminal: true)' do
+        strategy = Class.new(Otto::Security::Authentication::AuthStrategy) do
+          def authenticate(_env, _requirement)
+            failure('rejected', terminal: true)
+          end
+        end.new
+
+        result = strategy.authenticate({}, nil)
+        expect(result).to be_a(Otto::Security::Authentication::AuthFailure)
+        expect(result.terminal?).to be true
+        expect(result.failure_reason).to eq('rejected')
       end
     end
   end

@@ -12,8 +12,23 @@ class Otto
       # This is the main orchestrator that:
       # - Sets anonymous StrategyResult for unauthenticated routes
       # - Enforces authentication for protected routes
-      # - Supports multi-strategy with OR logic (first success wins)
+      # - Supports multi-strategy with OR logic (first authenticated success wins)
       # - Performs Layer 1 (route-level) role authorization
+      #
+      # Multi-strategy chain semantics (in precedence order):
+      # - AUTHENTICATED success wins immediately; later strategies never run.
+      # - TERMINAL failure (AuthFailure with terminal: true — explicit
+      #   credentials examined and rejected) halts the chain and fails closed,
+      #   regardless of strategy order. An anonymous success from an
+      #   anonymous-capable strategy elsewhere in the chain does not rescue the
+      #   request. See AuthFailure.
+      # - ANONYMOUS success (StrategyResult with no user, e.g. from noauth) is
+      #   held as a fallback while the rest of the chain runs. It wins once the
+      #   chain completes without an authenticated success or terminal failure,
+      #   so credential-less requests still fall through to noauth.
+      # - Plain failures are recorded and the next strategy is consulted
+      #   (OR logic). If everything fails, an AuthorizationFailure (valid
+      #   credential, denied) yields 403; otherwise 401.
       #
       # @example Basic usage
       #   wrapper = RouteAuthWrapper.new(handler, route_def, auth_config)
@@ -53,7 +68,8 @@ class Otto
           validation_error = validate_strategies(auth_requirements, env)
           return validation_error if validation_error
 
-          # Try each strategy in order (first success wins)
+          # Try each strategy in order (first authenticated success wins;
+          # anonymous success is a fallback; terminal failure halts the chain)
           authenticate_and_authorize(env, extra_params, auth_requirements)
         end
 
@@ -85,6 +101,7 @@ class Otto
         # Main authentication and authorization flow
         def authenticate_and_authorize(env, extra_params, auth_requirements)
           failed_strategies = []
+          anonymous_fallback = nil
           total_start_time = Otto::Utils.now_in_μs
 
           auth_requirements.each do |requirement|
@@ -100,10 +117,22 @@ class Otto
             # Inject strategy_name into result
             result = result.with(strategy_name: strategy_name) if result.is_a?(StrategyResult)
 
-            # Handle authentication success
-            if result.is_a?(StrategyResult) && (result.authenticated? || result.anonymous?)
+            # Handle authenticated success - wins immediately
+            if authenticated_result?(result)
               return handle_auth_success(env, extra_params, result, strategy_name,
                                         duration, total_start_time, failed_strategies)
+            end
+
+            # An anonymous success (e.g. noauth) is held as a fallback rather
+            # than winning outright, so a credentialed strategy elsewhere in
+            # the chain still gets to examine explicitly presented credentials
+            # and reject them terminally, regardless of declaration order.
+            # When the chain completes without a terminal failure, the
+            # fallback wins (see below), preserving OR fallthrough for
+            # credential-less requests.
+            if anonymous_result?(result)
+              anonymous_fallback ||= { result: result, strategy_name: strategy_name, duration: duration }
+              next
             end
 
             # Handle a failure (authentication OR authorization) - record it and
@@ -113,15 +142,47 @@ class Otto
             next unless result.is_a?(AuthFailure) || result.is_a?(AuthorizationFailure)
 
             log_strategy_failure(env, strategy_name, result, duration, auth_requirements, requirement)
-            failed_strategies << {
-              strategy: strategy_name,
-              reason: result.failure_reason,
-              authorization: result.is_a?(AuthorizationFailure),
-            }
+
+            # A terminal failure means explicit credentials were examined and
+            # rejected: fail the whole chain closed (401) instead of letting an
+            # anonymous-capable strategy accept the request as anonymous.
+            if record_failure(failed_strategies, strategy_name, result)
+              return handle_all_strategies_failed(env, auth_requirements, failed_strategies,
+                                                  total_start_time, terminal: true)
+            end
+          end
+
+          # Chain completed without authenticated success or terminal failure:
+          # a held anonymous success wins (OR fallthrough to noauth et al.)
+          if anonymous_fallback
+            return handle_auth_success(env, extra_params, anonymous_fallback[:result],
+                                       anonymous_fallback[:strategy_name],
+                                       anonymous_fallback[:duration],
+                                       total_start_time, failed_strategies)
           end
 
           # All strategies failed
           handle_all_strategies_failed(env, auth_requirements, failed_strategies, total_start_time)
+        end
+
+        def authenticated_result?(result)
+          result.is_a?(StrategyResult) && result.authenticated?
+        end
+
+        def anonymous_result?(result)
+          result.is_a?(StrategyResult) && result.anonymous?
+        end
+
+        # Append the failure to the running list; returns true when it was terminal
+        def record_failure(failed_strategies, strategy_name, result)
+          terminal = result.is_a?(AuthFailure) && result.terminal?
+          failed_strategies << {
+            strategy: strategy_name,
+            reason: result.failure_reason,
+            authorization: result.is_a?(AuthorizationFailure),
+            terminal: terminal,
+          }
+          terminal
         end
 
         # Handle successful authentication
@@ -148,14 +209,16 @@ class Otto
           wrapped_handler.call(env, extra_params)
         end
 
-        # Handle case when all authentication strategies fail
-        def handle_all_strategies_failed(env, auth_requirements, failed_strategies, total_start_time)
+        # Handle case when authentication fails for the whole chain — either
+        # every strategy failed, or a terminal failure halted the chain early
+        # (terminal: true; remaining strategies were deliberately not consulted).
+        def handle_all_strategies_failed(env, auth_requirements, failed_strategies, total_start_time, terminal: false)
           total_duration = Otto::Utils.now_in_μs - total_start_time
 
-          log_all_failed(env, failed_strategies, total_duration)
+          log_all_failed(env, failed_strategies, total_duration, terminal: terminal)
 
           # Create anonymous result with failure info
-          metadata = build_failure_metadata(env, failed_strategies)
+          metadata = build_failure_metadata(env, failed_strategies, terminal: terminal)
           failure_strategy_name = determine_failure_strategy_name(auth_requirements, failed_strategies)
 
           env['otto.strategy_result'] = StrategyResult.anonymous(
@@ -167,14 +230,18 @@ class Otto
           # authenticated the subject but denied authorization (wrong role/missing
           # permission), respond 403 Forbidden rather than 401 — the subject IS
           # authenticated, they simply lack access. A bare 401 would (incorrectly)
-          # tell a logged-in client to re-authenticate.
+          # tell a logged-in client to re-authenticate. This precedence also holds
+          # on a terminal halt: the denial's 403 is the more specific outcome.
           authz_denial = failed_strategies.find { |f| f[:authorization] }
           return @response_builder.forbidden(env, authz_denial[:reason]) if authz_denial
 
+          # On a terminal halt the terminal failure is necessarily the last one
+          # recorded, so its reason is what gets rendered.
           last_failure = if failed_strategies.any?
                            AuthFailure.new(
                              failure_reason: failed_strategies.last[:reason],
-                             auth_method: failed_strategies.last[:strategy]
+                             auth_method: failed_strategies.last[:strategy],
+                             terminal: failed_strategies.last[:terminal] || false
                            )
                          else
                            AuthFailure.new(
@@ -194,13 +261,19 @@ class Otto
         end
 
         # Build metadata for failed authentication
-        def build_failure_metadata(env, failed_strategies)
+        def build_failure_metadata(env, failed_strategies, terminal: false)
+          failure_summary = if terminal
+                              'Authentication halted by terminal failure'
+                            else
+                              'All authentication strategies failed'
+                            end
           metadata = {
                           ip: env['otto.client_ip'] || env['REMOTE_ADDR'],
-                auth_failure: 'All authentication strategies failed',
+                auth_failure: failure_summary,
             attempted_strategies: failed_strategies.map { |f| f[:strategy] },
                  failure_reasons: failed_strategies.map { |f| f[:reason] },
           }
+          metadata[:terminal_failure] = true if terminal
           metadata[:country] = env['otto.privacy.geo_country'] if env['otto.privacy.geo_country']
           metadata
         end
@@ -251,12 +324,14 @@ class Otto
             ))
         end
 
-        def log_all_failed(env, failed_strategies, total_duration)
-          Otto.structured_log(:warn, 'All auth strategies failed',
+        def log_all_failed(env, failed_strategies, total_duration, terminal: false)
+          message = terminal ? 'Auth chain halted by terminal failure' : 'All auth strategies failed'
+          Otto.structured_log(:warn, message,
             Otto::LoggingHelpers.request_context(env).merge(
               strategies_attempted: failed_strategies.map { |f| f[:strategy] },
               total_duration: total_duration,
-              failure_count: failed_strategies.size
+              failure_count: failed_strategies.size,
+              terminal: terminal
             ))
         end
       end

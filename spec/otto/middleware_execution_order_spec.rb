@@ -112,7 +112,11 @@ RSpec.describe 'Middleware execution order' do
     end
 
     it 'stays first regardless of how many middleware are added after it' do
+      # probe_class mints a fresh anonymous class per call, so these are five
+      # distinct entries — not one entry deduplicated by #add's identical-config
+      # check. Asserted, because the pin is only interesting if they all landed.
       5.times { otto.use(probe_class) }
+      expect(otto.middleware.size).to eq(6) # 5 probes + the IP-privacy pin
 
       expect(otto.middleware.execution_order.first)
         .to eq(Otto::Security::Middleware::IPPrivacyMiddleware)

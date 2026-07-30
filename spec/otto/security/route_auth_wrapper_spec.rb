@@ -1567,6 +1567,56 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
       end
     end
 
+    context 'precedence against an authorization denial' do
+      # An earlier AuthorizationFailure (valid credential, denied -> 403) still
+      # wins the response over a later terminal AuthFailure (401), while the
+      # terminal failure still halts the chain before any anonymous-capable
+      # strategy runs.
+      let(:authz_denying_strategy) do
+        Class.new(Otto::Security::Authentication::AuthStrategy) do
+          def authenticate(_env, _requirement)
+            authorization_failure('Requires role: admin')
+          end
+        end.new
+      end
+
+      let(:precedence_config) do
+        {
+          auth_strategies: {
+            'roletoken' => authz_denying_strategy,
+            'basicauth' => credentialed_strategy,
+            'noauth' => counting_noauth,
+          },
+          login_path: '/signin',
+        }
+      end
+
+      let(:route) do
+        Otto::RouteDefinition.new('GET', '/api/admin', 'Api#admin auth=roletoken,basicauth,noauth response=json')
+      end
+
+      let(:chain_wrapper) { described_class.new(mock_handler, route, precedence_config) }
+
+      it 'renders the earlier 403 authorization denial over the later terminal 401' do
+        env = mock_rack_env(headers: { 'Authorization' => 'Basic bogus' })
+
+        status, _headers, body = chain_wrapper.call(env)
+
+        expect(status).to eq(403)
+        data = JSON.parse(body.first)
+        expect(data['error']).to eq('Forbidden')
+        expect(data['message']).to eq('Requires role: admin')
+      end
+
+      it 'still halts the chain at the terminal failure' do
+        env = mock_rack_env(headers: { 'Authorization' => 'Basic bogus' })
+
+        chain_wrapper.call(env)
+
+        expect(noauth_calls).to be_empty
+      end
+    end
+
     context 'backward compatibility' do
       it 'defaults AuthFailure#terminal to false when constructed without it' do
         legacy = Otto::Security::Authentication::AuthFailure.new(

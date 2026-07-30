@@ -99,8 +99,14 @@ class Otto
         end
 
         # Main authentication and authorization flow
+        #
+        # chain tracks two views of the run: :executed is every strategy that
+        # ran (including one whose anonymous success is merely held as the
+        # fallback), :failed only those that returned a failure result. Failure
+        # metadata reports :executed as attempted_strategies so a terminal halt
+        # after a deferred anonymous success doesn't under-report what ran.
         def authenticate_and_authorize(env, extra_params, auth_requirements)
-          failed_strategies = []
+          chain = { failed: [], executed: [] }
           anonymous_fallback = nil
           total_start_time = Otto::Utils.now_in_μs
 
@@ -113,6 +119,7 @@ class Otto
             start_time = Otto::Utils.now_in_μs
             result = strategy.authenticate(env, requirement)
             duration = Otto::Utils.now_in_μs - start_time
+            chain[:executed] << strategy_name
 
             # Inject strategy_name into result
             result = result.with(strategy_name: strategy_name) if result.is_a?(StrategyResult)
@@ -120,7 +127,7 @@ class Otto
             # Handle authenticated success - wins immediately
             if authenticated_result?(result)
               return handle_auth_success(env, extra_params, result, strategy_name,
-                                        duration, total_start_time, failed_strategies)
+                                        duration, total_start_time, chain[:failed])
             end
 
             # An anonymous success (e.g. noauth) is held as a fallback rather
@@ -146,8 +153,8 @@ class Otto
             # A terminal failure means explicit credentials were examined and
             # rejected: fail the whole chain closed (401) instead of letting an
             # anonymous-capable strategy accept the request as anonymous.
-            if record_failure(failed_strategies, strategy_name, result)
-              return handle_all_strategies_failed(env, auth_requirements, failed_strategies,
+            if record_failure(chain[:failed], strategy_name, result)
+              return handle_all_strategies_failed(env, auth_requirements, chain,
                                                   total_start_time, terminal: true)
             end
           end
@@ -158,11 +165,11 @@ class Otto
             return handle_auth_success(env, extra_params, anonymous_fallback[:result],
                                        anonymous_fallback[:strategy_name],
                                        anonymous_fallback[:duration],
-                                       total_start_time, failed_strategies)
+                                       total_start_time, chain[:failed])
           end
 
           # All strategies failed
-          handle_all_strategies_failed(env, auth_requirements, failed_strategies, total_start_time)
+          handle_all_strategies_failed(env, auth_requirements, chain, total_start_time)
         end
 
         def authenticated_result?(result)
@@ -212,13 +219,16 @@ class Otto
         # Handle case when authentication fails for the whole chain — either
         # every strategy failed, or a terminal failure halted the chain early
         # (terminal: true; remaining strategies were deliberately not consulted).
-        def handle_all_strategies_failed(env, auth_requirements, failed_strategies, total_start_time, terminal: false)
+        # chain is the { failed:, executed: } state built by
+        # authenticate_and_authorize.
+        def handle_all_strategies_failed(env, auth_requirements, chain, total_start_time, terminal: false)
+          failed_strategies = chain[:failed]
           total_duration = Otto::Utils.now_in_μs - total_start_time
 
-          log_all_failed(env, failed_strategies, total_duration, terminal: terminal)
+          log_all_failed(env, chain, total_duration, terminal: terminal)
 
           # Create anonymous result with failure info
-          metadata = build_failure_metadata(env, failed_strategies, terminal: terminal)
+          metadata = build_failure_metadata(env, chain, terminal: terminal)
           failure_strategy_name = determine_failure_strategy_name(auth_requirements, failed_strategies)
 
           env['otto.strategy_result'] = StrategyResult.anonymous(
@@ -261,7 +271,13 @@ class Otto
         end
 
         # Build metadata for failed authentication
-        def build_failure_metadata(env, failed_strategies, terminal: false)
+        #
+        # attempted_strategies lists every strategy that EXECUTED (including
+        # one whose anonymous success was held as the fallback and then
+        # overruled by a terminal failure); failure_reasons lists only the
+        # reasons of strategies that FAILED, in failure order. The two arrays
+        # are therefore not index-aligned.
+        def build_failure_metadata(env, chain, terminal: false)
           failure_summary = if terminal
                               'Authentication halted by terminal failure'
                             else
@@ -270,8 +286,8 @@ class Otto
           metadata = {
                           ip: env['otto.client_ip'] || env['REMOTE_ADDR'],
                 auth_failure: failure_summary,
-            attempted_strategies: failed_strategies.map { |f| f[:strategy] },
-                 failure_reasons: failed_strategies.map { |f| f[:reason] },
+            attempted_strategies: chain[:executed],
+                 failure_reasons: chain[:failed].map { |f| f[:reason] },
           }
           metadata[:terminal_failure] = true if terminal
           metadata[:country] = env['otto.privacy.geo_country'] if env['otto.privacy.geo_country']
@@ -324,13 +340,13 @@ class Otto
             ))
         end
 
-        def log_all_failed(env, failed_strategies, total_duration, terminal: false)
+        def log_all_failed(env, chain, total_duration, terminal: false)
           message = terminal ? 'Auth chain halted by terminal failure' : 'All auth strategies failed'
           Otto.structured_log(:warn, message,
             Otto::LoggingHelpers.request_context(env).merge(
-              strategies_attempted: failed_strategies.map { |f| f[:strategy] },
+              strategies_attempted: chain[:executed],
               total_duration: total_duration,
-              failure_count: failed_strategies.size,
+              failure_count: chain[:failed].size,
               terminal: terminal
             ))
         end

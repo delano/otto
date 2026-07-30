@@ -1510,6 +1510,18 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
         expect(noauth_calls).not_to be_empty # noauth ran first, its anonymous result did not rescue the request
       end
 
+      it 'reports every executed strategy in attempted_strategies, not just failures' do
+        env = mock_rack_env(headers: { 'Authorization' => 'Basic bogus' })
+
+        chain_wrapper.call(env)
+
+        result = env['otto.strategy_result']
+        # noauth executed (its anonymous success was held, then overruled by
+        # the terminal failure) so it must appear alongside basicauth
+        expect(result.metadata[:attempted_strategies]).to eq(%w[noauth basicauth])
+        expect(result.metadata[:failure_reasons]).to eq(['Invalid credentials'])
+      end
+
       it 'still proceeds as anonymous when no credentials are presented' do
         env = mock_rack_env
 

@@ -100,4 +100,37 @@ module OttoTestHelpers
       end
     end
   end
+
+  # Walk a chain built by MiddlewareStack#wrap from the OUTSIDE IN, returning
+  # each middleware instance in execution order. Stops at the first object that
+  # wraps nothing — the base application.
+  #
+  # Every middleware in the chain must hold its inner app in @app (Otto's own
+  # do, as do the spec doubles).
+  #
+  # @param app [#call] the wrapped application
+  # @return [Array<Object>] middleware instances, outermost first
+  def middleware_chain(app)
+    chain = []
+    current = app
+
+    while current.instance_variable_defined?(:@app)
+      chain << current
+      current = current.instance_variable_get(:@app)
+    end
+
+    chain
+  end
+
+  # The middleware Otto's outermost IP-privacy pin wraps — i.e. the outermost
+  # middleware the application itself registered. Otto pins
+  # IPPrivacyMiddleware to the :entrypoint tier (issue #219), so it is always
+  # the first link of a chain built from an Otto instance's stack.
+  #
+  # @param app [#call] the wrapped application
+  # @return [Object] the second link of the chain
+  def inside_ip_privacy(app)
+    expect(app).to be_a(Otto::Security::Middleware::IPPrivacyMiddleware)
+    app.instance_variable_get(:@app)
+  end
 end

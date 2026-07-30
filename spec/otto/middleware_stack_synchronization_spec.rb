@@ -110,10 +110,12 @@ RSpec.describe 'Middleware Stack Synchronization' do
 
       otto.use(TestExecutionMiddleware)
 
-      # After adding middleware, count is 2 and app should be TestExecutionMiddleware instance
+      # After adding middleware, count is 2 and the rebuilt app must actually
+      # run TestExecutionMiddleware — directly inside the outermost IP-privacy
+      # pin (issue #219).
       expect(otto.middleware.size).to eq(2)
       app = otto.instance_variable_get(:@app)
-      expect(app).to be_a(TestExecutionMiddleware)
+      expect(inside_ip_privacy(app)).to be_a(TestExecutionMiddleware)
     end
   end
 
@@ -128,7 +130,8 @@ RSpec.describe 'Middleware Stack Synchronization' do
       # ...and @app must have been rebuilt so the middleware actually executes.
       # List membership alone is not enough: it was already true while the
       # Configurator-enabled middleware was silently bypassed.
-      expect(otto.instance_variable_get(:@app)).to be_a(Otto::Security::CSRFMiddleware)
+      expect(middleware_chain(otto.instance_variable_get(:@app)).map(&:class))
+        .to include(Otto::Security::CSRFMiddleware)
     end
 
     it 'maintains security configuration' do
@@ -144,7 +147,8 @@ RSpec.describe 'Middleware Stack Synchronization' do
 
       # Middleware should be in stack and wired into the running chain
       expect(otto.middleware.includes?(Otto::Security::CSRFMiddleware)).to be true
-      expect(otto.instance_variable_get(:@app)).to be_a(Otto::Security::CSRFMiddleware)
+      expect(middleware_chain(otto.instance_variable_get(:@app)).map(&:class))
+        .to include(Otto::Security::CSRFMiddleware)
     end
   end
 

@@ -226,11 +226,19 @@ class Otto
     # before first request (before configuration freezing)
     finalize_request_response_classes
 
-    # Add IP Privacy middleware first in stack (privacy by default for public IPs)
-    # Private/localhost IPs are automatically exempted from masking
+    # IP Privacy is the ENTRY POINT of the stack: the first middleware to touch
+    # a request, so everything else — Otto's own middleware, an :outermost pin,
+    # and anything the app adds via Otto#use — observes the masked REMOTE_ADDR
+    # and the canonical env['otto.client_ip'] (privacy by default for public
+    # IPs; private/localhost IPs are automatically exempted from masking).
+    #
+    # NOT position: :first, which is first-in-ARRAY and therefore INNERMOST —
+    # it put IP masking closest to the app and left every other middleware
+    # reading the raw peer address (issue #219). See
+    # MiddlewareStack#add_with_position for the full position vocabulary.
     @middleware.add_with_position(
       Otto::Security::Middleware::IPPrivacyMiddleware,
-      position: :first
+      position: :entrypoint
     )
   end
 

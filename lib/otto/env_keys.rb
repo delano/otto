@@ -82,6 +82,17 @@ class Otto
     #   without depending on the (masked) REMOTE_ADDR
     VIA_TRUSTED_PROXY = 'otto.via_trusted_proxy'
 
+    # Whether the connecting peer was the loopback interface.
+    # Type: Boolean
+    # Set by: IPPrivacyMiddleware (every request, evaluated on the ORIGINAL
+    #   socket peer BEFORE REMOTE_ADDR is masked/rewritten). A boolean, never
+    #   an address, so it carries no identifying data.
+    # Used by: Otto::CaddyTLS::LocalhostGuard to authenticate a direct local
+    #   call now that IPPrivacyMiddleware runs outermost. Deliberately the raw
+    #   peer, not the resolved client IP: forwarded headers must play no part
+    #   in a localhost trust decision.
+    PEER_LOOPBACK = 'otto.peer_loopback'
+
     # =========================================================================
     # LOCALIZATION (I18N)
     # =========================================================================

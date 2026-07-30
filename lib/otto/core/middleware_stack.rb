@@ -13,12 +13,21 @@ class Otto
       include Enumerable
       include Otto::Core::Freezable
 
+      # Pin tiers honored by #ordered_stack, outward-ascending. #wrap folds the
+      # stack with reduce, so a LATER array position is a FURTHER OUT wrapper;
+      # sorting by tier therefore sorts by how early the middleware sees the
+      # request. Unpinned entries are tier 0 and keep their insertion order.
+      PIN_TIERS = {
+         outermost: 1,
+        entrypoint: 2,
+      }.freeze
+
       def initialize
         @stack = []
         @middleware_set = Set.new
-        # Classes pinned to run OUTERMOST regardless of insertion order (see
-        # the :outermost position in #add_with_position and #ordered_stack).
-        @outermost = Set.new
+        # middleware_class => pin tier (see PIN_TIERS). Pinned classes are
+        # sorted outward at build time, regardless of insertion order.
+        @pins = {}
         @on_change_callback = nil
       end
 
@@ -52,8 +61,15 @@ class Otto
 
       # Add middleware with position hint for optimal ordering
       #
-      # Positions:
-      # - :first     — innermost (runs last, closest to the app)
+      # Positions name a place in the ARRAY; #wrap folds the array with reduce,
+      # so array order is the REVERSE of execution order — the last entry is the
+      # outermost wrapper and therefore the first to see a request.
+      #
+      # - :first/:innermost — innermost: the LAST middleware to see the request,
+      #                closest to the app. Note the trap in the older `:first`
+      #                spelling: it is first-in-array, hence last-to-execute.
+      #                `:innermost` says the same thing in execution terms and is
+      #                the preferred spelling.
       # - :last/nil  — append (outermost among currently-registered middleware,
       #                but a later append displaces it)
       # - :outermost — pin to run OUTERMOST (first to see the request) and STAY
@@ -62,10 +78,18 @@ class Otto
       #                at build time. Use for middleware that must short-circuit
       #                ahead of everything else (e.g. the CSP report receiver,
       #                which must intercept before CSRF).
+      # - :entrypoint — pin OUTSIDE even the :outermost tier: the very first
+      #                middleware to touch a request. Reserved for middleware
+      #                that must normalize the request before anything else can
+      #                observe it. Otto pins IPPrivacyMiddleware here so every
+      #                other middleware — its own, an :outermost pin, and
+      #                anything the app adds via Otto#use — reads a masked
+      #                REMOTE_ADDR and the canonical env['otto.client_ip'].
       #
       # @param middleware_class [Class] Middleware class
       # @param args [Array] Middleware arguments
-      # @param position [Symbol, nil] Position hint (:first, :last, :outermost, or nil)
+      # @param position [Symbol, nil] Position hint (:first, :innermost, :last,
+      #   :outermost, :entrypoint, or nil)
       def add_with_position(middleware_class, *args, position: nil, **options)
         raise FrozenError, 'Cannot modify frozen middleware stack' if frozen?
 
@@ -81,11 +105,11 @@ class Otto
         entry = { middleware: middleware_class, args: args, options: options }
 
         case position
-        when :first
+        when :first, :innermost
           @stack.unshift(entry)
-        when :outermost
+        when *PIN_TIERS.keys
           @stack << entry
-          @outermost.add(middleware_class)
+          @pins[middleware_class] = PIN_TIERS.fetch(position)
         else
           @stack << entry # :last / nil — default append
         end
@@ -162,7 +186,7 @@ class Otto
 
         # Rebuild the set of unique middleware classes
         @middleware_set = Set.new(@stack.map { |entry| entry[:middleware] })
-        @outermost.delete(middleware_class)
+        @pins.delete(middleware_class)
         # Notify of change
         @on_change_callback&.call
       end
@@ -179,7 +203,7 @@ class Otto
 
         @stack.clear
         @middleware_set.clear
-        @outermost.clear
+        @pins.clear
         # Notify of change
         @on_change_callback&.call
       end
@@ -192,9 +216,9 @@ class Otto
       # Build Rack application with middleware chain
       #
       # The stack folds via reduce, so the LAST entry becomes the OUTERMOST
-      # wrapper (first to see the request). #ordered_stack moves any :outermost-
-      # pinned middleware to the end so it stays outermost regardless of the
-      # order middleware was registered in.
+      # wrapper (first to see the request). #ordered_stack moves any pinned
+      # middleware (:outermost, :entrypoint) to the end so it stays outermost
+      # regardless of the order middleware was registered in.
       def wrap(base_app, security_config = nil)
         ordered_stack.reduce(base_app) do |app, entry|
           middleware = entry[:middleware]
@@ -215,9 +239,21 @@ class Otto
         end
       end
 
-      # Returns list of middleware classes in order
+      # Returns list of middleware classes in REGISTRATION order — the order
+      # they were added, which is the reverse of execution order and ignores pin
+      # tiers. Use #execution_order to see what actually runs first.
       def middleware_list
         @stack.map { |entry| entry[:middleware] }
+      end
+
+      # Returns middleware classes in EXECUTION order: the first entry is the
+      # outermost wrapper #wrap builds, i.e. the first to see a request. This is
+      # #middleware_list resolved through the pin tiers and reversed, so it
+      # answers "what does this stack actually do?" without building the app.
+      #
+      # @return [Array<Class>] outermost (first to execute) first
+      def execution_order
+        ordered_stack.reverse.map { |entry| entry[:middleware] }
       end
 
       # Detailed introspection
@@ -255,15 +291,17 @@ class Otto
       private
 
       # The stack ordered for #wrap: identical to @stack unless some middleware
-      # is pinned :outermost, in which case pinned entries are moved to the end
-      # (outermost) while preserving the relative order of both groups. Returns
-      # @stack itself (no copy) in the common no-pin case, so ordinary apps are
-      # completely unaffected.
+      # is pinned, in which case entries are sorted by pin tier (PIN_TIERS,
+      # outward-ascending) so pinned entries move to the end (outermost) while
+      # the relative order within every tier is preserved. Ruby's sort_by is not
+      # stable, hence the explicit index tiebreak. Returns @stack itself (no
+      # copy) in the common no-pin case, so ordinary apps are unaffected.
       def ordered_stack
-        return @stack if @outermost.empty?
+        return @stack if @pins.empty?
 
-        pinned, rest = @stack.partition { |entry| @outermost.include?(entry[:middleware]) }
-        rest + pinned
+        @stack.each_with_index
+              .sort_by { |entry, index| [@pins.fetch(entry[:middleware], 0), index] }
+              .map(&:first)
       end
 
       def middleware_needs_config?(middleware_class)

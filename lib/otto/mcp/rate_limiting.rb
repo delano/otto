@@ -113,14 +113,17 @@ class Otto
       def self.configure_mcp_logging
         return unless defined?(ActiveSupport::Notifications)
 
+        # Masked address only — see the note on the sibling subscriber in
+        # Otto::Security::RateLimiting.configure_rack_attack! (issue #219).
         ActiveSupport::Notifications.subscribe('rack.attack') do |_name, _start, _finish, _request_id, payload|
           req      = payload[:request]
           endpoint = req.env['otto.mcp_http_endpoint'] || '/_mcp'
+          ip       = Otto::LoggingHelpers.privacy_safe_ip(req.env, req.ip)
 
           if req.path.start_with?(endpoint)
-            Otto.logger.warn "[MCP] Rate limit #{payload[:match_type]} for #{req.ip}: #{payload[:matched]}"
+            Otto.logger.warn "[MCP] Rate limit #{payload[:match_type]} for #{ip}: #{payload[:matched]}"
           else
-            Otto.logger.warn "[Otto] Rate limit #{payload[:match_type]} for #{req.ip}: #{payload[:matched]}"
+            Otto.logger.warn "[Otto] Rate limit #{payload[:match_type]} for #{ip}: #{payload[:matched]}"
           end
         end
       end

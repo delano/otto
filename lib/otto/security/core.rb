@@ -181,7 +181,10 @@ class Otto
       # The middleware is pinned to run OUTERMOST (ahead of CSRF and every other
       # middleware), so it short-circuits report POSTs before CSRF validation —
       # browsers can post reports without a CSRF token. This holds regardless of
-      # the order in which you enable security features.
+      # the order in which you enable security features. The one thing that runs
+      # ahead of it is IPPrivacyMiddleware, pinned to the outer :entrypoint tier
+      # so nothing observes a raw client IP; being a pass-through, it cannot
+      # affect the short-circuit.
       #
       # SECURITY / DoS: running outermost also means the receiver sits ahead of
       # rate limiting (rate limiting is inner middleware). This is intentional —

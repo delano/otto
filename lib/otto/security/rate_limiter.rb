@@ -80,9 +80,15 @@ class Otto
         # Log blocked requests if ActiveSupport is available
         return unless defined?(ActiveSupport::Notifications)
 
+        # Rack::Attack is mounted by the hosting app AHEAD of Otto, so this
+        # subscriber sees the raw peer regardless of where IPPrivacyMiddleware
+        # sits in Otto's own stack. Log a masked address, never req.ip: a
+        # deployment on the default :masked profile must not write raw client
+        # IPs to its logs every time a limit trips (issue #219).
         ActiveSupport::Notifications.subscribe('rack.attack') do |_name, _start, _finish, _request_id, payload|
           req = payload[:request]
-          Otto.logger.warn "[Otto] Rate limit #{payload[:match_type]} for #{req.ip}: #{payload[:matched]}"
+          ip  = Otto::LoggingHelpers.privacy_safe_ip(req.env, req.ip)
+          Otto.logger.warn "[Otto] Rate limit #{payload[:match_type]} for #{ip}: #{payload[:matched]}"
         end
       end
     end

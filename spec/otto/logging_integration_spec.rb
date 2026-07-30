@@ -478,6 +478,72 @@ RSpec.describe 'Otto Logging Integration' do
         user_agent: 'Mozilla/*.*'
       })
     end
+
+    it 'prefers the canonical client IP over REMOTE_ADDR' do
+      env = {
+        'REQUEST_METHOD' => 'GET',
+        'PATH_INFO' => '/test',
+        'REMOTE_ADDR' => '203.0.113.7',
+        'otto.client_ip' => '203.0.113.0'
+      }
+
+      expect(Otto::LoggingHelpers.request_context(env)[:ip]).to eq('203.0.113.0')
+    end
+  end
+
+  describe 'LoggingHelpers.privacy_safe_ip' do
+    it 'returns the canonical client IP resolved by IPPrivacyMiddleware' do
+      env = { 'REMOTE_ADDR' => '203.0.113.7', 'otto.client_ip' => '203.0.113.0' }
+
+      expect(Otto::LoggingHelpers.privacy_safe_ip(env)).to eq('203.0.113.0')
+    end
+
+    it 'returns the real IP the middleware resolved when privacy is disabled' do
+      # apply_no_privacy sets otto.client_ip to the unmasked address; honoring
+      # it keeps the helper aligned with the app's configuration.
+      env = { 'REMOTE_ADDR' => '203.0.113.7', 'otto.client_ip' => '203.0.113.7' }
+
+      expect(Otto::LoggingHelpers.privacy_safe_ip(env)).to eq('203.0.113.7')
+    end
+
+    it 'masks REMOTE_ADDR when no canonical IP is present' do
+      # The Rack::Attack case: it is mounted outside Otto, so the privacy
+      # middleware has not run for this env (issue #219).
+      expect(Otto::LoggingHelpers.privacy_safe_ip('REMOTE_ADDR' => '203.0.113.7')).to eq('203.0.113.0')
+    end
+
+    it 'masks the supplied fallback address in preference to REMOTE_ADDR' do
+      env = { 'REMOTE_ADDR' => '10.0.0.1' }
+
+      # Rack::Request#ip factors in forwarded headers; mask whatever was used.
+      expect(Otto::LoggingHelpers.privacy_safe_ip(env, '198.51.100.42')).to eq('198.51.100.0')
+    end
+
+    it 'masks IPv6 addresses too' do
+      expect(Otto::LoggingHelpers.privacy_safe_ip({}, '2001:db8:1:2:3:4:5:6')).to eq('2001:db8:1::')
+    end
+
+    it 'leaves private and loopback addresses readable' do
+      # Matches IPPrivacyMiddleware's own exemption, so development logs stay useful.
+      expect(Otto::LoggingHelpers.privacy_safe_ip('REMOTE_ADDR' => '127.0.0.1')).to eq('127.0.0.1')
+      expect(Otto::LoggingHelpers.privacy_safe_ip('REMOTE_ADDR' => '192.168.1.50')).to eq('192.168.1.50')
+    end
+
+    it 'redacts rather than raising on an unparseable address' do
+      expect(Otto::LoggingHelpers.privacy_safe_ip('REMOTE_ADDR' => 'not-an-ip')).to eq('[redacted]')
+      expect(Otto::LoggingHelpers.privacy_safe_ip('REMOTE_ADDR' => '203.0.113.7:443')).to eq('[redacted]')
+    end
+
+    it 'returns nil when there is no address at all' do
+      expect(Otto::LoggingHelpers.privacy_safe_ip({})).to be_nil
+      expect(Otto::LoggingHelpers.privacy_safe_ip('REMOTE_ADDR' => '')).to be_nil
+    end
+
+    it 'never returns a raw public address' do
+      %w[8.8.8.8 203.0.113.7 2606:4700:4700::1111].each do |ip|
+        expect(Otto::LoggingHelpers.privacy_safe_ip({}, ip)).not_to eq(ip)
+      end
+    end
   end
 
   describe 'LoggingHelpers timing methods' do
@@ -497,7 +563,9 @@ RSpec.describe 'Otto Logging Integration' do
           hash_including(
             method: 'POST',
             path: '/api/test',
-            ip: '192.0.2.100',
+            # No otto.client_ip in this bare env, so the raw REMOTE_ADDR is
+            # masked before it reaches the log (issue #219).
+            ip: '192.0.2.0',
             duration: kind_of(Integer),
             result: 'success'
           )

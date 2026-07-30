@@ -2,8 +2,6 @@
 #
 # frozen_string_literal: true
 
-require 'ipaddr'
-
 require_relative '../utils'
 
 class Otto
@@ -22,11 +20,15 @@ class Otto
     #
     # == Security: authenticate the RAW peer, not the resolved client IP
     #
-    # The guard reads the ORIGINAL +env['REMOTE_ADDR']+ — the TCP socket peer —
-    # and MUST run before +IPPrivacyMiddleware+ rewrites +REMOTE_ADDR+ from
-    # forwarded headers. Installed via +Otto#use+ (appended, hence outermost in
-    # the reduce-built stack) it always executes ahead of +IPPrivacyMiddleware+
-    # (which is pinned innermost), so it inspects the true socket peer.
+    # The guard authenticates the TCP socket peer as it arrived, before
+    # +IPPrivacyMiddleware+ rewrites +REMOTE_ADDR+ from forwarded headers.
+    # +IPPrivacyMiddleware+ is pinned OUTERMOST (issue #219), so it runs ahead
+    # of this guard and records its verdict on the untouched peer as
+    # +env['otto.peer_loopback']+ — a boolean, never an address. The guard reads
+    # that record when present and falls back to evaluating +REMOTE_ADDR+
+    # itself when it is not (no Otto privacy middleware in the stack, or the
+    # guard mounted outside Otto). Either way the decision is made on the raw
+    # peer.
     #
     # Reading Otto's resolved +otto.client_ip+ (or the rewritten +REMOTE_ADDR+)
     # would be exploitable: a co-located reverse proxy on loopback is itself a
@@ -92,7 +94,7 @@ class Otto
       # @param env [Hash] Rack environment
       # @return [Boolean]
       def direct_local_call?(env)
-        loopback_peer?(env['REMOTE_ADDR']) && !relayed?(env)
+        loopback_peer?(env) && !relayed?(env)
       end
 
       # Whether any forwarding header is present (request came via a proxy).
@@ -125,28 +127,27 @@ class Otto
         Otto::Utils.normalize_path(path)
       end
 
-      # Whether the connecting peer is a loopback address. Fails closed: a
-      # blank or otherwise unparseable value is treated as non-loopback
-      # (denied) rather than raising on the hot path.
+      # Whether the connecting peer is a loopback address.
       #
-      # +.native+ folds IPv4-mapped IPv6 (+::ffff:127.0.0.1+, which dual-stack
-      # servers commonly present) so it is correctly recognized as loopback;
-      # plain +IPAddr#loopback?+ returns false for the mapped form.
+      # Prefers +env['otto.peer_loopback']+ — IPPrivacyMiddleware's verdict on
+      # the ORIGINAL peer, recorded before it rewrites +REMOTE_ADDR+ (it runs
+      # outermost, so by the time this guard sees the env the address may
+      # already be the resolved-and-masked client IP). Only a real Boolean is
+      # honored; anything else falls through to evaluating +REMOTE_ADDR+, which
+      # is the correct source when no privacy middleware ran.
       #
-      # A conforming Rack server sets +REMOTE_ADDR+ to a bare IP (the peer's
-      # port lives in +REMOTE_PORT+). We deliberately do NOT strip a +:port+
-      # suffix here: an unexpected format is a signal something upstream is
-      # non-standard, so denying (fail-closed) is safer than coercing it.
+      # Both paths share +Otto::Utils.loopback_address?+, so the recorded
+      # verdict and the fallback cannot disagree. It fails closed: a blank,
+      # ported, or unparseable value is treated as non-loopback (denied) rather
+      # than raising on the hot path.
       #
-      # @param remote_addr [String, nil] the raw socket peer address
+      # @param env [Hash] Rack environment
       # @return [Boolean]
-      def loopback_peer?(remote_addr)
-        addr = remote_addr.to_s.strip
-        return false if addr.empty?
+      def loopback_peer?(env)
+        recorded = env['otto.peer_loopback']
+        return recorded if [true, false].include?(recorded)
 
-        IPAddr.new(addr).native.loopback?
-      rescue IPAddr::InvalidAddressError, IPAddr::AddressFamilyError
-        false
+        Otto::Utils.loopback_address?(env['REMOTE_ADDR'])
       end
 
       # @return [Array] 401 Rack response tuple

@@ -357,9 +357,13 @@ class Otto
         raise ArgumentError, "octet_precision must be 1 or 2, got: #{@octet_precision}" unless [1,
                                                                                                 2].include?(@octet_precision)
 
-        return unless @hash_rotation_period < 60
+        # Type check before the numeric comparison: a non-Numeric value (false,
+        # a String from unparsed config, ...) would otherwise surface as
+        # NoMethodError/ArgumentError from #<, not a clear configuration error.
+        return if @hash_rotation_period.is_a?(Numeric) && @hash_rotation_period >= 60
 
-        raise ArgumentError, 'hash_rotation_period must be at least 60 seconds'
+        raise ArgumentError,
+              "hash_rotation_period must be at least 60 seconds, got: #{@hash_rotation_period.inspect}"
       end
 
       private

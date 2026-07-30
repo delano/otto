@@ -107,17 +107,17 @@ class Otto
         ensure_not_frozen!
         config = @security_config.ip_privacy_config
 
+        # Every kwarg uses a nil guard: nil means "leave unchanged", any other
+        # value — including false or "" — is a real assignment that must either
+        # take effect or fail validation loudly. A truthiness guard would
+        # silently drop false (and, for correlation_secret, the explicit ""
+        # that disables the correlation hash).
         config.profile = profile unless profile.nil?
-        config.octet_precision = octet_precision if octet_precision
-        config.hash_rotation_period = hash_rotation if hash_rotation
+        config.octet_precision = octet_precision unless octet_precision.nil?
+        config.hash_rotation_period = hash_rotation unless hash_rotation.nil?
         config.geo_enabled = geo unless geo.nil?
-        # Mirror geo's `unless nil?` guard: nil means "leave unchanged", while an
-        # explicit "" is a real value that disables the correlation hash. (A
-        # plain `if correlation_secret` would also assign "" since "" is truthy
-        # in Ruby, but stating the nil intent explicitly keeps this consistent
-        # with the other nilable kwargs.)
         config.correlation_secret = correlation_secret unless correlation_secret.nil?
-        config.instance_variable_set(:@redis, redis) if redis
+        config.instance_variable_set(:@redis, redis) unless redis.nil?
 
         # Validate configuration
         config.validate!

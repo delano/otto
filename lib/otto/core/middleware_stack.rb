@@ -220,6 +220,12 @@ class Otto
       # wrapper (first to see the request). #ordered_stack moves any pinned
       # middleware (:outermost, :entrypoint) to the end so it stays outermost
       # regardless of the order middleware was registered in.
+      #
+      # NOT a request-path method. Its only caller is Otto's build_app!, which
+      # runs at construction and again whenever the stack changes; requests are
+      # served by the chain it returns. So the ordering work here (and in
+      # #ordered_stack) is per-BUILD, not per-request — don't add caching
+      # machinery on the assumption that it is hot.
       def wrap(base_app, security_config = nil)
         ordered_stack.reduce(base_app) do |app, entry|
           middleware = entry[:middleware]
@@ -297,6 +303,8 @@ class Otto
       # the relative order within every tier is preserved. Ruby's sort_by is not
       # stable, hence the explicit index tiebreak. Returns @stack itself (no
       # copy) in the common no-pin case, so ordinary apps are unaffected.
+      #
+      # Runs per build, not per request — see #wrap.
       def ordered_stack
         return @stack if @stack.none? { |entry| entry[:pin_tier] }
 

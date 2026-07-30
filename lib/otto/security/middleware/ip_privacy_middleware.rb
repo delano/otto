@@ -113,9 +113,10 @@ class Otto
         # Every path in this middleware that sets otto.client_ip installs the
         # capability first, so a second IPPrivacyMiddleware pass that reaches
         # this guard finds both keys and leaves the precise closure in place.
-        # (The no-resolvable-IP path sets neither key, so a second pass simply
-        # re-runs apply_privacy — idempotent, since there is nothing to
-        # double-mask.) The gap is out-of-contract writes: otto.client_ip is
+        # (The no-resolvable-IP path installs the capability but never sets
+        # otto.client_ip, so a second pass re-runs apply_privacy and reinstalls
+        # an equivalent fail-closed closure — idempotent, since there is nothing
+        # to double-mask.) The gap is out-of-contract writes: otto.client_ip is
         # documented as "Set by: IPPrivacyMiddleware" (see Otto::EnvKeys), but
         # an app or test harness that sets it directly trips the idempotency
         # guard and leaves the advertised capability nil — downstream policy

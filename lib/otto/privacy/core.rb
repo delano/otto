@@ -107,7 +107,7 @@ class Otto
         ensure_not_frozen!
         config = @security_config.ip_privacy_config
 
-        config.profile = profile if profile
+        config.profile = profile unless profile.nil?
         config.octet_precision = octet_precision if octet_precision
         config.hash_rotation_period = hash_rotation if hash_rotation
         config.geo_enabled = geo unless geo.nil?

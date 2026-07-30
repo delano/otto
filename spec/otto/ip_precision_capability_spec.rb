@@ -114,6 +114,12 @@ RSpec.describe 'IP precision capability and privacy profiles' do
       expect do
         Otto::Utils.ip_in_cidrs?('203.0.113.7', ['not-a-cidr'])
       end.to raise_error(IPAddr::InvalidAddressError)
+      # An empty string is fail-closed false as the client IP (runtime data)
+      # but raises as a range entry — a blank line or trailing comma in a
+      # config file is a configuration error, not an empty allowlist.
+      expect do
+        Otto::Utils.ip_in_cidrs?('203.0.113.7', [''])
+      end.to raise_error(IPAddr::InvalidAddressError)
     end
   end
 
@@ -162,18 +168,21 @@ RSpec.describe 'IP precision capability and privacy profiles' do
       end
 
       it 'raises ArgumentError, not NoMethodError, for a profile that cannot be a name' do
-        # Neither Integer nor NilClass responds to #to_sym.
+        # None of Integer, NilClass, or FalseClass responds to #to_sym.
         expect { described_class.new.profile = 123 }
           .to raise_error(ArgumentError, /must be a Symbol or String, got: Integer/)
         expect { described_class.new.profile = nil }
           .to raise_error(ArgumentError, /must be a Symbol or String, got: NilClass/)
         expect { described_class.new(profile: 123) }
           .to raise_error(ArgumentError, /must be a Symbol or String, got: Integer/)
+        # false is not "no profile" — only nil means "leave unchanged".
+        expect { described_class.new(profile: false) }
+          .to raise_error(ArgumentError, /must be a Symbol or String, got: FalseClass/)
       end
 
       it 'treats profile: nil at construction as "leave unchanged", not an error' do
-        # The truthiness guard at the option site skips the preset entirely, so
-        # the nil never reaches profile_presets. Only the setter rejects nil.
+        # The nil guard at the option site skips the preset entirely, so the
+        # nil never reaches profile_presets. Only the setter rejects nil.
         expect(described_class.new(profile: nil).profile).to eq(:masked)
       end
 
@@ -193,6 +202,14 @@ RSpec.describe 'IP precision capability and privacy profiles' do
         config = described_class.new(profile: :anonymous, mask_private_ips: false)
         expect(config.mask_private_ips).to be false
         expect(config.enabled?).to be true
+      end
+
+      it 'accepts a String profile name wherever a Symbol is accepted' do
+        # env/YAML-driven configuration hands profiles over as Strings.
+        expect(described_class.new(profile: 'anonymous').profile).to eq(:anonymous)
+        config = described_class.new
+        config.profile = 'audit'
+        expect(config.profile).to eq(:audit)
       end
 
       it 'leaves non-profile knobs untouched when a profile is applied' do
@@ -218,10 +235,18 @@ RSpec.describe 'IP precision capability and privacy profiles' do
         expect(config.octet_precision).to eq(2)
       end
 
+      it 'accepts a String profile name' do
+        otto = Otto.new
+        otto.configure_ip_privacy(profile: 'audit')
+        expect(otto.security_config.ip_privacy_config.profile).to eq(:audit)
+      end
+
       it 'raises on a profile that cannot be a name' do
         otto = Otto.new
         expect { otto.configure_ip_privacy(profile: 123) }
           .to raise_error(ArgumentError, /must be a Symbol or String, got: Integer/)
+        expect { otto.configure_ip_privacy(profile: false) }
+          .to raise_error(ArgumentError, /must be a Symbol or String, got: FalseClass/)
         # Rejected before any other option is applied.
         expect(otto.security_config.ip_privacy_config.profile).to eq(:masked)
       end

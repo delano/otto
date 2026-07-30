@@ -101,11 +101,11 @@ class Otto
       #   string is rejected, because an empty secret would let anyone reverse the
       #   fingerprint back to an IP.
       # @option options [Redis] :redis Optional Redis connection for multi-server environments
-      # @option options [Symbol] :profile Named privacy profile (:anonymous,
+      # @option options [Symbol, String] :profile Named privacy profile (:anonymous,
       #   :masked, or :audit) applied as a preset; any other explicitly passed
       #   option overrides the preset. See {PROFILES}.
       def initialize(options = {})
-        options = self.class.profile_presets(options[:profile]).merge(options) if options[:profile]
+        options = self.class.profile_presets(options[:profile]).merge(options) unless options[:profile].nil?
         @octet_precision = options.fetch(:octet_precision, 1)
         @hash_rotation_period = options.fetch(:hash_rotation_period, 86_400) # 24 hours
         @geo_enabled = options.fetch(:geo_enabled, true)

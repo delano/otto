@@ -427,6 +427,67 @@ RSpec.describe Otto::Core::MiddlewareStack do
     end
   end
 
+  describe 'pins are per-entry, not per-class' do
+    let(:base_app) { ->(_env) { [200, {}, ['base']] } }
+
+    # Records its args so we can tell two registrations of the SAME class apart.
+    let(:mw) do
+      Class.new do
+        attr_reader :app, :args
+        def initialize(app, *args, **_opts)
+          @app  = app
+          @args = args
+        end
+
+        def call(env) = @app.call(env)
+      end
+    end
+
+    it 'does not drag an unpinned registration of the same class into the pinned tier' do
+      # Entries are identified by (class, args, options), so both of these are
+      # legitimate distinct registrations.
+      stack.add(mw, 'plain')
+      stack.add_with_position(mw, 'pinned', position: :outermost)
+
+      app = stack.wrap(base_app)
+      expect(app.args).to eq(['pinned'])      # the pin moved outermost
+      expect(app.app.args).to eq(['plain'])   # the plain one stayed put
+    end
+
+    it 'keeps an unpinned registration added AFTER the pin inside it' do
+      stack.add_with_position(mw, 'pinned', position: :outermost)
+      stack.add(mw, 'plain')
+
+      app = stack.wrap(base_app)
+      expect(app.args).to eq(['pinned'])
+      expect(app.app.args).to eq(['plain'])
+    end
+
+    it 'gives each registration its own tier rather than the last one written' do
+      stack.add_with_position(mw, 'outer', position: :outermost)
+      stack.add_with_position(mw, 'entry', position: :entrypoint)
+      stack.add(mw, 'plain')
+
+      app = stack.wrap(base_app)
+      expect(app.args).to eq(['entry'])
+      expect(app.app.args).to eq(['outer'])
+      expect(app.app.app.args).to eq(['plain'])
+    end
+
+    it 'removes the tier along with the entry' do
+      # #remove is class-wide (as are #includes? and the middleware set), so
+      # this drops both entries and both tiers with them.
+      stack.add_with_position(mw, 'pinned', position: :outermost)
+      stack.add(mw, 'plain')
+      stack.remove(mw)
+      stack.add(mw, 'plain')
+
+      app = stack.wrap(base_app)
+      expect(app.args).to eq(['plain'])
+      expect(app.app).to eq(base_app)
+    end
+  end
+
   describe '#execution_order' do
     let(:first_mw) { Class.new }
     let(:second_mw) { Class.new }

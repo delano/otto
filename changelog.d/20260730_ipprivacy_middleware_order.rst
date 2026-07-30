@@ -30,6 +30,11 @@ Security
 Changed
 -------
 
+- Middleware pins are now recorded per *entry* rather than per class. A
+  ``:outermost`` pin previously reordered every registration of that class,
+  including ones registered separately with different arguments; each
+  registration now carries its own tier. (#219)
+
 - ``Otto::LoggingHelpers.request_context`` masks its ``:ip`` field when the
   request never passed through ``IPPrivacyMiddleware`` (previously it fell back
   to the raw ``REMOTE_ADDR``). New ``LoggingHelpers.privacy_safe_ip`` exposes

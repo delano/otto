@@ -17,6 +17,12 @@ class Otto
       # stack with reduce, so a LATER array position is a FURTHER OUT wrapper;
       # sorting by tier therefore sorts by how early the middleware sees the
       # request. Unpinned entries are tier 0 and keep their insertion order.
+      #
+      # A tier is recorded on the ENTRY (as entry[:pin_tier]), not on the
+      # middleware class. Entries are identified by (class, args, options), so
+      # the same class can legitimately be registered more than once with
+      # different configuration; a class-wide pin would drag those other
+      # registrations into the pinned tier along with it.
       PIN_TIERS = {
          outermost: 1,
         entrypoint: 2,
@@ -25,9 +31,6 @@ class Otto
       def initialize
         @stack = []
         @middleware_set = Set.new
-        # middleware_class => pin tier (see PIN_TIERS). Pinned classes are
-        # sorted outward at build time, regardless of insertion order.
-        @pins = {}
         @on_change_callback = nil
       end
 
@@ -108,8 +111,7 @@ class Otto
         when :first, :innermost
           @stack.unshift(entry)
         when *PIN_TIERS.keys
-          @stack << entry
-          @pins[middleware_class] = PIN_TIERS.fetch(position)
+          @stack << entry.merge(pin_tier: PIN_TIERS.fetch(position))
         else
           @stack << entry # :last / nil — default append
         end
@@ -184,9 +186,9 @@ class Otto
         # Update middleware set if any matching entries were found
         return unless matches
 
-        # Rebuild the set of unique middleware classes
+        # Rebuild the set of unique middleware classes. Pins need no cleanup:
+        # each removed entry took its own tier with it.
         @middleware_set = Set.new(@stack.map { |entry| entry[:middleware] })
-        @pins.delete(middleware_class)
         # Notify of change
         @on_change_callback&.call
       end
@@ -203,7 +205,6 @@ class Otto
 
         @stack.clear
         @middleware_set.clear
-        @pins.clear
         # Notify of change
         @on_change_callback&.call
       end
@@ -290,17 +291,17 @@ class Otto
 
       private
 
-      # The stack ordered for #wrap: identical to @stack unless some middleware
-      # is pinned, in which case entries are sorted by pin tier (PIN_TIERS,
+      # The stack ordered for #wrap: identical to @stack unless some entry is
+      # pinned, in which case entries are sorted by pin tier (PIN_TIERS,
       # outward-ascending) so pinned entries move to the end (outermost) while
       # the relative order within every tier is preserved. Ruby's sort_by is not
       # stable, hence the explicit index tiebreak. Returns @stack itself (no
       # copy) in the common no-pin case, so ordinary apps are unaffected.
       def ordered_stack
-        return @stack if @pins.empty?
+        return @stack if @stack.none? { |entry| entry[:pin_tier] }
 
         @stack.each_with_index
-              .sort_by { |entry, index| [@pins.fetch(entry[:middleware], 0), index] }
+              .sort_by { |entry, index| [entry[:pin_tier] || 0, index] }
               .map(&:first)
       end
 

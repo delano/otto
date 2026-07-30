@@ -25,7 +25,9 @@ class Otto
       # - ANONYMOUS success (StrategyResult with no user, e.g. from noauth) is
       #   held as a fallback while the rest of the chain runs. It wins once the
       #   chain completes without an authenticated success or terminal failure,
-      #   so credential-less requests still fall through to noauth.
+      #   so credential-less requests still fall through to noauth. When more
+      #   than one strategy produces an anonymous success, the first declared
+      #   is the fallback; later ones are deliberately ignored.
       # - Plain failures are recorded and the next strategy is consulted
       #   (OR logic). If everything fails, an AuthorizationFailure (valid
       #   credential, denied) yields 403; otherwise 401.
@@ -329,8 +331,9 @@ class Otto
               total_duration: total_duration,
               # Every strategy that ran, including the winner (already in
               # chain[:executed] by the time a success is handled) and any
-              # held anonymous fallback — not just the failures.
-              strategies_attempted: chain[:executed].size
+              # held anonymous fallback — not just the failures. Same array
+              # shape as the failure log so consumers see one type.
+              strategies_attempted: chain[:executed]
             ))
         end
 

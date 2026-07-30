@@ -70,11 +70,13 @@ RSpec.describe 'Middleware Args Edge Cases' do
       stub_const('RegularMiddleware', regular_middleware)
     end
 
+    # Otto pins IPPrivacyMiddleware outermost (issue #219), so the middleware
+    # under test is the link directly inside it — see #inside_ip_privacy.
     it 'injects security_config into known security middleware' do
       otto.middleware.add(Otto::Security::Middleware::CSRFMiddleware)
 
       base_app = ->(_env) { [200, {}, ['base']] }
-      app = otto.middleware.wrap(base_app, security_config)
+      app = inside_ip_privacy(otto.middleware.wrap(base_app, security_config))
 
       expect(app.security_config).to eq(security_config)
       expect(app.custom_args).to be_empty
@@ -84,7 +86,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       otto.middleware.add(RegularMiddleware)
 
       base_app = ->(_env) { [200, {}, ['base']] }
-      app = otto.middleware.wrap(base_app, security_config)
+      app = inside_ip_privacy(otto.middleware.wrap(base_app, security_config))
 
       expect(app.args).to be_empty
       expect(app).not_to respond_to(:security_config)
@@ -94,7 +96,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       otto.middleware.add(Otto::Security::Middleware::ValidationMiddleware, 'custom_arg', option: 'value')
 
       base_app = ->(_env) { [200, {}, ['base']] }
-      app = otto.middleware.wrap(base_app, security_config)
+      app = inside_ip_privacy(otto.middleware.wrap(base_app, security_config))
 
       expect(app.security_config).to eq(security_config)
       expect(app.custom_args).to eq(['custom_arg'])
@@ -105,7 +107,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       otto.middleware.add(RegularMiddleware, 'arg1', 'arg2', option: 'value')
 
       base_app = ->(_env) { [200, {}, ['base']] }
-      app = otto.middleware.wrap(base_app, security_config)
+      app = inside_ip_privacy(otto.middleware.wrap(base_app, security_config))
 
       expect(app.args).to eq(%w[arg1 arg2])
       expect(app.options).to eq(option: 'value')
@@ -117,9 +119,9 @@ RSpec.describe 'Middleware Args Edge Cases' do
       base_app = ->(_env) { [200, {}, ['base']] }
       app = otto.middleware.wrap(base_app, security_config)
 
-      # With IP Privacy middleware always present, it wraps the base app first
-      expect(app.app).to be_a(Otto::Security::Middleware::IPPrivacyMiddleware)
-      expect(app.app.instance_variable_get(:@app)).to eq(base_app)
+      # IP Privacy is the outermost wrapper; the proc-built middleware sits
+      # between it and the base app.
+      expect(inside_ip_privacy(app).app).to eq(base_app)
     end
   end
 
@@ -163,9 +165,10 @@ RSpec.describe 'Middleware Args Edge Cases' do
       base_app = ->(_env) { [200, {}, ['base']] }
 
       # Build the middleware chain
-      app = otto.middleware.wrap(base_app, security_config)
+      app = inside_ip_privacy(otto.middleware.wrap(base_app, security_config))
 
-      # The outermost middleware should be CSRFMiddleware (added last, wraps the previous ones)
+      # Of the registered middleware, CSRFMiddleware is outermost (added last,
+      # wraps the previous ones)
       expect(app).to be_a(Otto::Security::Middleware::CSRFMiddleware)
       expect(app.custom_args).to eq(['csrf_arg'])
     end
@@ -175,7 +178,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       otto.middleware.add(RegularMiddleware)
 
       base_app = ->(_env) { [200, {}, ['base']] }
-      app = otto.middleware.wrap(base_app, security_config)
+      app = inside_ip_privacy(otto.middleware.wrap(base_app, security_config))
 
       expect(app).to be_a(regular_middleware)
       expect(app.args).to be_empty
@@ -185,7 +188,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       otto.middleware.add(RegularMiddleware, option1: 'value1', option2: 'value2')
 
       base_app = ->(_env) { [200, {}, ['base']] }
-      app = otto.middleware.wrap(base_app, security_config)
+      app = inside_ip_privacy(otto.middleware.wrap(base_app, security_config))
 
       expect(app.args).to be_empty
       expect(app.options).to eq(option1: 'value1', option2: 'value2')
@@ -225,7 +228,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       otto.middleware.add(Otto::Security::Middleware::CSRFMiddleware, 'custom_arg')
 
       base_app = ->(_env) { [200, {}, ['base']] }
-      app = otto.middleware.wrap(base_app, nil)
+      app = inside_ip_privacy(otto.middleware.wrap(base_app, nil))
 
       # Should still work, just without security config injection
       expect(app.custom_args).to eq(['custom_arg'])
@@ -236,7 +239,7 @@ RSpec.describe 'Middleware Args Edge Cases' do
       otto.middleware.add(regular_middleware, 'arg')
 
       base_app = ->(_env) { [200, {}, ['base']] }
-      app = otto.middleware.wrap(base_app, nil)
+      app = inside_ip_privacy(otto.middleware.wrap(base_app, nil))
 
       expect(app.args).to eq(['arg'])
     end
@@ -257,12 +260,17 @@ RSpec.describe 'Middleware Args Edge Cases' do
       # Middleware list should be in addition order (IPPrivacyMiddleware is always first)
       expect(otto.middleware.middleware_list).to eq([Otto::Security::Middleware::IPPrivacyMiddleware, Middleware1, Middleware2, Middleware3])
 
-      # But execution follows standard Rack behavior (last added wraps the others)
+      # But execution follows standard Rack behavior (last added wraps the
+      # others), under the IP-privacy pin which always executes first.
       base_app = ->(_env) { [200, {}, ['base']] }
       app = otto.middleware.wrap(base_app, security_config)
 
-      # The outermost middleware should be the last one added
-      expect(app).to be_a(Middleware3)
+      expect(middleware_chain(app).map(&:class)).to eq(
+        [Otto::Security::Middleware::IPPrivacyMiddleware, Middleware3, Middleware2, Middleware1]
+      )
+      expect(otto.middleware.execution_order).to eq(
+        [Otto::Security::Middleware::IPPrivacyMiddleware, Middleware3, Middleware2, Middleware1]
+      )
     end
   end
 end

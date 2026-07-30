@@ -284,4 +284,78 @@ RSpec.describe Otto, 'rate limiting features' do
       expect(body.first).to include('Rate limit exceeded')
     end
   end
+
+  # Issue #219: the 'rack.attack' subscriber interpolated req.ip straight into a
+  # warn-level line, so a deployment on the default :masked privacy profile
+  # still wrote raw client IPs to its logs every time a limit tripped.
+  #
+  # ActiveSupport is not a dependency, so the subscriber is normally never
+  # registered. Stand in a minimal Notifications double to capture the block and
+  # drive it with a payload.
+  describe 'blocked-request logging' do
+    let(:notifications) do
+      Class.new do
+        attr_reader :subscriptions
+
+        def initialize = (@subscriptions = {})
+        def subscribe(name, &block) = (@subscriptions[name] = block)
+
+        def publish(name, payload)
+          @subscriptions.fetch(name).call(name, nil, nil, nil, payload)
+        end
+      end.new
+    end
+
+    let(:logged) { [] }
+
+    def publish_throttle(env)
+      request = instance_double('Rack::Request', env: env, ip: env['REMOTE_ADDR'], path: env['PATH_INFO'])
+      notifications.publish('rack.attack', request: request, match_type: :throttle, matched: 'requests')
+    end
+
+    before do
+      stub_const('ActiveSupport::Notifications', notifications)
+      allow(Otto.logger).to receive(:warn) { |message| logged << message }
+    end
+
+    it 'logs a masked IP, never the raw client address' do
+      Otto::Security::RateLimiting.configure_rack_attack!({})
+
+      publish_throttle('REMOTE_ADDR' => '203.0.113.7', 'PATH_INFO' => '/api')
+
+      expect(logged.last).to include('203.0.113.0')
+      expect(logged.last).not_to include('203.0.113.7')
+    end
+
+    it 'prefers the canonical client IP when Rack::Attack runs inside Otto' do
+      Otto::Security::RateLimiting.configure_rack_attack!({})
+
+      publish_throttle(
+        'REMOTE_ADDR' => '203.0.113.0',
+        'PATH_INFO' => '/api',
+        'otto.client_ip' => '203.0.113.0'
+      )
+
+      expect(logged.last).to include('203.0.113.0')
+    end
+
+    it 'masks the IP on the MCP subscriber too' do
+      Otto::MCP::RateLimiter.configure_mcp_logging
+
+      publish_throttle('REMOTE_ADDR' => '198.51.100.42', 'PATH_INFO' => '/_mcp')
+
+      expect(logged.last).to start_with('[MCP]')
+      expect(logged.last).to include('198.51.100.0')
+      expect(logged.last).not_to include('198.51.100.42')
+    end
+
+    it 'masks the IP on the MCP subscriber for non-MCP paths' do
+      Otto::MCP::RateLimiter.configure_mcp_logging
+
+      publish_throttle('REMOTE_ADDR' => '198.51.100.42', 'PATH_INFO' => '/other')
+
+      expect(logged.last).to start_with('[Otto]')
+      expect(logged.last).not_to include('198.51.100.42')
+    end
+  end
 end

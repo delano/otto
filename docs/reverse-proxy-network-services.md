@@ -177,12 +177,25 @@ deny). Everything fails closed.
 This is the load-bearing decision, and it corrects the obvious-but-wrong first
 instinct (which every initial design in the panel made).
 
-`Otto::CaddyTLS::LocalhostGuard` reads the **original `env['REMOTE_ADDR']`** — the
-TCP socket peer — and runs **before** `IPPrivacyMiddleware` rewrites `REMOTE_ADDR`
-from forwarded headers. Because the guard is installed via `Otto#use` (appended,
-therefore *outermost* in Otto's `reduce`-built stack) and `IPPrivacyMiddleware` is
-pinned *innermost*, the guard provably inspects the true socket peer regardless of
-when `enable_caddy_tls!` is called.
+`Otto::CaddyTLS::LocalhostGuard` authenticates the **original TCP socket peer**,
+never the address left in `REMOTE_ADDR` after `IPPrivacyMiddleware` rewrites it
+from forwarded headers.
+
+Otto originally guaranteed that by ordering: the guard is installed via `Otto#use`
+(appended, therefore *outermost* in Otto's `reduce`-built stack) and
+`IPPrivacyMiddleware` was pinned *innermost*, so the guard ran first and read a
+pristine `REMOTE_ADDR`. Issue #219 inverted that: masking innermost meant every
+*other* middleware saw raw IPs, so `IPPrivacyMiddleware` is now pinned **outermost**
+(the `:entrypoint` tier) and runs *ahead* of the guard.
+
+The guarantee is preserved by a record rather than by order.
+`IPPrivacyMiddleware` evaluates the untouched peer before masking and stores the
+verdict as `env['otto.peer_loopback']` — a boolean, never an address, so it leaks
+nothing. The guard reads that record when present and evaluates `REMOTE_ADDR`
+itself when it is not (guard mounted outside Otto, or no privacy middleware in the
+stack). Both paths share `Otto::Utils.loopback_address?`, so they cannot drift, and
+the decision is made on the raw peer either way — regardless of when
+`enable_caddy_tls!` is called.
 
 Reading Otto's resolved `otto.client_ip` (or the rewritten `REMOTE_ADDR`) would be
 **exploitable**: `Otto::Utils.resolve_client_ip` honors `X-Forwarded-For` when the

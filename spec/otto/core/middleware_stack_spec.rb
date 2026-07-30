@@ -343,5 +343,174 @@ RSpec.describe Otto::Core::MiddlewareStack do
       expect(app.app).to be_a(plain_mw)
       expect(app.app.app).to eq(base_app)
     end
+
+    it 'treats :innermost as a synonym for :first' do
+      stack.add_with_position(plain_mw, position: :innermost)
+      stack.add(third_mw)
+
+      app = stack.wrap(base_app)
+      expect(app).to be_a(third_mw)
+      expect(app.app).to be_a(plain_mw)
+    end
+  end
+
+  describe 'add_with_position(:entrypoint)' do
+    let(:base_app) { ->(_env) { [200, {}, ['base']] } }
+
+    let(:entry_mw) { middleware_double }
+    let(:outer_mw) { middleware_double }
+    let(:plain_mw) { middleware_double }
+
+    def middleware_double
+      Class.new do
+        attr_reader :app
+        def initialize(app, *_args, **_opts) = (@app = app)
+        def call(env) = @app.call(env)
+      end
+    end
+
+    it 'runs outside an :outermost pin, whichever is registered first' do
+      stack.add_with_position(entry_mw, position: :entrypoint)
+      stack.add_with_position(outer_mw, position: :outermost)
+
+      app = stack.wrap(base_app)
+      expect(app).to be_a(entry_mw)
+      expect(app.app).to be_a(outer_mw)
+    end
+
+    it 'runs outside an :outermost pin registered before it' do
+      stack.add_with_position(outer_mw, position: :outermost)
+      stack.add_with_position(entry_mw, position: :entrypoint)
+
+      app = stack.wrap(base_app)
+      expect(app).to be_a(entry_mw)
+      expect(app.app).to be_a(outer_mw)
+    end
+
+    it 'stays outermost as ordinary middleware is appended afterward' do
+      stack.add_with_position(entry_mw, position: :entrypoint)
+      stack.add(plain_mw)
+      stack.add(outer_mw)
+
+      app = stack.wrap(base_app)
+      expect(app).to be_a(entry_mw)
+    end
+
+    it 'un-pins the class on removal' do
+      stack.add_with_position(entry_mw, position: :entrypoint)
+      stack.add(plain_mw)
+      stack.remove(entry_mw)
+      stack.add(entry_mw) # re-added plain (not pinned)
+
+      app = stack.wrap(base_app)
+      # Appended last, so outermost by insertion order — the pin is gone, not
+      # merely shadowed.
+      expect(app).to be_a(entry_mw)
+      expect(app.app).to be_a(plain_mw)
+    end
+
+    it 'orders all three tiers: entrypoint > outermost > ordinary > first' do
+      inner_mw = middleware_double
+      stack.add_with_position(outer_mw, position: :outermost)
+      stack.add_with_position(inner_mw, position: :first)
+      stack.add(plain_mw)
+      stack.add_with_position(entry_mw, position: :entrypoint)
+
+      expect(stack.execution_order).to eq([entry_mw, outer_mw, plain_mw, inner_mw])
+
+      app = stack.wrap(base_app)
+      expect(app).to be_a(entry_mw)
+      expect(app.app).to be_a(outer_mw)
+      expect(app.app.app).to be_a(plain_mw)
+      expect(app.app.app.app).to be_a(inner_mw)
+      expect(app.app.app.app.app).to eq(base_app)
+    end
+  end
+
+  describe 'pins are per-entry, not per-class' do
+    let(:base_app) { ->(_env) { [200, {}, ['base']] } }
+
+    # Records its args so we can tell two registrations of the SAME class apart.
+    let(:mw) do
+      Class.new do
+        attr_reader :app, :args
+        def initialize(app, *args, **_opts)
+          @app  = app
+          @args = args
+        end
+
+        def call(env) = @app.call(env)
+      end
+    end
+
+    it 'does not drag an unpinned registration of the same class into the pinned tier' do
+      # Entries are identified by (class, args, options), so both of these are
+      # legitimate distinct registrations.
+      stack.add(mw, 'plain')
+      stack.add_with_position(mw, 'pinned', position: :outermost)
+
+      app = stack.wrap(base_app)
+      expect(app.args).to eq(['pinned'])      # the pin moved outermost
+      expect(app.app.args).to eq(['plain'])   # the plain one stayed put
+    end
+
+    it 'keeps an unpinned registration added AFTER the pin inside it' do
+      stack.add_with_position(mw, 'pinned', position: :outermost)
+      stack.add(mw, 'plain')
+
+      app = stack.wrap(base_app)
+      expect(app.args).to eq(['pinned'])
+      expect(app.app.args).to eq(['plain'])
+    end
+
+    it 'gives each registration its own tier rather than the last one written' do
+      stack.add_with_position(mw, 'outer', position: :outermost)
+      stack.add_with_position(mw, 'entry', position: :entrypoint)
+      stack.add(mw, 'plain')
+
+      app = stack.wrap(base_app)
+      expect(app.args).to eq(['entry'])
+      expect(app.app.args).to eq(['outer'])
+      expect(app.app.app.args).to eq(['plain'])
+    end
+
+    it 'removes the tier along with the entry' do
+      # #remove is class-wide (as are #includes? and the middleware set), so
+      # this drops both entries and both tiers with them.
+      stack.add_with_position(mw, 'pinned', position: :outermost)
+      stack.add(mw, 'plain')
+      stack.remove(mw)
+      stack.add(mw, 'plain')
+
+      app = stack.wrap(base_app)
+      expect(app.args).to eq(['plain'])
+      expect(app.app).to eq(base_app)
+    end
+  end
+
+  describe '#execution_order' do
+    let(:first_mw) { Class.new }
+    let(:second_mw) { Class.new }
+    let(:pinned_mw) { Class.new }
+
+    it 'reverses registration order (last added runs first)' do
+      stack.add(first_mw)
+      stack.add(second_mw)
+
+      expect(stack.middleware_list).to eq([first_mw, second_mw])
+      expect(stack.execution_order).to eq([second_mw, first_mw])
+    end
+
+    it 'resolves pins, unlike #middleware_list' do
+      stack.add_with_position(pinned_mw, position: :entrypoint)
+      stack.add(first_mw)
+
+      expect(stack.middleware_list).to eq([pinned_mw, first_mw])
+      expect(stack.execution_order).to eq([pinned_mw, first_mw])
+    end
+
+    it 'is empty for an empty stack' do
+      expect(stack.execution_order).to eq([])
+    end
   end
 end

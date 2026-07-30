@@ -1629,6 +1629,62 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
       end
     end
 
+    context 'unexpected strategy return types' do
+      # A strategy returning something that is neither a StrategyResult nor a
+      # failure type is a strategy-author bug: the chain skips it (logging a
+      # warning) and continues, so the rest of the chain still decides the
+      # outcome.
+      let(:broken_strategy) do
+        Class.new(Otto::Security::Authentication::AuthStrategy) do
+          def authenticate(_env, _requirement)
+            :not_a_result
+          end
+        end.new
+      end
+
+      let(:broken_config) do
+        {
+          auth_strategies: {
+            'broken' => broken_strategy,
+            'basicauth' => credentialed_strategy,
+            'noauth' => counting_noauth,
+          },
+          login_path: '/signin',
+        }
+      end
+
+      it 'continues past the unexpected result to the rest of the chain' do
+        route = Otto::RouteDefinition.new('GET', '/thing', 'App#thing auth=broken,noauth response=json')
+        chain_wrapper = described_class.new(mock_handler, route, broken_config)
+
+        status, _headers, _body = chain_wrapper.call(mock_rack_env)
+
+        expect(status).to eq(200)
+        expect(noauth_calls.size).to eq(1)
+      end
+
+      it 'still fails closed when a later strategy rejects terminally' do
+        route = Otto::RouteDefinition.new('GET', '/thing', 'App#thing auth=broken,basicauth,noauth response=json')
+        chain_wrapper = described_class.new(mock_handler, route, broken_config)
+
+        env = mock_rack_env(headers: { 'Authorization' => 'Basic bogus' })
+        status, _headers, body = chain_wrapper.call(env)
+
+        expect(status).to eq(401)
+        expect(JSON.parse(body.first)['message']).to eq('Invalid credentials')
+      end
+
+      it 'returns 401 when the unexpected result is the whole chain' do
+        route = Otto::RouteDefinition.new('GET', '/thing', 'App#thing auth=broken response=json')
+        chain_wrapper = described_class.new(mock_handler, route, broken_config)
+
+        status, _headers, body = chain_wrapper.call(mock_rack_env)
+
+        expect(status).to eq(401)
+        expect(JSON.parse(body.first)['message']).to eq('Authentication required')
+      end
+    end
+
     context 'backward compatibility' do
       it 'defaults AuthFailure#terminal to false when constructed without it' do
         legacy = Otto::Security::Authentication::AuthFailure.new(

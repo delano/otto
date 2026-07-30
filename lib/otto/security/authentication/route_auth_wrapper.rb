@@ -127,7 +127,7 @@ class Otto
             # Handle authenticated success - wins immediately
             if authenticated_result?(result)
               return handle_auth_success(env, extra_params, result, strategy_name,
-                                        duration, total_start_time, chain[:failed])
+                                        duration, total_start_time, chain)
             end
 
             # An anonymous success (e.g. noauth) is held as a fallback rather
@@ -146,7 +146,13 @@ class Otto
             # continue to the next strategy (OR logic; a later success still wins).
             # AuthorizationFailure (valid credential, denied) is tagged so the
             # final response is 403 instead of 401. See handle_all_strategies_failed.
-            next unless result.is_a?(AuthFailure) || result.is_a?(AuthorizationFailure)
+            # Anything else is a strategy-author bug (wrong return type): the
+            # chain skips it as if it failed without a reason, but leaves a
+            # trace — a silent drop makes those bugs hard to debug.
+            unless result.is_a?(AuthFailure) || result.is_a?(AuthorizationFailure)
+              log_unexpected_result(env, strategy_name, result)
+              next
+            end
 
             log_strategy_failure(env, strategy_name, result, duration, auth_requirements, requirement)
 
@@ -165,7 +171,7 @@ class Otto
             return handle_auth_success(env, extra_params, anonymous_fallback[:result],
                                        anonymous_fallback[:strategy_name],
                                        anonymous_fallback[:duration],
-                                       total_start_time, chain[:failed])
+                                       total_start_time, chain)
           end
 
           # All strategies failed
@@ -193,10 +199,10 @@ class Otto
         end
 
         # Handle successful authentication
-        def handle_auth_success(env, extra_params, result, strategy_name, duration, total_start_time, failed_strategies)
+        def handle_auth_success(env, extra_params, result, strategy_name, duration, total_start_time, chain)
           total_duration = Otto::Utils.now_in_μs - total_start_time
 
-          log_auth_success(env, strategy_name, result, duration, total_duration, failed_strategies)
+          log_auth_success(env, strategy_name, result, duration, total_duration, chain)
 
           # Set environment variables for controllers/logic
           env['otto.strategy_result'] = result
@@ -278,14 +284,10 @@ class Otto
         # reasons of strategies that FAILED, in failure order. The two arrays
         # are therefore not index-aligned.
         def build_failure_metadata(env, chain, terminal: false)
-          failure_summary = if terminal
-                              'Authentication halted by terminal failure'
-                            else
-                              'All authentication strategies failed'
-                            end
+          summary = terminal ? 'Authentication halted by terminal failure' : 'All authentication strategies failed'
           metadata = {
                           ip: env['otto.client_ip'] || env['REMOTE_ADDR'],
-                auth_failure: failure_summary,
+                auth_failure: summary,
             attempted_strategies: chain[:executed],
                  failure_reasons: chain[:failed].map { |f| f[:reason] },
           }
@@ -317,7 +319,7 @@ class Otto
             ))
         end
 
-        def log_auth_success(env, strategy_name, result, duration, total_duration, failed_strategies)
+        def log_auth_success(env, strategy_name, result, duration, total_duration, chain)
           Otto.structured_log(:info, 'Auth strategy result',
             Otto::LoggingHelpers.request_context(env).merge(
               strategy: strategy_name,
@@ -325,7 +327,10 @@ class Otto
               user_id: result.user_id,
               duration: duration,
               total_duration: total_duration,
-              strategies_attempted: failed_strategies.size + 1
+              # Every strategy that ran, including the winner (already in
+              # chain[:executed] by the time a success is handled) and any
+              # held anonymous fallback — not just the failures.
+              strategies_attempted: chain[:executed].size
             ))
         end
 
@@ -337,6 +342,14 @@ class Otto
               failure_reason: result.failure_reason,
               duration: duration,
               remaining_strategies: auth_requirements.size - auth_requirements.index(requirement) - 1
+            ))
+        end
+
+        def log_unexpected_result(env, strategy_name, result)
+          Otto.structured_log(:warn, 'Auth strategy returned unexpected type',
+            Otto::LoggingHelpers.request_context(env).merge(
+              strategy: strategy_name,
+              result_class: result.class.name
             ))
         end
 

@@ -388,5 +388,37 @@ class Otto
         range.family == client.family && range.include?(client)
       end
     end
+
+    # Whether an address is on the loopback interface.
+    #
+    # This is the RAW SOCKET PEER test used to authenticate a direct local call
+    # (Otto::CaddyTLS::LocalhostGuard) — and, because IPPrivacyMiddleware now
+    # runs outermost and rewrites REMOTE_ADDR, the same test IPPrivacyMiddleware
+    # applies to the original peer and records as the leak-free boolean
+    # env['otto.peer_loopback']. Shared here so the pre-masking record and the
+    # guard's own fallback cannot drift.
+    #
+    # Fails closed: a blank or unparseable value is non-loopback rather than
+    # raising on the hot path.
+    #
+    # #native folds IPv4-mapped IPv6 (::ffff:127.0.0.1, which dual-stack servers
+    # commonly present) so it is recognized as loopback; plain IPAddr#loopback?
+    # returns false for the mapped form.
+    #
+    # Deliberately does NOT strip a ':port' suffix (unlike #private_ip?): a
+    # conforming Rack server reports the peer port in REMOTE_PORT, so an
+    # unexpected format means something upstream is non-standard and denying is
+    # safer than coercing.
+    #
+    # @param address [String, nil] raw socket peer address
+    # @return [Boolean]
+    def loopback_address?(address)
+      addr = address.to_s.strip
+      return false if addr.empty?
+
+      IPAddr.new(addr).native.loopback?
+    rescue IPAddr::InvalidAddressError, IPAddr::AddressFamilyError
+      false
+    end
   end
 end

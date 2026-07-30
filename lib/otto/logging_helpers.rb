@@ -76,10 +76,59 @@ class Otto
       {
             method: env['REQUEST_METHOD'],
               path: env['PATH_INFO'],
-                ip: env['otto.client_ip'] || env['REMOTE_ADDR'], # Canonical client IP (masked when privacy on)
+                ip: privacy_safe_ip(env), # Canonical client IP (masked when privacy on)
            country: env['otto.privacy.geo_country'],
         user_agent: env['HTTP_USER_AGENT']&.slice(0, 100), # Already anonymized by IPPrivacyMiddleware
       }.compact
+    end
+
+    # A client IP that is safe to write to a log.
+    #
+    # Prefers the canonical env['otto.client_ip'] that IPPrivacyMiddleware
+    # resolves once per request: masked when privacy is on, and deliberately
+    # the real address when the app has disabled privacy. That key is present
+    # for anything running inside Otto, since the middleware is pinned
+    # outermost.
+    #
+    # It is ABSENT for code that runs outside Otto's stack — notably
+    # Rack::Attack, which the hosting app mounts ahead of Otto (see
+    # Otto::Security::Middleware::RateLimitMiddleware), so its 'rack.attack'
+    # subscriber observes the raw peer no matter how Otto orders its own
+    # middleware. There we mask the address ourselves rather than log it whole:
+    # a public IP is reduced with the default precision (privacy config is not
+    # reachable from a global subscriber), and private/localhost addresses pass
+    # through unmasked, matching the middleware's own exemption so development
+    # logs stay readable.
+    #
+    # Never raises and never returns a raw public address: an unparseable value
+    # (a ported REMOTE_ADDR, a malformed forwarded entry) becomes '[redacted]'.
+    #
+    # @param env [Hash] Rack environment hash
+    # @param fallback_ip [String, nil] address to fall back to when the env
+    #   carries no canonical client IP — e.g. Rack::Request#ip, which factors in
+    #   forwarded headers. Defaults to REMOTE_ADDR.
+    # @return [String, nil] log-safe address, or nil when there is none
+    def self.privacy_safe_ip(env, fallback_ip = nil)
+      canonical = env['otto.client_ip']
+      return canonical unless canonical.to_s.empty?
+
+      candidate = fallback_ip.to_s.empty? ? env['REMOTE_ADDR'] : fallback_ip
+      redact_ip(candidate)
+    end
+
+    # Reduce a raw address to a log-safe form. See .privacy_safe_ip.
+    #
+    # @param ip [String, nil] raw address
+    # @return [String, nil] masked address, the address itself when
+    #   private/localhost, '[redacted]' when unparseable, nil when blank
+    def self.redact_ip(ip)
+      address = ip.to_s.strip
+      return nil if address.empty?
+      return address if Otto::Privacy::IPPrivacy.private_or_localhost?(address)
+
+      Otto::Privacy::IPPrivacy.mask_ip(address) || '[redacted]'
+    rescue ArgumentError
+      '[redacted]'
     end
 
     # Log a timed operation with consistent timing and error handling

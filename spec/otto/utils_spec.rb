@@ -253,6 +253,42 @@ RSpec.describe Otto::Utils do
     end
   end
 
+  describe "#loopback_address?" do
+    it "recognizes the IPv4 loopback block, not just 127.0.0.1" do
+      expect(Otto::Utils.loopback_address?("127.0.0.1")).to be true
+      expect(Otto::Utils.loopback_address?("127.5.5.5")).to be true
+    end
+
+    it "recognizes IPv6 loopback, including the IPv4-mapped form" do
+      expect(Otto::Utils.loopback_address?("::1")).to be true
+      expect(Otto::Utils.loopback_address?("::ffff:127.0.0.1")).to be true
+    end
+
+    it "treats other private addresses as non-loopback" do
+      # Narrower than #private_ip?: RFC1918 is private but not loopback.
+      expect(Otto::Utils.loopback_address?("10.0.0.1")).to be false
+      expect(Otto::Utils.loopback_address?("192.168.1.1")).to be false
+      expect(Otto::Utils.loopback_address?("fc00::1")).to be false
+    end
+
+    it "treats public addresses as non-loopback" do
+      expect(Otto::Utils.loopback_address?("8.8.8.8")).to be false
+      expect(Otto::Utils.loopback_address?("2001:db8::1")).to be false
+    end
+
+    it "fails closed on blank, malformed or ported input instead of raising" do
+      # A conforming Rack server reports the peer port in REMOTE_PORT, so a
+      # ported REMOTE_ADDR signals something non-standard: deny, don't coerce.
+      [nil, "", "   ", "garbage", "127.0.0.1:53422"].each do |value|
+        expect(Otto::Utils.loopback_address?(value)).to be(false), "expected #{value.inspect} to be non-loopback"
+      end
+    end
+
+    it "tolerates surrounding whitespace" do
+      expect(Otto::Utils.loopback_address?("  127.0.0.1  ")).to be true
+    end
+  end
+
   describe "#resolve_client_ip" do
     def config_with(*proxies)
       cfg = Otto::Security::Config.new

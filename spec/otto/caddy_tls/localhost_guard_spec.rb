@@ -86,6 +86,105 @@ RSpec.describe Otto::CaddyTLS::LocalhostGuard do
     end
   end
 
+  # IPPrivacyMiddleware is pinned outermost (issue #219), so it runs AHEAD of
+  # this guard and may have rewritten REMOTE_ADDR by the time the guard sees the
+  # env. It records its verdict on the untouched peer in env['otto.peer_loopback'],
+  # which the guard prefers over the (possibly rewritten) address.
+  describe "env['otto.peer_loopback'] (pre-masking peer record)" do
+    it 'allows when the record says loopback but REMOTE_ADDR was since rewritten' do
+      # What a masked private-IP deployment looks like: peer was ::1, privacy
+      # masked it to an address that no longer reads as loopback.
+      response = call(remote_addr: '::', headers: { 'otto.peer_loopback' => true })
+      expect(response[2]).to eq(['passed-through'])
+    end
+
+    it 'denies when the record says non-loopback even if REMOTE_ADDR now reads as loopback' do
+      # The exploit the raw-peer rule exists to stop: a trusted loopback proxy
+      # resolving a spoofed `X-Forwarded-For: 127.0.0.1` into REMOTE_ADDR.
+      status, = call(remote_addr: '127.0.0.1', headers: { 'otto.peer_loopback' => false })
+      expect(status).to eq(401)
+      expect(downstream.calls).to be_empty
+    end
+
+    it 'falls back to REMOTE_ADDR when the record is absent or not a Boolean' do
+      expect(call(remote_addr: '127.0.0.1')[0]).to eq(200)
+      expect(call(remote_addr: '8.8.8.8')[0]).to eq(401)
+      # A non-Boolean is not a verdict — evaluate the address instead.
+      expect(call(remote_addr: '8.8.8.8', headers: { 'otto.peer_loopback' => 'true' })[0]).to eq(401)
+      expect(call(remote_addr: '127.0.0.1', headers: { 'otto.peer_loopback' => nil })[0]).to eq(200)
+    end
+
+    it 'still requires the absence of forwarding headers' do
+      status, = call(remote_addr: '127.0.0.1',
+                     headers: { 'otto.peer_loopback' => true, 'HTTP_X_FORWARDED_FOR' => '203.0.113.9' })
+      expect(status).to eq(401)
+    end
+  end
+
+  describe 'behind IPPrivacyMiddleware (the real Otto stack order)' do
+    let(:security_config) { Otto::Security::Config.new }
+
+    # IPPrivacy outermost -> guard -> downstream, exactly as Otto builds it.
+    def stack_call(env)
+      Otto::Security::Middleware::IPPrivacyMiddleware.new(guard, security_config).call(env)
+    end
+
+    it 'allows a direct loopback call' do
+      status, = stack_call(env_for(remote_addr: '127.0.0.1'))
+      expect(status).to eq(200)
+    end
+
+    it 'denies a remote peer whose spoofed XFF resolves to loopback through a trusted proxy' do
+      security_config.add_trusted_proxy('203.0.113.7')
+
+      env = env_for(remote_addr: '203.0.113.7', headers: { 'HTTP_X_FORWARDED_FOR' => '127.0.0.1' })
+      status, = stack_call(env)
+
+      # Resolution promoted REMOTE_ADDR to loopback...
+      expect(env['REMOTE_ADDR']).to eq('127.0.0.1')
+      # ...but the guard authenticates the recorded raw peer, so: denied.
+      expect(env['otto.peer_loopback']).to be false
+      expect(status).to eq(401)
+      expect(downstream.calls).to be_empty
+    end
+
+    it 'denies a remote peer when masking is on for private IPs too' do
+      # mask_private_ips rewrites even loopback, so REMOTE_ADDR alone would be
+      # an unreliable basis for the decision in both directions.
+      security_config.ip_privacy_config.mask_private_ips = true
+
+      env = env_for(remote_addr: '8.8.8.8')
+      expect(stack_call(env)[0]).to eq(401)
+    end
+
+    it 'still denies a relayed request whose forwarded headers privacy DELETED' do
+      # The one path where IPPrivacyMiddleware removes forwarded headers rather
+      # than rewriting them, which would make a relayed request look direct to
+      # #relayed?. It is reached only with no resolvable client IP, which also
+      # forces otto.peer_loopback false — so the peer check denies first. This
+      # pins that interaction (see the note on LocalhostGuard#relayed?).
+      env = env_for(headers: { 'HTTP_X_FORWARDED_FOR' => '127.0.0.1' })
+      env.delete('REMOTE_ADDR')
+
+      status, = stack_call(env)
+
+      expect(env).not_to have_key('HTTP_X_FORWARDED_FOR') # scrubbed: looks direct
+      expect(env['otto.peer_loopback']).to be false       # but the peer check holds
+      expect(status).to eq(401)
+      expect(downstream.calls).to be_empty
+    end
+
+    it 'allows a direct IPv6 loopback call even when masking rewrites ::1' do
+      security_config.ip_privacy_config.mask_private_ips = true
+
+      env = env_for(remote_addr: '::1')
+      status, = stack_call(env)
+
+      expect(env['REMOTE_ADDR']).not_to eq('::1') # masked out of loopback range
+      expect(status).to eq(200)
+    end
+  end
+
   describe 'relayed requests (proxy forwarding headers)' do
     # A direct control-plane call from a co-located proxy carries no forwarding
     # headers. A request that was *relayed through* a proxy (even one connecting

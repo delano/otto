@@ -42,11 +42,21 @@ class Otto
         # Use for a missing, invalid, or expired credential. RouteAuthWrapper maps
         # this to 401 Unauthorized. For a VALID credential that is not permitted,
         # use #authorization_failure instead (403 Forbidden).
-        def failure(reason = nil)
+        #
+        # Pass terminal: true when the request EXPLICITLY presented credentials
+        # (e.g. an Authorization header) that were examined and rejected.
+        # RouteAuthWrapper then halts the strategy chain and fails closed with
+        # 401 instead of consulting further strategies — so an anonymous-capable
+        # strategy later (or earlier) in the chain cannot silently accept the
+        # request as anonymous. Leave it false for missing credentials and for
+        # ambient credentials (session cookies), which should keep today's OR
+        # fallthrough. See AuthFailure.
+        def failure(reason = nil, terminal: false)
           Otto.logger.debug "[#{self.class}] Authentication failed: #{reason}" if reason
           Otto::Security::Authentication::AuthFailure.new(
             failure_reason: reason || 'Authentication failed',
-            auth_method: strategy_auth_method
+            auth_method: strategy_auth_method,
+            terminal: terminal
           )
         end
 

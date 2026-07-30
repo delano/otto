@@ -165,7 +165,8 @@ end
 2. Registers your callback, invoked once per violation with an
    `Otto::Security::CSP::Report`.
 3. Injects `Otto::Security::CSP::ReportMiddleware`, pinned **outermost** in the
-   stack, which intercepts `POST`s to the report path, parses both the legacy
+   stack (only IP masking runs ahead of it), which intercepts `POST`s to the
+   report path, parses both the legacy
    `application/csp-report` and the Reporting API `application/reports+json`
    formats, enforces a 64 KiB body cap, and always answers `204 No Content` —
    without touching your routes.

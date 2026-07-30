@@ -26,6 +26,13 @@ class Otto
       # StrategyResult. This type covers the complementary case: a strategy that
       # owns authorization itself (including permission tiers, which Layer-1 does
       # not model) and needs to signal a 403 directly.
+      #
+      # DELIBERATELY has no `terminal` member (unlike AuthFailure): an
+      # authorization denial must not halt the strategy chain — a later
+      # strategy's success still wins (a different credential may well be
+      # permitted). When the chain DOES end in failure, a recorded denial
+      # already takes response precedence (403 over 401, even over a terminal
+      # halt), so there is nothing a terminal flag here would add.
       AuthorizationFailure = Data.define(:failure_reason, :auth_method) do
         # Authorization failures are not an authenticated request state. The
         # request never reaches the handler, so handler-facing predicates report

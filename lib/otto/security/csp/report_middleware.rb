@@ -27,7 +27,9 @@ class Otto
       #   with no CSRF token: the report never reaches the CSRF middleware.
       #   {Otto::Security::Core#enable_csp_reporting!} pins this middleware
       #   OUTERMOST (via the :outermost stack position), so the guarantee holds
-      #   regardless of the order security features are enabled in. The flip side
+      #   regardless of the order security features are enabled in. Only
+      #   IPPrivacyMiddleware (pinned to the outer :entrypoint tier) runs ahead
+      #   of it, and it is a pass-through. The flip side
       #   is that reports also bypass rate limiting — see the DoS note on
       #   {Otto::Security::Core#enable_csp_reporting!}; keep callbacks cheap.
       # - Enforces a hard {MAX_BODY_BYTES} body cap. Oversized bodies are

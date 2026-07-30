@@ -69,7 +69,7 @@ jobs:
             lockfile: "unlocked"
 
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@v7.0.1
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         continue-on-error: ${{ matrix.experimental }}

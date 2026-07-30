@@ -10,8 +10,18 @@ class Otto
       # Automatically masks IP addresses for privacy by default. Original IPs
       # are never stored unless privacy is explicitly disabled.
       #
-      # This middleware runs FIRST in the stack to ensure all downstream
-      # middleware and application code receives masked IPs by default.
+      # Otto pins this middleware to the OUTERMOST position of the stack (the
+      # :entrypoint tier — see Otto::Core::MiddlewareStack#add_with_position),
+      # so it is the first middleware to touch a request and every other
+      # middleware, plus the application, reads masked IPs by default. Before
+      # #219 it was registered `position: :first`, which is first-in-array and
+      # therefore INNERMOST: only the wrapped app saw masked values while every
+      # other middleware still saw the raw peer address.
+      #
+      # Because it now runs ahead of everything, facts about the ORIGINAL peer
+      # that downstream code can no longer derive from the (masked) REMOTE_ADDR
+      # are recorded first, as leak-free booleans — never as addresses:
+      # env['otto.via_trusted_proxy'] and env['otto.peer_loopback'].
       #
       # @example Default behavior (privacy enabled)
       #   # env['REMOTE_ADDR'] is masked to 192.168.1.0
@@ -57,6 +67,19 @@ class Otto
           # it never grants proxy trust for X-Forwarded-Proto (matching the
           # downstream OneTimeSecret behavior).
           env['otto.via_trusted_proxy'] = trusted_proxy?(env['REMOTE_ADDR'])
+
+          # Same rationale, for loopback: this middleware runs outermost, so a
+          # downstream middleware that must authenticate a DIRECT LOCAL CALL
+          # (Otto::CaddyTLS::LocalhostGuard) can no longer read the true socket
+          # peer from REMOTE_ADDR. Record the verdict here, on the untouched
+          # peer, as a boolean — the address itself is never exposed.
+          #
+          # Deliberately the raw peer, NOT the resolved client IP: resolution
+          # honors forwarded headers from trusted proxies, and a co-located
+          # reverse proxy on loopback is itself a natural trusted proxy, so
+          # resolving first would let `X-Forwarded-For: 127.0.0.1` promote a
+          # remote caller to "localhost".
+          env['otto.peer_loopback'] = Otto::Utils.loopback_address?(env['REMOTE_ADDR'])
 
           if privacy_enabled?
             apply_privacy(env)

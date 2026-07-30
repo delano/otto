@@ -99,6 +99,23 @@ class Otto
 
       # Whether any forwarding header is present (request came via a proxy).
       #
+      # Unlike the peer check, this reads header STATE, which IPPrivacyMiddleware
+      # has already touched by the time the guard runs. That is safe in both of
+      # its paths, but only for a reason worth writing down:
+      #
+      # - Masking REWRITES a forwarded header to the masked IP rather than
+      #   removing it, so a relayed request still looks relayed. Correct — it was.
+      # - The no-resolvable-client-IP path DELETES them, which would make a
+      #   relayed request look direct. That path is reached only when REMOTE_ADDR
+      #   is absent or blank, which forces otto.peer_loopback to false, so
+      #   #direct_local_call? denies on the peer check before this one matters.
+      #
+      # So header deletion upstream cannot turn a deny into an allow — but that
+      # rests on the peer check failing closed for a blank address. Anything that
+      # makes an unresolvable-IP request keep a loopback peer verdict would need
+      # to record the relay state pre-scrub too (an otto.peer_relayed sibling to
+      # otto.peer_loopback).
+      #
       # @param env [Hash] Rack environment
       # @return [Boolean]
       def relayed?(env)

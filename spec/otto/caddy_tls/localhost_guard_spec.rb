@@ -157,6 +157,23 @@ RSpec.describe Otto::CaddyTLS::LocalhostGuard do
       expect(stack_call(env)[0]).to eq(401)
     end
 
+    it 'still denies a relayed request whose forwarded headers privacy DELETED' do
+      # The one path where IPPrivacyMiddleware removes forwarded headers rather
+      # than rewriting them, which would make a relayed request look direct to
+      # #relayed?. It is reached only with no resolvable client IP, which also
+      # forces otto.peer_loopback false — so the peer check denies first. This
+      # pins that interaction (see the note on LocalhostGuard#relayed?).
+      env = env_for(headers: { 'HTTP_X_FORWARDED_FOR' => '127.0.0.1' })
+      env.delete('REMOTE_ADDR')
+
+      status, = stack_call(env)
+
+      expect(env).not_to have_key('HTTP_X_FORWARDED_FOR') # scrubbed: looks direct
+      expect(env['otto.peer_loopback']).to be false       # but the peer check holds
+      expect(status).to eq(401)
+      expect(downstream.calls).to be_empty
+    end
+
     it 'allows a direct IPv6 loopback call even when masking rewrites ::1' do
       security_config.ip_privacy_config.mask_private_ips = true
 

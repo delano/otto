@@ -4,6 +4,11 @@
 **Question**: Should Otto support Server-Sent Events (SSE) and WebSockets?
 **Answer**: **No** - Use separate services or long-polling instead
 
+> **Note**: The Ruby snippets below illustrate the recommended architecture. They
+> are written against the current Otto Logic-class contract
+> (`initialize(context, params, locale)` + `process`), but have not been executed
+> end-to-end. Runnable examples are tracked separately.
+
 ---
 
 ## Quick Recommendation
@@ -68,16 +73,31 @@ For low-to-medium frequency updates, long-polling is **simple and effective**:
 # Otto route (works with any Rack server)
 GET /api/notifications/poll NotificationPollLogic response=json
 
-class NotificationPollLogic < Otto::RequestContext
-  def call
-    timeout = params[:timeout].to_i.clamp(1, 30)
-    last_id = params[:last_id].to_i
+class NotificationPollLogic
+  attr_reader :context, :params, :locale
+
+  def initialize(context, params, locale)
+    @context = context
+    @params  = params
+    @locale  = locale
+  end
+
+  def process
+    # Logic-class params are string-keyed (LogicClassHandler does not apply
+    # Otto::Static.indifferent_params).
+    timeout    = params['timeout'].to_i.clamp(1, 30)
+    last_id    = params['last_id'].to_i
+    start_time = Time.now
+
+    # Identity comes from the StrategyResult, never from request params.
+    user_id = context.user_id
 
     loop do
       notifications = fetch_new(user_id, last_id)
       return { notifications: notifications } if notifications.any?
 
       break if Time.now - start_time > timeout
+
       sleep 0.5
     end
 
@@ -104,7 +124,7 @@ end
 - Moderate concurrency (<10,000 clients)
 - Simple deployment preferred
 
-**Example**: `/examples/long_polling_example.rb`
+**Example**: see the `NotificationPollLogic` sketch above.
 
 **Complexity**: ⭐ Simple
 **Otto Integration**: ✅ Native support (no changes needed)
@@ -136,7 +156,8 @@ end
 └─────────────────┘
 ```
 
-**Example**: `/examples/otto_falcon_sse_integration.rb`
+**Example**: see "Otto + Falcon SSE Integration" in
+`docs/1108-STREAMING_ARCHITECTURE_ANALYSIS.md`.
 
 **Complexity**: ⭐⭐ Moderate
 **Otto Integration**: ✅ Via Redis pub/sub
@@ -162,9 +183,7 @@ end
 
 ## Documentation Created
 
-I've created three comprehensive documents:
-
-### 1. **STREAMING_ARCHITECTURE_ANALYSIS.md** (15,000+ words)
+### **docs/1108-STREAMING_ARCHITECTURE_ANALYSIS.md** (15,000+ words)
 Comprehensive technical analysis covering:
 - Otto's current architecture (detailed lifecycle analysis)
 - Technical requirements for SSE/WebSocket (Rack 3, hijacking, etc.)
@@ -173,21 +192,16 @@ Comprehensive technical analysis covering:
 - Best practices and anti-patterns
 - Detailed recommendations with code examples
 
-### 2. **examples/otto_falcon_sse_integration.rb** (500+ lines)
-Complete working example showing:
-- Otto API (authentication, event publishing)
-- Falcon SSE service (streaming with Redis pub/sub)
-- Production deployment configuration
-- Nginx configuration for load balancing
-- Client-side JavaScript examples
-- Security best practices (JWT tokens, HTTPS)
+### Runnable examples: not yet published
 
-### 3. **examples/long_polling_example.rb** (600+ lines)
-Two complete long-polling examples:
-- Notification polling (in-memory)
-- Job status polling (Redis-backed)
-- Client-side JavaScript (adaptive polling)
-- Performance comparison vs SSE/WebSocket
+Draft `examples/otto_falcon_sse_integration.rb` and
+`examples/long_polling_example.rb` were written alongside this analysis but
+targeted an Otto API surface that does not exist (`Otto::RequestContext`,
+`enable_sessions!`, `raise_concern`, a `session` helper, `Rack::Handler::Puma`
+under the Rack 3 pin) and used symbol-keyed params that Logic routes never
+populate. They were withheld rather than shipped as copy-paste material; the
+architecture they demonstrated is preserved in the snippets here and in the
+analysis document.
 
 ---
 
@@ -230,10 +244,11 @@ Add official guide: "Integrating Otto with Real-Time Services"
 
 ### 2. ✅ Provide Example Code
 
-Add to `examples/` directory:
-- `long_polling_example.rb` (already created)
-- `otto_falcon_sse_integration.rb` (already created)
-- `otto_mercure_integration.rb` (future)
+Add to `examples/` directory, written against the real Logic-class contract and
+verified to boot:
+- `long_polling_example.rb`
+- `otto_falcon_sse_integration.rb`
+- `otto_mercure_integration.rb`
 
 ### 3. ⚠️ Consider Plugin System (If Community Demands)
 
@@ -276,7 +291,7 @@ If you currently need real-time updates:
 3. Client polls with timeout parameter
 4. No external dependencies needed
 
-See: `examples/long_polling_example.rb`
+See the `NotificationPollLogic` sketch above.
 
 #### For Separate SSE Service:
 1. Otto API handles authentication and publishes to Redis
@@ -284,7 +299,8 @@ See: `examples/long_polling_example.rb`
 3. Client connects to SSE service with JWT token from Otto
 4. Scale Otto and SSE services independently
 
-See: `examples/otto_falcon_sse_integration.rb`
+See "Otto + Falcon SSE Integration" in
+`docs/1108-STREAMING_ARCHITECTURE_ANALYSIS.md`.
 
 ### Step 3: Deployment
 
@@ -350,9 +366,7 @@ Each worker handles thousands of concurrent connections via fibers:
 
 ## Further Reading
 
-- **Technical Analysis**: `STREAMING_ARCHITECTURE_ANALYSIS.md`
-- **SSE Integration Example**: `examples/otto_falcon_sse_integration.rb`
-- **Long-Polling Example**: `examples/long_polling_example.rb`
+- **Technical Analysis**: `docs/1108-STREAMING_ARCHITECTURE_ANALYSIS.md`
 - **Rack 3 Streaming**: https://github.com/rack/rack/issues/1600
 - **ActionCable Architecture**: https://guides.rubyonrails.org/action_cable_overview.html
 - **SSE vs WebSocket**: https://ably.com/blog/websockets-vs-sse

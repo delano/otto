@@ -4,6 +4,11 @@
 **Date**: 2025-11-08
 **Scope**: Analysis of Server-Sent Events (SSE) and WebSocket support in Otto framework
 
+> **Note**: The Ruby snippets below illustrate the recommended architecture. They
+> are written against the current Otto Logic-class contract
+> (`initialize(context, params, locale)` + `process`), but have not been executed
+> end-to-end. Runnable examples are tracked separately.
+
 ---
 
 ## Executive Summary
@@ -467,11 +472,21 @@ IPPrivacyMiddleware IN
 **Example (Rails ActionCable pattern)**:
 ```ruby
 # Otto app pushes messages to Redis
-class NotificationLogic < Otto::RequestContext
-  def call
+class NotificationLogic
+  attr_reader :context, :params, :locale
+
+  def initialize(context, params, locale)
+    @context = context
+    @params  = params
+    @locale  = locale
+  end
+
+  def process
+    # Publish under the *authenticated* identity. Taking the target from
+    # params would let any caller write into another user's channel.
     Redis.current.publish('notifications', {
-      user_id: params[:user_id],
-      message: params[:message]
+      user_id: context.user_id,
+      message: params['message'].to_s,
     }.to_json)
 
     { success: true }
@@ -536,17 +551,28 @@ end
 # Otto route
 GET /api/notifications/poll NotificationLogic response=json
 
-class NotificationLogic < Otto::RequestContext
-  def call
-    timeout = params[:timeout].to_i.clamp(1, 30)
+class NotificationLogic
+  attr_reader :context, :params, :locale
+
+  def initialize(context, params, locale)
+    @context = context
+    @params  = params
+    @locale  = locale
+  end
+
+  def process
+    timeout    = params['timeout'].to_i.clamp(1, 30)
     start_time = Time.now
 
-    # Long-polling: wait for new data up to timeout
+    # Long-polling: wait for new data up to timeout. Note that each in-flight
+    # poll holds one server thread for the whole timeout window — size the
+    # pool for peak concurrent pollers, not peak request rate.
     loop do
-      notifications = fetch_new_notifications(current_user.id)
+      notifications = fetch_new_notifications(context.user_id)
       return { notifications: notifications } if notifications.any?
 
       break if Time.now - start_time > timeout
+
       sleep 0.5
     end
 
@@ -690,11 +716,19 @@ Create official guide for integrating Otto with separate streaming service:
 POST /api/events PublishEventLogic response=json auth=session
 
 # lib/logic/publish_event_logic.rb
-class PublishEventLogic < Otto::RequestContext
-  def call
+class PublishEventLogic
+  attr_reader :context, :params, :locale
+
+  def initialize(context, params, locale)
+    @context = context
+    @params  = params
+    @locale  = locale
+  end
+
+  def process
     Redis.current.publish('events', {
-      event: params[:event],
-      data: params[:data]
+      event: params['event'].to_s,
+      data: params['data'],
     }.to_json)
     { success: true }
   end
@@ -794,17 +828,25 @@ Document integrations with existing solutions:
 # Otto publishes to Mercure
 POST /api/.well-known/mercure MercurePublishLogic response=json
 
-class MercurePublishLogic < Otto::RequestContext
-  def call
+class MercurePublishLogic
+  attr_reader :context, :params, :locale
+
+  def initialize(context, params, locale)
+    @context = context
+    @params  = params
+    @locale  = locale
+  end
+
+  def process
     # Publish to Mercure hub (separate service)
     HTTParty.post('http://mercure-hub/.well-known/mercure', {
       body: {
-        topic: params[:topic],
-        data: params[:data]
+        topic: params['topic'].to_s,
+        data: params['data'],
       },
       headers: {
-        'Authorization' => "Bearer #{ENV['MERCURE_JWT']}"
-      }
+        'Authorization' => "Bearer #{ENV.fetch('MERCURE_JWT')}",
+      },
     })
 
     { success: true }
@@ -880,7 +922,8 @@ Answer: **No**. Otto should remain focused on its strength: **stateless, secure,
 
 ### A.1 Otto + Falcon SSE Integration (Full Example)
 
-See `examples/otto_falcon_sse_integration.rb` for complete working example.
+See "Otto + Falcon SSE Integration" in section 6 above. A runnable
+`examples/otto_falcon_sse_integration.rb` is tracked as follow-up work.
 
 ### A.2 Long-Polling Implementation in Otto
 
@@ -889,14 +932,22 @@ See `examples/otto_falcon_sse_integration.rb` for complete working example.
 GET /api/notifications/poll NotificationPollLogic response=json auth=session
 
 # lib/logic/notification_poll_logic.rb
-class NotificationPollLogic < Otto::RequestContext
-  def call
-    timeout = params[:timeout].to_i.clamp(1, 30)
-    last_id = params[:last_id].to_i
+class NotificationPollLogic
+  attr_reader :context, :params, :locale
+
+  def initialize(context, params, locale)
+    @context = context
+    @params  = params
+    @locale  = locale
+  end
+
+  def process
+    timeout = params['timeout'].to_i.clamp(1, 30)
+    last_id = params['last_id'].to_i
     start_time = Time.now
 
     loop do
-      notifications = Notification.where(user_id: current_user.id)
+      notifications = Notification.where(user_id: context.user_id)
                                   .where('id > ?', last_id)
                                   .order(id: :asc)
                                   .limit(10)
@@ -919,28 +970,31 @@ class NotificationPollLogic < Otto::RequestContext
     { notifications: [], last_id: last_id }
   end
 end
+```
 
-# Client-side JavaScript
-// async function pollNotifications() {
-//   let lastId = 0;
-//
-//   while (true) {
-//     try {
-//       const response = await fetch(`/api/notifications/poll?timeout=30&last_id=${lastId}`);
-//       const data = await response.json();
-//
-//       if (data.notifications.length > 0) {
-//         data.notifications.forEach(notif => console.log(notif));
-//         lastId = data.last_id;
-//       }
-//     } catch (error) {
-//       console.error('Polling error:', error);
-//       await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5s on error
-//     }
-//   }
-// }
-//
-// pollNotifications();
+Client-side:
+
+```javascript
+async function pollNotifications() {
+  let lastId = 0;
+
+  while (true) {
+    try {
+      const response = await fetch(`/api/notifications/poll?timeout=30&last_id=${lastId}`);
+      const data = await response.json();
+
+      if (data.notifications.length > 0) {
+        data.notifications.forEach(notif => console.log(notif));
+        lastId = data.last_id;
+      }
+    } catch (error) {
+      console.error('Polling error:', error);
+      await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5s on error
+    }
+  }
+}
+
+pollNotifications();
 ```
 
 ### A.3 Separate Falcon SSE Service

@@ -472,6 +472,8 @@ IPPrivacyMiddleware IN
 **Example (Rails ActionCable pattern)**:
 ```ruby
 # Otto app pushes messages to Redis
+REDIS = Redis.new(url: ENV.fetch('REDIS_URL', 'redis://localhost:6379/0'))
+
 class NotificationLogic
   attr_reader :context, :params, :locale
 
@@ -484,7 +486,9 @@ class NotificationLogic
   def process
     # Publish under the *authenticated* identity. Taking the target from
     # params would let any caller write into another user's channel.
-    Redis.current.publish('notifications', {
+    # redis-rb removed Redis.current in 5.x; hold a shared client (and reach
+    # for the connection_pool gem in production).
+    REDIS.publish('notifications', {
       user_id: context.user_id,
       message: params['message'].to_s,
     }.to_json)
@@ -549,7 +553,7 @@ end
 
 ```ruby
 # Otto route
-GET /api/notifications/poll NotificationLogic response=json
+GET /api/notifications/poll NotificationLogic response=json auth=session
 
 class NotificationLogic
   attr_reader :context, :params, :locale
@@ -716,6 +720,9 @@ Create official guide for integrating Otto with separate streaming service:
 POST /api/events PublishEventLogic response=json auth=session
 
 # lib/logic/publish_event_logic.rb
+# One shared client; use the connection_pool gem in production.
+REDIS = Redis.new(url: ENV.fetch('REDIS_URL', 'redis://localhost:6379/0'))
+
 class PublishEventLogic
   attr_reader :context, :params, :locale
 
@@ -726,7 +733,7 @@ class PublishEventLogic
   end
 
   def process
-    Redis.current.publish('events', {
+    REDIS.publish('events', {
       event: params['event'].to_s,
       data: params['data'],
     }.to_json)
@@ -826,7 +833,7 @@ Document integrations with existing solutions:
 **Example Integration**:
 ```ruby
 # Otto publishes to Mercure
-POST /api/.well-known/mercure MercurePublishLogic response=json
+POST /api/.well-known/mercure MercurePublishLogic response=json auth=session
 
 class MercurePublishLogic
   attr_reader :context, :params, :locale
@@ -838,10 +845,14 @@ class MercurePublishLogic
   end
 
   def process
+    # Namespace the topic under the authenticated identity. Publishing to a
+    # caller-supplied topic would let any user push into another user's feed.
+    topic = "/users/#{context.user_id}/#{params['topic'].to_s[/\A[\w-]+\z/]}"
+
     # Publish to Mercure hub (separate service)
     HTTParty.post('http://mercure-hub/.well-known/mercure', {
       body: {
-        topic: params['topic'].to_s,
+        topic: topic,
         data: params['data'],
       },
       headers: {

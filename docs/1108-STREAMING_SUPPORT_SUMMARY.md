@@ -71,7 +71,7 @@ For low-to-medium frequency updates, long-polling is **simple and effective**:
 
 ```ruby
 # Otto route (works with any Rack server)
-GET /api/notifications/poll NotificationPollLogic response=json
+GET /api/notifications/poll NotificationPollLogic response=json auth=session
 
 class NotificationPollLogic
   attr_reader :context, :params, :locale

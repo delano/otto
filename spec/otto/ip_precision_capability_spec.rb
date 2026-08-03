@@ -256,6 +256,17 @@ RSpec.describe 'IP precision capability and privacy profiles' do
         expect { otto.configure_ip_privacy(profile: :bogus) }
           .to raise_error(ArgumentError, /Unknown privacy profile/)
       end
+
+      it 'is all-or-nothing: a knob rejected by validate! leaves the profile preset unapplied' do
+        otto = Otto.new
+        expect { otto.configure_ip_privacy(profile: :anonymous, octet_precision: 7) }
+          .to raise_error(ArgumentError, /octet_precision/)
+
+        config = otto.security_config.ip_privacy_config
+        expect(config.profile).to eq(:masked)
+        expect(config.mask_private_ips).to be(false)
+        expect(config.octet_precision).to eq(1)
+      end
     end
   end
 

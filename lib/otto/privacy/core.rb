@@ -106,27 +106,44 @@ class Otto
         # rubocop:enable Metrics/ParameterLists
         ensure_not_frozen!
         config = @security_config.ip_privacy_config
+        knobs = { profile: profile, octet_precision: octet_precision,
+                  hash_rotation: hash_rotation, geo: geo,
+                  correlation_secret: correlation_secret, redis: redis }
 
-        # Every kwarg uses a nil guard: nil means "leave unchanged", any other
-        # value — including false or "" — is a real assignment that must either
-        # take effect or fail validation loudly. A truthiness guard would
-        # silently drop false (and, for correlation_secret, the explicit ""
-        # that disables the correlation hash).
-        config.profile = profile unless profile.nil?
-        config.octet_precision = octet_precision unless octet_precision.nil?
-        config.hash_rotation_period = hash_rotation unless hash_rotation.nil?
-        config.geo_enabled = geo unless geo.nil?
-        config.correlation_secret = correlation_secret unless correlation_secret.nil?
-        config.instance_variable_set(:@redis, redis) unless redis.nil?
-
-        # Validate configuration
-        config.validate!
+        # Dry-run the assignments on a throwaway copy and validate the combined
+        # result there, so a rejected knob (octet_precision: 7 after a profile
+        # preset, say) raises before the live config has been touched — the
+        # call is all-or-nothing, never half-applied.
+        apply_privacy_knobs(config.dup, knobs).validate!
+        apply_privacy_knobs(config, knobs)
 
         apply_geo_config(config, geo: geo, geo_header: geo_header,
                                  geo_db_path: geo_db_path, geo_db_reader: geo_db_reader)
       end
 
       private
+
+      # Assign the non-geo privacy knobs onto a config.
+      #
+      # Every kwarg uses a nil guard: nil means "leave unchanged", any other
+      # value — including false or "" — is a real assignment that must either
+      # take effect or fail validation loudly. A truthiness guard would
+      # silently drop false (and, for correlation_secret, the explicit ""
+      # that disables the correlation hash).
+      #
+      # @param config [Otto::Privacy::Config] the config to mutate
+      # @param knobs [Hash] the non-geo keyword arguments from configure_ip_privacy
+      # @return [Otto::Privacy::Config] the same config, for chaining
+      # @api private
+      def apply_privacy_knobs(config, knobs)
+        config.profile = knobs[:profile] unless knobs[:profile].nil?
+        config.octet_precision = knobs[:octet_precision] unless knobs[:octet_precision].nil?
+        config.hash_rotation_period = knobs[:hash_rotation] unless knobs[:hash_rotation].nil?
+        config.geo_enabled = knobs[:geo] unless knobs[:geo].nil?
+        config.correlation_secret = knobs[:correlation_secret] unless knobs[:correlation_secret].nil?
+        config.instance_variable_set(:@redis, knobs[:redis]) unless knobs[:redis].nil?
+        config
+      end
 
       # Apply the geo-fallback settings and (re)load the database when needed.
       #

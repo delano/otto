@@ -88,35 +88,62 @@ class Otto
       #   redis = Redis.new(url: ENV['REDIS_URL'])
       #   otto.configure_ip_privacy(redis: redis)
       #
+      # @example Declare the observability posture for a compliance deployment
+      #   otto.configure_ip_privacy(profile: :audit)
+      #
+      # @param profile [Symbol] Named privacy profile (:anonymous, :masked, or
+      #   :audit) applied FIRST as a preset over disabled/mask_private_ips, so
+      #   any other option in the same call overrides it. This declares the
+      #   deployment's observability posture in one reviewable word; see
+      #   Otto::Privacy::Config::PROFILES.
+      #
       # rubocop:disable Metrics/ParameterLists -- a keyword-only configuration
       # method; the options are self-documenting at the call site and grouping
       # them into a hash would only obscure the supported settings.
       def configure_ip_privacy(octet_precision: nil, hash_rotation: nil, geo: nil, redis: nil,
                                correlation_secret: nil, geo_header: nil, geo_db_path: nil,
-                               geo_db_reader: nil)
+                               geo_db_reader: nil, profile: nil)
         # rubocop:enable Metrics/ParameterLists
         ensure_not_frozen!
         config = @security_config.ip_privacy_config
+        knobs = { profile: profile, octet_precision: octet_precision,
+                  hash_rotation: hash_rotation, geo: geo,
+                  correlation_secret: correlation_secret, redis: redis }
 
-        config.octet_precision = octet_precision if octet_precision
-        config.hash_rotation_period = hash_rotation if hash_rotation
-        config.geo_enabled = geo unless geo.nil?
-        # Mirror geo's `unless nil?` guard: nil means "leave unchanged", while an
-        # explicit "" is a real value that disables the correlation hash. (A
-        # plain `if correlation_secret` would also assign "" since "" is truthy
-        # in Ruby, but stating the nil intent explicitly keeps this consistent
-        # with the other nilable kwargs.)
-        config.correlation_secret = correlation_secret unless correlation_secret.nil?
-        config.instance_variable_set(:@redis, redis) if redis
-
-        # Validate configuration
-        config.validate!
+        # Dry-run the assignments on a throwaway copy and validate the combined
+        # result there, so a rejected knob (octet_precision: 7 after a profile
+        # preset, say) raises before the live config has been touched — the
+        # call is all-or-nothing, never half-applied.
+        apply_privacy_knobs(config.dup, knobs).validate!
+        apply_privacy_knobs(config, knobs)
 
         apply_geo_config(config, geo: geo, geo_header: geo_header,
                                  geo_db_path: geo_db_path, geo_db_reader: geo_db_reader)
       end
 
       private
+
+      # Assign the non-geo privacy knobs onto a config.
+      #
+      # Every kwarg uses a nil guard: nil means "leave unchanged", any other
+      # value — including false or "" — is a real assignment that must either
+      # take effect or fail validation loudly. A truthiness guard would
+      # silently drop false (and, for correlation_secret, the explicit ""
+      # that disables the correlation hash).
+      #
+      # @param config [Otto::Privacy::Config] the config to mutate
+      # @param knobs [Hash] the non-geo keyword arguments from configure_ip_privacy
+      # @return [Otto::Privacy::Config] the same config, for chaining
+      # @api private
+      def apply_privacy_knobs(config, knobs)
+        config.profile = knobs[:profile] unless knobs[:profile].nil?
+        config.octet_precision = knobs[:octet_precision] unless knobs[:octet_precision].nil?
+        config.hash_rotation_period = knobs[:hash_rotation] unless knobs[:hash_rotation].nil?
+        config.geo_enabled = knobs[:geo] unless knobs[:geo].nil?
+        config.correlation_secret = knobs[:correlation_secret] unless knobs[:correlation_secret].nil?
+        config.instance_variable_set(:@redis, knobs[:redis]) unless knobs[:redis].nil?
+        config
+      end
 
       # Apply the geo-fallback settings and (re)load the database when needed.
       #

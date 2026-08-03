@@ -321,6 +321,74 @@ class Otto
       false
     end
 
+    # Whether an address falls inside any of the given CIDR ranges.
+    #
+    # The general-purpose CIDR-set matcher (allowlists, denylists, network
+    # zones), sharing the semantics of the trusted-proxy matcher: the client
+    # address is normalized (port stripped, validated) and folded via
+    # IPAddr#native so an IPv4-mapped IPv6 peer (::ffff:203.0.113.7) matches
+    # an IPv4 range; ranges of the other address family are skipped rather
+    # than raising.
+    #
+    # Ranges are folded through #native too, so the fold is symmetric: a
+    # mapped-IPv6 CIDR (::ffff:10.0.0.0/104) matches a plain IPv4 client just
+    # as a mapped client matches a plain IPv4 range. Folding only one side
+    # made the family check reject the pair and silently drop the entry —
+    # wrong verdict, not a raise. #native returns self for ranges that are
+    # not IPv4-mapped/compatible, so ordinary IPv4 and IPv6 CIDRs are
+    # untouched, and it returns a new IPAddr rather than mutating, so
+    # pre-parsed entries in a caller's configuration array stay intact.
+    #
+    # The fold needs the prefix to cover the mapped marker — /96 or longer.
+    # ::ffff:10.0.0.0/104 folds to 10.0.0.0/8; ::ffff:10.0.0.0/64 does not
+    # fold at all, because masking zeroes the ffff marker, and so matches
+    # neither an IPv4 client nor a mapped one. Write mapped ranges at /96+,
+    # or just write the IPv4 CIDR. ::ffff:0:0/96 is the whole mapped space
+    # and therefore matches every IPv4 address. Deprecated IPv4-compatible
+    # notation (::a.b.c.d) folds on the same terms, on both sides.
+    #
+    # Asymmetric strictness, on purpose:
+    # - `ip` is runtime data — nil, blank, or malformed input returns false
+    #   (fail-closed for allowlist callers).
+    # - `cidrs` entries are configuration — an invalid CIDR string raises
+    #   IPAddr::InvalidAddressError, because silently skipping an entry
+    #   narrows an allowlist or widens a denylist. Validate entries at
+    #   write/boot time; pre-parsed IPAddr entries skip re-parsing here.
+    #
+    # @param ip [String, IPAddr, nil] address to test (runtime data)
+    # @param cidrs [Enumerable<String, IPAddr>, nil] CIDR ranges or host
+    #   addresses (configuration)
+    # @return [Boolean] true when ip is inside at least one range
+    # @raise [IPAddr::InvalidAddressError] if a cidrs entry is not a valid
+    #   IP or CIDR string
+    def ip_in_cidrs?(ip, cidrs)
+      return false if cidrs.nil?
+
+      client =
+        if ip.is_a?(IPAddr)
+          ip.native
+        else
+          candidate = normalize_ip(ip&.to_s)
+          return false unless candidate
+
+          IPAddr.new(candidate).native
+        end
+
+      cidrs.any? do |entry|
+        range = entry.is_a?(IPAddr) ? entry : IPAddr.new(entry.to_s)
+        # IPAddr#native builds its result with #clone, which carries frozen
+        # state over and then fails to mutate it. Callers who freeze their
+        # range configuration (or pass it through Ractor.make_shareable) would
+        # hit FrozenError, so hand #native an unfrozen receiver. Gating the dup
+        # on a foldable-range predicate would cost more than it saves:
+        # #ipv4_compat? is deprecated and warns under -w, and #native already
+        # short-circuits to self for anything that does not fold.
+        range = range.dup if range.frozen?
+        range = range.native
+        range.family == client.family && range.include?(client)
+      end
+    end
+
     # Whether an address is on the loopback interface.
     #
     # This is the RAW SOCKET PEER test used to authenticate a direct local call

@@ -27,6 +27,28 @@ class Otto
     class Config
       include Otto::Core::Freezable
 
+      # Named privacy profiles: validated presets over the individual knobs,
+      # so a deployment's observability posture is declared in one reviewable
+      # word instead of inferred from knob combinations.
+      #
+      # - :anonymous — mask every IP, including private/localhost. For
+      #   deployments where even internal addresses are treated as PII.
+      # - :masked    — the default posture: public IPs masked, private and
+      #   localhost exempt (development-friendly privacy-by-default).
+      # - :audit     — privacy disabled: real IPs flow to env and logs. For
+      #   private/compliance environments where granular attributability
+      #   supersedes IP privacy; retention responsibility transfers to the
+      #   operator.
+      #
+      # Note the axis this controls: what PERSISTS observably (env keys, logs,
+      # fingerprints). Precise ephemeral matching against the unmasked IP does
+      # not require :audit — see EnvKeys::IP_MATCH, available in every profile.
+      PROFILES = {
+        anonymous: { disabled: false, mask_private_ips: true }.freeze,
+           masked: { disabled: false, mask_private_ips: false }.freeze,
+            audit: { disabled: true }.freeze,
+      }.freeze
+
       attr_accessor :octet_precision, :hash_rotation_period, :geo_enabled, :mask_private_ips
       attr_reader :disabled, :correlation_secret, :geo_header, :geo_db_path
 
@@ -79,7 +101,11 @@ class Otto
       #   string is rejected, because an empty secret would let anyone reverse the
       #   fingerprint back to an IP.
       # @option options [Redis] :redis Optional Redis connection for multi-server environments
+      # @option options [Symbol, String] :profile Named privacy profile (:anonymous,
+      #   :masked, or :audit) applied as a preset; any other explicitly passed
+      #   option overrides the preset. See {PROFILES}.
       def initialize(options = {})
+        options = self.class.profile_presets(options[:profile]).merge(options) unless options[:profile].nil?
         @octet_precision = options.fetch(:octet_precision, 1)
         @hash_rotation_period = options.fetch(:hash_rotation_period, 86_400) # 24 hours
         @geo_enabled = options.fetch(:geo_enabled, true)
@@ -198,6 +224,62 @@ class Otto
           end
       end
 
+      # Look up the preset hash for a named profile, failing fast on typos.
+      #
+      # @param profile [Symbol, String] one of the {PROFILES} keys
+      # @return [Hash] frozen preset hash
+      # @raise [ArgumentError] for an unknown profile name or an un-nameable type
+      def self.profile_presets(profile)
+        # Neither Integer nor NilClass responds to #to_sym, so an unguarded
+        # conversion raises NoMethodError for `profile: 123` or an explicit
+        # `profile: nil` — an opaque failure inconsistent with the ArgumentError
+        # the rest of this class raises for bad input (cf. correlation_secret=).
+        unless profile.respond_to?(:to_sym)
+          raise ArgumentError,
+                "Privacy profile must be a Symbol or String, got: #{profile.class}"
+        end
+
+        PROFILES.fetch(profile.to_sym) do
+          raise ArgumentError,
+                "Unknown privacy profile: #{profile.inspect} (valid: #{PROFILES.keys.join(', ')})"
+        end
+      end
+
+      # Apply a named privacy profile's presets to this config.
+      #
+      # Sets only the knobs the profile names (see {PROFILES}); other settings
+      # (octet_precision, geo, correlation_secret, ...) are untouched.
+      #
+      # Presets are applied, not reset: a knob a profile does not name keeps its
+      # previous value. Switching :anonymous -> :audit therefore leaves
+      # mask_private_ips true, because :audit names only `disabled`. That is
+      # inert rather than wrong — `disabled` short-circuits privacy_enabled?
+      # before mask_private_ips is ever read, and #profile below tests @disabled
+      # first, so the derived label stays accurate. Switching on to :masked
+      # re-sets both knobs explicitly. Only surprising if you read the raw ivars.
+      #
+      # @param profile [Symbol, String] :anonymous, :masked, or :audit
+      # @raise [ArgumentError] for an unknown profile name
+      def profile=(profile)
+        presets = self.class.profile_presets(profile)
+        @disabled = presets[:disabled] if presets.key?(:disabled)
+        @mask_private_ips = presets[:mask_private_ips] if presets.key?(:mask_private_ips)
+      end
+
+      # The profile the current knob state corresponds to.
+      #
+      # Derived from the live settings rather than remembering the last
+      # `profile=` call, so manual knob changes can never leave a stale label:
+      # what this returns is always what the config actually does.
+      #
+      # @return [Symbol] :audit, :anonymous, or :masked
+      def profile
+        return :audit if @disabled
+        return :anonymous if @mask_private_ips
+
+        :masked
+      end
+
       # Canonicalize a geo header name to a Rack CGI env key ('HTTP_*').
       #
       # @param value [String, nil] header in HTTP ('X-Client-Country') or CGI form
@@ -275,9 +357,13 @@ class Otto
         raise ArgumentError, "octet_precision must be 1 or 2, got: #{@octet_precision}" unless [1,
                                                                                                 2].include?(@octet_precision)
 
-        return unless @hash_rotation_period < 60
+        # Type check before the numeric comparison: a non-Numeric value (false,
+        # a String from unparsed config, ...) would otherwise surface as
+        # NoMethodError/ArgumentError from #<, not a clear configuration error.
+        return if @hash_rotation_period.is_a?(Numeric) && @hash_rotation_period >= 60
 
-        raise ArgumentError, 'hash_rotation_period must be at least 60 seconds'
+        raise ArgumentError,
+              "hash_rotation_period must be at least 60 seconds, got: #{@hash_rotation_period.inspect}"
       end
 
       private

@@ -782,12 +782,20 @@ class Otto
       # trusted_proxy? never re-parses. Non-IP strings and Regexp/other entries
       # store a nil range and fall back to prefix/regexp matching.
       #
+      # The parsed range is folded through IPAddr#native at registration, to
+      # match the fold trusted_proxy? applies to the client address. Without
+      # it a mapped-IPv6 proxy entry (::ffff:10.0.0.0/104) could never match,
+      # because ip_in_range?'s family check would reject the folded IPv4
+      # client — a proxy silently untrusted, which is what gates
+      # otto.via_trusted_proxy, secure?, and geo-header trust. #native returns
+      # self for entries that are not IPv4-mapped/compatible.
+      #
       # @param entry [String, Regexp, Object] trusted proxy entry being added
       # @return [Array(Object, IPAddr)] [raw_entry, parsed_range_or_nil]
       def register_proxy_matcher(entry)
         return [entry, nil] unless entry.is_a?(String)
 
-        range = parse_ipaddr(entry)
+        range = parse_ipaddr(entry)&.native
         warn_legacy_proxy_entry(entry) unless range
         [entry, range]
       end

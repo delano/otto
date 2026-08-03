@@ -2477,4 +2477,33 @@ RSpec.describe 'IP Privacy Features' do
         .to raise_error(ArgumentError, /correlation_secret must be a String or nil/)
     end
   end
+
+  describe 'Otto#configure_ip_privacy knob guards (nil means "leave unchanged")' do
+    it 'rejects octet_precision: false instead of silently dropping it' do
+      otto = create_minimal_otto(['GET / TestApp.index'])
+
+      expect { otto.configure_ip_privacy(octet_precision: false) }
+        .to raise_error(ArgumentError, /octet_precision must be 1 or 2, got: false/)
+    end
+
+    it 'rejects hash_rotation: false with ArgumentError, not NoMethodError' do
+      otto = create_minimal_otto(['GET / TestApp.index'])
+
+      expect { otto.configure_ip_privacy(hash_rotation: false) }
+        .to raise_error(ArgumentError, /hash_rotation_period must be at least 60 seconds, got: false/)
+    end
+
+    it 'rejects a hash_rotation below the 60-second floor' do
+      otto = create_minimal_otto(['GET / TestApp.index'])
+
+      expect { otto.configure_ip_privacy(hash_rotation: 30) }
+        .to raise_error(ArgumentError, /hash_rotation_period must be at least 60 seconds, got: 30/)
+    end
+
+    it 'accepts redis: false as "no connection" (falsy, so equivalent to unset)' do
+      otto = create_minimal_otto(['GET / TestApp.index'])
+
+      expect { otto.configure_ip_privacy(redis: false) }.not_to raise_error
+    end
+  end
 end

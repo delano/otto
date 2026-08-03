@@ -42,9 +42,6 @@ class Otto
           @app = app
           @security_config = security_config
           @config = security_config&.ip_privacy_config || Otto::Privacy::Config.new
-
-          # Privacy is enabled by default unless explicitly disabled
-          @privacy_enabled = @config.enabled?
         end
 
         # Process request with IP privacy
@@ -56,7 +53,10 @@ class Otto
           # canonical client IP for this request, do not re-resolve or re-mask.
           # This makes stacking two instances (e.g. an app-level mount plus
           # Otto's built-in router mount) order-safe instead of double-masking.
-          return @app.call(env) if env.key?('otto.client_ip')
+          if env.key?('otto.client_ip')
+            ensure_ip_match_present(env)
+            return @app.call(env)
+          end
 
           # Record the connecting peer's trust decision BEFORE any masking, so
           # secure? can authorize X-Forwarded-Proto canonically even after
@@ -81,7 +81,7 @@ class Otto
           # remote caller to "localhost".
           env['otto.peer_loopback'] = Otto::Utils.loopback_address?(env['REMOTE_ADDR'])
 
-          if @privacy_enabled
+          if privacy_enabled?
             apply_privacy(env)
           else
             apply_no_privacy(env)
@@ -92,6 +92,56 @@ class Otto
 
         private
 
+        # Whether IP privacy is on for this request.
+        #
+        # Read live from the config rather than cached at construction. Otto
+        # builds its middleware stack at the end of Otto.new, but
+        # configure_ip_privacy stays legal until the first request (the
+        # configuration freeze is deferred — see Otto#initialize). A flag
+        # captured in #initialize would therefore ignore a post-construction
+        # `configure_ip_privacy(profile: :audit)` and keep masking under a
+        # profile the operator explicitly turned off. One predicate call per
+        # request buys that correctness.
+        #
+        # @return [Boolean]
+        def privacy_enabled?
+          @config.enabled?
+        end
+
+        # Guarantee env['otto.ip_match'] exists on the idempotent-return path.
+        #
+        # Every path in this middleware that sets otto.client_ip installs the
+        # capability first, so a second IPPrivacyMiddleware pass that reaches
+        # this guard finds both keys and leaves the precise closure in place.
+        # (The no-resolvable-IP path installs the capability but never sets
+        # otto.client_ip, so a second pass re-runs apply_privacy and reinstalls
+        # an equivalent fail-closed closure — idempotent, since there is nothing
+        # to double-mask.) The gap is out-of-contract writes: otto.client_ip is
+        # documented as "Set by: IPPrivacyMiddleware" (see Otto::EnvKeys), but
+        # an app or test harness that sets it directly trips the idempotency
+        # guard and leaves the advertised capability nil — downstream policy
+        # code then raises NoMethodError on nil.
+        #
+        # The repair installs a fail-closed check, NOT one derived from
+        # env['otto.client_ip']. That value may already be masked, and matching
+        # a masked address against a narrow CIDR produces false ALLOWs (masked
+        # 192.168.1.0 falls inside 192.168.1.0/28 when the real client was
+        # .200). A universal deny is the safe verdict; the warning below is
+        # what makes it diagnosable instead of a silent lockout.
+        #
+        # @param env [Hash] Rack environment
+        def ensure_ip_match_present(env)
+          return if env.key?('otto.ip_match')
+
+          Otto.logger.warn(
+            '[IPPrivacyMiddleware] otto.client_ip was set outside this ' \
+            'middleware, so otto.ip_match could not be built from the ' \
+            'unmasked address; installing a fail-closed check (every CIDR ' \
+            'test returns false). Let IPPrivacyMiddleware resolve the client IP.'
+          )
+          env['otto.ip_match'] = ->(_cidrs) { false }
+        end
+
         # Apply privacy settings to environment
         #
         # @param env [Hash] Rack environment
@@ -100,7 +150,19 @@ class Otto
           # canonical resolution step; masking below operates on this value.
           client_ip = resolve_client_ip(env)
 
-          Otto.logger.debug "[IPPrivacyMiddleware] Resolved client IP: #{client_ip}" if Otto.debug
+          # Install the verdict-only precision capability while client_ip is
+          # still the real address — after this method returns, the raw
+          # material is gone (REMOTE_ADDR and forwarded headers rewritten).
+          install_ip_match(env, client_ip)
+
+          # There is deliberately no debug line for the resolution itself. It
+          # used to interpolate client_ip, which handed back through the log
+          # exactly what these profiles withhold from env — and logs travel
+          # further than a process does. Stripped of the address it carried no
+          # information worth a line: this method only runs on the masking
+          # profiles (:masked / :anonymous), and every branch below already logs
+          # its own outcome. To trace resolution here, log a derived value (the
+          # masked IP, the family, the trusted-proxy verdict) — never the address.
 
           # No resolvable client IP (REMOTE_ADDR absent or blank, and no trusted
           # forwarded value). There is nothing to mask, and masking would derive
@@ -151,7 +213,13 @@ class Otto
               # localhost / RFC-1918 addresses (the default dev path) even when a
               # correlation_secret is configured. Set mask_private_ips to treat
               # private IPs as public and run them through the full path below.
-              Otto.logger.debug "[IPPrivacyMiddleware] Private/localhost IP exempted: #{client_ip}" if Otto.debug
+              # No address interpolated (see the resolution note at the top of
+              # this method). Exempt IPs skip fingerprinting entirely, so there
+              # is no derived value to log either — the line records only that
+              # the exemption fired. The address is not lost to debugging: this
+              # path leaves REMOTE_ADDR unmasked and sets otto.client_ip to the
+              # same value, so downstream request logs still carry it.
+              Otto.logger.debug '[IPPrivacyMiddleware] Private/localhost IP exempted from masking' if Otto.debug
               return
             end
           end
@@ -273,6 +341,36 @@ class Otto
           Otto::Utils.resolve_client_ip(env, @security_config)
         end
 
+        # Install env['otto.ip_match']: a verdict-only CIDR membership check
+        # over the resolved, UNMASKED client IP.
+        #
+        # This is the precision axis of the privacy design, decoupled from the
+        # observability axis (the privacy profile): policy code downstream —
+        # e.g. a per-tenant IP allowlist — can ask "is this client inside
+        # these ranges?" at full /32-/128 precision under ANY profile,
+        # including full masking. The unmasked address itself never lands in
+        # env; only this closure does, and a closure serializes to nothing
+        # useful, so env dumps, loggers, and error reporters that walk env
+        # cannot leak the IP accidentally.
+        #
+        # Threat model: the capability is a membership oracle, so deliberate
+        # in-process code could reconstruct the address via adaptive queries —
+        # but in-process code is already trusted (it could monkeypatch this
+        # middleware). The invariant defended is accidental persistence and
+        # serialization, and a Proc preserves it where a raw string could not.
+        #
+        # The closure is installed on every path that resolves an IP (masked,
+        # private-exempt, and privacy-disabled). When the request has no
+        # resolvable client IP the check returns false — fail-closed for
+        # allowlist callers. Invalid CIDR entries raise (configuration error);
+        # see Otto::Utils.ip_in_cidrs?.
+        #
+        # @param env [Hash] Rack environment
+        # @param client_ip [String, nil] resolved, unmasked client IP
+        def install_ip_match(env, client_ip)
+          env['otto.ip_match'] = ->(cidrs) { Otto::Utils.ip_in_cidrs?(client_ip, cidrs) }
+        end
+
         # Delete forwarded IP headers outright.
         #
         # Used on the no-resolvable-client-IP path, where there is no masked IP
@@ -370,7 +468,12 @@ class Otto
           # Resolve the canonical client IP once, even with privacy disabled, so
           # downstream code can read env['otto.client_ip'] instead of re-deriving
           # it from REMOTE_ADDR / forwarded headers.
-          env['otto.client_ip'] = resolve_client_ip(env)
+          client_ip = resolve_client_ip(env)
+          env['otto.client_ip'] = client_ip
+
+          # Same precision capability as the privacy-enabled paths, so policy
+          # code has one interface regardless of profile.
+          install_ip_match(env, client_ip)
 
           # Store original values for explicit access when privacy is disabled
           if env['REMOTE_ADDR']

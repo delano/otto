@@ -7,6 +7,224 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.7.0:
+
+2.7.0 — 2026-08-03
+==================
+
+Added
+-----
+
+- Configurable geo-country resolution. ``configure_ip_privacy`` now accepts
+  ``geo_header:`` — a trusted, app-configured request header checked *before*
+  the built-in CDN headers (e.g. ``geo_header: 'X-Client-Country'``);
+  ``geo_db_path:`` — a MaxMind-format ``.mmdb`` country database giving an
+  offline IP->country fallback (needs the optional ``maxmind-db`` gem); and
+  ``geo_db_reader:`` — bring your own reader (any object responding to
+  ``#get``). A bad ``geo_db_path`` fails at boot, not per-request. (#206)
+
+- ``X-Vercel-IP-Country`` is now recognized among the built-in CDN/provider
+  geo headers. (#206)
+
+- Named privacy profiles: ``configure_ip_privacy(profile: :anonymous | :masked
+  | :audit)`` (also accepted by ``Otto::Privacy::Config.new``) — a validated
+  preset over the existing knobs. ``:masked`` is the default posture (public
+  IPs masked, private exempt), ``:anonymous`` masks every IP including
+  private/localhost, and ``:audit`` disables IP privacy for
+  private/compliance environments (retention responsibility transfers to the
+  operator). ``Config#profile`` derives the label from live knob state, so it
+  cannot go stale. Unknown names raise ``ArgumentError``. (#218)
+
+- ``env['otto.ip_match']``: a verdict-only CIDR membership check over the
+  resolved, UNMASKED client IP, installed by ``IPPrivacyMiddleware`` under
+  every profile. Call it with an array of CIDR strings (or ``IPAddr``
+  objects) and get ``true``/``false`` back, so downstream access control
+  (e.g. a per-tenant allowlist) can match at full /32–/128 precision while
+  ``otto.client_ip``, ``REMOTE_ADDR``, logs, and fingerprints stay masked —
+  only the closure lands in env, never the address. Returns ``false`` when no
+  client IP resolves (fail-closed); invalid CIDR entries raise
+  ``IPAddr::InvalidAddressError``. (#218)
+
+- ``Otto::Utils.ip_in_cidrs?(ip, cidrs)``: the general-purpose CIDR-set
+  matcher behind ``otto.ip_match``, sharing the trusted-proxy matcher's
+  semantics (port stripping, ``IPAddr#native`` folding, family-aware
+  skipping). Runtime ``ip`` fails closed; invalid ``cidrs`` entries raise.
+  Accepts pre-parsed ``IPAddr`` entries for hot paths. (#218)
+
+- ``MiddlewareStack#execution_order`` returns middleware classes in the order
+  they actually run (outermost first), resolving pin tiers — unlike
+  ``#middleware_list``, which reports registration order. (#219)
+
+- ``add_with_position`` accepts ``position: :innermost`` as a clearer synonym
+  for ``:first``, and a new ``position: :entrypoint`` tier that pins middleware
+  outside even ``:outermost`` entries. (#219)
+
+- ``AuthFailure`` now carries a ``terminal`` flag (``terminal?`` predicate),
+  and ``AuthStrategy#failure`` accepts ``terminal: true`` — meaning "credentials
+  were presented, examined, and rejected; do not consult further strategies."
+  ``RouteAuthWrapper`` halts the chain and renders that failure's 401
+  regardless of strategy order, so mixed chains (``auth=basicauth,noauth``)
+  fail closed on invalid credentials instead of proceeding as anonymous. Plain
+  failures keep the existing OR fallthrough. (#220)
+
+Changed
+-------
+
+- Geo resolution now runs against a privacy-masked view — the masked IP and an
+  env with the IP-bearing headers masked — so the unmasked address never
+  reaches a custom resolver or the database. Country networks are >= /24, so
+  /24-masked results are identical at the default masking level. A custom
+  resolver invoked through the middleware now receives the masked IP and env;
+  direct ``GeoResolver.resolve`` callers are unchanged. (#206)
+
+- Middleware pins are now recorded per *entry* rather than per class. An
+  ``:outermost`` pin previously reordered every registration of that class,
+  including ones registered separately with different arguments. (#219)
+
+- ``Otto::LoggingHelpers.request_context`` masks its ``:ip`` field when the
+  request never passed through ``IPPrivacyMiddleware`` (previously it fell back
+  to the raw ``REMOTE_ADDR``). New ``LoggingHelpers.privacy_safe_ip`` exposes
+  that behavior for callers outside Otto's stack. (#219)
+
+- ``Otto::CaddyTLS::LocalhostGuard`` reads the new leak-free boolean
+  ``env['otto.peer_loopback']`` — the loopback verdict ``IPPrivacyMiddleware``
+  records on the untouched socket peer before masking — falling back to
+  ``REMOTE_ADDR`` when absent. The guard still authenticates the raw peer,
+  which it can no longer read directly now that IP masking runs first. (#219)
+
+- ``RouteAuthWrapper`` multi-strategy chains now treat an anonymous success
+  (a ``StrategyResult`` with no user, e.g. from ``noauth``) as a held fallback
+  rather than an immediate win: the rest of the chain still runs so a later
+  credentialed strategy can reject presented credentials terminally. The
+  fallback wins once the chain completes without an authenticated success or
+  terminal failure, preserving OR semantics for credential-less requests.
+  Consequently, in ``auth=noauth,apikey`` a later authenticated success now
+  wins over an earlier anonymous one. (#220)
+
+Removed
+-------
+
+- The built-in ``KNOWN_RANGES`` IP-range guess table (and ``detect_by_range``).
+  When no header, custom resolver, or database resolves a country, the result
+  is now ``'**'`` (unknown) rather than a guess from a hardcoded ~14-entry
+  table that mislabeled whole cloud regions. Callers that relied on the table
+  (e.g. ``8.8.8.8`` -> ``US``) now get ``'**'``; configure a database or an
+  edge header for real geo-location. (#206)
+
+Fixed
+-----
+
+- IP privacy now redacts the RFC 7239 ``Forwarded`` header
+  (``HTTP_FORWARDED``), which Otto reads as an authoritative client-IP source
+  in count-based depth mode. Previously it was left intact while
+  ``X-Forwarded-For`` and friends were masked, so downstream code could read
+  the real client IP from its ``for=`` token. Only the ``for=`` value is
+  replaced; ``proto=``/``host=``/``by=`` and the header structure are
+  preserved. When no client IP resolves, the forwarded headers are dropped
+  rather than left to leak a raw address. (#206)
+
+- IPv4-mapped IPv6 CIDR *ranges* are now folded through ``IPAddr#native``, so
+  the fold is symmetric with the client address. Previously only the client
+  was folded, so a mapped range (``::ffff:10.0.0.0/104``) failed the
+  address-family check and was silently skipped — a wrong verdict rather than
+  an error. Affects ``Otto::Utils.ip_in_cidrs?`` / ``otto.ip_match`` and
+  trusted-proxy entries, where an unmatched proxy silently withheld
+  ``otto.via_trusted_proxy`` and with it ``Request#secure?`` and geo-header
+  trust. **Behavior change** for anyone who configured a mapped-IPv6 range: it
+  now matches the IPv4 clients it names — including ``::ffff:0:0/96``, the
+  whole mapped space, which matches every IPv4 address. The prefix must cover
+  the mapped marker (``/96`` or longer); ``::ffff:10.0.0.0/64`` masks the
+  marker away and still matches neither form. Plain IPv4/IPv6 ranges are
+  unaffected, and pre-parsed ``IPAddr`` entries are not mutated. (#218)
+
+- ``IPPrivacyMiddleware`` reads the privacy setting per request instead of
+  caching it at construction. Otto builds its middleware stack at the end of
+  ``Otto.new`` while ``configure_ip_privacy`` stays legal until the first
+  request, so a post-construction ``configure_ip_privacy(profile: :audit)``
+  was silently ignored and the middleware kept masking. (#218)
+
+- ``IPPrivacyMiddleware`` no longer interpolates the unmasked client IP into
+  its debug log. Under ``Otto.debug``, the pre-mask resolution line
+  (``:masked``, ``:anonymous``) and the private/localhost exemption line
+  (``:masked``) logged the raw address — handing back through the log exactly
+  what the profile withholds from env. The resolution line is gone; the
+  masking path logs the masked IP, and the exemption line now records only
+  that the exemption fired. ``:audit`` is unaffected. (#218)
+
+- ``configure_ip_privacy`` is now all-or-nothing: assignments are dry-run
+  against a copy and validated there before the live config is touched, so a
+  rejected value (e.g. ``octet_precision: 7`` alongside a ``profile:`` preset)
+  can no longer leave the preset half-applied. (#218)
+
+- ``configure_ip_privacy`` fails loudly on falsy knobs. ``octet_precision``,
+  ``hash_rotation`` and ``redis`` were truthiness-guarded, so an explicit
+  ``false`` was silently dropped instead of assigned or rejected; every kwarg
+  now follows the same nil guard — ``nil`` means "leave unchanged", anything
+  else must take effect or raise. A non-Numeric ``hash_rotation`` raises
+  ``ArgumentError`` naming the value rather than ``NoMethodError``. (#218)
+
+- ``Otto::Privacy::Config#profile=`` raises ``ArgumentError`` for a value that
+  cannot name a profile; ``config.profile = 123`` and ``config.profile = nil``
+  previously raised ``NoMethodError`` on ``#to_sym``. The ``profile:`` option
+  form still treats ``nil`` as "leave unchanged", but a non-nameable value now
+  raises before any other option in the same call is applied. (#218)
+
+- ``IPPrivacyMiddleware``'s idempotency guard installs a fail-closed
+  ``otto.ip_match`` when ``otto.client_ip`` was set outside the middleware
+  (out of contract, but previously left the advertised capability ``nil`` and
+  raised ``NoMethodError`` downstream). It deliberately does not rebuild the
+  check from ``otto.client_ip``, which may be masked — matching a masked
+  address against a narrow CIDR yields false allows. The deny is logged.
+  (#218)
+
+- ``Otto::Request#secure?`` now honors ``env['rack.url_scheme']`` — the
+  canonical Rack scheme key that ``Rack::Request#scheme``/``#ssl?`` (and
+  therefore the session Secure-cookie gate, ``Rack::Protection``, and Otto's
+  own CSRF middleware) read. An upstream middleware that normalizes the scheme
+  the idiomatic Rack way is now visible to ``secure?`` instead of producing a
+  second, divergent scheme-truth. The trusted-proxy gate on the raw
+  ``X-Forwarded-Proto`` / ``X-Scheme`` headers is unchanged. (#214)
+
+Security
+--------
+
+- Geo headers (``CF-IPCountry`` and friends, plus any configured
+  ``geo_header``) are now trusted ONLY for a request that demonstrably arrived
+  via a configured CIDR trusted proxy. Previously any client could pick its own
+  country by sending ``CF-IPCountry``/``X-Client-Country``. An unverifiable
+  origin is no longer trusted: count-based depth mode, and — a behavior change
+  — deployments with **no** trusted-proxy configuration. **Migration:** to keep
+  header-based geo, configure ``trusted_proxies`` (CIDR matchers) so Otto can
+  verify the proxy origin. Count-based ``trusted_proxy_depth`` does NOT enable
+  header trust, so depth-mode and header-only setups should set ``geo_db_path``
+  for a local database instead. Otherwise resolution returns ``'**'``. (#206)
+
+- IP masking now applies to the whole middleware stack, not just the
+  application. ``IPPrivacyMiddleware`` was registered ``position: :first``,
+  which is first-in-*array* and therefore **innermost**, so every other
+  middleware Otto mounts — plus anything added via ``Otto#use`` — received the
+  raw ``REMOTE_ADDR``, an un-anonymized User-Agent, and a nil
+  ``env['otto.client_ip']``. It is now pinned outermost. (#219)
+
+- Rate-limit logging no longer writes raw client IPs. The ``rack.attack``
+  subscribers in ``Otto::Security::RateLimiting`` and ``Otto::MCP::RateLimiter``
+  interpolated ``req.ip`` into a ``warn``-level line on every blocked request,
+  so deployments on the default masked profile leaked public IPs to their logs.
+  Both now log a masked address. (#219)
+
+AI Assistance
+-------------
+
+- Geo-header source and local IP->country database fallback designed and
+  implemented with AI assistance, including adversarial review and coverage
+  for header precedence, spoofing, depth-mode trust, IPv6, custom-resolver
+  sealing, boot-time validation, and the real ``maxmind-db`` reader against a
+  generated fixture. (#206)
+
+- IP precision capability, privacy profiles, middleware ordering audit, and
+  terminal auth failures: design, implementation, adversarial review, and
+  regression coverage developed with AI assistance. (#214, #218, #219, #220)
+
 .. _changelog-2.6.0:
 
 2.6.0 — 2026-07-10

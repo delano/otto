@@ -15,65 +15,33 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 Changed
 -------
 
-- ``env['otto.via_trusted_proxy']`` is now TRI-STATE: IPPrivacyMiddleware
-  writes it only when proxy trust is actually configured
-  (``Security::Config#proxy_trust_configured?`` — CIDR matchers or a
-  ``trusted_proxy_depth``). Previously the key was written ``false`` on every
-  request of an unconfigured deployment, making ``false`` ambiguous between
-  "trust is configured and this peer failed it" and "no proxy trust
-  configured at all" — which forced downstream consumers (e.g.
-  OneTimeSecret's forwarded-host middleware) into grant-only reads that could
-  never treat a ``false`` as an authoritative deny. Now a PRESENT key is
-  authoritative in both directions, and an ABSENT key means "unconfigured":
-  the one case where a consumer may safely apply its own legacy heuristics.
-  ``Otto::Request#forwarded_by_trusted_proxy?`` already evaluates the config
-  directly when the key is absent, so in-process behavior is unchanged;
-  consumers reading the raw env key should switch from ``== true`` grants to
-  presence-checked reads (``env.key?`` then trust the boolean).
+- ``env['otto.via_trusted_proxy']`` is now tri-state: written only when proxy
+  trust is configured (CIDR matchers or ``trusted_proxy_depth``). A present
+  key is authoritative in both directions; an absent key means
+  "unconfigured". Consumers reading the raw env key should presence-check
+  (``env.key?``) rather than compare ``== true``. (#228)
 
 - Configuring an ip-privacy ``geo_header`` together with
-  ``trusted_proxy_depth`` now raises ``ArgumentError`` at configuration time
-  (both assignment orders, plus a freeze-time backstop for direct
-  ``ip_privacy_config.geo_header=`` writes). Geo headers are only honored for
-  peers matching enumerated ``trusted_proxies`` CIDR matchers — a hop trusted
-  by count cannot be verified as the geo-setting CDN — so under depth mode a
-  configured ``geo_header`` could never be consulted and silently fell back
-  to the database/``'**'`` on every request. Database-backed geo
-  (``geo_db_path`` / ``geo_db_reader``) remains fully supported under depth.
-  The built-in provider headers (``CF-IPCountry`` et al.) stay legal to
-  receive but are equally inert under depth — header trust requires
-  CIDR-verified proxies — so depth deployments that want geo should
-  configure a database.
+  ``trusted_proxy_depth`` now raises ``ArgumentError`` at configuration time:
+  geo headers are only honored for CIDR-verified proxies, so under depth mode
+  the header could never be consulted. Database-backed geo (``geo_db_path`` /
+  ``geo_db_reader``) remains fully supported under depth. (#228)
 
 Fixed
 -----
 
 - Depth mode now records a peer-trust verdict in
-  ``env['otto.via_trusted_proxy']``. Configuring ``trusted_proxy_depth >= 1``
-  forces an empty trusted-proxy matcher list (the modes are mutually
-  exclusive), which short-circuited the identity check to ``false`` on every
-  request — while ``REMOTE_ADDR`` was still rewritten to the resolved client
-  IP, leaving downstream middleware (e.g. forwarded-host handling) with no
-  trust signal at all. Configuring a depth is the operator's assertion that
-  the connecting peer is their proxy tier, so the peer is now trusted
-  whenever depth mode is active; ``Otto::Request#forwarded_by_trusted_proxy?``
-  (and therefore ``#secure?``'s X-Forwarded-Proto authorization) mirrors the
-  same grant on its no-middleware fallback path. Geo-header trust is
-  unchanged: it stays gated on enumerated CIDR matchers, since a hop trusted
-  by count cannot be verified as a geo-setting CDN. (#226)
+  ``env['otto.via_trusted_proxy']`` (previously always ``false``, leaving
+  downstream middleware with no trust signal);
+  ``Otto::Request#forwarded_by_trusted_proxy?`` mirrors the grant on its
+  no-middleware fallback path. (#226)
 
 Documentation
 -------------
 
-- Corrected the v2.3.0 migration guide's OneTimeSecret depth-porting
-  guidance: map ``trusted_proxy_depth = ots_depth`` directly, **not**
-  ``ots_depth + 1``. Otto's ``chain[-(N+1)]`` index already accounts for the
-  appended ``REMOTE_ADDR``, so depth N means "N proxy hops counting the
-  connecting peer" — the operator-facing meaning of OTS ``depth: N``. The
-  previous ``+1`` recommendation reproduced an internal off-by-one of the
-  deleted OTS walker: it made honest documented-topology requests resolve
-  the proxy address (short-chain fallback) and let a single forged leftmost
-  ``X-Forwarded-For`` entry be selected as the client.
+- Corrected the v2.3.0 migration guide's depth-porting guidance: map depth
+  values directly, not ``+1`` — otto's chain index already accounts for the
+  appended ``REMOTE_ADDR``. (#227, #228)
 
 .. _changelog-2.7.0:
 

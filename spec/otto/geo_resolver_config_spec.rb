@@ -490,8 +490,11 @@ RSpec.describe 'Configurable geo resolution' do
       # Privacy::Config to the security config)...
       config.ip_privacy_config.geo_header = 'X-Client-Country'
 
-      # ...so the freeze-time backstop must reject the combination.
-      expect { config.send(:validate_trusted_proxy_config!) }
+      # ...so deep_freeze! — the production freeze path, run before the first
+      # request — must reject the combination. Driving the public method (not
+      # the private validator) pins the wiring too: disconnecting the check
+      # from deep_freeze! fails here.
+      expect { config.deep_freeze! }
         .to raise_error(ArgumentError, /geo header.*trusted_proxy_depth/m)
     end
   end

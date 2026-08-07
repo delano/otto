@@ -5,10 +5,13 @@
 # Central registry of all env['otto.*'] keys used throughout Otto framework.
 # This documentation helps prevent key conflicts and aids multi-app integration.
 #
-# DOCUMENTATION-ONLY MODULE: The constants defined here are intentionally NOT used
-# in the codebase. Otto uses string literals (e.g., env['otto.strategy_result'])
-# for readibility/simplicity. This module exists as reference documentation but
-# may be considered for future use if needed.
+# Otto's own code writes the string literals directly (e.g.
+# env['otto.strategy_result']) for readability/simplicity, so this file is
+# not loaded by `require 'otto'` — consumers must `require 'otto/env_keys'`
+# explicitly. The constants are nevertheless PUBLIC API: downstream
+# applications reference them at runtime to pin the cross-gem env contract
+# (OneTimeSecret's Rack::DetectHost reads VIA_TRUSTED_PROXY). Renaming or
+# removing a constant — or this file — is a breaking change.
 #
 class Otto
   # Rack environment keys used by Otto framework

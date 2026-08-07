@@ -8,9 +8,12 @@ Changed
   peers matching enumerated ``trusted_proxies`` CIDR matchers — a hop trusted
   by count cannot be verified as the geo-setting CDN — so under depth mode a
   configured ``geo_header`` could never be consulted and silently fell back
-  to the database/``'**'`` on every request. The built-in provider headers
-  and database-backed geo (``geo_db_path`` / ``geo_db_reader``) remain fully
-  supported under depth.
+  to the database/``'**'`` on every request. Database-backed geo
+  (``geo_db_path`` / ``geo_db_reader``) remains fully supported under depth.
+  The built-in provider headers (``CF-IPCountry`` et al.) stay legal to
+  receive but are equally inert under depth — header trust requires
+  CIDR-verified proxies — so depth deployments that want geo should
+  configure a database.
 
 Documentation
 -------------

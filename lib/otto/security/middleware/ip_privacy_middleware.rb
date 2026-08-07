@@ -75,7 +75,9 @@ class Otto
           # them. Writing false on unconfigured deployments made false
           # ambiguous between "untrusted peer" and "nothing configured", which
           # forced consumers into grant-only reads (#228).
-          if @security_config&.proxy_trust_configured?
+          # respond_to?: like geo_headers_trusted?, a partial/duck-typed
+          # config (or nil) that cannot report trust state is "unconfigured".
+          if @security_config.respond_to?(:proxy_trust_configured?) && @security_config.proxy_trust_configured?
             env['otto.via_trusted_proxy'] = trusted_proxy?(env['REMOTE_ADDR'])
           end
 

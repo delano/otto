@@ -795,9 +795,12 @@ class Otto
         return if @trusted_proxy_depth.nil?
 
         raise ArgumentError, PROXY_MODE_CONFLICT_MESSAGE if @trusted_proxy_depth >= 1 && @trusted_proxies.any?
+
         # Backstop for the direct path (ip_privacy_config.geo_header=) that
         # bypasses both eager checks; the setters cover the common orders.
-        raise ArgumentError, GEO_HEADER_DEPTH_CONFLICT_MESSAGE if @trusted_proxy_depth >= 1 && @ip_privacy_config&.geo_header
+        return unless @trusted_proxy_depth >= 1 && @ip_privacy_config&.geo_header
+
+        raise ArgumentError, GEO_HEADER_DEPTH_CONFLICT_MESSAGE
       end
 
       # Parse a value into an IPAddr, returning nil for invalid / non-IP input.

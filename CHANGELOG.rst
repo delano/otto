@@ -7,6 +7,42 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.8.0:
+
+2.8.0 — 2026-08-07
+==================
+
+Changed
+-------
+
+- ``env['otto.via_trusted_proxy']`` is now tri-state: written only when proxy
+  trust is configured (CIDR matchers or ``trusted_proxy_depth``). A present
+  key is authoritative in both directions; an absent key means
+  "unconfigured". Consumers reading the raw env key should presence-check
+  (``env.key?``) rather than compare ``== true``. (#228)
+
+- Configuring an ip-privacy ``geo_header`` together with
+  ``trusted_proxy_depth`` now raises ``ArgumentError`` at configuration time:
+  geo headers are only honored for CIDR-verified proxies, so under depth mode
+  the header could never be consulted. Database-backed geo (``geo_db_path`` /
+  ``geo_db_reader``) remains fully supported under depth. (#228)
+
+Fixed
+-----
+
+- Depth mode now records a peer-trust verdict in
+  ``env['otto.via_trusted_proxy']`` (previously always ``false``, leaving
+  downstream middleware with no trust signal);
+  ``Otto::Request#forwarded_by_trusted_proxy?`` mirrors the grant on its
+  no-middleware fallback path. (#226)
+
+Documentation
+-------------
+
+- Corrected the v2.3.0 migration guide's depth-porting guidance: map depth
+  values directly, not ``+1`` — otto's chain index already accounts for the
+  appended ``REMOTE_ADDR``. (#227, #228)
+
 .. _changelog-2.7.0:
 
 2.7.0 — 2026-08-03

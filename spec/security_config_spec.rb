@@ -333,6 +333,27 @@ RSpec.describe Otto::Security::Config do
     end
   end
 
+  describe 'proxy_trust_configured? (gate for the tri-state env key)' do
+    it 'is false on a fresh config (no matchers, no depth)' do
+      expect(config.proxy_trust_configured?).to be false
+    end
+
+    it 'is true once a CIDR matcher is added' do
+      config.add_trusted_proxy('10.0.0.0/8')
+      expect(config.proxy_trust_configured?).to be true
+    end
+
+    it 'is true once depth mode is active' do
+      config.trusted_proxy_depth = 1
+      expect(config.proxy_trust_configured?).to be true
+    end
+
+    it 'is false when depth is assigned but disabled (0/nil)' do
+      config.trusted_proxy_depth = 0
+      expect(config.proxy_trust_configured?).to be false
+    end
+  end
+
   describe 'trusted_proxy_depth (count-based proxy mode)' do
     it 'defaults to nil (depth mode off)' do
       expect(config.trusted_proxy_depth).to be_nil

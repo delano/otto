@@ -158,7 +158,11 @@ RSpec.describe 'Middleware execution order' do
 
       otto.call(request_env(remote_addr: '127.0.0.1'))
 
-      expect(seen).to eq('otto.via_trusted_proxy' => false, 'otto.peer_loopback' => true)
+      # No proxy trust is configured on this Otto instance, so the tri-state
+      # otto.via_trusted_proxy key is deliberately ABSENT (not false): absence
+      # is the signal that lets downstream consumers fall back to their own
+      # heuristics without a spurious false vetoing them.
+      expect(seen).to eq('otto.peer_loopback' => true)
     end
   end
 end

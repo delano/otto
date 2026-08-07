@@ -199,10 +199,35 @@ RSpec.describe 'IP resolution harmonization (otto#58 / OTS#3436)' do
       end
 
       it 'is false when the connecting peer is not a trusted proxy' do
+        # Trust IS configured here (the before block adds a matcher), so a
+        # non-matching peer gets an authoritative false — not key-absence.
         env = { 'REMOTE_ADDR' => '198.51.100.1' }
         middleware.call(env)
 
         expect(env['otto.via_trusted_proxy']).to be false
+      end
+    end
+
+    describe "tri-state env['otto.via_trusted_proxy'] (unconfigured)" do
+      # No add_trusted_proxy / trusted_proxy_depth on this security_config.
+
+      it 'leaves the key ABSENT when no proxy trust is configured' do
+        # Absence (not false) is the contract: it distinguishes "no proxy
+        # trust configured" from "trust configured and this peer failed it",
+        # so downstream consumers (e.g. forwarded-host middleware) can apply
+        # legacy heuristics only when the operator configured nothing.
+        env = { 'REMOTE_ADDR' => '198.51.100.1', 'HTTP_X_FORWARDED_FOR' => '203.0.113.50' }
+        middleware.call(env)
+
+        expect(env.key?('otto.via_trusted_proxy')).to be false
+      end
+
+      it 'still resolves and masks the client IP without writing the key' do
+        env = { 'REMOTE_ADDR' => '198.51.100.1' }
+        middleware.call(env)
+
+        expect(env.key?('otto.via_trusted_proxy')).to be false
+        expect(env['REMOTE_ADDR']).to eq('198.51.100.0')
       end
     end
 

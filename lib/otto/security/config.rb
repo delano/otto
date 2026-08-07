@@ -230,6 +230,19 @@ class Otto
         @trusted_proxy_matchers.any?
       end
 
+      # Whether ANY proxy-trust mode is configured — CIDR matchers (filter
+      # mode) or count-based depth. This is the gate for writing
+      # env['otto.via_trusted_proxy'] at all: when neither mode is configured
+      # the key is left ABSENT (tri-state contract), so downstream consumers
+      # can distinguish "operator configured trust and this peer failed it"
+      # (false) from "no proxy trust configured" (absent) and apply their own
+      # legacy heuristics only in the latter case.
+      #
+      # @return [Boolean] true when filter or depth mode is configured
+      def proxy_trust_configured?
+        trusted_proxies_configured? || trusted_proxy_depth_mode?
+      end
+
       # Whether count-based ("trust the last N hops") proxy resolution is active.
       #
       # When true, Otto::Utils.resolve_client_ip ignores trusted-proxy CIDRs and

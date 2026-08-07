@@ -241,9 +241,12 @@ class Otto
     #
     # Prefers the canonical decision recorded once by IPPrivacyMiddleware in
     # env['otto.via_trusted_proxy'] — evaluated against the original peer before
-    # REMOTE_ADDR is masked, so it stays correct even after masking. Falls back
-    # to evaluating the current REMOTE_ADDR when the middleware has not run
-    # (standalone request use).
+    # REMOTE_ADDR is masked, so it stays correct even after masking. The key is
+    # tri-state: written only when proxy trust is configured, so its absence
+    # covers both "middleware not mounted" (standalone request use) and "no
+    # proxy trust configured" — the fallback below answers both by evaluating
+    # the config directly against the current REMOTE_ADDR (an unconfigured
+    # config yields false, matching what the middleware would have implied).
     #
     # A peer earns trust two ways (#226): its identity matches a configured
     # trusted-proxy CIDR (filter mode), or count-based depth mode is active —

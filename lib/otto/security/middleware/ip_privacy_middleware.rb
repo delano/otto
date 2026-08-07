@@ -21,7 +21,9 @@ class Otto
       # Because it now runs ahead of everything, facts about the ORIGINAL peer
       # that downstream code can no longer derive from the (masked) REMOTE_ADDR
       # are recorded first, as leak-free booleans — never as addresses:
-      # env['otto.via_trusted_proxy'] and env['otto.peer_loopback'].
+      # env['otto.via_trusted_proxy'] (only when proxy trust is configured —
+      # absent otherwise, see the tri-state note in #call) and
+      # env['otto.peer_loopback'].
       #
       # @example Default behavior (privacy enabled)
       #   # env['REMOTE_ADDR'] is masked to 192.168.1.0
@@ -62,15 +64,20 @@ class Otto
           # secure? can authorize X-Forwarded-Proto canonically even after
           # REMOTE_ADDR is rewritten to the masked client IP. Leak-free boolean.
           #
-          # A peer earns trust two ways (see #trusted_proxy?): its identity
-          # matches a configured trusted-proxy CIDR, or count-based depth mode
-          # is active — configuring a depth asserts the connecting peer IS the
-          # operator's proxy tier. Depth mode has no CIDR matchers (the modes
-          # are mutually exclusive), so without that grant this key would be
-          # false on every depth-mode request while REMOTE_ADDR below is
-          # rewritten to the resolved client IP, leaving downstream middleware
-          # with no peer-trust signal at all (#226).
-          env['otto.via_trusted_proxy'] = trusted_proxy?(env['REMOTE_ADDR'])
+          # TRI-STATE: the key is written ONLY when the operator configured
+          # proxy trust (CIDR matchers or a depth). Present, its value is
+          # authoritative in both directions — true means the peer matched a
+          # CIDR (filter mode) or depth mode is active (configuring a depth
+          # asserts the connecting peer IS the operator's proxy tier, #226);
+          # false means trust IS configured and this peer failed it. Absent
+          # means no proxy trust is configured at all, so downstream consumers
+          # may fall back to their own heuristics without this key vetoing
+          # them. Writing false on unconfigured deployments made false
+          # ambiguous between "untrusted peer" and "nothing configured", which
+          # forced consumers into grant-only reads.
+          if @security_config&.proxy_trust_configured?
+            env['otto.via_trusted_proxy'] = trusted_proxy?(env['REMOTE_ADDR'])
+          end
 
           # Same rationale, for loopback: this middleware runs outermost, so a
           # downstream middleware that must authenticate a DIRECT LOCAL CALL

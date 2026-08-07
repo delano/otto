@@ -152,7 +152,15 @@ Origins Otto cannot verify are **not** trusted:
   no `trusted_proxies` configured, header steps are skipped and resolution falls
   to the resolver / database (`'**'` if neither is set).
 - **Count-based `trusted_proxy_depth` mode.** The header-setting hop cannot be
-  verified as a geo-CDN, so depth mode does not enable header trust.
+  verified as a geo-CDN, so depth mode does not enable header trust. This
+  conflict fails loud: configuring a `geo_header` together with a
+  `trusted_proxy_depth` raises `ArgumentError` at configuration time (in
+  either order) instead of silently ignoring the header per-request.
+  Database-backed geo remains fully supported under depth. The built-in
+  provider headers stay legal (there is nothing to configure, so nothing
+  can raise) but are equally inert — header trust requires CIDR-verified
+  proxies — so only an explicitly configured `geo_header` is rejected, and
+  depth deployments that want geo should set `geo_db_path`.
 
 **Migration:** to keep header-based geo, configure `trusted_proxies` (CIDR
 matchers) so Otto can verify the proxy origin. Depth-mode and header-only

@@ -5,10 +5,13 @@
 # Central registry of all env['otto.*'] keys used throughout Otto framework.
 # This documentation helps prevent key conflicts and aids multi-app integration.
 #
-# DOCUMENTATION-ONLY MODULE: The constants defined here are intentionally NOT used
-# in the codebase. Otto uses string literals (e.g., env['otto.strategy_result'])
-# for readibility/simplicity. This module exists as reference documentation but
-# may be considered for future use if needed.
+# Otto's own code writes the string literals directly (e.g.
+# env['otto.strategy_result']) for readability/simplicity, so this file is
+# not loaded by `require 'otto'` — consumers must `require 'otto/env_keys'`
+# explicitly. The constants are nevertheless PUBLIC API: downstream
+# applications reference them at runtime to pin the cross-gem env contract
+# (OneTimeSecret's Rack::DetectHost reads VIA_TRUSTED_PROXY). Renaming or
+# removing a constant — or this file — is a breaking change.
 #
 class Otto
   # Rack environment keys used by Otto framework
@@ -71,18 +74,26 @@ class Otto
     #   (e.g. 'onetime.nonce'), so the header and views still share one value.
     NONCE = 'otto.nonce'
 
-    # Whether the request arrived via a trusted proxy.
-    # Type: Boolean
-    # Set by: IPPrivacyMiddleware (every request, evaluated on the original
-    #   peer BEFORE REMOTE_ADDR is masked). True when the peer matches a
-    #   configured trusted_proxies CIDR (filter mode), or unconditionally when
-    #   count-based depth mode is active (trusted_proxy_depth >= 1) — the modes
-    #   are mutually exclusive, and configuring a depth is the operator's
-    #   assertion that the connecting peer is their proxy tier (#226).
+    # Whether the request arrived via a trusted proxy. TRI-STATE.
+    # Type: Boolean when present; the key may be ABSENT.
+    # Set by: IPPrivacyMiddleware, evaluated on the original peer BEFORE
+    #   REMOTE_ADDR is masked — but ONLY when proxy trust is configured
+    #   (Security::Config#proxy_trust_configured?: CIDR matchers or a depth).
+    #   True when the peer matches a configured trusted_proxies CIDR (filter
+    #   mode), or unconditionally when count-based depth mode is active
+    #   (trusted_proxy_depth >= 1) — the modes are mutually exclusive, and
+    #   configuring a depth is the operator's assertion that the connecting
+    #   peer is their proxy tier (#226). False means trust IS configured and
+    #   this peer failed it — an authoritative deny. When no proxy trust is
+    #   configured the key is NOT written, so consumers can distinguish
+    #   "denied" from "unconfigured" and apply legacy heuristics only in the
+    #   latter case.
     # Used by: Otto::Request#secure? to authorize X-Forwarded-Proto / X-Scheme
     #   without depending on the (masked) REMOTE_ADDR, and by downstream
     #   middleware (e.g. forwarded-host handling) as the peer-trust signal now
-    #   that REMOTE_ADDR no longer identifies the connecting peer
+    #   that REMOTE_ADDR no longer identifies the connecting peer. Consumers
+    #   should treat a PRESENT key as authoritative in both directions and
+    #   reserve fallback heuristics for the absent case.
     VIA_TRUSTED_PROXY = 'otto.via_trusted_proxy'
 
     # Whether the connecting peer was the loopback interface.

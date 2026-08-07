@@ -106,6 +106,17 @@ class Otto
         # rubocop:enable Metrics/ParameterLists
         ensure_not_frozen!
         config = @security_config.ip_privacy_config
+
+        # Geo headers are honored only for peers matching enumerated CIDR
+        # matchers, never for count-trusted hops, so a geo_header configured
+        # alongside depth mode could never be consulted. Fail loud here
+        # (depth-then-geo order; the trusted_proxy_depth= setter catches
+        # geo-then-depth). A blank geo_header canonicalizes to nil ("clear"),
+        # which stays legal under depth.
+        if Otto::Privacy::Config.canonicalize_geo_header(geo_header) &&
+           @security_config.trusted_proxy_depth_mode?
+          raise ArgumentError, Otto::Security::Config::GEO_HEADER_DEPTH_CONFLICT_MESSAGE
+        end
         knobs = { profile: profile, octet_precision: octet_precision,
                   hash_rotation: hash_rotation, geo: geo,
                   correlation_secret: correlation_secret, redis: redis }

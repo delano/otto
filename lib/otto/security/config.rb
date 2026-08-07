@@ -38,6 +38,23 @@ class Otto
         hop count, not both.
       MSG
 
+      # Error raised when an app-configured trusted geo header (ip_privacy
+      # geo_header) is combined with count-based depth mode. Geo headers are
+      # honored only for peers matching enumerated trusted_proxies CIDRs
+      # (geo_headers_trusted? gates on trusted_proxies_configured?) — a hop
+      # trusted by count cannot be verified as the geo-setting CDN — so a
+      # geo_header configured alongside a depth could never be consulted.
+      # Failing loud at config time replaces a silent database/'**' fallback
+      # at request time.
+      GEO_HEADER_DEPTH_CONFLICT_MESSAGE = <<~MSG.gsub(/\s+/, ' ').strip.freeze
+        Cannot configure a trusted geo header (ip_privacy geo_header) together
+        with trusted_proxy_depth (count mode): geo headers are only honored
+        for peers matching enumerated trusted_proxies CIDRs, so the header
+        would be silently ignored. Use filter mode (add_trusted_proxy) for
+        header-based geo, or drop geo_header and use a geo database
+        (geo_db_path).
+      MSG
+
       # Forwarded-header sources depth mode (#trusted_proxy_depth) can count
       # hops from: X-Forwarded-For (default), the RFC 7239 Forwarded header, or
       # Both (Forwarded when present, else X-Forwarded-For). Mirrors
@@ -272,6 +289,9 @@ class Otto
 
         validate_trusted_proxy_depth!(depth)
         raise ArgumentError, PROXY_MODE_CONFLICT_MESSAGE if depth.to_i >= 1 && @trusted_proxies.any?
+        # Depth-then-geo assignment order is caught by configure_ip_privacy;
+        # this catches geo-then-depth so both orders fail eagerly.
+        raise ArgumentError, GEO_HEADER_DEPTH_CONFLICT_MESSAGE if depth.to_i >= 1 && @ip_privacy_config&.geo_header
 
         @trusted_proxy_depth = depth
       end
@@ -775,6 +795,9 @@ class Otto
         return if @trusted_proxy_depth.nil?
 
         raise ArgumentError, PROXY_MODE_CONFLICT_MESSAGE if @trusted_proxy_depth >= 1 && @trusted_proxies.any?
+        # Backstop for the direct path (ip_privacy_config.geo_header=) that
+        # bypasses both eager checks; the setters cover the common orders.
+        raise ArgumentError, GEO_HEADER_DEPTH_CONFLICT_MESSAGE if @trusted_proxy_depth >= 1 && @ip_privacy_config&.geo_header
       end
 
       # Parse a value into an IPAddr, returning nil for invalid / non-IP input.

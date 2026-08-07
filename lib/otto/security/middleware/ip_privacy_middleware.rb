@@ -74,7 +74,7 @@ class Otto
           # may fall back to their own heuristics without this key vetoing
           # them. Writing false on unconfigured deployments made false
           # ambiguous between "untrusted peer" and "nothing configured", which
-          # forced consumers into grant-only reads.
+          # forced consumers into grant-only reads (#228).
           if @security_config&.proxy_trust_configured?
             env['otto.via_trusted_proxy'] = trusted_proxy?(env['REMOTE_ADDR'])
           end

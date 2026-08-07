@@ -444,6 +444,58 @@ RSpec.describe 'Configurable geo resolution' do
     end
   end
 
+  describe 'geo_header vs depth mode conflict (fail loud at config time)' do
+    # geo_headers_trusted? gates on enumerated CIDR matchers only, so a
+    # geo_header configured alongside count-based depth could never be
+    # consulted — it would silently fall back to database/'**' on every
+    # request. Both configuration orders must fail eagerly instead.
+
+    it 'raises when geo_header is configured while depth mode is active' do
+      otto = create_minimal_otto(['GET / TestApp.index'])
+      otto.security_config.trusted_proxy_depth = 1
+
+      expect { otto.configure_ip_privacy(geo_header: 'X-Client-Country') }
+        .to raise_error(ArgumentError, /geo header.*trusted_proxy_depth/m)
+    end
+
+    it 'raises when depth is configured while a geo_header is set' do
+      otto = create_minimal_otto(['GET / TestApp.index'])
+      otto.configure_ip_privacy(geo_header: 'X-Client-Country')
+
+      expect { otto.security_config.trusted_proxy_depth = 1 }
+        .to raise_error(ArgumentError, /geo header.*trusted_proxy_depth/m)
+    end
+
+    it 'still allows clearing a geo_header under depth mode' do
+      otto = create_minimal_otto(['GET / TestApp.index'])
+      otto.security_config.trusted_proxy_depth = 1
+
+      # '' canonicalizes to nil ("clear the header") — legal under depth.
+      expect { otto.configure_ip_privacy(geo_header: '') }.not_to raise_error
+      expect(otto.security_config.ip_privacy_config.geo_header).to be_nil
+    end
+
+    it 'still allows depth mode with database-backed geo (documented combo)' do
+      reader = recording_reader({})
+      otto = create_minimal_otto(['GET / TestApp.index'])
+      otto.configure_ip_privacy(geo_db_reader: reader)
+
+      expect { otto.security_config.trusted_proxy_depth = 1 }.not_to raise_error
+    end
+
+    it 'catches the direct ip_privacy_config.geo_header= bypass at freeze' do
+      config = Otto::Security::Config.new
+      config.trusted_proxy_depth = 1
+      # Direct assignment bypasses both eager checks (no back-reference from
+      # Privacy::Config to the security config)...
+      config.ip_privacy_config.geo_header = 'X-Client-Country'
+
+      # ...so the freeze-time backstop must reject the combination.
+      expect { config.send(:validate_trusted_proxy_config!) }
+        .to raise_error(ArgumentError, /geo header.*trusted_proxy_depth/m)
+    end
+  end
+
   # Exercises the real MaxMind::DB reader against a generated fixture (see
   # spec/support/mmdb_fixture.rb), so the geo_db_path -> reader -> get path is
   # verified against the genuine library, not only a duck-typed fake. Skipped

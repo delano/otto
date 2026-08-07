@@ -62,10 +62,14 @@ class Otto
           # secure? can authorize X-Forwarded-Proto canonically even after
           # REMOTE_ADDR is rewritten to the masked client IP. Leak-free boolean.
           #
-          # This is the trusted-proxy *identity* check only — it is deliberately
-          # independent of count-based depth mode. Depth resolves the client IP;
-          # it never grants proxy trust for X-Forwarded-Proto (matching the
-          # downstream OneTimeSecret behavior).
+          # A peer earns trust two ways (see #trusted_proxy?): its identity
+          # matches a configured trusted-proxy CIDR, or count-based depth mode
+          # is active — configuring a depth asserts the connecting peer IS the
+          # operator's proxy tier. Depth mode has no CIDR matchers (the modes
+          # are mutually exclusive), so without that grant this key would be
+          # false on every depth-mode request while REMOTE_ADDR below is
+          # rewritten to the resolved client IP, leaving downstream middleware
+          # with no peer-trust signal at all (#226).
           env['otto.via_trusted_proxy'] = trusted_proxy?(env['REMOTE_ADDR'])
 
           # Same rationale, for loopback: this middleware runs outermost, so a
@@ -420,12 +424,20 @@ class Otto
           Otto.logger.debug "[IPPrivacyMiddleware] Masked forwarded headers" if Otto.debug
         end
 
-        # Check if an IP is from a trusted proxy
+        # Check if the connecting peer counts as a trusted proxy
+        #
+        # CIDR filter mode checks the peer's identity against the configured
+        # matchers. Count-based depth mode has no enumerable matchers — the
+        # depth setting itself is the operator's assertion that the peer is
+        # their proxy tier — so an active depth grants peer trust outright
+        # (#226). Geo-header trust is unaffected: geo_headers_trusted? gates on
+        # trusted_proxies_configured?, which stays matcher-only.
         #
         # @param ip [String] IP address to check
         # @return [Boolean] true if IP is from a trusted proxy
         def trusted_proxy?(ip)
           return false unless @security_config
+          return true if @security_config.trusted_proxy_depth_mode?
 
           @security_config.trusted_proxy?(ip)
         end

@@ -245,15 +245,21 @@ class Otto
     # to evaluating the current REMOTE_ADDR when the middleware has not run
     # (standalone request use).
     #
-    # This is the trusted-proxy *identity* check only and is independent of
-    # count-based depth mode: depth resolves the client IP but never grants
-    # proxy trust for X-Forwarded-Proto.
+    # A peer earns trust two ways (#226): its identity matches a configured
+    # trusted-proxy CIDR (filter mode), or count-based depth mode is active —
+    # configuring a depth asserts the connecting peer is the operator's
+    # (non-enumerable) proxy tier. The fallback mirrors the grant
+    # IPPrivacyMiddleware records so the two paths cannot disagree.
     #
     # @return [Boolean]
     def forwarded_by_trusted_proxy?
       return env['otto.via_trusted_proxy'] if env.key?('otto.via_trusted_proxy')
 
-      otto_security_config ? trusted_proxy?(env['REMOTE_ADDR']) : false
+      config = otto_security_config
+      return false unless config
+      return true if config.trusted_proxy_depth_mode?
+
+      trusted_proxy?(env['REMOTE_ADDR'])
     end
 
     # See: http://stackoverflow.com/questions/10013812/how-to-prevent-jquery-ajax-from-following-a-redirect-after-a-post

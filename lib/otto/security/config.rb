@@ -51,8 +51,8 @@ class Otto
         with trusted_proxy_depth (count mode): geo headers are only honored
         for peers matching enumerated trusted_proxies CIDRs, so the header
         would be silently ignored. Use filter mode (add_trusted_proxy) for
-        header-based geo, or drop geo_header and use a geo database
-        (geo_db_path).
+        header-based geo, or drop geo_header and use database-backed geo
+        (geo_db_path or geo_db_reader).
       MSG
 
       # Forwarded-header sources depth mode (#trusted_proxy_depth) can count

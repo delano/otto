@@ -74,12 +74,15 @@ class Otto
     # Whether the request arrived via a trusted proxy.
     # Type: Boolean
     # Set by: IPPrivacyMiddleware (every request, evaluated on the original
-    #   peer BEFORE REMOTE_ADDR is masked). This is the trusted-proxy identity
-    #   check (does REMOTE_ADDR match a configured trusted_proxies CIDR?) — it is
-    #   independent of count-based depth mode, which resolves the client IP but
-    #   never grants proxy trust for forwarded proto.
+    #   peer BEFORE REMOTE_ADDR is masked). True when the peer matches a
+    #   configured trusted_proxies CIDR (filter mode), or unconditionally when
+    #   count-based depth mode is active (trusted_proxy_depth >= 1) — the modes
+    #   are mutually exclusive, and configuring a depth is the operator's
+    #   assertion that the connecting peer is their proxy tier (#226).
     # Used by: Otto::Request#secure? to authorize X-Forwarded-Proto / X-Scheme
-    #   without depending on the (masked) REMOTE_ADDR
+    #   without depending on the (masked) REMOTE_ADDR, and by downstream
+    #   middleware (e.g. forwarded-host handling) as the peer-trust signal now
+    #   that REMOTE_ADDR no longer identifies the connecting peer
     VIA_TRUSTED_PROXY = 'otto.via_trusted_proxy'
 
     # Whether the connecting peer was the loopback interface.

@@ -219,12 +219,11 @@ class Otto
 
       # Whether any trusted-proxy IP/CIDR/Regexp matchers are configured.
       #
-      # This mirrors {#trusted_proxy?}, which consults the same matcher list, so
-      # the two answers stay consistent: a request can only be "via a trusted
-      # proxy" when matchers exist. It deliberately EXCLUDES count-based depth
-      # mode — depth resolves the client IP but never confers proxy identity
-      # trust (the same decoupling {Otto::Request#forwarded_by_trusted_proxy?}
-      # applies to X-Forwarded-Proto). Used to gate geo-header trust.
+      # This mirrors {#trusted_proxy?}, which consults the same matcher list.
+      # It deliberately EXCLUDES count-based depth mode: depth grants the peer
+      # blanket trust for otto.via_trusted_proxy (#226), but it cannot verify
+      # that the hop is a geo-setting CDN, so header-based geo stays gated on
+      # enumerated matchers only. Used to gate geo-header trust.
       #
       # @return [Boolean] true when at least one trusted-proxy matcher exists
       def trusted_proxies_configured?

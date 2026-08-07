@@ -219,14 +219,41 @@ RSpec.describe 'IP resolution harmonization (otto#58 / OTS#3436)' do
         expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
       end
 
-      it 'leaves otto.via_trusted_proxy false (proto-trust is decoupled from depth)' do
-        # Depth resolves the client IP, but via_trusted_proxy is the CIDR
-        # identity check only — never derived from depth. No CIDRs configured
-        # (and depth is mutually exclusive with them), so it stays false.
+      it 'records peer trust in otto.via_trusted_proxy (otto#226)' do
+        # Depth mode has no CIDR matchers (the modes are mutually exclusive),
+        # so the empty-matcher identity check would always say false while
+        # REMOTE_ADDR is rewritten to the resolved client — leaving downstream
+        # middleware no trust signal at all. Configuring a depth asserts the
+        # connecting peer is the operator's proxy tier, so the peer is trusted.
         env = { 'REMOTE_ADDR' => '198.51.100.1', 'HTTP_X_FORWARDED_FOR' => '203.0.113.50' }
         middleware.call(env)
 
-        expect(env['otto.via_trusted_proxy']).to be false
+        expect(env['otto.via_trusted_proxy']).to be true
+      end
+
+      it 'records peer trust even when the forwarded chain is short (peer fallback)' do
+        # The trust verdict is about the PEER, not the resolved client:
+        # a chain too short for the configured depth falls back to REMOTE_ADDR
+        # for the client IP, but the peer is still asserted to be the proxy tier.
+        env = { 'REMOTE_ADDR' => '198.51.100.1' }
+        middleware.call(env)
+
+        expect(env['otto.via_trusted_proxy']).to be true
+      end
+
+      it 'still withholds geo-header trust in depth mode' do
+        # via_trusted_proxy is a peer-trust signal; geo-header trust stays
+        # gated on enumerated matchers (trusted_proxies_configured?), because
+        # a hop trusted by count cannot be verified as a geo-setting CDN.
+        env = {
+          'REMOTE_ADDR' => '198.51.100.1',
+          'HTTP_X_FORWARDED_FOR' => '203.0.113.50',
+          'HTTP_CF_IPCOUNTRY' => 'GB',
+        }
+        middleware.call(env)
+
+        expect(env['otto.via_trusted_proxy']).to be true
+        expect(env['otto.privacy.geo_country']).not_to eq('GB')
       end
     end
   end
@@ -287,12 +314,14 @@ RSpec.describe 'IP resolution harmonization (otto#58 / OTS#3436)' do
         expect(req.client_ipaddress).to eq('203.0.113.50')
       end
 
-      it '#secure? does not honor X-Forwarded-Proto in depth mode (proto-trust decoupled)' do
-        # Depth never grants proxy trust for forwarded proto; with no CIDR
-        # identity match, secure? reflects only a direct TLS connection.
+      it '#secure? honors X-Forwarded-Proto in depth mode (peer trusted by depth)' do
+        # Configuring a depth asserts the connecting peer is the operator's
+        # proxy tier (otto#226), so its forwarded proto is authorized — same
+        # grant the middleware records in otto.via_trusted_proxy, mirrored on
+        # this no-middleware fallback path so the two cannot disagree.
         req = depth_request('REMOTE_ADDR' => '198.51.100.1', 'HTTP_X_FORWARDED_PROTO' => 'https')
 
-        expect(req.secure?).to be false
+        expect(req.secure?).to be true
       end
     end
 

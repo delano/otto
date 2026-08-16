@@ -21,10 +21,11 @@ RSpec.describe Otto::Security::CSP::Policy do
       expect(described_class.nonce_policy('N')).to eq(production)
     end
 
-    it 'produces the development directive set when requested' do
-      csp = described_class.nonce_policy('N', development_mode: true)
-      expect(csp).to include("script-src 'nonce-N' 'unsafe-inline';")
-      expect(csp).to include("connect-src 'self' ws: wss: http: https:;")
+    it 'supports proxied and direct Vite scripts without allowing arbitrary inline scripts' do
+      script_src = described_class.nonce_policy('N', development_mode: true)
+                   .split('; ').find { |directive| directive.start_with?('script-src ') }
+
+      expect(script_src).to eq("script-src 'self' 'nonce-N' http: https:")
     end
 
     it 'appends report-uri (terminated with a semicolon) when configured' do

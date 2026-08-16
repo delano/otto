@@ -222,15 +222,17 @@ class Otto
 
         # CSP directives for the development environment.
         #
-        # Development mode allows inline scripts/styles and hot reloading
-        # connections for better developer experience with build tools like Vite.
+        # Development mode allows nonce-authorized inline scripts, inline styles,
+        # HTTP(S) scripts, and hot-reloading connections for build tools such as
+        # Vite. HTTP(S) script sources support both same-origin reverse proxies
+        # (for example Caddy) and direct local Vite servers on another port.
         #
         # @param nonce [String] nonce value injected into `script-src`
         # @return [Array<String>] directive strings, each terminated with `;`
         def development_directives(nonce)
           [
             "default-src 'none';",
-            "script-src 'nonce-#{nonce}' 'unsafe-inline';", # Allow inline scripts for development tools
+            "script-src 'self' 'nonce-#{nonce}' http: https:;",
             "style-src 'self' 'unsafe-inline';",
             "connect-src 'self' ws: wss: http: https:;", # Allow HTTP and all WebSocket connections for dev tools
             "img-src 'self' data:;",

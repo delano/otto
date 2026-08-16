@@ -99,7 +99,7 @@ RSpec.shared_examples 'a nonce-CSP emission surface' do
   context 'development mode' do
     it 'uses the development directive set when requested' do
       headers = emit_csp(headers: { 'content-type' => 'text/html' }, nonce: test_nonce, development_mode: true)
-      expect(csp_value(headers)).to include("script-src 'nonce-#{test_nonce}' 'unsafe-inline'")
+      expect(csp_value(headers)).to include("script-src 'self' 'nonce-#{test_nonce}'")
     end
   end
 end

@@ -32,6 +32,10 @@ jobs:
     timeout-minutes: 10 # prevent hung jobs
 
     runs-on: ubuntu-24.04
+    # RuboCop is declared in Otto's optional :development group. This must be
+    # set before ruby/setup-ruby so its Bundler cache includes the executable.
+    env:
+      BUNDLE_WITH: "development"
 
     strategy:
       fail-fast: true

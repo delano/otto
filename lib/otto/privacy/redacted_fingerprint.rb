@@ -22,8 +22,8 @@ class Otto
     #
     class RedactedFingerprint
       attr_reader :session_id, :timestamp, :masked_ip, :hashed_ip,
-                  :country, :anonymized_ua, :request_path,
-                  :request_method, :referer
+                  :country, :asn, :anonymizer, :anonymized_ua,
+                  :request_path, :request_method, :referer
 
       # IP-bearing forwarded headers overwritten with the masked IP in the
       # geo-resolution env view. Mirrors the set
@@ -60,6 +60,17 @@ class Otto
         @country = if config.geo_enabled
                      GeoResolver.resolve(@masked_ip, geo_env(env), config, headers_trusted: geo_headers_trusted)
                    end
+        # ASN keeps the masked-IP contract: IPv4 routes are not announced longer
+        # than /24, so a masked address falls in the same announced prefix and
+        # therefore the same ASN.
+        @asn = AsnResolver.resolve(@masked_ip, config) if config.asn_enabled
+        # The anonymizer is the one lookup that gets the REAL address, for the
+        # same reason hashed_ip above does: masking would destroy the answer.
+        # Anonymizer databases list individual egress nodes at or near /32, so a
+        # /24-masked lookup would report on the node's neighbours instead of the
+        # node. Only the resulting label is retained — the address goes no
+        # further than the resolver, exactly as it goes no further than hash_ip.
+        @anonymizer = AnonymizerResolver.resolve(remote_ip, config) if config.anonymizer_enabled
         @anonymized_ua = anonymize_user_agent(env['HTTP_USER_AGENT'])
         @request_path = env['PATH_INFO']
         @request_method = env['REQUEST_METHOD']
@@ -78,6 +89,8 @@ class Otto
                masked_ip: @masked_ip,
                hashed_ip: @hashed_ip,
                  country: @country,
+                     asn: @asn,
+              anonymizer: @anonymizer,
            anonymized_ua: @anonymized_ua,
           request_method: @request_method,
             request_path: @request_path,

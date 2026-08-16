@@ -1,3 +1,5 @@
+inherit_from: .rubocop_todo.yml
+
 # .rubocop.yml
 
 ##
@@ -19,7 +21,6 @@ AllCops:
   MaxFilesInCache: 100
   TargetRubyVersion: 3.2
   Exclude:
-    - "spec/**/*"
     - "vendor/**/*"
 
 #

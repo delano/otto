@@ -193,6 +193,30 @@ class Otto
       # Used by: Analytics, localization
       GEO_COUNTRY = 'otto.privacy.geo_country'
 
+      # Autonomous System Number of the network the client belongs to
+      # Type: String ('AS15169'), '**' when unresolved, or nil when disabled
+      # Set by: IPPrivacyMiddleware (opt-in; off unless asn_enabled)
+      # Used by: Network-operator allow/deny rules, dynamic access zones
+      # Read via: Otto::Request#asn
+      # Note: resolved from a local database against the MASKED IP, so it is
+      #   subject to the same /24 equivalence country relies on.
+      ASN = 'otto.privacy.asn'
+
+      # Anonymizing-egress classification for the client address
+      # Type: String label, or nil when disabled. One of: 'tor', 'proxy',
+      #   'vpn', 'residential_proxy', 'hosting', 'anonymous', 'none', '**'
+      # Set by: IPPrivacyMiddleware (opt-in; off unless anonymizer_enabled)
+      # Used by: "Block anonymizers" access zones, abuse triage
+      # Read via: Otto::Request#anonymizer
+      # Note: 'none' means the database was consulted and did not list the
+      #   address — a real answer, since these databases record only flagged
+      #   addresses. '**' means no database answered at all. The two are not
+      #   interchangeable: 'none' is evidence, '**' is the absence of it.
+      # Contrast: this is the one lookup performed on the UNMASKED address,
+      #   because anonymizer data is per-node (~/32) and a masked lookup would
+      #   answer for the node's neighbours. Only the label is retained.
+      ANONYMIZER = 'otto.privacy.anonymizer'
+
       # Daily-rotating IP hash for session correlation
       # Type: String (hexadecimal)
       # Set by: IPPrivacyMiddleware

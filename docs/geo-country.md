@@ -3,7 +3,8 @@
 Otto resolves a country-level ISO 3166-1 alpha-2 code for each request and
 exposes it as `req.geo_country` / `env['otto.privacy.geo_country']`. Resolution
 is country-only by design — that is the privacy posture; there is no city or
-region lookup.
+region lookup. (Two opt-in, database-only companion signals — ASN and
+anonymizer classification — are covered in [enrichment](enrichment.md).)
 
 ## Resolution order
 

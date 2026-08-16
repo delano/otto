@@ -102,7 +102,9 @@ class Otto
       # them into a hash would only obscure the supported settings.
       def configure_ip_privacy(octet_precision: nil, hash_rotation: nil, geo: nil, redis: nil,
                                correlation_secret: nil, geo_header: nil, geo_db_path: nil,
-                               geo_db_reader: nil, profile: nil)
+                               geo_db_reader: nil, profile: nil, asn: nil, asn_db_path: nil,
+                               asn_db_reader: nil, anonymizer: nil, anonymizer_db_path: nil,
+                               anonymizer_db_reader: nil)
         # rubocop:enable Metrics/ParameterLists
         ensure_not_frozen!
         config = @security_config.ip_privacy_config
@@ -130,6 +132,8 @@ class Otto
 
         apply_geo_config(config, geo: geo, geo_header: geo_header,
                                  geo_db_path: geo_db_path, geo_db_reader: geo_db_reader)
+        apply_enrichment_signal(config, :asn, asn, asn_db_path, asn_db_reader)
+        apply_enrichment_signal(config, :anonymizer, anonymizer, anonymizer_db_path, anonymizer_db_reader)
       end
 
       private
@@ -183,6 +187,54 @@ class Otto
         end
 
         config.load_geo_database! if geo_touched
+      end
+
+      # Apply one opt-in enrichment signal (ASN or anonymizer classification).
+      #
+      # Same contract as {#apply_geo_config}: nil means "leave unchanged", a
+      # reader supplied in this call wins over a path, and a path supplied on
+      # its own clears any prior injected reader so it actually takes effect.
+      # Any touched knob triggers a boot-time (re)load so a bad path fails
+      # here, not on the first request that needs a lookup.
+      #
+      # These deliberately live outside apply_privacy_knobs. That runs twice —
+      # once against a shallow config.dup for the dry-run validation — and a
+      # dup shares reader ivars with the original, so loading a database there
+      # would touch live state during what is supposed to be a rehearsal.
+      #
+      # @param config [Otto::Privacy::Config] the privacy config to mutate
+      # @param prefix [Symbol] :asn or :anonymizer, selecting the config members
+      # @api private
+      def apply_enrichment_signal(config, prefix, enabled, path, reader)
+        previous_enabled = config.public_send(:"#{prefix}_enabled")
+        config.public_send(:"#{prefix}_enabled=", enabled) unless enabled.nil?
+        source_replaced = replace_db_source?(config, prefix, path, reader)
+        config.public_send(:"load_#{prefix}_database!") if !source_replaced && [enabled, path, reader].any? { |v| !v.nil? }
+      rescue StandardError
+        # A path replacement is validated before it is committed, but restoring
+        # the enabled flag here also keeps a combined `enabled: ..., path: ...`
+        # call all-or-nothing when the replacement cannot be opened.
+        config.public_send(:"#{prefix}_enabled=", previous_enabled) unless previous_enabled.nil?
+        raise
+      end
+
+      # Reader-vs-path precedence for one enrichment signal, mirroring the geo
+      # branch in {#apply_geo_config}.
+      #
+      # @api private
+      def replace_db_source?(config, prefix, path, reader)
+        if !reader.nil?
+          config.public_send(:"#{prefix}_db_reader=", reader)
+          config.public_send(:"#{prefix}_db_path=", path) unless path.nil?
+          false
+        elsif !path.nil?
+          # Build the replacement before changing the active source. A failed
+          # path must leave the previous reader available for future requests.
+          config.replace_enrichment_database_path!(prefix, path)
+          true
+        else
+          false
+        end
       end
     end
   end

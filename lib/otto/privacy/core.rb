@@ -206,22 +206,34 @@ class Otto
       # @param prefix [Symbol] :asn or :anonymizer, selecting the config members
       # @api private
       def apply_enrichment_signal(config, prefix, enabled, path, reader)
+        previous_enabled = config.public_send(:"#{prefix}_enabled")
         config.public_send(:"#{prefix}_enabled=", enabled) unless enabled.nil?
-        apply_db_source(config, prefix, path, reader)
-        config.public_send(:"load_#{prefix}_database!") if [enabled, path, reader].any? { |v| !v.nil? }
+        source_replaced = replace_db_source?(config, prefix, path, reader)
+        config.public_send(:"load_#{prefix}_database!") if !source_replaced && [enabled, path, reader].any? { |v| !v.nil? }
+      rescue StandardError
+        # A path replacement is validated before it is committed, but restoring
+        # the enabled flag here also keeps a combined `enabled: ..., path: ...`
+        # call all-or-nothing when the replacement cannot be opened.
+        config.public_send(:"#{prefix}_enabled=", previous_enabled) unless previous_enabled.nil?
+        raise
       end
 
       # Reader-vs-path precedence for one enrichment signal, mirroring the geo
       # branch in {#apply_geo_config}.
       #
       # @api private
-      def apply_db_source(config, prefix, path, reader)
+      def replace_db_source?(config, prefix, path, reader)
         if !reader.nil?
           config.public_send(:"#{prefix}_db_reader=", reader)
           config.public_send(:"#{prefix}_db_path=", path) unless path.nil?
+          false
         elsif !path.nil?
-          config.public_send(:"#{prefix}_db_reader=", nil)
-          config.public_send(:"#{prefix}_db_path=", path)
+          # Build the replacement before changing the active source. A failed
+          # path must leave the previous reader available for future requests.
+          config.replace_enrichment_database_path!(prefix, path)
+          true
+        else
+          false
         end
       end
     end

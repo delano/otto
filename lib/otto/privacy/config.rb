@@ -221,6 +221,25 @@ class Otto
         @anonymizer_db_path = normalize_db_path(value)
       end
 
+      # Replace one enrichment database path only after its new reader has
+      # opened successfully. Used by the boot-time configuration path; direct
+      # callers should normally use Otto#configure_ip_privacy.
+      #
+      # @param prefix [:asn, :anonymizer] database source to replace
+      # @param value [String, nil] new database path
+      # @return [void]
+      # @raise [ArgumentError] if an enabled signal's path cannot be opened
+      # @api private
+      def replace_enrichment_database_path!(prefix, value)
+        path = normalize_db_path(value)
+        enabled = instance_variable_get(:"@#{prefix}_enabled")
+        reader = path && enabled ? build_maxmind_reader(path, option_name: "#{prefix}_db_path") : nil
+
+        instance_variable_set(:"@#{prefix}_db_path", path)
+        instance_variable_set(:"@#{prefix}_db_override", nil)
+        instance_variable_set(:"@#{prefix}_db_reader", reader)
+      end
+
       # Inject a ready-made MMDB reader (any object responding to #get).
       #
       # This keeps the reader choice independent of Otto (MaxMind::DB, yhirose's

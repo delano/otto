@@ -64,6 +64,17 @@ RSpec.describe Otto::Privacy, :aggregate_failures do
       end
     end
 
+    it 'accepts the highest assignable ASN and rejects the reserved successor' do
+      max_reader = recording_reader('203.0.113.0' => { 'autonomous_system_number' => 4_294_967_294 })
+      reserved_reader = recording_reader('203.0.113.0' => { 'autonomous_system_number' => 4_294_967_295 })
+
+      max_config = Otto::Privacy::Config.new(asn_enabled: true, asn_db_reader: max_reader)
+      reserved_config = Otto::Privacy::Config.new(asn_enabled: true, asn_db_reader: reserved_reader)
+
+      expect(described_class.resolve('203.0.113.0', max_config)).to eq('AS4294967294')
+      expect(described_class.resolve('203.0.113.0', reserved_config)).to eq('**')
+    end
+
     it 'rejects a non-Integer ASN value rather than formatting garbage' do
       reader = recording_reader('203.0.113.0' => { 'autonomous_system_number' => '15169' })
       config = Otto::Privacy::Config.new(asn_enabled: true, asn_db_reader: reader)
@@ -112,6 +123,18 @@ RSpec.describe Otto::Privacy, :aggregate_failures do
     it "returns 'none' for a record with every flag absent" do
       config = config_with('203.0.113.42' => {})
       expect(described_class.resolve('203.0.113.42', config)).to eq('none')
+    end
+
+    it 'accepts string-backed truthy vendor flags' do
+      %w[true 1].each do |value|
+        config = config_with('203.0.113.42' => { 'is_anonymous_vpn' => value })
+        expect(described_class.resolve('203.0.113.42', config)).to eq('vpn')
+      end
+    end
+
+    it 'returns ** for a malformed database record' do
+      config = config_with('203.0.113.42' => 42)
+      expect(described_class.resolve('203.0.113.42', config)).to eq('**')
     end
 
     it 'returns ** with no configured database (no answer is not evidence)' do
@@ -189,12 +212,30 @@ RSpec.describe Otto::Privacy, :aggregate_failures do
       expect(otto.security_config.ip_privacy_config.asn_enabled).to be(true)
     end
 
-    it 'lets a later bare path clear a previously injected reader' do
+    it 'preserves a working ASN reader when a replacement path cannot be opened' do
+      reader = recording_reader('203.0.113.0' => asn_record(15_169))
       otto = Otto.new
-      otto.configure_ip_privacy(asn: true, asn_db_reader: recording_reader({}))
+      otto.configure_ip_privacy(asn: true, asn_db_reader: reader)
+
       expect do
         otto.configure_ip_privacy(asn_db_path: '/nonexistent.mmdb')
       end.to raise_error(ArgumentError, /asn_db_path is not readable/)
+
+      config = otto.security_config.ip_privacy_config
+      expect(Otto::Privacy::AsnResolver.resolve('203.0.113.42', config)).to eq('AS15169')
+    end
+
+    it 'preserves a working anonymizer reader when a replacement path cannot be opened' do
+      reader = recording_reader('203.0.113.42' => { 'is_tor_exit_node' => true })
+      otto = Otto.new
+      otto.configure_ip_privacy(anonymizer: true, anonymizer_db_reader: reader)
+
+      expect do
+        otto.configure_ip_privacy(anonymizer_db_path: '/nonexistent.mmdb')
+      end.to raise_error(ArgumentError, /anonymizer_db_path is not readable/)
+
+      config = otto.security_config.ip_privacy_config
+      expect(Otto::Privacy::AnonymizerResolver.resolve('203.0.113.42', config)).to eq('tor')
     end
   end
 

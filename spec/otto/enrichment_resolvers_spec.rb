@@ -72,6 +72,10 @@ RSpec.describe 'ASN and anonymizer enrichment' do
       expect(described_class.resolve('203.0.113.0', config)).to eq('**')
     end
 
+    it 'treats a config without an ASN reader accessor as unknown rather than raising' do
+      expect(described_class.resolve('203.0.113.0', Object.new)).to eq('**')
+    end
+
     it 're-masks its input, so even a raw address is looked up masked' do
       reader = recording_reader({})
       config = Otto::Privacy::Config.new(asn_enabled: true, asn_db_reader: reader)
@@ -115,6 +119,10 @@ RSpec.describe 'ASN and anonymizer enrichment' do
       raising = Class.new { def get(_ip) = raise(IOError, 'corrupt mmdb') }.new
       config = Otto::Privacy::Config.new(anonymizer_enabled: true, anonymizer_db_reader: raising)
       expect(described_class.resolve('203.0.113.42', config)).to eq('**')
+    end
+
+    it 'treats a config without an anonymizer reader accessor as unknown rather than raising' do
+      expect(described_class.resolve('203.0.113.42', Object.new)).to eq('**')
     end
 
     it 'is handed the UNMASKED address (per-node data breaks the /24 equivalence)' do

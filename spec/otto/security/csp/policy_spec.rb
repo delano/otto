@@ -23,7 +23,7 @@ RSpec.describe Otto::Security::CSP::Policy do
 
     it 'produces the development directive set when requested' do
       csp = described_class.nonce_policy('N', development_mode: true)
-      expect(csp).to include("script-src 'self' 'nonce-N' 'unsafe-inline';")
+      expect(csp).to include("script-src 'self' 'nonce-N';")
       expect(csp).to include("connect-src 'self' ws: wss: http: https:;")
     end
 

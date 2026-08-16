@@ -105,7 +105,7 @@ RSpec.describe Otto::Security::CSP::EmitMiddleware do
       dev = ->(e) { e['dev'] == true }
       _status, headers, = call_with(env: env, headers: html_headers.dup, development_mode: dev)
 
-      expect(headers['content-security-policy']).to include("'nonce-N' 'unsafe-inline'")
+      expect(headers['content-security-policy']).to include("script-src 'self' 'nonce-N';")
     end
 
     it 'uses production directives when the callable returns false' do

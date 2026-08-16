@@ -11,8 +11,8 @@ class Otto
     # Error handling module providing secure error reporting and logging functionality
     module ErrorHandler
       def handle_error(error, env)
-        # Check if this is a registered expected error
-        if handler_config = @error_handlers[error.class.name]
+        # Check if this is a registered expected error (exact match first, then ancestors)
+        if handler_config = find_error_handler(error)
           return handle_expected_error(error, env, handler_config)
         end
 
@@ -115,6 +115,19 @@ class Otto
       end
 
       private
+
+      # Find the best matching error handler by walking the exception's ancestor chain.
+      # Returns the handler config for the most specific registered class, or nil.
+      def find_error_handler(error)
+        error.class.ancestors.each do |klass|
+          break unless klass.is_a?(Class)
+
+          if handler_config = @error_handlers[klass.name]
+            return handler_config
+          end
+        end
+        nil
+      end
 
       # Register all Otto framework error classes with appropriate status codes
       #

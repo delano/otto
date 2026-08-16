@@ -435,4 +435,76 @@ RSpec.describe Otto, 'Error Handler Registration' do
       expect(response[0]).to eq(400)
     end
   end
+
+  describe 'ancestor chain matching' do
+    # Simulate a downstream app subclassing Otto errors
+    class AppNotFoundError < Otto::NotFoundError; end
+    class AppSpecificNotFoundError < AppNotFoundError; end
+
+    class AppForbiddenError < Otto::ForbiddenError; end
+
+    it 'catches subclass with handler registered for parent class' do
+      error = AppNotFoundError.new('Widget not found')
+      allow(Otto.logger).to receive(:info)
+
+      response = test_app.send(:handle_error, error, env)
+
+      expect(response[0]).to eq(404)
+    end
+
+    it 'catches deeply nested subclass via ancestor chain' do
+      error = AppSpecificNotFoundError.new('Specific widget not found')
+      allow(Otto.logger).to receive(:info)
+
+      response = test_app.send(:handle_error, error, env)
+
+      expect(response[0]).to eq(404)
+    end
+
+    it 'prefers the most specific registered handler' do
+      test_app.register_error_handler(AppNotFoundError, status: 410, log_level: :warn)
+
+      error = AppNotFoundError.new('Widget gone')
+      allow(Otto.logger).to receive(:warn)
+
+      response = test_app.send(:handle_error, error, env)
+
+      expect(response[0]).to eq(410)
+    end
+
+    it 'falls back to parent handler when no exact match exists' do
+      test_app.register_error_handler(AppNotFoundError, status: 410, log_level: :warn)
+
+      error = AppSpecificNotFoundError.new('Specific widget gone')
+      allow(Otto.logger).to receive(:warn)
+
+      response = test_app.send(:handle_error, error, env)
+
+      expect(response[0]).to eq(410)
+    end
+
+    it 'uses parent handler block for subclass errors' do
+      test_app.register_error_handler(AppForbiddenError, status: 403, log_level: :warn) do |error, _req|
+        { error: 'CustomForbidden', message: error.message, custom: true }
+      end
+
+      error = AppForbiddenError.new('No access')
+      allow(Otto.logger).to receive(:warn)
+
+      response = test_app.send(:handle_error, error, env)
+      body = JSON.parse(response[2].first)
+
+      expect(response[0]).to eq(403)
+      expect(body['custom']).to eq(true)
+    end
+
+    it 'still falls through to 500 for unrelated errors' do
+      error = RuntimeError.new('Something unexpected')
+      allow(Otto.logger).to receive(:error)
+
+      response = test_app.send(:handle_error, error, env)
+
+      expect(response[0]).to eq(500)
+    end
+  end
 end

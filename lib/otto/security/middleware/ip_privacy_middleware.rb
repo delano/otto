@@ -220,7 +220,8 @@ class Otto
               #
               # This early return also means NONE of the privacy fingerprint
               # values are produced for exempt IPs — no otto.privacy.fingerprint,
-              # masked_ip, hashed_ip, geo_country, or correlation_hash. That is
+              # masked_ip, hashed_ip, geo_country, asn, anonymizer, or
+              # correlation_hash. That is
               # intentional and consistent: the correlation hash targets public
               # audit-trail traffic, so req.ip_correlation_hash is nil for
               # localhost / RFC-1918 addresses (the default dev path) even when a
@@ -251,6 +252,10 @@ class Otto
           env['otto.privacy.masked_ip'] = fingerprint.masked_ip
           env['otto.privacy.hashed_ip'] = fingerprint.hashed_ip
           env['otto.privacy.geo_country'] = fingerprint.country
+          # nil unless the operator opted in; '**' when enabled but
+          # unresolved, so a consumer can tell "off" from "no answer".
+          env['otto.privacy.asn'] = fingerprint.asn
+          env['otto.privacy.anonymizer'] = fingerprint.anonymizer
 
           # Fingerprint the FULL client IP here — while client_ip is still the
           # real address, before REMOTE_ADDR is masked below — so it identifies

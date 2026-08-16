@@ -24,6 +24,10 @@ class Otto
     #   config = Otto::Privacy::Config.new
     #   config.octet_precision = 2  # Mask 2 octets instead of 1
     #
+    # rubocop:disable Metrics/ClassLength -- three parallel database
+    # configurations (geo, ASN, anonymizer) live here by design: each is a
+    # thin, symmetric writer/reader/loader trio, and splitting them into
+    # modules would hide the symmetry that makes them reviewable.
     class Config
       include Otto::Core::Freezable
 
@@ -49,8 +53,10 @@ class Otto
             audit: { disabled: true }.freeze,
       }.freeze
 
-      attr_accessor :octet_precision, :hash_rotation_period, :geo_enabled, :mask_private_ips
-      attr_reader :disabled, :correlation_secret, :geo_header, :geo_db_path
+      attr_accessor :octet_precision, :hash_rotation_period, :geo_enabled, :mask_private_ips,
+                    :asn_enabled, :anonymizer_enabled
+      attr_reader :disabled, :correlation_secret, :geo_header, :geo_db_path,
+                  :asn_db_path, :anonymizer_db_path
 
       # Class-level rotation key storage (mutable, not frozen with instances)
       # This is stored at the class level so it persists across frozen config instances
@@ -82,6 +88,23 @@ class Otto
       # @option options [#get] :geo_db_reader Bring-your-own MMDB reader (any object responding
       #   to #get, e.g. a MaxMind::DB or a compatible reader). Overrides :geo_db_path when set,
       #   so the reader choice stays independent of Otto. Default nil.
+      # @option options [Boolean] :asn_enabled Enable ASN resolution (default: FALSE — unlike
+      #   :geo_enabled, this signal is opt-in, so a deployment that never asks for it pays
+      #   nothing and no database is opened)
+      # @option options [String] :asn_db_path Filesystem path to a MaxMind-format (.mmdb) ASN
+      #   database (looked up on the already MASKED IP, like the geo database). Requires the
+      #   'maxmind-db' gem. A bad/unreadable path raises at boot, not per-request. Default nil.
+      # @option options [#get] :asn_db_reader Bring-your-own MMDB reader for ASN lookups (any
+      #   object responding to #get). Overrides :asn_db_path when set. Default nil.
+      # @option options [Boolean] :anonymizer_enabled Enable anonymizer (Tor/VPN/proxy/hosting)
+      #   classification (default: FALSE — opt-in, same as :asn_enabled)
+      # @option options [String] :anonymizer_db_path Filesystem path to a MaxMind-format (.mmdb)
+      #   anonymous-IP database. Looked up on the UNMASKED IP — anonymizer data lists individual
+      #   egress nodes at /32, so a masked lookup would answer for the node's neighbours; only
+      #   the resulting label leaves the resolver. Requires the 'maxmind-db' gem. A bad path
+      #   raises at boot. Default nil.
+      # @option options [#get] :anonymizer_db_reader Bring-your-own MMDB reader for anonymizer
+      #   lookups (any object responding to #get). Overrides :anonymizer_db_path. Default nil.
       # @option options [Boolean] :disabled Disable privacy entirely (default: false)
       # @option options [Boolean] :mask_private_ips Mask private/localhost IPs (default: false)
       # @option options [String] :correlation_secret A secret string that turns
@@ -119,8 +142,24 @@ class Otto
         @geo_db_override = nil # reader injected via geo_db_reader= (wins over path)
         self.geo_header = options[:geo_header] # canonicalized to an HTTP_* env key (or nil)
         self.geo_db_reader = options[:geo_db_reader] if options.key?(:geo_db_reader)
-        @geo_db_path = normalize_geo_db_path(options[:geo_db_path])
+        @geo_db_path = normalize_db_path(options[:geo_db_path])
         load_geo_database! # build/attach the reader now so a bad path fails at boot
+
+        # ASN enrichment (opt-in, boot-time only). Same two-ivar shape as geo.
+        @asn_enabled = options.fetch(:asn_enabled, false)
+        @asn_db_reader = nil
+        @asn_db_override = nil
+        self.asn_db_reader = options[:asn_db_reader] if options.key?(:asn_db_reader)
+        @asn_db_path = normalize_db_path(options[:asn_db_path])
+        load_asn_database!
+
+        # Anonymizer classification (opt-in, boot-time only).
+        @anonymizer_enabled = options.fetch(:anonymizer_enabled, false)
+        @anonymizer_db_reader = nil
+        @anonymizer_db_override = nil
+        self.anonymizer_db_reader = options[:anonymizer_db_reader] if options.key?(:anonymizer_db_reader)
+        @anonymizer_db_path = normalize_db_path(options[:anonymizer_db_path])
+        load_anonymizer_database!
       end
 
       # Set the stable correlation secret, validating its type up front.
@@ -163,7 +202,23 @@ class Otto
       #
       # @param value [String, nil] filesystem path to a .mmdb file, or nil
       def geo_db_path=(value)
-        @geo_db_path = normalize_geo_db_path(value)
+        @geo_db_path = normalize_db_path(value)
+      end
+
+      # Path to a MaxMind-format ASN database. See {#geo_db_path=}; the same
+      # boot-time contract applies — call {#load_asn_database!} to attach it.
+      #
+      # @param value [String, nil] filesystem path to a .mmdb file, or nil
+      def asn_db_path=(value)
+        @asn_db_path = normalize_db_path(value)
+      end
+
+      # Path to a MaxMind-format anonymous-IP database. See {#geo_db_path=};
+      # call {#load_anonymizer_database!} to attach it.
+      #
+      # @param value [String, nil] filesystem path to a .mmdb file, or nil
+      def anonymizer_db_path=(value)
+        @anonymizer_db_path = normalize_db_path(value)
       end
 
       # Inject a ready-made MMDB reader (any object responding to #get).
@@ -202,6 +257,45 @@ class Otto
         @geo_enabled ? @geo_db_reader : nil
       end
 
+      # Inject a ready-made MMDB reader for ASN lookups. See {#geo_db_reader=}.
+      #
+      # @param reader [#get, nil] MMDB-compatible reader, or nil to clear
+      # @raise [ArgumentError] if reader does not respond to :get
+      def asn_db_reader=(reader)
+        unless reader.nil? || reader.respond_to?(:get)
+          raise ArgumentError, "asn_db_reader must respond to :get, got: #{reader.class}"
+        end
+
+        @asn_db_override = reader
+      end
+
+      # The effective ASN reader, or nil when ASN resolution is off.
+      #
+      # @return [#get, nil]
+      def asn_db_reader
+        @asn_enabled ? @asn_db_reader : nil
+      end
+
+      # Inject a ready-made MMDB reader for anonymizer lookups.
+      # See {#geo_db_reader=}.
+      #
+      # @param reader [#get, nil] MMDB-compatible reader, or nil to clear
+      # @raise [ArgumentError] if reader does not respond to :get
+      def anonymizer_db_reader=(reader)
+        unless reader.nil? || reader.respond_to?(:get)
+          raise ArgumentError, "anonymizer_db_reader must respond to :get, got: #{reader.class}"
+        end
+
+        @anonymizer_db_override = reader
+      end
+
+      # The effective anonymizer reader, or nil when classification is off.
+      #
+      # @return [#get, nil]
+      def anonymizer_db_reader
+        @anonymizer_enabled ? @anonymizer_db_reader : nil
+      end
+
       # Build/attach the geo database reader for the current configuration.
       #
       # Boot-time only. Resolves the effective reader (injected override wins
@@ -221,6 +315,39 @@ class Otto
             @geo_db_override
           elsif @geo_db_path
             build_maxmind_reader(@geo_db_path)
+          end
+      end
+
+      # Build/attach the ASN database reader. See {#load_geo_database!} — same
+      # boot-time contract, same override-wins-over-path resolution.
+      #
+      # @return [void]
+      # @raise [ArgumentError] if the path is unreadable or maxmind-db is absent
+      def load_asn_database!
+        @asn_db_reader = nil
+        return unless @asn_enabled
+
+        @asn_db_reader =
+          if @asn_db_override
+            @asn_db_override
+          elsif @asn_db_path
+            build_maxmind_reader(@asn_db_path, option_name: 'asn_db_path')
+          end
+      end
+
+      # Build/attach the anonymizer database reader. See {#load_geo_database!}.
+      #
+      # @return [void]
+      # @raise [ArgumentError] if the path is unreadable or maxmind-db is absent
+      def load_anonymizer_database!
+        @anonymizer_db_reader = nil
+        return unless @anonymizer_enabled
+
+        @anonymizer_db_reader =
+          if @anonymizer_db_override
+            @anonymizer_db_override
+          elsif @anonymizer_db_path
+            build_maxmind_reader(@anonymizer_db_path, option_name: 'anonymizer_db_path')
           end
       end
 
@@ -368,11 +495,12 @@ class Otto
 
       private
 
-      # Normalize a geo_db_path option to a non-empty String or nil.
+      # Normalize a database-path option to a non-empty String or nil. Shared by
+      # the geo, ASN and anonymizer paths — the rule is identical for all three.
       #
       # @param value [String, nil] raw path option
       # @return [String, nil]
-      def normalize_geo_db_path(value)
+      def normalize_db_path(value)
         return nil if value.nil?
 
         path = value.to_s.strip
@@ -390,22 +518,22 @@ class Otto
       # @param path [String] filesystem path to a .mmdb file
       # @return [MaxMind::DB] in-memory reader
       # @raise [ArgumentError] if the path is unreadable or the gem is missing
-      def build_maxmind_reader(path)
-        raise ArgumentError, "geo_db_path is not readable: #{path.inspect}" unless File.readable?(path)
+      def build_maxmind_reader(path, option_name: 'geo_db_path')
+        raise ArgumentError, "#{option_name} is not readable: #{path.inspect}" unless File.readable?(path)
 
         begin
           require 'maxmind/db'
         rescue LoadError
           raise ArgumentError,
-                "geo_db_path is set (#{path.inspect}) but the 'maxmind-db' gem is not available. " \
+                "#{option_name} is set (#{path.inspect}) but the 'maxmind-db' gem is not available. " \
                 "Add `gem 'maxmind-db'` to your Gemfile, or inject your own reader via " \
-                'configure_ip_privacy(geo_db_reader: ...).'
+                "configure_ip_privacy(#{option_name.sub('_path', '_reader')}: ...)."
         end
 
         begin
           MaxMind::DB.new(path, mode: MaxMind::DB::MODE_MEMORY)
         rescue StandardError => e
-          raise ArgumentError, "Failed to open geo_db_path #{path.inspect}: #{e.class}: #{e.message}"
+          raise ArgumentError, "Failed to open #{option_name} #{path.inspect}: #{e.class}: #{e.message}"
         end
       end
 
@@ -475,5 +603,6 @@ class Otto
         key
       end
     end
+    # rubocop:enable Metrics/ClassLength
   end
 end

@@ -66,14 +66,14 @@ class Otto
       # (frequently abuse infrastructure), then hosting — which is merely "not
       # an eyeball network" and the weakest signal of the set.
       CLASSIFICATIONS = [
-        ['is_tor_exit_node',    'tor'],
-        ['is_public_proxy',     'proxy'],
-        ['is_anonymous_vpn',    'vpn'],
-        ['is_residential_proxy', 'residential_proxy'],
-        ['is_hosting_provider', 'hosting'],
+        %w[is_tor_exit_node tor],
+        %w[is_public_proxy proxy],
+        %w[is_anonymous_vpn vpn],
+        %w[is_residential_proxy residential_proxy],
+        %w[is_hosting_provider hosting],
         # Generic catch-all: the provider says "anonymous" without saying how.
         # Last, so it never masks a specific classification above.
-        ['is_anonymous',        'anonymous'],
+        %w[is_anonymous anonymous],
       ].freeze
 
       # Every label this resolver can emit, for consumers building zone rules.

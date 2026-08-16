@@ -15,6 +15,8 @@ class Otto
   #   def show(req, res)
   #     req.masked_ip      # Privacy-safe masked IP
   #     req.geo_country    # ISO country code
+  #     req.asn            # Network operator, when enabled
+  #     req.anonymizer     # Tor/VPN/proxy label, when enabled
   #     req.check_locale!  # Set locale for request
   #   end
   #
@@ -63,6 +65,10 @@ class Otto
     # If you need the geo country:
     #   req.geo_country  # => 'US' or nil
     #
+    # If you need the opt-in enrichment signals (nil unless enabled):
+    #   req.asn         # => 'AS15169', '**', or nil
+    #   req.anonymizer  # => 'tor', 'none', '**', or nil
+    #
     # If you need the full privacy fingerprint:
     #   req.redacted_fingerprint  # => RedactedFingerprint object or nil
 
@@ -90,6 +96,39 @@ class Otto
     #   req.geo_country  # => 'US'
     def geo_country
       redacted_fingerprint&.country || env['otto.privacy.geo_country']
+    end
+
+    # Get the Autonomous System Number of the client's network
+    #
+    # Opt-in: nil unless the operator enabled ASN resolution. '**' means it is
+    # enabled but nothing resolved — distinguishable from "switched off", which
+    # is what makes the three-state contract worth keeping.
+    #
+    # Read straight from env rather than through the fingerprint. The
+    # `fingerprint&.x || env[...]` idiom used above treats any falsey value as
+    # "fall through", which is wrong for a value whose vocabulary is fixed and
+    # whose absence is itself meaningful.
+    #
+    # @return [String, nil] 'AS15169', '**', or nil when disabled
+    # @example
+    #   req.asn  # => 'AS15169'
+    def asn
+      env['otto.privacy.asn']
+    end
+
+    # Get the anonymizing-egress classification for the client address
+    #
+    # Opt-in: nil unless the operator enabled classification. 'none' means the
+    # database was consulted and did not list the address; '**' means no
+    # database answered. Do not collapse the two — 'none' is evidence that the
+    # address is not a known egress, '**' is the absence of any evidence.
+    #
+    # @return [String, nil] 'tor', 'proxy', 'vpn', 'residential_proxy',
+    #   'hosting', 'anonymous', 'none', '**', or nil when disabled
+    # @example
+    #   req.anonymizer  # => 'tor'
+    def anonymizer
+      env['otto.privacy.anonymizer']
     end
 
     # Get anonymized user agent string

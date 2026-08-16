@@ -222,8 +222,8 @@ class Otto
 
         # CSP directives for the development environment.
         #
-        # Development mode allows inline scripts/styles and hot reloading
-        # connections for better developer experience with build tools like Vite.
+        # Development mode allows nonce-authorized inline scripts, inline styles,
+        # and hot-reloading connections for build tools such as Vite.
         #
         # @param nonce [String] nonce value injected into `script-src`
         # @return [Array<String>] directive strings, each terminated with `;`

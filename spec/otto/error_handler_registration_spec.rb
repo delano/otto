@@ -441,6 +441,11 @@ RSpec.describe Otto, 'Error Handler Registration' do
     class AppNotFoundError < Otto::NotFoundError; end
     class AppSpecificNotFoundError < AppNotFoundError; end
 
+    module AppErrorContext; end
+    class AppMixedInNotFoundError < AppNotFoundError
+      include AppErrorContext
+    end
+
     class AppForbiddenError < Otto::ForbiddenError; end
 
     it 'catches subclass with handler registered for parent class' do
@@ -476,6 +481,17 @@ RSpec.describe Otto, 'Error Handler Registration' do
       test_app.register_error_handler(AppNotFoundError, status: 410, log_level: :warn)
 
       error = AppSpecificNotFoundError.new('Specific widget gone')
+      allow(Otto.logger).to receive(:warn)
+
+      response = test_app.send(:handle_error, error, env)
+
+      expect(response[0]).to eq(410)
+    end
+
+    it 'falls back to a superclass handler when the error includes a module' do
+      test_app.register_error_handler(AppNotFoundError, status: 410, log_level: :warn)
+
+      error = AppMixedInNotFoundError.new('Mixed-in widget gone')
       allow(Otto.logger).to receive(:warn)
 
       response = test_app.send(:handle_error, error, env)

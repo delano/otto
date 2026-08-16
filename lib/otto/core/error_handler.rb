@@ -120,7 +120,7 @@ class Otto
       # Returns the handler config for the most specific registered class, or nil.
       def find_error_handler(error)
         error.class.ancestors.each do |klass|
-          break unless klass.is_a?(Class)
+          next unless klass.is_a?(Class)
 
           if handler_config = @error_handlers[klass.name]
             return handler_config

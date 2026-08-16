@@ -2,9 +2,9 @@
 
 name: Ruby Lint
 
-# Runs RuboCop across the supported Ruby versions. Linting is informational:
-# every dependency/lint step is continue-on-error, so style findings surface as
-# annotations without blocking merges.
+# Runs RuboCop across supported, non-experimental Ruby versions. Lint failures
+# block merges; existing debt is tracked explicitly in .rubocop_todo.yml so new
+# violations cannot enter the codebase unnoticed.
 
 on:
   push:
@@ -20,7 +20,7 @@ on:
     inputs:
       debug_enabled:
         type: boolean
-        description: 'Run the build with tmate debugging enabled (https://github.com/marketplace/actions/debugging-with-tmate)'
+        description: "Run the build with tmate debugging enabled (https://github.com/marketplace/actions/debugging-with-tmate)"
         required: false
         default: false
 
@@ -36,8 +36,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        ruby: ['3.2', '3.3', '3.4', '3.5', '4.0']
-        continue-on-error: [true]
+        ruby: ["3.2", "3.3", "3.4"]
 
     steps:
       - name: Checkout code
@@ -55,12 +54,10 @@ jobs:
           detached: true
 
       - name: Install dependencies
-        continue-on-error: ${{ matrix.continue-on-error }}
         run: |
           bundle config path vendor/bundle
           bundle install --jobs 4 --retry 3
 
       - name: Run Rubocop
-        continue-on-error: ${{ matrix.continue-on-error }}
         run: |
           bundle exec rubocop --config .rubocop.yml --format json --fail-level warning

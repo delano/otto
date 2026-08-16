@@ -230,7 +230,7 @@ class Otto
         def development_directives(nonce)
           [
             "default-src 'none';",
-            "script-src 'nonce-#{nonce}' 'unsafe-inline';", # Allow inline scripts for development tools
+            "script-src 'self' 'nonce-#{nonce}' 'unsafe-inline';", # Allow inline scripts and same-origin modules for development tools
             "style-src 'self' 'unsafe-inline';",
             "connect-src 'self' ws: wss: http: https:;", # Allow HTTP and all WebSocket connections for dev tools
             "img-src 'self' data:;",

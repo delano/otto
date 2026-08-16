@@ -103,7 +103,7 @@ RSpec.describe Otto::Response do
       response.send_csp_headers('text/html', 'devnonce',
                                 security_config: build_config, development_mode: true)
 
-      expect(response.headers['content-security-policy']).to include("script-src 'nonce-devnonce' 'unsafe-inline'")
+      expect(response.headers['content-security-policy']).to include("script-src 'self' 'nonce-devnonce' 'unsafe-inline'")
     end
 
     context 'quirks now fixed by the apply core' do

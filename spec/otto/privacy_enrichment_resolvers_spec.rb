@@ -1,4 +1,4 @@
-# spec/otto/enrichment_resolvers_spec.rb
+# spec/otto/privacy_enrichment_resolvers_spec.rb
 #
 # frozen_string_literal: true
 
@@ -10,9 +10,13 @@ require 'otto/env_keys' # opt-in constants module, not loaded by `require 'otto'
 # one deliberate unmasked-IP lookup). The load-bearing assertions are the
 # privacy boundaries: WHICH address each resolver is handed, and that a
 # disabled signal yields nil everywhere rather than '**'.
-RSpec.describe 'ASN and anonymizer enrichment' do
+RSpec.describe Otto::Privacy, :aggregate_failures do
   # Same shape as the geo specs' recording reader: proves exactly which IP a
   # resolver was asked about, not just what it answered.
+  def asn_record(number)
+    { 'autonomous_system_number' => number }
+  end
+
   def recording_reader(mapping)
     Class.new do
       attr_reader :seen
@@ -171,12 +175,11 @@ RSpec.describe 'ASN and anonymizer enrichment' do
 
   describe 'configure_ip_privacy wiring' do
     it 'enables and threads readers through in one call' do
-      otto = Otto.new
       reader = recording_reader('203.0.113.0' => { 'autonomous_system_number' => 64_496 })
+      otto = Otto.new
       otto.configure_ip_privacy(asn: true, asn_db_reader: reader)
       config = otto.security_config.ip_privacy_config
-      expect(config.asn_enabled).to be(true)
-      expect(config.asn_db_reader).to equal(reader)
+      expect([config.asn_enabled, config.asn_db_reader]).to eq([true, reader])
     end
 
     it 'leaves both signals untouched when their kwargs are omitted' do
@@ -204,59 +207,51 @@ RSpec.describe 'ASN and anonymizer enrichment' do
       otto
     end
 
-    def run_middleware(otto, env)
-      middleware = Otto::Security::Middleware::IPPrivacyMiddleware.new(inner_app, otto.security_config)
-      middleware.call(env)
+    def run_middleware(otto, ip = '203.0.113.42')
+      env = { 'REMOTE_ADDR' => ip, 'rack.input' => StringIO.new }
+      Otto::Security::Middleware::IPPrivacyMiddleware.new(inner_app, otto.security_config).call(env)
       env
     end
 
+    def enrichment_otto(asn_reader, anonymizer_reader)
+      build_otto(asn: true, asn_db_reader: asn_reader,
+                 anonymizer: true, anonymizer_db_reader: anonymizer_reader)
+    end
+
+    def enrichment_labels(env)
+      [env[Otto::EnvKeys::Privacy::ASN], env[Otto::EnvKeys::Privacy::ANONYMIZER],
+       Otto::Request.new(env).asn, Otto::Request.new(env).anonymizer]
+    end
+
     it 'is nil in env and on Request when not opted in (off, not unknown)' do
-      env = run_middleware(build_otto, { 'REMOTE_ADDR' => '203.0.113.42', 'rack.input' => StringIO.new })
-      expect(env['otto.privacy.asn']).to be_nil
-      expect(env['otto.privacy.anonymizer']).to be_nil
+      env = run_middleware(build_otto)
       request = Otto::Request.new(env)
-      expect(request.asn).to be_nil
-      expect(request.anonymizer).to be_nil
+      expect([env['otto.privacy.asn'], env['otto.privacy.anonymizer'], request.asn, request.anonymizer]).to all(be_nil)
     end
 
     it 'exposes both labels via env keys and Request accessors when enabled' do
-      asn_reader = recording_reader('203.0.113.0' => { 'autonomous_system_number' => 15_169 })
-      anon_reader = recording_reader('203.0.113.42' => { 'is_anonymous_vpn' => true })
-      otto = build_otto(asn: true, asn_db_reader: asn_reader,
-                        anonymizer: true, anonymizer_db_reader: anon_reader)
-      env = run_middleware(otto, { 'REMOTE_ADDR' => '203.0.113.42', 'rack.input' => StringIO.new })
-
-      expect(env[Otto::EnvKeys::Privacy::ASN]).to eq('AS15169')
-      expect(env[Otto::EnvKeys::Privacy::ANONYMIZER]).to eq('vpn')
-      request = Otto::Request.new(env)
-      expect(request.asn).to eq('AS15169')
-      expect(request.anonymizer).to eq('vpn')
+      otto = enrichment_otto(recording_reader('203.0.113.0' => asn_record(15_169)),
+                             recording_reader('203.0.113.42' => { 'is_anonymous_vpn' => true }))
+      expect(enrichment_labels(run_middleware(otto))).to eq(%w[AS15169 vpn AS15169 vpn])
     end
 
     it 'hands the ASN reader the masked IP and the anonymizer reader the real one' do
       asn_reader = recording_reader({})
-      anon_reader = recording_reader({})
-      otto = build_otto(asn: true, asn_db_reader: asn_reader,
-                        anonymizer: true, anonymizer_db_reader: anon_reader)
-      run_middleware(otto, { 'REMOTE_ADDR' => '203.0.113.42', 'rack.input' => StringIO.new })
-
-      expect(asn_reader.seen).to eq(['203.0.113.0'])
-      expect(anon_reader.seen).to eq(['203.0.113.42'])
+      anonymizer_reader = recording_reader({})
+      run_middleware(enrichment_otto(asn_reader, anonymizer_reader))
+      expect([asn_reader.seen, anonymizer_reader.seen]).to eq([['203.0.113.0'], ['203.0.113.42']])
     end
 
     it 'produces neither signal for privacy-exempt private IPs' do
-      otto = build_otto(asn: true, asn_db_reader: recording_reader({}),
-                        anonymizer: true, anonymizer_db_reader: recording_reader({}))
-      env = run_middleware(otto, { 'REMOTE_ADDR' => '127.0.0.1', 'rack.input' => StringIO.new })
+      env = run_middleware(enrichment_otto(recording_reader({}), recording_reader({})), '127.0.0.1')
       expect(env).not_to have_key('otto.privacy.asn')
       expect(env).not_to have_key('otto.privacy.anonymizer')
     end
 
     it 'includes both fields in the fingerprint hash' do
-      config = Otto::Privacy::Config.new(
-        asn_enabled: true, asn_db_reader: recording_reader('203.0.113.0' => { 'autonomous_system_number' => 64_496 }),
-        anonymizer_enabled: true, anonymizer_db_reader: recording_reader({}),
-      )
+      config = Otto::Privacy::Config.new(asn_enabled: true,
+                                          asn_db_reader: recording_reader('203.0.113.0' => asn_record(64_496)),
+                                          anonymizer_enabled: true, anonymizer_db_reader: recording_reader({}))
       fingerprint = Otto::Privacy::RedactedFingerprint.new({ 'REMOTE_ADDR' => '203.0.113.42' }, config)
       expect(fingerprint.to_h).to include(asn: 'AS64496', anonymizer: 'none')
     end

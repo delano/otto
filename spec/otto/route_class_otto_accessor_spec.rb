@@ -48,20 +48,29 @@ RSpec.describe Otto::Route::ClassMethods do
     b_assigned = Queue.new
 
     thread_a = Thread.new do
-      target_class.otto = otto_a
-      a_assigned.push(true)   # let thread_b assign now
+      begin
+        target_class.otto = otto_a
+      ensure
+        a_assigned.push(true) # let thread_b assign now
+      end
+
       b_assigned.pop          # wait until thread_b has assigned (would clobber)
       observed_a = target_class.otto
     end
 
     thread_b = Thread.new do
       a_assigned.pop          # wait until thread_a has assigned
-      target_class.otto = otto_b
-      observed_b = target_class.otto
-      b_assigned.push(true)   # release thread_a to read back
+
+      begin
+        target_class.otto = otto_b
+        observed_b = target_class.otto
+      ensure
+        b_assigned.push(true) # release thread_a to read back
+      end
     end
 
     [thread_a, thread_b].each(&:join)
+    [thread_a, thread_b].each(&:value)
 
     expect(observed_a).to eq(otto_a)
     expect(observed_b).to eq(otto_b)

@@ -511,7 +511,7 @@ RSpec.describe Otto, 'Error Handler Registration' do
       body = JSON.parse(response[2].first)
 
       expect(response[0]).to eq(403)
-      expect(body['custom']).to eq(true)
+      expect(body['custom']).to be(true)
     end
 
     it 'still falls through to 500 for unrelated errors' do

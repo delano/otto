@@ -23,7 +23,7 @@ RSpec.describe Otto::Security::CSP::Policy do
 
     it 'supports proxied and direct Vite scripts without allowing arbitrary inline scripts' do
       script_src = described_class.nonce_policy('N', development_mode: true)
-                   .split('; ').find { |directive| directive.start_with?('script-src ') }
+                                  .split('; ').find { |directive| directive.start_with?('script-src ') }
 
       expect(script_src).to eq("script-src 'self' 'nonce-N' http: https:")
     end

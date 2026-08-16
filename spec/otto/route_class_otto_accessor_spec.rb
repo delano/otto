@@ -38,19 +38,39 @@ RSpec.describe Otto::Route::ClassMethods do
     # Two "requests" for two different Otto instances dispatch through the
     # same target class concurrently. With a plain class ivar, thread_b's
     # assignment clobbers thread_a's for the duration of thread_a's request.
+    #
+    # The interleaving is forced deterministically with Queue handoffs (no
+    # sleep-based timing, which flakes on loaded CI): thread_a assigns, THEN
+    # thread_b assigns (which would overwrite a shared slot), and only THEN
+    # thread_a reads back — so a shared ivar would make thread_a observe
+    # otto_b. Fiber/thread-local storage keeps each thread on its own value.
+    a_assigned = Queue.new
+    b_assigned = Queue.new
+
     thread_a = Thread.new do
-      target_class.otto = otto_a
-      sleep 0.05
+      begin
+        target_class.otto = otto_a
+      ensure
+        a_assigned.push(true) # let thread_b assign now
+      end
+
+      b_assigned.pop          # wait until thread_b has assigned (would clobber)
       observed_a = target_class.otto
     end
 
     thread_b = Thread.new do
-      sleep 0.02
-      target_class.otto = otto_b
-      observed_b = target_class.otto
+      a_assigned.pop          # wait until thread_a has assigned
+
+      begin
+        target_class.otto = otto_b
+        observed_b = target_class.otto
+      ensure
+        b_assigned.push(true) # release thread_a to read back
+      end
     end
 
     [thread_a, thread_b].each(&:join)
+    [thread_a, thread_b].each(&:value)
 
     expect(observed_a).to eq(otto_a)
     expect(observed_b).to eq(otto_b)

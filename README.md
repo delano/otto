@@ -129,7 +129,50 @@ result.skip_reason     # => nil (or :disabled / :blank_nonce / :non_html / :exis
 
 Apps with an existing nonce env-key convention can point the accessor at it with
 `app.security_config.csp_nonce_key = 'onetime.nonce'` — the views and the header
-still share one value.
+still share one value. Boot-time policy shaping goes through
+`security_config.csp_directive_overrides = { 'worker-src' => "'self' data: blob:" }`,
+which replaces (or with `nil`, removes) a directive's sources wholesale.
+
+#### Request-scoped directive extras
+
+Some directive values only exist at request time — the canonical case is a
+multi-tenant app that must allow the resolved tenant's SSO IdP origin in
+`form-action`. For that, a handler (or middleware) writes a hash of directive
+name => additional source tokens to the env before the response is finalized:
+
+```ruby
+def signin(req, res)
+  idp_origin = resolve_tenant(req).idp_origin  # e.g. "https://login.example-idp.com"
+  req.env['otto.csp.extra_directives'] = { 'form-action' => [idp_origin] }
+  # ... render as usual; the emitted CSP now carries the origin
+end
+```
+
+The extras channel is **additive-only** and deliberately narrow:
+
+- Tokens are appended to directives already present in the built policy,
+  deduplicated. A directive that is *absent* (not in the base set, or removed
+  by a boot override) is dropped — creating one at request time would tighten
+  the policy (`form-action` does not fall back to `default-src`), and
+  re-adding one would resurrect a deliberate removal.
+- Only **origins** are accepted: `scheme://host[:port]` with an http(s) scheme
+  — no keywords (`'self'`, `'unsafe-inline'`), no scheme sources (`data:`,
+  `https:`), no wildcards, no paths, nothing that could smuggle a separator.
+- `script-src` (and `-elem`/`-attr`) and `default-src` are refused outright.
+  For the script family that is defence-in-depth policy, not nonce protection
+  (extras append, so the nonce would survive); `default-src` is refused
+  because widening it widens every unlisted directive at once.
+- Everything that fails validation is **dropped and logged** (`warn`, with the
+  directive, token, and reason) — a hostile value never raises, and the
+  response ships with the rest of the policy intact.
+
+Otto validates defensively, but it is not the policy authority: the app
+decides *which* origins to admit (resolve them from trusted per-request data,
+never echo attacker-controlled input). Extras live only in the request env —
+nothing is memoized on the (frozen-in-production) security config, so
+concurrent requests can never bleed into each other. The constant
+`Otto::EnvKeys::CSP::EXTRA_DIRECTIVES` (via `require 'otto/env_keys'`) names
+the key for downstream apps.
 
 > [!NOTE]
 > `res.send_csp_headers(content_type, nonce)` is **deprecated** in favour of

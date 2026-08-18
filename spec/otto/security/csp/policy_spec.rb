@@ -81,6 +81,35 @@ RSpec.describe Otto::Security::CSP::Policy do
       )
       expect(csp).to eq("#{production.sub("worker-src 'self' blob:;", "worker-src 'self' data:;")} report-uri /r;")
     end
+
+    it 'is byte-identical when extra_directives is nil or empty' do
+      expect(described_class.nonce_policy('N', extra_directives: nil)).to eq(production)
+      expect(described_class.nonce_policy('N', extra_directives: {})).to eq(production)
+    end
+
+    it 'applies extras AFTER overrides and BEFORE reporting directives' do
+      csp = described_class.nonce_policy(
+        'N', report_uri: '/r',
+             directive_overrides: { 'form-action' => "'self' https://boot.example.com" },
+             extra_directives: { 'form-action' => ['https://req.example.com'] }
+      )
+      expect(csp).to include("form-action 'self' https://boot.example.com https://req.example.com;")
+      expect(csp).to end_with('report-uri /r;')
+    end
+
+    it 'does not resurrect a directive a boot override deliberately removed' do
+      allow(Otto).to receive(:structured_log)
+
+      csp = described_class.nonce_policy(
+        'N', directive_overrides: { 'form-action' => nil },
+             extra_directives: { 'form-action' => ['https://req.example.com'] }
+      )
+
+      expect(csp).not_to include('form-action')
+      expect(Otto).to have_received(:structured_log)
+        .with(:warn, 'CSP request extra dropped',
+              hash_including(directive: 'form-action', reason: :absent_directive))
+    end
   end
 
   describe '.merge_directives' do
@@ -112,6 +141,61 @@ RSpec.describe Otto::Security::CSP::Policy do
       base = ["default-src 'none';"]
       expect { described_class.merge_directives(base, { 'media-src; script-src *' => "'self'" }) }
         .to raise_error(ArgumentError)
+    end
+  end
+
+  describe '.append_extra_sources' do
+    let(:base) { ["default-src 'none';", "form-action 'self';", "worker-src 'self' blob:;"] }
+
+    it 'returns the base set unchanged for nil/empty extras' do
+      expect(described_class.append_extra_sources(base, nil)).to eq(base)
+      expect(described_class.append_extra_sources(base, {})).to eq(base)
+    end
+
+    it 'appends extra tokens to a directive present in the built list' do
+      merged = described_class.append_extra_sources(
+        base, { 'form-action' => ['https://idp.example.com'] }
+      )
+      expect(merged).to eq(
+        ["default-src 'none';", "form-action 'self' https://idp.example.com;", "worker-src 'self' blob:;"]
+      )
+    end
+
+    it 'does not append a token the directive already carries (dedupe)' do
+      merged = described_class.append_extra_sources(
+        ["form-action 'self' https://idp.example.com;"],
+        { 'form-action' => ['https://idp.example.com', 'https://other.example.com'] }
+      )
+      expect(merged).to eq(["form-action 'self' https://idp.example.com https://other.example.com;"])
+    end
+
+    it 'drops (and logs) a directive absent from the built list instead of creating it' do
+      allow(Otto).to receive(:structured_log)
+
+      merged = described_class.append_extra_sources(
+        base, { 'media-src' => ['https://media.example.com'] }
+      )
+
+      expect(merged).to eq(base)
+      expect(Otto).to have_received(:structured_log)
+        .with(:warn, 'CSP request extra dropped',
+              hash_including(directive: 'media-src', reason: :absent_directive))
+    end
+
+    it 'leaves the directive BYTE-IDENTICAL when an entry has no surviving tokens' do
+      # The likely bug this pins: routing the merge through build_directive
+      # would collapse an empty source list into a bare "worker-src;",
+      # silently TIGHTENING the policy. The directive string must come back
+      # untouched instead.
+      merged = described_class.append_extra_sources(base, { 'worker-src' => [] })
+
+      expect(merged).to eq(base)
+      expect(merged[2]).to equal(base[2]).or eq("worker-src 'self' blob:;")
+      expect(merged[2]).not_to eq('worker-src;')
+    end
+
+    it 'skips a nil token list gracefully (defensive; sanitizer never sends one)' do
+      expect(described_class.append_extra_sources(base, { 'worker-src' => nil })).to eq(base)
     end
   end
 

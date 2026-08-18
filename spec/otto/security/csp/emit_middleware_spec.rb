@@ -24,8 +24,21 @@ RSpec.describe Otto::Security::CSP::EmitMiddleware do
     out_headers
   end
 
+  # Extras contract helper (see spec/support/csp_request_extras_examples.rb):
+  # the middleware hands its own env to the Writer, so extras placed there are
+  # picked up on the way out.
+  def emit_csp_with_env(headers:, nonce:, env:)
+    config = build_config
+    env['otto.security_config'] = config
+    env['otto.nonce'] = nonce
+    app = ->(_e) { [200, headers, []] }
+    _status, out_headers, = described_class.new(app, config).call(env)
+    out_headers
+  end
+
   include_examples 'a nonce-CSP emission surface'
   include_examples 'a CSP backstop surface'
+  include_examples 'a request-extras-aware CSP surface'
 
   let(:enabled_config) { build_config }
   let(:html_headers) { { 'content-type' => 'text/html; charset=utf-8' } }
@@ -115,6 +128,30 @@ RSpec.describe Otto::Security::CSP::EmitMiddleware do
 
       expect(headers['content-security-policy']).to include("script-src 'nonce-N';")
       expect(headers['content-security-policy']).not_to include('unsafe-inline;')
+    end
+  end
+
+  describe 'request-scoped directive extras (env["otto.csp.extra_directives"])' do
+    it 'folds extras the HANDLER wrote during the request into the backstop policy' do
+      env = { 'otto.security_config' => enabled_config, 'otto.nonce' => 'N' }
+      app = lambda do |e|
+        # The handler resolves per-request data (e.g. the tenant's IdP origin)
+        # and widens form-action for this response only.
+        e['otto.csp.extra_directives'] = { form_action: 'https://idp.tenant.example' }
+        [200, html_headers.dup, ['body']]
+      end
+      _status, headers, = described_class.new(app, enabled_config).call(env)
+
+      expect(headers['content-security-policy'])
+        .to include("form-action 'self' https://idp.tenant.example;")
+    end
+
+    it 'leaves a request without extras unchanged' do
+      env = { 'otto.security_config' => enabled_config, 'otto.nonce' => 'N' }
+      _status, headers, = call_with(env: env, headers: html_headers.dup)
+
+      expect(headers['content-security-policy']).to include("form-action 'self';")
+      expect(headers['content-security-policy']).not_to include('idp.tenant.example')
     end
   end
 

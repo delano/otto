@@ -149,7 +149,7 @@ class Otto
           uri = begin
             URI.parse(token)
           rescue URI::InvalidURIError
-            return nil
+            nil
           end
 
           return nil unless uri.is_a?(URI::HTTP) # URI::HTTPS is a subclass
@@ -161,7 +161,7 @@ class Otto
           return nil unless uri.path.to_s.empty?
           return nil if uri.query || uri.fragment
 
-          origin = +"#{scheme}://#{uri.host.downcase}"
+          origin = "#{scheme}://#{uri.host.downcase}"
           origin << ":#{uri.port}" unless uri.port == uri.default_port
           origin
         end
@@ -175,7 +175,7 @@ class Otto
             Otto::LoggingHelpers.request_context(env).merge(
               directive: directive&.to_s,
               token: token.inspect.slice(0, 128),
-              reason: reason,
+              reason: reason
             ).compact
           )
         end

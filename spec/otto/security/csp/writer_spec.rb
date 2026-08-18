@@ -19,9 +19,17 @@ RSpec.describe Otto::Security::CSP::Writer do
     headers
   end
 
+  # Extras contract helper (see spec/support/csp_request_extras_examples.rb):
+  # the Writer reads extras from the env passed via its env: kwarg.
+  def emit_csp_with_env(headers:, nonce:, env:)
+    described_class.apply(headers, nonce, config: build_config, env: env)
+    headers
+  end
+
   include_examples 'a nonce-CSP emission surface'
   include_examples 'a CSP override surface'
   include_examples 'a CSP backstop surface'
+  include_examples 'a request-extras-aware CSP surface'
 
   describe '.apply return value (Result)' do
     let(:config) { build_config }

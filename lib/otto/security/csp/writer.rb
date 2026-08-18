@@ -2,6 +2,8 @@
 #
 # frozen_string_literal: true
 
+require_relative 'request_extras'
+
 class Otto
   module Security
     module CSP
@@ -51,23 +53,25 @@ class Otto
         # written". `policy` is the emitted policy on success, or the pre-existing
         # policy when a `:backstop` deferred to one. `skip_reason` is one of
         # `:disabled`, `:blank_nonce`, `:non_html`, `:existing_csp` when skipped,
-        # else nil.
+        # else nil. `extra_directives` carries the sanitized request-scoped
+        # extras that were folded into the policy (nil when none were).
         class Result
           # Recognized skip reasons, in the order {Writer.apply} evaluates them.
           SKIP_REASONS = %i[disabled blank_nonce non_html existing_csp].freeze
 
-          attr_reader :policy, :skip_reason, :mode
+          attr_reader :policy, :skip_reason, :mode, :extra_directives
 
-          def initialize(applied:, mode:, policy: nil, skip_reason: nil)
+          def initialize(applied:, mode:, policy: nil, skip_reason: nil, extra_directives: nil)
             @applied = applied
             @mode = mode
             @policy = policy
             @skip_reason = skip_reason
+            @extra_directives = extra_directives
           end
 
           # Build an "applied" result for a written policy.
-          def self.applied(policy, mode:)
-            new(applied: true, mode: mode, policy: policy)
+          def self.applied(policy, mode:, extra_directives: nil)
+            new(applied: true, mode: mode, policy: policy, extra_directives: extra_directives)
           end
 
           # Build a "skipped" result. `policy` carries the pre-existing policy for
@@ -96,23 +100,31 @@ class Otto
         #   and the policy string ({Otto::Security::Config#generate_nonce_csp}).
         # @param mode [Symbol] one of {MODES}.
         # @param development_mode [Boolean] use the development directive set.
+        # @param env [Hash, nil] the Rack environment. When given, any
+        #   request-scoped directive extras the app wrote to
+        #   `env['otto.csp.extra_directives']` are sanitized
+        #   ({Otto::Security::CSP::RequestExtras.from_env}) and folded
+        #   ADDITIVELY into the policy. Nil (surfaces with no env in hand)
+        #   simply builds the policy without extras.
         # @return [Result]
         # @raise [ArgumentError] if mode is not one of {MODES}
         # @raise [FrozenError] if a write is attempted against a frozen headers hash
-        def self.apply(headers, nonce, config:, mode: :override, development_mode: false)
+        def self.apply(headers, nonce, config:, mode: :override, development_mode: false, env: nil)
           unless MODES.include?(mode)
             raise ArgumentError, "mode must be one of #{MODES.join(', ')}, got #{mode.inspect}"
           end
 
-          result = evaluate(headers, nonce, config, mode, development_mode)
+          result = evaluate(headers, nonce, config, mode, development_mode, env)
           log_debug(config, result)
           result
         end
 
         # Guarded core: returns a Result and performs the in-place write when it
         # applies. Guards are evaluated most-fundamental first so the reported
-        # skip_reason is stable and meaningful.
-        def self.evaluate(headers, nonce, config, mode, development_mode)
+        # skip_reason is stable and meaningful. Request-scoped extras are
+        # resolved only once every guard has passed, so a skipped response never
+        # logs extras drops for a policy that was never built.
+        def self.evaluate(headers, nonce, config, mode, development_mode, env)
           return Result.skipped(:disabled, mode: mode) unless enabled?(config)
           return Result.skipped(:blank_nonce, mode: mode) if blank?(nonce)
           return Result.skipped(:non_html, mode: mode) unless html_response?(headers)
@@ -120,9 +132,19 @@ class Otto
           existing = existing_csp(headers)
           return Result.skipped(:existing_csp, mode: mode, policy: existing) if existing && mode == :backstop
 
-          policy = config.generate_nonce_csp(nonce, development_mode: development_mode)
+          extras = env ? RequestExtras.from_env(env) : nil
+          extras = nil if extras && extras.empty?
+          policy = if extras
+                     config.generate_nonce_csp(nonce, development_mode: development_mode,
+                                                      extra_directives: extras)
+                   else
+                     # No-extras path keeps the historical call shape, so
+                     # duck-typed configs without the new kwarg stay compatible
+                     # (and the output stays byte-identical by construction).
+                     config.generate_nonce_csp(nonce, development_mode: development_mode)
+                   end
           write_csp(headers, policy)
-          Result.applied(policy, mode: mode)
+          Result.applied(policy, mode: mode, extra_directives: extras)
         end
         private_class_method :evaluate
 
@@ -182,12 +204,18 @@ class Otto
 
         # Uniform debug observability: when the config opts into CSP debugging,
         # log the outcome — applied policy OR skip reason — so "why didn't my page
-        # get a CSP?" no longer needs a debugger.
+        # get a CSP?" no longer needs a debugger. When request-scoped extras
+        # were folded in, note which directives and how many tokens: the
+        # EmitMiddleware backstop is otherwise silent about them, so this is
+        # the observable trace that a request's extras actually landed.
         def self.log_debug(config, result)
           return unless config.respond_to?(:debug_csp?) && config.debug_csp?
           return unless defined?(Otto.logger) && Otto.logger
 
           detail = result.applied? ? "applied (#{result.mode}) #{result.policy}" : "skipped (#{result.skip_reason})"
+          if (extras = result.extra_directives)
+            detail += " extras[#{extras.keys.join(' ')}](#{extras.each_value.sum(&:length)} tokens)"
+          end
           Otto.logger.debug("[CSP] #{detail}")
         end
         private_class_method :log_debug

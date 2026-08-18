@@ -649,14 +649,20 @@ class Otto
       #
       # @param nonce [String] The nonce value to include in the CSP
       # @param development_mode [Boolean] Whether to use development-friendly directives
+      # @param extra_directives [Hash{String=>Array<String>}, nil] request-scoped
+      #   extra source tokens appended additively after the overrides merge
+      #   (see {Otto::Security::CSP::Policy.append_extra_sources}, delano/otto#243).
+      #   Per-request data — passed through, never stored on this (deep-frozen
+      #   in production) config.
       # @return [String] Complete CSP policy string
-      def generate_nonce_csp(nonce, development_mode: false)
+      def generate_nonce_csp(nonce, development_mode: false, extra_directives: nil)
         Otto::Security::CSP::Policy.nonce_policy(
           nonce,
           development_mode: development_mode,
           report_uri: @csp_report_uri,
           report_to_url: @csp_report_to_url,
-          directive_overrides: @csp_directive_overrides
+          directive_overrides: @csp_directive_overrides,
+          extra_directives: extra_directives
         )
       end
 

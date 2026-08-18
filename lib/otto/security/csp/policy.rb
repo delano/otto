@@ -47,10 +47,18 @@ class Otto
         #   into the base set before reporting directives are appended. See
         #   {.merge_directives} for the accepted shape (replace a directive's
         #   sources, add a new directive, or remove one with a nil/false value).
+        # @param extra_directives [Hash{String=>Array<String>}, nil]
+        #   request-scoped extra source tokens appended additively AFTER the
+        #   overrides merge and BEFORE the reporting directives. Expected
+        #   pre-sanitized (see {Otto::Security::CSP::RequestExtras.from_env});
+        #   see {.append_extra_sources} for the semantics (append to present
+        #   directives only, dedupe, drop absent-directive keys).
         # @return [String] complete CSP policy string
-        def nonce_policy(nonce, development_mode: false, report_uri: nil, report_to_url: nil, directive_overrides: nil)
+        def nonce_policy(nonce, development_mode: false, report_uri: nil, report_to_url: nil,
+                         directive_overrides: nil, extra_directives: nil)
           directives = development_mode ? development_directives(nonce) : production_directives(nonce)
           directives = merge_directives(directives, directive_overrides)
+          directives = append_extra_sources(directives, extra_directives)
           uri_directive = report_uri_directive(report_uri)
           to_directive  = report_to_directive(report_to_url)
           directives += ["#{uri_directive};"] if uri_directive
@@ -149,6 +157,80 @@ class Otto
           end
 
           merged
+        end
+
+        # Fold request-scoped extra source tokens ADDITIVELY into a built
+        # directive set (delano/otto#243). A SIBLING of {.merge_directives},
+        # deliberately not a change to it: boot-time overrides REPLACE a
+        # directive's sources wholesale, request-time extras only ever APPEND.
+        #
+        # Semantics:
+        # - A directive PRESENT in the built list gets the extra tokens
+        #   appended to its source list, deduplicated (a token already present
+        #   is not appended again).
+        # - A directive ABSENT from the built list (base set minus any
+        #   boot-override removals) is DROPPED and logged: directives like
+        #   `form-action` do not fall back to `default-src`, so CREATING one
+        #   here would tighten the policy (suddenly blocking unrelated forms),
+        #   and re-adding a directive a boot override deliberately removed
+        #   (nil/false override) would resurrect it.
+        # - An entry whose token list is nil/empty leaves the base directive
+        #   BYTE-IDENTICAL — the directive string is returned as-is, never
+        #   rebuilt, so `worker-src 'self' blob:;` can never collapse into a
+        #   bare `worker-src;`.
+        #
+        # Callers pass PRE-SANITIZED extras
+        # ({Otto::Security::CSP::RequestExtras.from_env} guarantees no
+        # `;`/CR/LF and origin-only tokens), so this helper does not
+        # re-validate the grammar; it stays defensive only about shape
+        # (nil/empty values are skipped gracefully, request-time input must
+        # never raise).
+        #
+        # @note the absent-directive drop is logged via {Otto.structured_log}
+        #   WITHOUT request context — this module never sees the Rack env (its
+        #   methods stay pure functions of their arguments); the
+        #   sanitization-time drops in RequestExtras carry the request context.
+        #
+        # @param directives [Array<String>] built directive strings, each
+        #   `;`-terminated (post {.merge_directives})
+        # @param extras [Hash{String=>Array<String>}, nil] normalized directive
+        #   name => extra source tokens
+        # @return [Array<String>] directive strings with extras appended
+        def append_extra_sources(directives, extras)
+          return directives if extras.nil? || extras.empty?
+
+          remaining = extras.dup
+          merged = directives.map do |directive|
+            tokens = remaining.delete(directive_name(directive))
+            tokens.nil? || tokens.empty? ? directive : append_sources_to(directive, tokens)
+          end
+
+          remaining.each do |name, tokens|
+            Otto.structured_log(
+              :warn, 'CSP request extra dropped',
+              directive: name, token: Array(tokens).join(' ').inspect.slice(0, 128),
+              reason: :absent_directive
+            )
+          end
+
+          merged
+        end
+
+        # Append tokens to one `;`-terminated directive string, deduplicated
+        # against its existing sources. Returns the directive UNCHANGED when
+        # every token is already present (the byte-identical invariant).
+        #
+        # @param directive [String] e.g. `"form-action 'self';"`
+        # @param tokens [Array<String>] pre-sanitized source tokens
+        # @return [String] `;`-terminated directive string
+        def append_sources_to(directive, tokens)
+          body = directive.to_s.strip.delete_suffix(';')
+          name, sources = body.split(/\s+/, 2)
+          existing  = sources.to_s.split(/\s+/)
+          additions = Array(tokens).map(&:to_s).reject { |token| token.empty? || existing.include?(token) }
+          return directive if additions.empty?
+
+          "#{name} #{(existing + additions).join(' ')};"
         end
 
         # Normalize an overrides hash to lowercased, hyphenated String keys so

@@ -110,7 +110,7 @@ RSpec.describe Otto::Security::CSP::Writer do
       expect(result.extra_directives).to be_nil
     end
 
-    it 'keeps a valueless directive intact, excludes it from the Result, and logs :valueless_directive' do
+    it 'keeps a valueless directive intact, excludes it from the Result, and rejects it during sanitization' do
       allow(Otto).to receive(:structured_log)
       config = build_config
       config.enable_csp_request_extras!
@@ -134,7 +134,7 @@ RSpec.describe Otto::Security::CSP::Writer do
       expect(result.extra_directives).to eq('form-action' => ['https://idp.example.com'])
       expect(Otto).to have_received(:structured_log)
         .with(:warn, 'CSP request extra dropped',
-              hash_including(directive: 'upgrade-insecure-requests', reason: :valueless_directive,
+              hash_including(directive: 'upgrade-insecure-requests', reason: :refused_directive,
                              method: 'POST', path: '/signin'))
     end
   end

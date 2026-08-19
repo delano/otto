@@ -43,7 +43,10 @@ class Otto
       #   are additive, so the nonce source would survive an append — refusing
       #   the family simply keeps the request channel away from the one
       #   directive class that gates script execution. `default-src` is refused
-      #   because widening it widens every unlisted directive at once.
+      #   because widening it widens every unlisted directive at once. Directives
+      #   with no value are refused because an appended origin makes the entire
+      #   directive malformed; {Policy.append_extra_sources} retains the same
+      #   guard for callers that bypass this sanitizer.
       # - Tokens must be ORIGINS: `scheme://host[:port]` with an http/https
       #   scheme and a non-empty host — no path/query/fragment/userinfo, no
       #   whitespace, no `;`/CR/LF, no wildcards, no quotes. Keyword sources
@@ -62,9 +65,11 @@ class Otto
       # {Otto.structured_log} with a distinct reason (`:invalid_shape`,
       # `:refused_directive`, `:not_an_origin`) and privacy-safe request
       # context. Entries dropped later, during the policy append (an absent
-      # directive, or a config without extras support), are logged by
+      # directive, a valueless directive supplied by a caller that bypassed this
+      # sanitizer, or a config without extras support), are logged by
       # {Otto::Security::CSP::Writer} — the same message, `reason:
-      # :absent_directive` / `:config_without_extras_support`.
+      # :absent_directive` / `:valueless_directive` /
+      # `:config_without_extras_support`.
       module RequestExtras
         # The env key the consuming app writes. Hardcoded on purpose (not
         # configurable) — it is a cross-gem contract; see also
@@ -73,9 +78,14 @@ class Otto
 
         # Directives the request channel refuses to touch, wholesale. See the
         # module docs for why (defence-in-depth for the script family — NOT
-        # nonce-stripping, since appends keep the nonce — and blast radius for
-        # default-src).
-        REFUSED_DIRECTIVES = %w[script-src script-src-elem script-src-attr default-src].freeze
+        # nonce-stripping, since appends keep the nonce — blast radius for
+        # default-src — and invalid syntax for directives with no value).
+        # Keep the policy-level guard too: Policy.nonce_policy(extra_directives:)
+        # is public and can bypass this sanitizer.
+        REFUSED_DIRECTIVES = (
+          %w[script-src script-src-elem script-src-attr default-src] +
+          Policy::VALUELESS_DIRECTIVES
+        ).freeze
 
         # The only schemes an extra origin may carry.
         ALLOWED_SCHEMES = %w[http https].freeze

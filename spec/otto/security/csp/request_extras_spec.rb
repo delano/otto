@@ -71,7 +71,7 @@ RSpec.describe Otto::Security::CSP::RequestExtras do
   end
 
   describe 'refused directives' do
-    %w[script-src script-src-elem script-src-attr default-src].each do |name|
+    described_class::REFUSED_DIRECTIVES.each do |name|
       it "refuses #{name} wholesale (drop-and-log)" do
         expect(from_env_with(name => ['https://a.example.com'])).to be_nil
         expect_dropped(:refused_directive)
@@ -80,6 +80,11 @@ RSpec.describe Otto::Security::CSP::RequestExtras do
 
     it 'refuses a refused directive addressed via a Symbol key' do
       expect(from_env_with(script_src: ['https://a.example.com'])).to be_nil
+      expect_dropped(:refused_directive)
+    end
+
+    it 'refuses a valueless directive addressed via a Symbol/underscore key' do
+      expect(from_env_with(upgrade_insecure_requests: ['https://a.example.com'])).to be_nil
       expect_dropped(:refused_directive)
     end
   end

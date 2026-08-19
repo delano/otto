@@ -159,8 +159,8 @@ end
 Without the opt-in, the env key is ignored entirely — no sanitization, no
 logs. The `Writer::Result` returned by the emission surfaces reports what
 actually happened: `result.extra_directives` carries only the extras that
-landed in the policy (entries dropped because their directive was absent are
-excluded, and logged with request context instead).
+landed in the policy; rejected or dropped entries are excluded and logged with
+request context instead.
 
 The extras channel is **additive-only** and deliberately narrow:
 
@@ -170,10 +170,11 @@ The extras channel is **additive-only** and deliberately narrow:
   the policy (`form-action` does not fall back to `default-src`), and
   re-adding one would resurrect a deliberate removal.
 - Directives that take **no value** (`upgrade-insecure-requests`,
-  `block-all-mixed-content`) are left byte-identical and their entry is
-  dropped: a source appended there would emit
-  `upgrade-insecure-requests https://…`, which browsers treat as malformed and
-  discard — an extras key would silently switch the directive *off*.
+  `block-all-mixed-content`) are refused during sanitization: a source appended
+  there would emit `upgrade-insecure-requests https://…`, which browsers treat
+  as malformed and discard — an extras key would silently switch the directive
+  *off*. The policy assembler independently leaves such directives
+  byte-identical for direct callers that bypass the sanitizer.
 - Only **origins** are accepted: `scheme://host[:port]` with an http(s) scheme
   — no keywords (`'self'`, `'unsafe-inline'`), no scheme sources (`data:`,
   `https:`), no wildcards, no paths, nothing that could smuggle a separator.

@@ -89,10 +89,19 @@ anything.
 
 ## How to Run
 
+Run this example from an Otto source checkout. It requires Ruby 3.2 through
+4.0, Bundler, and the development dependencies: `rackup` is a development
+dependency in the root `Gemfile` and is not installed with the released `otto`
+gem.
+
 ```sh
+cd /path/to/otto
+bundle config set with development
+bundle install
 cd examples/lambda_handlers
-rackup config.ru -p 10780
+bundle exec rackup config.ru -p 10780
 ```
+
 
 Then, from another terminal:
 

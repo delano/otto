@@ -83,6 +83,11 @@ class Otto
       # Used by: Otto::Security::CSP::RequestExtras (read + sanitized) and
       #   folded ADDITIVELY into the nonce policy by
       #   Otto::Security::CSP::Policy.append_extra_sources at build time
+      # Note: BOOT-TIME OPT-IN — the channel does not exist until the app
+      #   calls Otto::Security::Config#enable_csp_request_extras! (default
+      #   off); without it the key is ignored entirely, no sanitize work and
+      #   no logs. The env key is a write surface any middleware in the Rack
+      #   stack can reach, a lower-trust position than boot code.
       # Note: additive-only — extras can only APPEND origin tokens
       #   (scheme://host[:port], http/https) to directives already present in
       #   the built policy. The script-src family and default-src are refused

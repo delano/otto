@@ -137,7 +137,15 @@ which replaces (or with `nil`, removes) a directive's sources wholesale.
 
 Some directive values only exist at request time — the canonical case is a
 multi-tenant app that must allow the resolved tenant's SSO IdP origin in
-`form-action`. For that, a handler (or middleware) writes a hash of directive
+`form-action`. The channel is **boot-time opt-in** (the env key is a write
+surface any middleware in the Rack stack can reach, so it does not exist until
+boot code says so):
+
+```ruby
+app.security_config.enable_csp_request_extras!  # default: off
+```
+
+With the channel enabled, a handler (or middleware) writes a hash of directive
 name => additional source tokens to the env before the response is finalized:
 
 ```ruby
@@ -147,6 +155,12 @@ def signin(req, res)
   # ... render as usual; the emitted CSP now carries the origin
 end
 ```
+
+Without the opt-in, the env key is ignored entirely — no sanitization, no
+logs. The `Writer::Result` returned by the emission surfaces reports what
+actually happened: `result.extra_directives` carries only the extras that
+landed in the policy (entries dropped because their directive was absent are
+excluded, and logged with request context instead).
 
 The extras channel is **additive-only** and deliberately narrow:
 

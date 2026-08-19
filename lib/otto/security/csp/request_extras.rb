@@ -13,10 +13,13 @@ class Otto
       # env (delano/otto#243).
       #
       # This is the opt-in channel for widening CSP directives with values only
-      # known at request time: the consuming app writes a hash of directive
-      # name => additional source tokens to `env['otto.csp.extra_directives']`
-      # before the response is finalized, and the policy build folds the
-      # sanitized survivors in ADDITIVELY (see
+      # known at request time: the app enables it at boot with
+      # {Otto::Security::Config#enable_csp_request_extras!} (default off — the
+      # env key is a write surface any middleware can reach, so it does not
+      # exist until boot code says so), then a handler writes a hash of
+      # directive name => additional source tokens to
+      # `env['otto.csp.extra_directives']` before the response is finalized,
+      # and the policy build folds the sanitized survivors in ADDITIVELY (see
       # {Otto::Security::CSP::Policy.append_extra_sources}). The motivating
       # case is a multi-tenant app that must admit the resolved tenant's SSO
       # IdP origin into `form-action` — per-request data no boot-time override
@@ -55,9 +58,13 @@ class Otto
       #   port must fall in 1..65535 — URI accepts arbitrarily large all-digit
       #   ports that no browser can match.
       #
-      # Every dropped key/token is logged at :warn via {Otto.structured_log}
-      # with a distinct reason (`:invalid_shape`, `:refused_directive`,
-      # `:not_an_origin`) and privacy-safe request context.
+      # Every key/token dropped during sanitization is logged at :warn via
+      # {Otto.structured_log} with a distinct reason (`:invalid_shape`,
+      # `:refused_directive`, `:not_an_origin`) and privacy-safe request
+      # context. Entries dropped later, during the policy append (an absent
+      # directive, or a config without extras support), are logged by
+      # {Otto::Security::CSP::Writer} — the same message, `reason:
+      # :absent_directive` / `:config_without_extras_support`.
       module RequestExtras
         # The env key the consuming app writes. Hardcoded on purpose (not
         # configurable) — it is a cross-gem contract; see also

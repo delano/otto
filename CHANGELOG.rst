@@ -7,6 +7,42 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.9.0:
+
+2.9.0 — 2026-08-18
+==================
+
+Added
+-----
+
+- Add opt-in request-scoped CSP directive extras for sources that are known
+  only while handling a request. Enable the feature at boot with
+  ``security_config.enable_csp_request_extras!``, then add approved source
+  origins by directive through ``env['otto.csp.extra_directives']``. This
+  supports cases such as adding a tenant's SSO provider to ``form-action``.
+  Disabled by default. (#243)
+
+Fixed
+-----
+
+- Prevent request-scoped CSP extras from invalidating valueless directives,
+  including ``upgrade-insecure-requests`` and ``block-all-mixed-content``.
+  Unsupported extras are ignored and logged; valid extras for other
+  directives continue to apply. (#243)
+
+Security
+--------
+
+- Validate request-scoped CSP extras before adding them to a response policy.
+  Extras can only add valid HTTP(S) origins to compatible directives already
+  present in the configured policy; script and default source directives are
+  excluded. Invalid or unsupported entries are ignored and logged without
+  affecting the remaining policy. (#243)
+
+- Reject request-scoped CSP extras for valueless directives during input
+  validation, with equivalent protection for direct CSP policy generation.
+  (#243)
+
 .. _changelog-2.8.1:
 
 2.8.1 — 2026-08-16

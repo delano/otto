@@ -1,22 +1,37 @@
 # Otto - A Ruby Gem
 
-**Define your rack-apps in plain-text with built-in security.**
-
-> **v2.0.0-pre6 Available**: This pre-release includes major improvements to middleware management, logging, and request callback handling. See [changelog](CHANGELOG.rst) for details and upgrade notes.
+**Define Rack apps in plain text, with privacy by default and opt-in security features.**
 
 ![Otto mascot](public/img/otto.jpg "Otto - All Rack, no Pinion")
 
-Otto apps have three files: a rackup file, a Ruby class, and a routes file. The routes file is just plain text that maps URLs to Ruby methods.
+Otto apps have three files: a rackup file, a Ruby class, and a routes file. The routes file is plain text that maps URLs to Ruby methods.
 
-```bash
-$ cd myapp && ls
-config.ru app.rb routes
+## Quick start
+
+Requirements: Ruby `>= 3.2, < 4.1` and Rack `>= 3.1, < 4.0`.
+
+Install Otto and the Rack server CLI, then create the three files shown below:
+
+```sh
+gem install otto rackup
+mkdir myapp && cd myapp
+```
+
+After creating `routes`, `app.rb`, and `config.ru`, start the app and verify the response:
+
+```sh
+rackup config.ru
+# In another terminal:
+curl -i http://127.0.0.1:9292/
+# HTTP/1.1 200 OK
+# ...
+# <h1>Hello Otto</h1>
 ```
 
 ## Why Otto?
 
-- **Security by Default**: Automatic IP masking for public addresses, user agent anonymization, CSRF protection, and input validation
-- **Privacy First**: Masks public IPs, strips user agent versions, provides country-level geo-location only—no external APIs needed
+- **Privacy by Default**: Masks public IP addresses and anonymizes user agents; country-level geo-location needs no external API
+- **Opt-in Security Features**: CSRF protection, input validation, security headers, and trusted-proxy configuration
 - **Simple Routing**: Define routes in plain-text files with zero configuration overhead
 - **Built-in Authentication**: Multiple strategies including API keys, tokens, role-based access, and custom implementations
 - **Developer Friendly**: Works with any Rack server, minimal dependencies, easy testing and debugging
@@ -26,10 +41,8 @@ config.ru app.rb routes
 # routes
 
 GET   /                         App#index
-POST  /feedback                 App#receive_feedback
 GET   /product/:id              App#show_product
 GET   /robots.txt               App#robots_text
-GET   /404                      App#not_found
 ```
 
 ## Ruby Class
@@ -37,6 +50,8 @@ GET   /404                      App#not_found
 # app.rb
 
 class App
+  attr_reader :req, :res
+
   def initialize(req, res)
     @req, @res = req, res
   end
@@ -51,7 +66,7 @@ class App
   end
 
   def robots_text
-    res.header['Content-Type'] = "text/plain"
+    res.headers['content-type'] = 'text/plain'
     rules = 'User-agent: *', 'Disallow: /private/keep/out'
     res.body = rules.join($/)
   end
@@ -63,9 +78,9 @@ end
 # config.ru
 
 require 'otto'
-require 'app'
+require_relative 'app'
 
-run Otto.new("./routes")
+run Otto.new('routes')
 ```
 
 
@@ -417,16 +432,6 @@ Otto includes comprehensive examples demonstrating different features:
 
 See the [examples/](examples/) directory for more.
 
-## Requirements
-
-- Ruby 3.2+
-- Rack 3.1+
-
-## Installation
-
-```bash
-gem install otto
-```
 
 ## Documentation
 

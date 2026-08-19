@@ -165,6 +165,15 @@ class Otto
         # the signature declares it. Otherwise the historical call shape is
         # used and the extras are dropped with a single structured warn
         # (`reason: :config_without_extras_support`).
+        #
+        # Declaring the kwarg is only half the duck-config protocol: opting
+        # in means BOTH accepting `extra_directives:` AND invoking the
+        # outcome block. A config that takes the kwarg but never yields
+        # leaves the outcome unknown — its policy string is still used as
+        # returned, but no applied extras are reported
+        # ({Result#extra_directives} stays nil; never fabricated from the
+        # pre-append input) and a single structured warn
+        # (`reason: :config_outcome_not_reported`) flags the gap.
         def self.build_policy(config, nonce, development_mode, extras, env)
           return [config.generate_nonce_csp(nonce, development_mode: development_mode), nil] if extras.nil?
 
@@ -180,11 +189,22 @@ class Otto
           end
 
           applied = nil
+          reported = false
           policy = config.generate_nonce_csp(
             nonce, development_mode: development_mode, extra_directives: extras
           ) do |applied_extras, dropped_extras|
+            reported = true
             applied = applied_extras unless applied_extras.empty?
             log_dropped_extras(env, dropped_extras)
+          end
+          unless reported
+            Otto.structured_log(
+              :warn, 'CSP request extras outcome unreported',
+              Otto::LoggingHelpers.request_context(env).merge(
+                directives: extras.keys.join(' '),
+                reason: :config_outcome_not_reported
+              )
+            )
           end
           [policy, applied]
         end

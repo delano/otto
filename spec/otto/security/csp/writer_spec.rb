@@ -69,6 +69,45 @@ RSpec.describe Otto::Security::CSP::Writer do
     end
   end
 
+  describe 'request extras with a config that takes the kwarg but never reports' do
+    # A duck-typed config halfway into the #243 protocol: it declares the
+    # extra_directives: kwarg (so the Writer passes the extras) but never
+    # invokes the outcome block, leaving what actually landed unknown.
+    let(:hybrid_config) do
+      Class.new do
+        def csp_nonce_enabled? = true
+
+        def csp_request_extras_enabled? = true
+
+        def generate_nonce_csp(nonce, development_mode: false, extra_directives: nil)
+          _ = development_mode
+          _ = extra_directives
+          "script-src 'nonce-#{nonce}'; form-action 'self';"
+        end
+      end.new
+    end
+
+    it 'uses the returned policy, reports no applied extras, and warns once about the unreported outcome' do
+      allow(Otto).to receive(:structured_log)
+      headers = { 'content-type' => 'text/html' }
+      env = mock_rack_env(method: 'GET', path: '/hybrid')
+      env['otto.csp.extra_directives'] = { 'form-action' => ['https://idp.example.com'] }
+
+      result = described_class.apply(headers, 'N', config: hybrid_config, env: env)
+
+      expect(result).to be_applied
+      # The outcome is unknown, not "everything applied" — the Result must
+      # never fabricate applied extras from the pre-append input.
+      expect(result.extra_directives).to be_nil
+      expect(headers['content-security-policy']).to eq("script-src 'nonce-N'; form-action 'self';")
+      expect(Otto).to have_received(:structured_log)
+        .with(:warn, 'CSP request extras outcome unreported',
+              hash_including(directives: 'form-action', reason: :config_outcome_not_reported,
+                             path: '/hybrid'))
+        .once
+    end
+  end
+
   describe 'request extras applied/dropped accounting' do
     it 'excludes an absent-directive entry from Result#extra_directives and logs it with request context' do
       allow(Otto).to receive(:structured_log)
@@ -108,6 +147,10 @@ RSpec.describe Otto::Security::CSP::Writer do
 
       expect(result).to be_applied
       expect(result.extra_directives).to be_nil
+      # The config DID report (empty applied) — the unreported-outcome warn
+      # must key off the block having run, not off applied staying nil.
+      expect(Otto).not_to have_received(:structured_log)
+        .with(:warn, 'CSP request extras outcome unreported', anything)
     end
 
     it 'keeps a valueless directive intact, excludes it from the Result, and rejects it during sanitization' do

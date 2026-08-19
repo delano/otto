@@ -133,7 +133,6 @@ class Otto
           return Result.skipped(:existing_csp, mode: mode, policy: existing) if existing && mode == :backstop
 
           extras = env ? RequestExtras.from_env(env) : nil
-          extras = nil if extras && extras.empty?
           policy = if extras
                      config.generate_nonce_csp(nonce, development_mode: development_mode,
                                                       extra_directives: extras)

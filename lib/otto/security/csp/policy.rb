@@ -233,17 +233,31 @@ class Otto
           "#{name} #{(existing + additions).join(' ')};"
         end
 
+        # Normalize one directive name: stripped, lowercased, underscores
+        # mapped to hyphens (no CSP directive contains an underscore), so a
+        # Symbol like `:worker_src` addresses the `worker-src` directive.
+        #
+        # The SINGLE normalization used by both {.normalize_overrides} and
+        # {Otto::Security::CSP::RequestExtras.from_env} — the present/absent
+        # matching in {.append_extra_sources} depends on both sides applying
+        # identical normalization, so it lives in exactly one place.
+        #
+        # @param name [String, Symbol]
+        # @return [String] normalized directive name (may be empty for blank input)
+        def normalize_directive_name(name)
+          name.to_s.strip.downcase.tr('_', '-')
+        end
+
         # Normalize an overrides hash to lowercased, hyphenated String keys so
         # lookups are case-insensitive and Symbol/String keys are
-        # interchangeable. Underscores map to hyphens (no CSP directive contains
-        # an underscore) so a Symbol key like `:worker_src` addresses the
-        # `worker-src` directive. Blank keys are dropped.
+        # interchangeable (see {.normalize_directive_name}). Blank keys are
+        # dropped.
         #
         # @param overrides [Hash]
         # @return [Hash{String=>Object}]
         def normalize_overrides(overrides)
           overrides.each_with_object({}) do |(key, value), acc|
-            name = key.to_s.strip.downcase.tr('_', '-')
+            name = normalize_directive_name(key)
             acc[name] = value unless name.empty?
           end
         end

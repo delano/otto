@@ -199,6 +199,18 @@ RSpec.describe Otto::Security::CSP::Policy do
     end
   end
 
+  describe '.normalize_directive_name' do
+    it 'strips, downcases, and maps underscores to hyphens' do
+      expect(described_class.normalize_directive_name(' FORM_ACTION ')).to eq('form-action')
+      expect(described_class.normalize_directive_name(:form_action)).to eq('form-action')
+      expect(described_class.normalize_directive_name('form-action')).to eq('form-action')
+    end
+
+    it 'returns an empty string for blank input' do
+      expect(described_class.normalize_directive_name('   ')).to eq('')
+    end
+  end
+
   describe '.static_policy' do
     it 'is byte-identical to the base policy when no reporting is configured' do
       expect(described_class.static_policy("default-src 'self'")).to eq("default-src 'self'")

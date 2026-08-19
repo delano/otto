@@ -53,21 +53,33 @@ RSpec.describe Otto::Security::CSP::RequestExtras do
     end
 
     it 'drops-and-logs a blank key' do
-      expect(from_env_with('  ' => ['https://a.example.com'])).to eq({})
+      expect(from_env_with('  ' => ['https://a.example.com'])).to be_nil
       expect_dropped(:invalid_shape)
+    end
+
+    it 'merges (unions) token lists when two raw keys normalize to the same directive' do
+      result = from_env_with(
+        'form_action' => ['https://a.example.com', 'https://both.example.com'],
+        'form-action' => ['https://b.example.com', 'https://both.example.com']
+      )
+
+      expect(result).to eq(
+        'form-action' => ['https://a.example.com', 'https://both.example.com', 'https://b.example.com']
+      )
+      expect_no_drops # nothing was dropped, so nothing is logged
     end
   end
 
   describe 'refused directives' do
     %w[script-src script-src-elem script-src-attr default-src].each do |name|
       it "refuses #{name} wholesale (drop-and-log)" do
-        expect(from_env_with(name => ['https://a.example.com'])).to eq({})
+        expect(from_env_with(name => ['https://a.example.com'])).to be_nil
         expect_dropped(:refused_directive)
       end
     end
 
     it 'refuses a refused directive addressed via a Symbol key' do
-      expect(from_env_with(script_src: ['https://a.example.com'])).to eq({})
+      expect(from_env_with(script_src: ['https://a.example.com'])).to be_nil
       expect_dropped(:refused_directive)
     end
   end
@@ -80,6 +92,8 @@ RSpec.describe Otto::Security::CSP::RequestExtras do
       'a default port (omitted)' => ['https://idp.example.com:443', 'https://idp.example.com'],
       'an uppercase origin (downcased)' => ['HTTPS://IDP.EXAMPLE.COM', 'https://idp.example.com'],
       'an IDN host in punycode form' => ['https://xn--mnchen-3ya.example', 'https://xn--mnchen-3ya.example'],
+      'a single trailing dot (FQDN root form, stripped)' => ['https://idp.example.com.', 'https://idp.example.com'],
+      'the highest valid port' => ['https://idp.example.com:65535', 'https://idp.example.com:65535'],
     }.each do |label, (token, normalized)|
       it "accepts #{label}" do
         expect(from_env_with('form-action' => [token])).to eq('form-action' => [normalized])
@@ -120,21 +134,29 @@ RSpec.describe Otto::Security::CSP::RequestExtras do
       ['a non-http(s) scheme', 'ftp://idp.example.com'],
       ['a schemeless host', 'idp.example.com'],
       ['an empty string', ''],
+      ['a doubled trailing dot (only ONE root dot is stripped)', 'https://idp.example.com..'],
+      ['a percent-encoding in the host (URI passes it through literally)', 'http://idp.example.com%00'],
+      ['a port beyond the TCP range', 'http://idp.example.com:99999999999999999999999'],
+      ['port zero', 'http://idp.example.com:0'],
     ].each do |label, token|
       it "rejects #{label}" do
-        expect(from_env_with('form-action' => [token])).to eq({})
+        expect(from_env_with('form-action' => [token])).to be_nil
         expect_dropped(:not_an_origin)
       end
     end
 
     it 'rejects a non-String token element' do
-      expect(from_env_with('form-action' => [42])).to eq({})
+      expect(from_env_with('form-action' => [42])).to be_nil
       expect_dropped(:invalid_shape)
     end
 
     it 'drops-and-logs a value that is neither String nor Array' do
-      expect(from_env_with('form-action' => 42)).to eq({})
+      expect(from_env_with('form-action' => 42)).to be_nil
       expect_dropped(:invalid_shape)
+    end
+
+    it 'returns nil (not an empty hash) when everything was dropped' do
+      expect(from_env_with('form-action' => ['*'], 'connect-src' => ["'self'"])).to be_nil
     end
 
     it 'keeps the surviving tokens when only some are rejected' do

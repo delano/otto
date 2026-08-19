@@ -1,225 +1,66 @@
-# Otto - Authentication Strategies Example
+# Otto Authentication Strategies Example
 
-This example demonstrates Otto's flexible authentication system with multiple strategies, token validation, and role-based access control.
+This source-checkout example shows four route-level authentication strategies:
 
-## What You'll Learn
+- `authenticated` accepts `demo_token`.
+- `role:admin` accepts `admin_token`.
+- `permission:write` accepts `demo_token` or `admin_token`.
+- `api_key` accepts `demo_api_key_123`.
 
-- How to configure multiple authentication strategies
-- Token-based authentication with session validation
-- API key authentication for programmatic access
-- Role and permission-based access control
-- How to protect routes with authentication requirements
-- Handling authentication failures and redirects
+The strategies are registered in `app/auth.rb` before the application handles its first request. The protected routes are defined in `routes`.
 
-## Structure
+## Prerequisites
 
-- `config.ru`: Rack configuration that initializes Otto and loads auth strategies
-- `routes`: Application routes with authentication requirements
-- `app/auth.rb`: Authentication strategy definitions and token setup
-- `app/controllers/`: Handler classes for protected and public routes
+Run this example from an Otto source checkout. Its `config.ru` loads Otto from `../../lib`, rather than from an installed gem.
 
-## Authentication Strategies in This Example
-
-### Token-Based Auth
-Validates user tokens for web applications:
-```
-GET  /profile  HomeController#profile  auth=token
-```
-Requires: `?token=demo_token`
-
-### Admin Role Auth
-Validates admin-level access:
-```
-GET  /admin    AdminController#dashboard  auth=admin
-```
-Requires: `?token=admin_token`
-
-### Permission-Based Auth
-Validates specific permissions:
-```
-POST /edit     ArticleController#update  auth=can_write
-```
-Requires: `?token=demo_token` (with write permission)
-
-### API Key Auth
-Validates API keys for programmatic access:
-```
-GET  /api/data  ApiController#show  auth=api_key
-```
-Requires: `?api_key=demo_api_key_123`
-
-## How to Run
-
-### Using rackup (recommended)
+You need a supported Ruby version and Bundler. `rackup` is a development dependency in the root `Gemfile`, so enable the `development` group before installing dependencies:
 
 ```sh
+# From the repository root
+bundle config set with development
+bundle install
+```
+
+## Run the example
+
+```sh
+# From the repository root
 cd examples/authentication_strategies
-rackup config.ru
+bundle exec rackup config.ru
 ```
 
-### Using alternative servers
+The server listens on `http://127.0.0.1:9292` by default. Leave it running and use a second terminal for the checks below.
+
+## Verify the configured credentials
+
+The strategies read the token from the query string or the exact `Authorization` header value. The API-key strategy reads the key from the query string or `X-API-Key`:
 
 ```sh
-thin -R config.ru -p 9292 start
-puma config.ru -p 9292
+curl -i "http://127.0.0.1:9292/profile?token=demo_token"
+curl -i -H 'Authorization: demo_token' http://127.0.0.1:9292/profile
+curl -i "http://127.0.0.1:9292/api/data?api_key=demo_api_key_123"
+curl -i -H 'X-API-Key: demo_api_key_123' http://127.0.0.1:9292/api/data
 ```
 
-Open your browser and navigate to `http://localhost:9292`.
-
-## Testing Authentication
-
-### Web Browser (Token-based)
-
-Click these links or visit them directly:
-
-- **Public page**: [http://localhost:9292/](http://localhost:9292/)
-- **Authenticated user**: [http://localhost:9292/profile?token=demo_token](http://localhost:9292/profile?token=demo_token)
-- **Admin user**: [http://localhost:9292/admin?token=admin_token](http://localhost:9292/admin?token=admin_token)
-- **User with write permission**: [http://localhost:9292/edit?token=demo_token](http://localhost:9292/edit?token=demo_token)
-
-### curl Commands (API Key)
+Use an omitted or invalid credential to exercise the authentication-failure path:
 
 ```sh
-# Without API key (fails)
-curl http://localhost:9292/api/data
-
-# With API key (succeeds)
-curl "http://localhost:9292/api/data?api_key=demo_api_key_123"
+curl -i http://127.0.0.1:9292/profile
+curl -i "http://127.0.0.1:9292/api/data?api_key=invalid"
 ```
 
-### Testing Invalid Credentials
+### Current limitation
 
-Try accessing protected routes without valid credentials:
+In this checkout, `app/controllers/main_controller.rb` and `app/controllers/auth_controller.rb` define class methods, while Otto instantiates route handlers with a request and response. Requests that reach those handlers therefore fail with an argument error. The commands above document the configured credential inputs, but they cannot currently verify a successful protected response until the controllers are made compatible with the handler interface.
 
-```sh
-# No token - redirects to login or returns 401
-curl http://localhost:9292/profile
+## Files to inspect
 
-# Invalid token - returns 401
-curl "http://localhost:9292/profile?token=invalid"
+- `config.ru` creates the Otto application, enables CSRF and request validation, and registers the strategies.
+- `app/auth.rb` contains the demo credentials and strategy callbacks.
+- `routes` associates each protected route with its `auth=` requirement.
+- `app/controllers/auth_controller.rb` supplies the protected responses.
 
-# Wrong token type - returns 401
-curl "http://localhost:9292/admin?api_key=demo_api_key_123"
-```
+## Next steps
 
-## Expected Output
-
-### Successful Authentication
-```
-HTTP/1.1 200 OK
-Content-Type: text/html
-
-<h1>Welcome, alice!</h1>
-<p>This is your profile.</p>
-```
-
-### Failed Authentication
-```
-HTTP/1.1 401 Unauthorized
-Content-Type: text/plain
-
-Unauthorized
-```
-
-### Redirect to Login
-```
-HTTP/1.1 302 Found
-Location: http://localhost:9292/?login=required
-```
-
-## File Structure Details
-
-### Routes File
-- Public routes (no `auth=` requirement)
-- Protected routes with different auth strategies
-- Admin-only routes
-- API routes with API key authentication
-
-### Auth Strategies (`app/auth.rb`)
-- Token validation logic with demo tokens
-- Admin role checking
-- Permission validation (read, write, admin)
-- API key validation for programmatic access
-
-### Controllers (`app/controllers/`)
-- Welcome controller for public pages
-- Profile controller for authenticated users
-- Admin controller for admin-only pages
-- Article controller for permission-based access
-- API controller for programmatic access
-
-## Key Concepts
-
-### Strategy Registration
-Strategies are registered in `config.ru` before the first request:
-
-```ruby
-app.add_auth_strategy('token', TokenStrategy.new)
-app.add_auth_strategy('admin', AdminStrategy.new)
-app.add_auth_strategy('api_key', APIKeyStrategy.new)
-```
-
-### Route Protection
-Routes specify their auth requirement in the routes file:
-
-```
-GET  /protected  Controller#method  auth=token
-POST /admin      Controller#admin   auth=admin
-```
-
-### User Context
-After successful authentication, `req.user_context` contains user info:
-
-```ruby
-def profile
-  user_id = @req.user_context[:user_id]
-  @res.body = "Welcome, #{user_id}!"
-end
-```
-
-## Demo Credentials
-
-### Tokens
-- `demo_token` - Regular user (Alice)
-  - Permissions: read, write
-  - Roles: user
-- `admin_token` - Administrator
-  - Permissions: read, write, admin
-  - Roles: admin, user
-
-### API Keys
-- `demo_api_key_123` - Demo API access
-- Additional keys can be added to `app/auth.rb`
-
-## Customizing Authentication
-
-To add your own authentication:
-
-1. **Create a strategy class**:
-   ```ruby
-   class MyStrategy < Otto::Security::Authentication::AuthStrategy
-     def authenticate(env, requirement)
-       # Validate credentials
-       success_result(user_id: 'alice')  # or failure_result
-     end
-   end
-   ```
-
-2. **Register it in config.ru**:
-   ```ruby
-   app.add_auth_strategy('my_strategy', MyStrategy.new)
-   ```
-
-3. **Use it in routes**:
-   ```
-   GET  /protected  Controller#method  auth=my_strategy
-   ```
-
-## Next Steps
-
-- Explore [Security Features](../security_features/) for CSRF, input validation, file uploads
-- Review [Advanced Routes](../advanced_routes/) for response types and logic classes
-
-## Further Reading
-
-- [CLAUDE.md](../../CLAUDE.md#authentication-architecture) - Detailed auth documentation
+- See the [security features example](../security_features/README.md) for CSRF and request-validation configuration.
+- Read [authentication documentation](../../docs/authentication.md) for application authentication design.

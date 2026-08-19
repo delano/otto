@@ -19,9 +19,15 @@ config-only on Caddy's side.
 
 ## Run it
 
+This is a source-checkout example: its Rackup file loads Otto from `../../lib`.
+From the repository root, install the optional development dependencies (which
+include `rackup`) and start the app:
+
 ```sh
+bundle config set with development
+bundle install
 cd examples/caddy_tls_demo
-rackup config.ru        # serves on http://localhost:9292
+bundle exec rackup config.ru        # serves on http://localhost:9292
 ```
 
 ## Try it

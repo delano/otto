@@ -20,50 +20,54 @@ The example is organized to separate concerns:
 - `app.rb`: Loader that requires all controller and logic files
 - `app/controllers/`: Handler classes (`RoutesApp`, namespaced controllers)
 - `app/logic/`: Business logic classes (simple, nested, namespaced)
-- `run.rb`, `puma.rb`, `test.rb`: Alternative server/test runners
+
 
 ## Key Features Demonstrated
 
 ### Response Types
 Define how responses are formatted directly in routes:
 ```
-GET  /api/users        UserController#list      response=json
-GET  /page             PageController#show      response=view
-GET  /old-url          PageController#new-url   response=redirect
+GET  /api/users        RoutesApp#list_users      response=json
+GET  /dashboard        RoutesApp#dashboard       response=view
+GET  /login            RoutesApp#login_redirect  response=redirect
 ```
 
 ### Logic Classes
 Route to specialized classes that encapsulate business logic:
 ```
-GET  /calculate        DataProcessor   # Otto auto-instantiates and calls #process
-GET  /report           ReportGenerator # Same pattern
+GET  /logic/simple     SimpleLogic
+GET  /logic/data       DataLogic       response=json
 ```
+
+The classes in `app/logic/` expose the logic used by these routes.
 
 ### CSRF Exemption
 Mark routes that don't need CSRF tokens (APIs, webhooks):
 ```
-POST /api/webhook      WebhookHandler#receive   csrf=exempt
+POST /api/webhook      RoutesApp#webhook_handler   csrf=exempt
 ```
 
 ### Namespaced Routing
 Handle complex class hierarchies naturally:
 ```
-GET  /v2/dashboard     V2::Logic::Dashboard
-GET  /admin/panel      Admin::Panel#dashboard
+GET  /logic/v2/dashboard  V2::Logic::Dashboard  response=view
+GET  /logic/admin         Admin::Panel
 ```
 
 ### Custom Parameters
 Add arbitrary key-value pairs for flexible routing:
 ```
-GET  /admin            AdminPanel#dashboard     role=admin
+GET  /feature/flags    RoutesApp#feature_flags  feature=advanced mode=enabled
 ```
+
+These are route configuration values, not query-string parameters.
 
 ### Lambda / Inline Route Handlers (Issue #41)
 Route to a proc that you **pre-register** by name, using the `&` prefix:
 ```
 GET  /ping             &health_check            response=json
-POST /webhook          &receive_webhook         response=json csrf=exempt
-GET  /go               &to_dashboard            response=redirect
+POST /hooks/receive    &receive_webhook         response=json csrf=exempt
+GET  /go/dashboard     &to_dashboard            response=redirect
 ```
 
 The `&name` token is a plain string key looked up (O(1)) in a registry you
@@ -104,67 +108,49 @@ loading**. A route naming an unregistered handler fails with a clear
 instead of executing anything. The registered procs are, of course, trusted
 code that you wrote.
 
-Note: `csrf=exempt` is parse-and-expose parity with controller routes — the CSRF
-middleware does not enforce it for any handler kind.
+This example enables CSRF protection in `config.rb`; the `routes` file marks its API and webhook examples with `csrf=exempt`.
 
-## How to Run
+## Run it
 
-### Using rackup (recommended)
+### Prerequisites
+
+Run this example from an Otto source checkout with Ruby 3.2 through 4.0 and Bundler. `rackup` is a development dependency in the root `Gemfile`, so enable that optional group before installing the bundle.
 
 ```sh
+git clone https://github.com/delano/otto.git
+cd otto
+bundle config set with development
+bundle install
 cd examples/advanced_routes
-rackup config.ru
+bundle exec rackup config.ru
 ```
 
-### Using alternative runners
+The server listens on `http://localhost:9292`.
 
-```sh
-ruby run.rb   # Basic rackup
-ruby puma.rb  # Using puma server
-ruby test.rb  # For testing
-```
+> **Current limitation:** This checked-in example does not finish booting: `app/logic/complex/business/handler.rb` attempts to declare `Complex` as a module, which conflicts with Ruby's built-in `Complex` class. Until that source issue is fixed, `rackup` exits before listening and the checks below cannot be run. They document the routes and expected responses configured by this example.
 
-The application will be running at `http://localhost:9292`.
+### Verify routes
 
-## Testing Routes
-
-Use curl to test the different routes:
+In another terminal, run these checks against routes defined in `routes`:
 
 ```sh
 # JSON response
-curl http://localhost:9292/json/test
+curl -i http://localhost:9292/api/health
 
-# View response
-curl http://localhost:9292/view/test
+# HTML view response
+curl -i http://localhost:9292/dashboard
 
-# Logic class routing
-curl http://localhost:9292/logic/simple
+# Registered lambda handler
+curl -i http://localhost:9292/ping
 
-# Namespaced routing
-curl http://localhost:9292/logic/v2/dashboard
+# Redirect response; inspect the Location header
+curl -i http://localhost:9292/go/dashboard
 
-# Custom parameters
-curl "http://localhost:9292/custom?role=admin"
+# Route configuration values
+curl -i http://localhost:9292/feature/flags
 ```
 
-## Expected Output
-
-```
-Listening on 127.0.0.1:9292, CTRL+C to stop
-
-[JSON response]
-GET /json/test 200 OK
-Content-Type: application/json
-{"status": "success", "data": {...}}
-
-[Logic class routing]
-GET /logic/simple 200 OK
-{"processed": true, "input": "test"}
-
-[Namespaced routing]
-GET /logic/v2/dashboard 200 OK
-{"version": "2.0", "dashboard": {...}}
-```
+Expect `200` responses for the first three and last commands. `/api/health` returns JSON containing `healthy`, `/dashboard` returns HTML containing `Dashboard`, `/ping` returns JSON containing `ok`, and `/feature/flags` returns JSON containing `advanced`. `/go/dashboard` returns `302` with `Location: /dashboard`.
 
 ## File Structure Details
 
@@ -191,9 +177,9 @@ The `routes` file is extensively commented to explain each feature:
 - Review the `routes` file for syntax reference
 - Examine handler methods to see request/response patterns
 - Check logic classes for business logic encapsulation patterns
-- Explore [Authentication](../authentication_strategies/) for protecting routes
-- See [Security Features](../security_features/) for CSRF, validation, file uploads
+- Explore [Authentication](../authentication_strategies/README.md) for protecting routes
+- See [Security Features](../security_features/README.md) for CSRF, validation, and file uploads
 
 ## Further Reading
 
-- [CLAUDE.md](../../CLAUDE.md) - Comprehensive developer guidance
+- [Project README](../../README.md) - Installation and framework overview

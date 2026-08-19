@@ -98,17 +98,26 @@ RSpec.describe Otto::Security::CSP::Policy do
     end
 
     it 'does not resurrect a directive a boot override deliberately removed' do
-      allow(Otto).to receive(:structured_log)
-
+      outcome = nil
       csp = described_class.nonce_policy(
         'N', directive_overrides: { 'form-action' => nil },
              extra_directives: { 'form-action' => ['https://req.example.com'] }
-      )
+      ) { |applied, dropped| outcome = [applied, dropped] }
 
       expect(csp).not_to include('form-action')
-      expect(Otto).to have_received(:structured_log)
-        .with(:warn, 'CSP request extra dropped',
-              hash_including(directive: 'form-action', reason: :absent_directive))
+      # Pure reporting, no logging: the dropped entry comes back through the
+      # outcome block so the caller holding the env can log it.
+      expect(outcome).to eq([{}, { 'form-action' => ['https://req.example.com'] }])
+    end
+
+    it 'yields the applied/dropped outcome without changing the returned policy' do
+      outcome = nil
+      csp = described_class.nonce_policy(
+        'N', extra_directives: { 'form-action' => ['https://req.example.com'] }
+      ) { |applied, dropped| outcome = [applied, dropped] }
+
+      expect(csp).to include("form-action 'self' https://req.example.com;")
+      expect(outcome).to eq([{ 'form-action' => ['https://req.example.com'] }, {}])
     end
   end
 
@@ -147,39 +156,44 @@ RSpec.describe Otto::Security::CSP::Policy do
   describe '.append_extra_sources' do
     let(:base) { ["default-src 'none';", "form-action 'self';", "worker-src 'self' blob:;"] }
 
-    it 'returns the base set unchanged for nil/empty extras' do
-      expect(described_class.append_extra_sources(base, nil)).to eq(base)
-      expect(described_class.append_extra_sources(base, {})).to eq(base)
+    it 'returns [base, {}, {}] unchanged for nil/empty extras' do
+      expect(described_class.append_extra_sources(base, nil)).to eq([base, {}, {}])
+      expect(described_class.append_extra_sources(base, {})).to eq([base, {}, {}])
     end
 
-    it 'appends extra tokens to a directive present in the built list' do
-      merged = described_class.append_extra_sources(
+    it 'appends extra tokens to a directive present in the built list and reports it applied' do
+      merged, applied, dropped = described_class.append_extra_sources(
         base, { 'form-action' => ['https://idp.example.com'] }
       )
       expect(merged).to eq(
         ["default-src 'none';", "form-action 'self' https://idp.example.com;", "worker-src 'self' blob:;"]
       )
+      expect(applied).to eq('form-action' => ['https://idp.example.com'])
+      expect(dropped).to eq({})
     end
 
     it 'does not append a token the directive already carries (dedupe)' do
-      merged = described_class.append_extra_sources(
+      merged, applied, = described_class.append_extra_sources(
         ["form-action 'self' https://idp.example.com;"],
         { 'form-action' => ['https://idp.example.com', 'https://other.example.com'] }
       )
       expect(merged).to eq(["form-action 'self' https://idp.example.com https://other.example.com;"])
+      # Already-present tokens still count as applied: they ARE in the policy.
+      expect(applied).to eq('form-action' => ['https://idp.example.com', 'https://other.example.com'])
     end
 
-    it 'drops (and logs) a directive absent from the built list instead of creating it' do
+    it 'drops a directive absent from the built list, reporting it — never logging' do
       allow(Otto).to receive(:structured_log)
 
-      merged = described_class.append_extra_sources(
+      merged, applied, dropped = described_class.append_extra_sources(
         base, { 'media-src' => ['https://media.example.com'] }
       )
 
       expect(merged).to eq(base)
-      expect(Otto).to have_received(:structured_log)
-        .with(:warn, 'CSP request extra dropped',
-              hash_including(directive: 'media-src', reason: :absent_directive))
+      expect(applied).to eq({})
+      expect(dropped).to eq('media-src' => ['https://media.example.com'])
+      # Pure function of its arguments: logging is the env-holding caller's job.
+      expect(Otto).not_to have_received(:structured_log)
     end
 
     it 'leaves the directive BYTE-IDENTICAL when an entry has no surviving tokens' do
@@ -187,15 +201,18 @@ RSpec.describe Otto::Security::CSP::Policy do
       # would collapse an empty source list into a bare "worker-src;",
       # silently TIGHTENING the policy. The directive string must come back
       # untouched instead.
-      merged = described_class.append_extra_sources(base, { 'worker-src' => [] })
+      merged, applied, dropped = described_class.append_extra_sources(base, { 'worker-src' => [] })
 
       expect(merged).to eq(base)
       expect(merged[2]).to equal(base[2]).or eq("worker-src 'self' blob:;")
       expect(merged[2]).not_to eq('worker-src;')
+      # An empty entry neither applies nor drops — nothing was requested.
+      expect(applied).to eq({})
+      expect(dropped).to eq({})
     end
 
     it 'skips a nil token list gracefully (defensive; sanitizer never sends one)' do
-      expect(described_class.append_extra_sources(base, { 'worker-src' => nil })).to eq(base)
+      expect(described_class.append_extra_sources(base, { 'worker-src' => nil })).to eq([base, {}, {}])
     end
   end
 

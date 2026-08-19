@@ -53,12 +53,20 @@ class Otto
         #   pre-sanitized (see {Otto::Security::CSP::RequestExtras.from_env});
         #   see {.append_extra_sources} for the semantics (append to present
         #   directives only, dedupe, drop absent-directive keys).
+        # @yield [applied, dropped] the extras outcome from
+        #   {.append_extra_sources} (both empty hashes when no extras were
+        #   given): the entries actually folded into the policy and the
+        #   entries dropped because their directive was absent. This is the
+        #   return channel {Otto::Security::CSP::Writer} uses to log drops
+        #   with request context and report only real appends — the policy
+        #   string stays the sole return value.
         # @return [String] complete CSP policy string
         def nonce_policy(nonce, development_mode: false, report_uri: nil, report_to_url: nil,
                          directive_overrides: nil, extra_directives: nil)
           directives = development_mode ? development_directives(nonce) : production_directives(nonce)
           directives = merge_directives(directives, directive_overrides)
-          directives = append_extra_sources(directives, extra_directives)
+          directives, applied_extras, dropped_extras = append_extra_sources(directives, extra_directives)
+          yield(applied_extras, dropped_extras) if block_given?
           uri_directive = report_uri_directive(report_uri)
           to_directive  = report_to_directive(report_to_url)
           directives += ["#{uri_directive};"] if uri_directive
@@ -169,11 +177,11 @@ class Otto
         #   appended to its source list, deduplicated (a token already present
         #   is not appended again).
         # - A directive ABSENT from the built list (base set minus any
-        #   boot-override removals) is DROPPED and logged: directives like
-        #   `form-action` do not fall back to `default-src`, so CREATING one
-        #   here would tighten the policy (suddenly blocking unrelated forms),
-        #   and re-adding a directive a boot override deliberately removed
-        #   (nil/false override) would resurrect it.
+        #   boot-override removals) is DROPPED and reported in the return:
+        #   directives like `form-action` do not fall back to `default-src`,
+        #   so CREATING one here would tighten the policy (suddenly blocking
+        #   unrelated forms), and re-adding a directive a boot override
+        #   deliberately removed (nil/false override) would resurrect it.
         # - An entry whose token list is nil/empty leaves the base directive
         #   BYTE-IDENTICAL — the directive string is returned as-is, never
         #   rebuilt, so `worker-src 'self' blob:;` can never collapse into a
@@ -186,34 +194,40 @@ class Otto
         # (nil/empty values are skipped gracefully, request-time input must
         # never raise).
         #
-        # @note the absent-directive drop is logged via {Otto.structured_log}
-        #   WITHOUT request context — this module never sees the Rack env (its
-        #   methods stay pure functions of their arguments); the
-        #   sanitization-time drops in RequestExtras carry the request context.
+        # Pure — like everything in this module, a function of its arguments
+        # with no logging and no env access. Dropped entries are RETURNED,
+        # not logged, so the one caller with the request in hand
+        # ({Otto::Security::CSP::Writer}) can log them with full request
+        # context.
         #
         # @param directives [Array<String>] built directive strings, each
         #   `;`-terminated (post {.merge_directives})
         # @param extras [Hash{String=>Array<String>}, nil] normalized directive
         #   name => extra source tokens
-        # @return [Array<String>] directive strings with extras appended
+        # @return [Array(Array<String>, Hash, Hash)] `[merged, applied, dropped]`:
+        #   the directive strings with extras appended; the extras entries that
+        #   addressed a PRESENT directive (their tokens are in the merged
+        #   policy — a token already present is simply not duplicated); and
+        #   the entries dropped because their directive was absent. Entries
+        #   with nil/empty token lists appear in neither hash.
         def append_extra_sources(directives, extras)
-          return directives if extras.nil? || extras.empty?
+          return [directives, {}, {}] if extras.nil? || extras.empty?
 
           remaining = extras.dup
+          applied = {}
           merged = directives.map do |directive|
-            tokens = remaining.delete(directive_name(directive))
-            tokens.nil? || tokens.empty? ? directive : append_sources_to(directive, tokens)
+            name = directive_name(directive)
+            tokens = remaining.delete(name)
+            if tokens.nil? || Array(tokens).empty?
+              directive
+            else
+              applied[name] = tokens
+              append_sources_to(directive, tokens)
+            end
           end
 
-          remaining.each do |name, tokens|
-            Otto.structured_log(
-              :warn, 'CSP request extra dropped',
-              directive: name, token: Array(tokens).join(' ').inspect.slice(0, 128),
-              reason: :absent_directive
-            )
-          end
-
-          merged
+          dropped = remaining.reject { |_name, tokens| Array(tokens).empty? }
+          [merged, applied, dropped]
         end
 
         # Append tokens to one `;`-terminated directive string, deduplicated

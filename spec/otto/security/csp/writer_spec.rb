@@ -34,6 +34,83 @@ RSpec.describe Otto::Security::CSP::Writer do
   include_examples 'a CSP backstop surface'
   include_examples 'a request-extras-aware CSP surface'
 
+  describe 'request extras with a config lacking the extra_directives: kwarg' do
+    # A duck-typed config frozen at the pre-#243 generate_nonce_csp signature:
+    # passing extra_directives: to it would ArgumentError at request time.
+    let(:legacy_config) do
+      Class.new do
+        def csp_nonce_enabled? = true
+
+        def csp_request_extras_enabled? = true
+
+        def generate_nonce_csp(nonce, development_mode: false)
+          _ = development_mode
+          "script-src 'nonce-#{nonce}'; form-action 'self';"
+        end
+      end.new
+    end
+
+    it 'never raises: falls back to the legacy call shape, drops the extras, and warns once' do
+      allow(Otto).to receive(:structured_log)
+      headers = { 'content-type' => 'text/html' }
+      env = mock_rack_env(method: 'GET', path: '/legacy')
+      env['otto.csp.extra_directives'] = { 'form-action' => ['https://idp.example.com'] }
+
+      result = described_class.apply(headers, 'N', config: legacy_config, env: env)
+
+      expect(result).to be_applied
+      expect(result.extra_directives).to be_nil
+      expect(headers['content-security-policy']).to eq("script-src 'nonce-N'; form-action 'self';")
+      expect(Otto).to have_received(:structured_log)
+        .with(:warn, 'CSP request extras dropped',
+              hash_including(directives: 'form-action', reason: :config_without_extras_support,
+                             path: '/legacy'))
+        .once
+    end
+  end
+
+  describe 'request extras applied/dropped accounting' do
+    it 'excludes an absent-directive entry from Result#extra_directives and logs it with request context' do
+      allow(Otto).to receive(:structured_log)
+      config = build_config
+      config.enable_csp_request_extras!
+      config.csp_directive_overrides = { 'form-action' => nil } # boot removed it
+      headers = { 'content-type' => 'text/html' }
+      env = mock_rack_env(method: 'POST', path: '/signin')
+      env['otto.csp.extra_directives'] = {
+        'form-action' => ['https://idp.example.com'],
+        'connect-src' => ['https://api.example.com'],
+      }
+
+      result = described_class.apply(headers, 'N', config: config, env: env)
+
+      expect(result).to be_applied
+      # Only what actually landed — the form-action entry was dropped by the
+      # append (absent directive), so the Result must not claim it.
+      expect(result.extra_directives).to eq('connect-src' => ['https://api.example.com'])
+      expect(headers['content-security-policy']).not_to include('form-action')
+      expect(headers['content-security-policy']).to include('https://api.example.com')
+      expect(Otto).to have_received(:structured_log)
+        .with(:warn, 'CSP request extra dropped',
+              hash_including(directive: 'form-action', reason: :absent_directive,
+                             method: 'POST', path: '/signin'))
+    end
+
+    it 'reports nil extras when every entry was dropped by the append' do
+      allow(Otto).to receive(:structured_log)
+      config = build_config
+      config.enable_csp_request_extras!
+      config.csp_directive_overrides = { 'form-action' => nil }
+      headers = { 'content-type' => 'text/html' }
+      env = { 'otto.csp.extra_directives' => { 'form-action' => ['https://idp.example.com'] } }
+
+      result = described_class.apply(headers, 'N', config: config, env: env)
+
+      expect(result).to be_applied
+      expect(result.extra_directives).to be_nil
+    end
+  end
+
   describe 'request extras opt-in gating' do
     it 'treats a duck-typed config without the predicate as extras-disabled' do
       allow(Otto).to receive(:structured_log)

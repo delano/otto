@@ -41,6 +41,10 @@ class Otto
         CSP_HEADER = 'content-security-policy'
         CONTENT_TYPE_HEADER = 'content-type'
 
+        # Method#parameters types that declare a keyword parameter (used by
+        # {.supports_extra_directives?}).
+        KEYWORD_PARAM_TYPES = %i[key keyreq].freeze
+
         # Emission modes. `:override` is a deliberate per-request call that
         # REPLACES any existing CSP (the caller owns this response's policy).
         # `:backstop` is a passive layer that DEFERS to an existing CSP (it only
@@ -53,8 +57,9 @@ class Otto
         # written". `policy` is the emitted policy on success, or the pre-existing
         # policy when a `:backstop` deferred to one. `skip_reason` is one of
         # `:disabled`, `:blank_nonce`, `:non_html`, `:existing_csp` when skipped,
-        # else nil. `extra_directives` carries the sanitized request-scoped
-        # extras that were folded into the policy (nil when none were).
+        # else nil. `extra_directives` carries the request-scoped extras that
+        # were ACTUALLY folded into the policy — entries dropped during the
+        # append (absent directive) are excluded — or nil when none landed.
         class Result
           # Recognized skip reasons, in the order {Writer.apply} evaluates them.
           SKIP_REASONS = %i[disabled blank_nonce non_html existing_csp].freeze
@@ -137,19 +142,83 @@ class Otto
           return Result.skipped(:existing_csp, mode: mode, policy: existing) if existing && mode == :backstop
 
           extras = resolve_extras(config, env)
-          policy = if extras
-                     config.generate_nonce_csp(nonce, development_mode: development_mode,
-                                                      extra_directives: extras)
-                   else
-                     # No-extras path keeps the historical call shape, so
-                     # duck-typed configs without the new kwarg stay compatible
-                     # (and the output stays byte-identical by construction).
-                     config.generate_nonce_csp(nonce, development_mode: development_mode)
-                   end
+          policy, applied_extras = build_policy(config, nonce, development_mode, extras, env)
           write_csp(headers, policy)
-          Result.applied(policy, mode: mode, extra_directives: extras)
+          Result.applied(policy, mode: mode, extra_directives: applied_extras)
         end
         private_class_method :evaluate
+
+        # Build the policy string, folding in the request-scoped extras when
+        # the config supports them. Returns `[policy, applied_extras]` where
+        # applied_extras is the hash of extras entries that ACTUALLY landed in
+        # the policy (nil when none did), as reported back by
+        # {Policy.append_extra_sources} through the outcome block — never the
+        # pre-append input, so {Result#extra_directives} and the debug log can
+        # only claim what happened. Entries the append dropped (absent
+        # directive) are logged HERE, the one place with the env in hand, with
+        # full request context; Policy stays a pure function of its arguments.
+        #
+        # Configs are duck-typed (see {.enabled?}): one with the pre-#243
+        # `generate_nonce_csp` signature would raise ArgumentError on the
+        # `extra_directives:` kwarg at request time — violating the extras
+        # channel's never-raises invariant — so the kwarg is passed only when
+        # the signature declares it. Otherwise the historical call shape is
+        # used and the extras are dropped with a single structured warn
+        # (`reason: :config_without_extras_support`).
+        def self.build_policy(config, nonce, development_mode, extras, env)
+          return [config.generate_nonce_csp(nonce, development_mode: development_mode), nil] if extras.nil?
+
+          unless supports_extra_directives?(config)
+            Otto.structured_log(
+              :warn, 'CSP request extras dropped',
+              Otto::LoggingHelpers.request_context(env).merge(
+                directives: extras.keys.join(' '),
+                reason: :config_without_extras_support
+              )
+            )
+            return [config.generate_nonce_csp(nonce, development_mode: development_mode), nil]
+          end
+
+          applied = nil
+          policy = config.generate_nonce_csp(
+            nonce, development_mode: development_mode, extra_directives: extras
+          ) do |applied_extras, dropped_extras|
+            applied = applied_extras unless applied_extras.empty?
+            log_dropped_extras(env, dropped_extras)
+          end
+          [policy, applied]
+        end
+        private_class_method :build_policy
+
+        # Whether the config's generate_nonce_csp declares the
+        # `extra_directives:` keyword (or accepts arbitrary keywords).
+        def self.supports_extra_directives?(config)
+          parameters = config.method(:generate_nonce_csp).parameters
+          parameters.any? { |type, name| KEYWORD_PARAM_TYPES.include?(type) && name == :extra_directives } ||
+            parameters.any? { |type, _name| type == :keyrest }
+        rescue NameError
+          false
+        end
+        private_class_method :supports_extra_directives?
+
+        # Log each extras entry the policy build dropped as :absent_directive,
+        # once per entry, with full request context.
+        def self.log_dropped_extras(env, dropped)
+          return if dropped.nil? || dropped.empty?
+
+          context = Otto::LoggingHelpers.request_context(env)
+          dropped.each do |name, tokens|
+            Otto.structured_log(
+              :warn, 'CSP request extra dropped',
+              context.merge(
+                directive: name,
+                token: Array(tokens).join(' ').inspect.slice(0, 128),
+                reason: :absent_directive
+              )
+            )
+          end
+        end
+        private_class_method :log_dropped_extras
 
         # Resolve the request-scoped extras, gated on the boot-time opt-in.
         # The env key is a write surface ANY middleware in the Rack stack can

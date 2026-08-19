@@ -688,15 +688,20 @@ class Otto
       #   (see {Otto::Security::CSP::Policy.append_extra_sources}, delano/otto#243).
       #   Per-request data — passed through, never stored on this (deep-frozen
       #   in production) config.
+      # @yield [applied, dropped] forwarded to
+      #   {Otto::Security::CSP::Policy.nonce_policy}: the extras entries that
+      #   actually landed in the policy and the entries dropped because their
+      #   directive was absent.
       # @return [String] Complete CSP policy string
-      def generate_nonce_csp(nonce, development_mode: false, extra_directives: nil)
+      def generate_nonce_csp(nonce, development_mode: false, extra_directives: nil, &extras_outcome)
         Otto::Security::CSP::Policy.nonce_policy(
           nonce,
-          development_mode: development_mode,
-          report_uri: @csp_report_uri,
-          report_to_url: @csp_report_to_url,
-          directive_overrides: @csp_directive_overrides,
-          extra_directives: extra_directives
+          development_mode:    development_mode,
+                report_uri:    @csp_report_uri,
+             report_to_url:    @csp_report_to_url,
+       directive_overrides:    @csp_directive_overrides,
+          extra_directives:    extra_directives,
+          &extras_outcome
         )
       end
 

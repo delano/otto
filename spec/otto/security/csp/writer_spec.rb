@@ -20,9 +20,12 @@ RSpec.describe Otto::Security::CSP::Writer do
   end
 
   # Extras contract helper (see spec/support/csp_request_extras_examples.rb):
-  # the Writer reads extras from the env passed via its env: kwarg.
-  def emit_csp_with_env(headers:, nonce:, env:)
-    described_class.apply(headers, nonce, config: build_config, env: env)
+  # the Writer reads extras from the env passed via its env: kwarg, gated on
+  # the config's boot-time opt-in.
+  def emit_csp_with_env(headers:, nonce:, env:, extras_enabled: true)
+    config = build_config
+    config.enable_csp_request_extras! if extras_enabled
+    described_class.apply(headers, nonce, config: config, env: env)
     headers
   end
 
@@ -30,6 +33,30 @@ RSpec.describe Otto::Security::CSP::Writer do
   include_examples 'a CSP override surface'
   include_examples 'a CSP backstop surface'
   include_examples 'a request-extras-aware CSP surface'
+
+  describe 'request extras opt-in gating' do
+    it 'treats a duck-typed config without the predicate as extras-disabled' do
+      allow(Otto).to receive(:structured_log)
+      duck_config = Class.new do
+        def csp_nonce_enabled? = true
+
+        def generate_nonce_csp(nonce, development_mode: false, extra_directives: nil)
+          _ = development_mode
+          _ = extra_directives
+          "script-src 'nonce-#{nonce}'; form-action 'self';"
+        end
+      end.new
+      headers = { 'content-type' => 'text/html' }
+      env = { 'otto.csp.extra_directives' => { 'form-action' => ['https://idp.example.com'] } }
+
+      result = described_class.apply(headers, 'N', config: duck_config, env: env)
+
+      expect(result).to be_applied
+      expect(result.extra_directives).to be_nil
+      expect(headers['content-security-policy']).not_to include('idp.example.com')
+      expect(Otto).not_to have_received(:structured_log)
+    end
+  end
 
   describe '.apply return value (Result)' do
     let(:config) { build_config }

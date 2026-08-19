@@ -29,12 +29,15 @@ RSpec.describe Otto::Response do
 
     # Extras contract helper (see spec/support/csp_request_extras_examples.rb):
     # #apply_csp sees extras only through a WIRED request (request&.env), so
-    # the helper attaches one carrying the given env.
-    def emit_csp_with_env(headers:, nonce:, env:)
+    # the helper attaches one carrying the given env; the config's boot-time
+    # opt-in still gates the channel.
+    def emit_csp_with_env(headers:, nonce:, env:, extras_enabled: true)
+      config = build_config
+      config.enable_csp_request_extras! if extras_enabled
       response = described_class.new
       headers.each { |k, v| response.headers[k] = v }
       response.request = Otto::Request.new(env)
-      response.apply_csp(nonce, security_config: build_config)
+      response.apply_csp(nonce, security_config: config)
       response.headers
     end
 
@@ -74,8 +77,10 @@ RSpec.describe Otto::Response do
 
     context 'request-scoped directive extras' do
       it 'reads extras from the wired request env' do
+        config = build_config
+        config.enable_csp_request_extras!
         env = mock_rack_env(method: 'GET', path: '/')
-        env['otto.security_config'] = build_config
+        env['otto.security_config'] = config
         env['otto.csp.extra_directives'] = { 'form-action' => ['https://idp.example.com'] }
         response = described_class.new
         response.headers['content-type'] = 'text/html'

@@ -18,6 +18,7 @@ RSpec.describe 'CSP request extras under concurrent requests' do
   it 'gives two interleaved requests exactly their own extras (no bleed)' do
     config = Otto::Security::Config.new
     config.enable_csp_with_nonce!
+    config.enable_csp_request_extras! # boot-time opt-in, before the freeze
     config.deep_freeze! # the production condition: one shared frozen config
 
     env_a = { 'otto.csp.extra_directives' => { 'form-action' => ['https://tenant-a.example'] } }

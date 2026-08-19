@@ -100,12 +100,15 @@ class Otto
         #   and the policy string ({Otto::Security::Config#generate_nonce_csp}).
         # @param mode [Symbol] one of {MODES}.
         # @param development_mode [Boolean] use the development directive set.
-        # @param env [Hash, nil] the Rack environment. When given, any
+        # @param env [Hash, nil] the Rack environment. When given AND the
+        #   config has opted the channel in
+        #   ({Otto::Security::Config#enable_csp_request_extras!}), any
         #   request-scoped directive extras the app wrote to
         #   `env['otto.csp.extra_directives']` are sanitized
         #   ({Otto::Security::CSP::RequestExtras.from_env}) and folded
         #   ADDITIVELY into the policy. Nil (surfaces with no env in hand)
-        #   simply builds the policy without extras.
+        #   simply builds the policy without extras; without the opt-in the
+        #   env key is ignored entirely.
         # @return [Result]
         # @raise [ArgumentError] if mode is not one of {MODES}
         # @raise [FrozenError] if a write is attempted against a frozen headers hash
@@ -122,8 +125,9 @@ class Otto
         # Guarded core: returns a Result and performs the in-place write when it
         # applies. Guards are evaluated most-fundamental first so the reported
         # skip_reason is stable and meaningful. Request-scoped extras are
-        # resolved only once every guard has passed, so a skipped response never
-        # logs extras drops for a policy that was never built.
+        # resolved only once every guard has passed — so a skipped response
+        # never logs extras drops for a policy that was never built — and only
+        # when the config opted the channel in (see {.resolve_extras}).
         def self.evaluate(headers, nonce, config, mode, development_mode, env)
           return Result.skipped(:disabled, mode: mode) unless enabled?(config)
           return Result.skipped(:blank_nonce, mode: mode) if blank?(nonce)
@@ -132,7 +136,7 @@ class Otto
           existing = existing_csp(headers)
           return Result.skipped(:existing_csp, mode: mode, policy: existing) if existing && mode == :backstop
 
-          extras = env ? RequestExtras.from_env(env) : nil
+          extras = resolve_extras(config, env)
           policy = if extras
                      config.generate_nonce_csp(nonce, development_mode: development_mode,
                                                       extra_directives: extras)
@@ -146,6 +150,21 @@ class Otto
           Result.applied(policy, mode: mode, extra_directives: extras)
         end
         private_class_method :evaluate
+
+        # Resolve the request-scoped extras, gated on the boot-time opt-in.
+        # The env key is a write surface ANY middleware in the Rack stack can
+        # reach — a lower-trust position than boot code — so the channel does
+        # not exist until {Otto::Security::Config#enable_csp_request_extras!}
+        # was called: when disabled (including duck-typed configs without the
+        # predicate) the env key is ignored entirely, with no sanitize work
+        # and no logs.
+        def self.resolve_extras(config, env)
+          return nil unless env
+          return nil unless config.respond_to?(:csp_request_extras_enabled?) && config.csp_request_extras_enabled?
+
+          RequestExtras.from_env(env)
+        end
+        private_class_method :resolve_extras
 
         # In-place, key-scoped write. Delete any case-variant of the CSP key
         # (correcting a downstream SPEC violation), then write the canonical

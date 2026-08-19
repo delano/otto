@@ -90,7 +90,7 @@ class Otto
                   :csp_nonce_enabled, :debug_csp, :mcp_auth, :csp_nonce_key,
                   :ip_privacy_config, :trusted_proxy_depth, :trusted_proxy_header,
                   :csp_report_uri, :csp_report_to_url, :csp_violation_callback,
-                  :csp_directive_overrides
+                  :csp_directive_overrides, :csp_request_extras_enabled
 
       # Initialize security configuration with safe defaults
       #
@@ -119,6 +119,7 @@ class Otto
         @csp_report_to_url      = nil
         @csp_violation_callback = nil
         @csp_directive_overrides = {}
+        @csp_request_extras_enabled = false
         @csp_script_src_override_warned = false
         @rate_limiting_config   = { custom_rules: {} }
         @ip_privacy_config      = Otto::Privacy::Config.new
@@ -510,6 +511,39 @@ class Otto
       # @return [Boolean] true if CSP nonce support is enabled
       def csp_nonce_enabled?
         @csp_nonce_enabled
+      end
+
+      # Enable the request-scoped CSP directive extras channel (delano/otto#243)
+      #
+      # Off by default: `env['otto.csp.extra_directives']` is a write surface
+      # that ANY middleware in the Rack stack can reach — a lower-trust
+      # position than boot code — so the channel does not exist until the app
+      # explicitly opts in here. Until then the Writer ignores the env key
+      # entirely (no sanitize work, no logs).
+      #
+      # With the channel enabled, a handler (or middleware) can widen
+      # directives with values only known at request time by writing a hash of
+      # directive name => additional origin tokens to the env before the
+      # response is finalized. Extras are additive-only and sanitized
+      # defensively; see {Otto::Security::CSP::RequestExtras}.
+      #
+      # @return [void]
+      # @raise [FrozenError] if configuration is frozen
+      #
+      # @example At boot, alongside nonce CSP
+      #   config.enable_csp_with_nonce!
+      #   config.enable_csp_request_extras!
+      def enable_csp_request_extras!
+        ensure_not_frozen!
+
+        @csp_request_extras_enabled = true
+      end
+
+      # Check if the request-scoped CSP directive extras channel is enabled
+      #
+      # @return [Boolean] true when {#enable_csp_request_extras!} was called
+      def csp_request_extras_enabled?
+        @csp_request_extras_enabled
       end
 
       # Set the Rack env key the framework-owned lazy nonce is memoized under

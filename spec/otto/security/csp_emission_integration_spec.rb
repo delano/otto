@@ -71,6 +71,7 @@ RSpec.describe 'Otto CSP emission (integration)' do
     instance = Otto.new(routes_file.path)
     instance.enable_csp_with_nonce!
     instance.enable_csp_emission!
+    instance.security_config.enable_csp_request_extras! # opt the extras channel in at boot
     instance
   end
 
@@ -109,6 +110,17 @@ RSpec.describe 'Otto CSP emission (integration)' do
 
     expect(csp).to include("form-action 'self' https://idp.tenant.example;")
     expect(csp).to include("script-src 'nonce-#{body_nonce}'") # extras never touch script-src
+  end
+
+  it 'ignores handler-written extras when the channel was not enabled at boot (default off)' do
+    plain = Otto.new(routes_file.path)
+    plain.enable_csp_with_nonce!
+    plain.enable_csp_emission!
+
+    _status, headers, = plain.call(Rack::MockRequest.env_for('/with_extras'))
+
+    expect(headers['content-security-policy']).to include("form-action 'self';")
+    expect(headers['content-security-policy']).not_to include('idp.tenant.example')
   end
 
   it 'does not carry extras over to a request that wrote none' do

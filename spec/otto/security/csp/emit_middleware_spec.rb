@@ -26,9 +26,10 @@ RSpec.describe Otto::Security::CSP::EmitMiddleware do
 
   # Extras contract helper (see spec/support/csp_request_extras_examples.rb):
   # the middleware hands its own env to the Writer, so extras placed there are
-  # picked up on the way out.
-  def emit_csp_with_env(headers:, nonce:, env:)
+  # picked up on the way out — but only when the config opted the channel in.
+  def emit_csp_with_env(headers:, nonce:, env:, extras_enabled: true)
     config = build_config
+    config.enable_csp_request_extras! if extras_enabled
     env['otto.security_config'] = config
     env['otto.nonce'] = nonce
     app = ->(_e) { [200, headers, []] }
@@ -132,15 +133,21 @@ RSpec.describe Otto::Security::CSP::EmitMiddleware do
   end
 
   describe 'request-scoped directive extras (env["otto.csp.extra_directives"])' do
+    let(:extras_config) do
+      config = build_config
+      config.enable_csp_request_extras!
+      config
+    end
+
     it 'folds extras the HANDLER wrote during the request into the backstop policy' do
-      env = { 'otto.security_config' => enabled_config, 'otto.nonce' => 'N' }
+      env = { 'otto.security_config' => extras_config, 'otto.nonce' => 'N' }
       app = lambda do |e|
         # The handler resolves per-request data (e.g. the tenant's IdP origin)
         # and widens form-action for this response only.
         e['otto.csp.extra_directives'] = { form_action: 'https://idp.tenant.example' }
         [200, html_headers.dup, ['body']]
       end
-      _status, headers, = described_class.new(app, enabled_config).call(env)
+      _status, headers, = described_class.new(app, extras_config).call(env)
 
       expect(headers['content-security-policy'])
         .to include("form-action 'self' https://idp.tenant.example;")

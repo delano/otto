@@ -13,10 +13,14 @@
 #   include_examples 'a request-extras-aware CSP surface'
 # and defining an `emit_csp_with_env` helper with this contract:
 #
-#   emit_csp_with_env(headers:, nonce:, env:) -> Hash  # resulting response headers
+#   emit_csp_with_env(headers:, nonce:, env:, extras_enabled: true) -> Hash
+#     # resulting response headers
 #
 # The env is the hash the surface will read extras from; the helper wires it
 # however the surface requires (Writer kwarg, middleware env, wired request).
+# `extras_enabled: false` must build the config WITHOUT
+# `enable_csp_request_extras!` — the channel is boot-time opt-in, and every
+# surface must ignore the env key entirely when it is off.
 
 RSpec.shared_examples 'a request-extras-aware CSP surface' do
   let(:extras_nonce) { 'extras-nonce-3+/' }
@@ -32,6 +36,18 @@ RSpec.shared_examples 'a request-extras-aware CSP surface' do
 
     expect(headers['content-security-policy'])
       .to include("form-action 'self' https://idp.example.com;")
+  end
+
+  it 'ignores env extras entirely when the channel is not enabled (the default)' do
+    allow(Otto).to receive(:structured_log)
+    env = { 'otto.csp.extra_directives' => { 'form-action' => ['https://idp.example.com'] } }
+    headers = emit_csp_with_env(headers: extras_html.dup, nonce: extras_nonce, env: env,
+                                extras_enabled: false)
+
+    expect(headers['content-security-policy']).to eq(extras_baseline_policy)
+    expect(headers['content-security-policy']).not_to include('idp.example.com')
+    # Disabled means the channel does not exist: no sanitize work, no logs.
+    expect(Otto).not_to have_received(:structured_log)
   end
 
   it 'emits the base policy byte-identically for a request without extras' do

@@ -50,6 +50,9 @@ RSpec.describe 'Otto CSP request extras against a frozen configuration' do
     instance = Otto.new(routes_file.path)
     instance.enable_csp_with_nonce!
     instance.enable_csp_emission!
+    # The extras channel is boot-time opt-in — flip it on BEFORE the freeze,
+    # exactly as a production boot would.
+    instance.security_config.enable_csp_request_extras!
     # Freeze the whole instance the way the first real request would in
     # production (RSpec normally skips this). freeze_configuration! is private.
     instance.send(:freeze_configuration!)

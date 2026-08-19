@@ -29,6 +29,23 @@ class Otto
         # can never drift.
         REPORTING_GROUP = 'otto-csp'
 
+        # CSP directives that take NO value at all. Appending a source to one
+        # of these does not widen it — it makes the directive SYNTACTICALLY
+        # malformed (`upgrade-insecure-requests https://x;`), and a browser
+        # drops a malformed directive wholesale. So an extras entry keyed to
+        # one of them would silently DISABLE the directive it names, the exact
+        # inverse of the additive contract. {.append_extra_sources} therefore
+        # leaves them byte-identical and reports the entry as dropped.
+        #
+        # Deliberately only these two: `sandbox`, `trusted-types`, and
+        # `require-trusted-types-for` take non-source values, which makes
+        # appending an origin to them useless, but the result is still valid
+        # syntax the browser honours — no silent policy loss.
+        # `upgrade-insecure-requests` remains a CSP extension. Conversely,
+        # `block-all-mixed-content` is obsolete in the Mixed Content standard,
+        # but is retained here to protect legacy policies that still emit it.
+        VALUELESS_DIRECTIVES = %w[upgrade-insecure-requests block-all-mixed-content].freeze
+
         # Build the per-request nonce CSP policy string.
         #
         # Byte-identical to Otto's historical {Otto::Security::Config#generate_nonce_csp}
@@ -182,6 +199,12 @@ class Otto
         #   so CREATING one here would tighten the policy (suddenly blocking
         #   unrelated forms), and re-adding a directive a boot override
         #   deliberately removed (nil/false override) would resurrect it.
+        # - A directive that takes NO value ({VALUELESS_DIRECTIVES}, e.g.
+        #   `upgrade-insecure-requests`) is left BYTE-IDENTICAL and its entry
+        #   is DROPPED: appending a source there would emit
+        #   `upgrade-insecure-requests https://x;`, which browsers treat as
+        #   malformed and discard — an extras key would silently turn the
+        #   directive OFF instead of widening it.
         # - An entry whose token list is nil/empty leaves the base directive
         #   BYTE-IDENTICAL — the directive string is returned as-is, never
         #   rebuilt, so `worker-src 'self' blob:;` can never collapse into a
@@ -208,8 +231,9 @@ class Otto
         #   the directive strings with extras appended; the extras entries that
         #   addressed a PRESENT directive (their tokens are in the merged
         #   policy — a token already present is simply not duplicated); and
-        #   the entries dropped because their directive was absent. Entries
-        #   with nil/empty token lists appear in neither hash.
+        #   the entries dropped because their directive was absent or takes no
+        #   value ({VALUELESS_DIRECTIVES}). Entries with nil/empty token lists
+        #   appear in neither hash.
         def append_extra_sources(directives, extras)
           return [directives, {}, {}] if extras.nil? || extras.empty?
 
@@ -218,12 +242,18 @@ class Otto
           merged = directives.map do |directive|
             name = directive_name(directive)
             tokens = remaining.delete(name)
-            if tokens.nil? || Array(tokens).empty?
-              directive
-            else
-              applied[name] = tokens
-              append_sources_to(directive, tokens)
+            next directive if tokens.nil? || Array(tokens).empty?
+
+            if valueless_directive?(name)
+              # Put the entry back so it surfaces in `dropped` rather than
+              # vanishing: the caller with the request in hand must be able to
+              # log that these tokens never landed.
+              remaining[name] = tokens
+              next directive
             end
+
+            applied[name] = tokens
+            append_sources_to(directive, tokens)
           end
 
           dropped = remaining.reject { |_name, tokens| Array(tokens).empty? }
@@ -277,12 +307,24 @@ class Otto
         end
 
         # The directive name (first token) of a `;`-terminated directive string,
-        # lowercased for case-insensitive matching.
+        # run through {.normalize_directive_name} so the built policy and the
+        # extras/override hashes are compared on ONE normalization.
         #
         # @param directive [String]
         # @return [String]
         def directive_name(directive)
-          directive.to_s.strip.delete_suffix(';').split(/\s+/, 2).first.to_s.downcase
+          normalize_directive_name(directive.to_s.strip.delete_suffix(';').split(/\s+/, 2).first)
+        end
+
+        # True when +name+ addresses a directive that takes no value at all
+        # (see {VALUELESS_DIRECTIVES}). Normalizes through
+        # {.normalize_directive_name}, so `:upgrade_insecure_requests` and
+        # `'Upgrade-Insecure-Requests'` are recognized like the canonical form.
+        #
+        # @param name [String, Symbol]
+        # @return [Boolean]
+        def valueless_directive?(name)
+          VALUELESS_DIRECTIVES.include?(normalize_directive_name(name))
         end
 
         # Build a single `;`-terminated directive string from a name and an

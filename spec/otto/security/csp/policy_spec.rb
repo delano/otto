@@ -214,6 +214,82 @@ RSpec.describe Otto::Security::CSP::Policy do
     it 'skips a nil token list gracefully (defensive; sanitizer never sends one)' do
       expect(described_class.append_extra_sources(base, { 'worker-src' => nil })).to eq([base, {}, {}])
     end
+
+    context 'with a directive that takes no value' do
+      # A source appended to upgrade-insecure-requests makes the directive
+      # MALFORMED, and browsers discard a malformed directive wholesale — so
+      # an unguarded append would silently turn the directive OFF.
+      let(:valueless_base) do
+        ["default-src 'none';", 'upgrade-insecure-requests;', "form-action 'self';"]
+      end
+
+      Otto::Security::CSP::Policy::VALUELESS_DIRECTIVES.each do |name|
+        it "leaves #{name} byte-identical and reports the entry dropped" do
+          policy = ["default-src 'none';", "#{name};"]
+
+          merged, applied, dropped = described_class.append_extra_sources(
+            policy, { name => ['https://idp.example.com'] }
+          )
+
+          expect(merged).to eq(policy)
+          expect(merged.last).to eq("#{name};")
+          expect(merged.join(' ')).not_to include('https://idp.example.com')
+          expect(applied).to eq({})
+          expect(dropped).to eq(name => ['https://idp.example.com'])
+        end
+      end
+
+      it 'drops a symbol/underscore key form addressing a valueless directive' do
+        merged, applied, dropped = described_class.append_extra_sources(
+          valueless_base, { upgrade_insecure_requests: ['https://idp.example.com'] }
+        )
+
+        expect(merged).to eq(valueless_base)
+        expect(applied).to eq({})
+        expect(dropped).to eq(upgrade_insecure_requests: ['https://idp.example.com'])
+      end
+
+      it 'drops a mixed-case key form addressing a valueless directive' do
+        merged, applied, dropped = described_class.append_extra_sources(
+          valueless_base, { 'Upgrade-Insecure-Requests' => ['https://idp.example.com'] }
+        )
+
+        expect(merged).to eq(valueless_base)
+        expect(applied).to eq({})
+        expect(dropped).to eq('Upgrade-Insecure-Requests' => ['https://idp.example.com'])
+      end
+
+      it 'still applies the other entries in the same call (one bad key does not poison the batch)' do
+        merged, applied, dropped = described_class.append_extra_sources(
+          valueless_base,
+          {
+            'upgrade-insecure-requests' => ['https://idp.example.com'],
+            'form-action' => ['https://idp.example.com'],
+          }
+        )
+
+        expect(merged).to eq(
+          ["default-src 'none';", 'upgrade-insecure-requests;', "form-action 'self' https://idp.example.com;"]
+        )
+        expect(applied).to eq('form-action' => ['https://idp.example.com'])
+        expect(dropped).to eq('upgrade-insecure-requests' => ['https://idp.example.com'])
+      end
+    end
+  end
+
+  describe '.valueless_directive?' do
+    it 'recognizes the valueless directives in any key form' do
+      expect(described_class.valueless_directive?('upgrade-insecure-requests')).to be true
+      expect(described_class.valueless_directive?(:upgrade_insecure_requests)).to be true
+      expect(described_class.valueless_directive?(' Block-All-Mixed-Content ')).to be true
+    end
+
+    it 'leaves value-taking directives alone (scope discipline: sandbox et al. stay appendable)' do
+      expect(described_class.valueless_directive?('form-action')).to be false
+      expect(described_class.valueless_directive?('sandbox')).to be false
+      expect(described_class.valueless_directive?('trusted-types')).to be false
+      expect(described_class.valueless_directive?('require-trusted-types-for')).to be false
+    end
   end
 
   describe '.normalize_directive_name' do

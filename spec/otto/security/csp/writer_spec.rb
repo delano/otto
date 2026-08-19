@@ -109,6 +109,34 @@ RSpec.describe Otto::Security::CSP::Writer do
       expect(result).to be_applied
       expect(result.extra_directives).to be_nil
     end
+
+    it 'keeps a valueless directive intact, excludes it from the Result, and logs :valueless_directive' do
+      allow(Otto).to receive(:structured_log)
+      config = build_config
+      config.enable_csp_request_extras!
+      # How a real config carries the directive: an override with no sources.
+      config.csp_directive_overrides = { 'upgrade-insecure-requests' => [] }
+      headers = { 'content-type' => 'text/html' }
+      env = mock_rack_env(method: 'POST', path: '/signin')
+      env['otto.csp.extra_directives'] = {
+        'upgrade-insecure-requests' => ['https://idp.example.com'],
+        'form-action' => ['https://idp.example.com'],
+      }
+
+      result = described_class.apply(headers, 'N', config: config, env: env)
+
+      policy = headers['content-security-policy']
+      # Appending here would emit `upgrade-insecure-requests https://...;`,
+      # which browsers discard — silently disabling the directive.
+      expect(policy).to include('upgrade-insecure-requests;')
+      expect(policy).not_to include('upgrade-insecure-requests https')
+      expect(policy).to include("form-action 'self' https://idp.example.com;")
+      expect(result.extra_directives).to eq('form-action' => ['https://idp.example.com'])
+      expect(Otto).to have_received(:structured_log)
+        .with(:warn, 'CSP request extra dropped',
+              hash_including(directive: 'upgrade-insecure-requests', reason: :valueless_directive,
+                             method: 'POST', path: '/signin'))
+    end
   end
 
   describe 'request extras opt-in gating' do

@@ -169,6 +169,11 @@ The extras channel is **additive-only** and deliberately narrow:
   by a boot override) is dropped — creating one at request time would tighten
   the policy (`form-action` does not fall back to `default-src`), and
   re-adding one would resurrect a deliberate removal.
+- Directives that take **no value** (`upgrade-insecure-requests`,
+  `block-all-mixed-content`) are left byte-identical and their entry is
+  dropped: a source appended there would emit
+  `upgrade-insecure-requests https://…`, which browsers treat as malformed and
+  discard — an extras key would silently switch the directive *off*.
 - Only **origins** are accepted: `scheme://host[:port]` with an http(s) scheme
   — no keywords (`'self'`, `'unsafe-inline'`), no scheme sources (`data:`,
   `https:`), no wildcards, no paths, nothing that could smuggle a separator.

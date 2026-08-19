@@ -201,19 +201,25 @@ class Otto
         end
         private_class_method :supports_extra_directives?
 
-        # Log each extras entry the policy build dropped as :absent_directive,
-        # once per entry, with full request context.
+        # Log each extras entry the policy build dropped, once per entry, with
+        # full request context. The reason distinguishes the two ways an entry
+        # fails to land: its directive was absent from the built policy
+        # (:absent_directive) or the directive takes no value at all, so a
+        # source could never be appended to it (:valueless_directive) — the
+        # latter is an app bug worth naming precisely, since the entry is a
+        # no-op rather than a policy gap.
         def self.log_dropped_extras(env, dropped)
           return if dropped.nil? || dropped.empty?
 
           context = Otto::LoggingHelpers.request_context(env)
           dropped.each do |name, tokens|
+            reason = Policy.valueless_directive?(name) ? :valueless_directive : :absent_directive
             Otto.structured_log(
               :warn, 'CSP request extra dropped',
               context.merge(
                 directive: name,
                 token: Array(tokens).join(' ').inspect.slice(0, 128),
-                reason: :absent_directive
+                reason: reason
               )
             )
           end

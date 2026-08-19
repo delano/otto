@@ -14,6 +14,28 @@ RSpec.describe Otto::Security::Config, 'CSP reporting' do
     end
   end
 
+  describe '#enable_csp_request_extras!' do
+    it 'is disabled by default (the request extras channel is boot-time opt-in)' do
+      expect(config.csp_request_extras_enabled?).to be false
+    end
+
+    it 'enables the channel' do
+      config.enable_csp_request_extras!
+      expect(config.csp_request_extras_enabled?).to be true
+    end
+
+    it 'raises when the configuration is frozen' do
+      config.deep_freeze!
+      expect { config.enable_csp_request_extras! }.to raise_error(FrozenError)
+    end
+
+    it 'survives a freeze when set before it' do
+      config.enable_csp_request_extras!
+      config.deep_freeze!
+      expect(config.csp_request_extras_enabled?).to be true
+    end
+  end
+
   describe '#csp_report_uri=' do
     it 'stores a stripped path' do
       config.csp_report_uri = '  /_/csp-report  '

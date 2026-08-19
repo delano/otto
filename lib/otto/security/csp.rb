@@ -14,6 +14,10 @@
 #                  Result object, :override / :backstop modes) that every surface
 #                  routes through: Otto::Response#apply_csp, the EmitMiddleware,
 #                  and the deprecated Otto::Response#send_csp_headers shim.
+# - RequestExtras — reads + sanitizes the opt-in request-scoped directive
+#                  extras from env['otto.csp.extra_directives'] (delano/otto#243);
+#                  the Writer folds the survivors in additively via
+#                  Policy.append_extra_sources.
 # - EmitMiddleware — passive backstop that emits a nonce CSP for responses whose
 #                  request consumed a nonce (emit-if-consumed). See
 #                  Otto::Security::Core#enable_csp_emission!.
@@ -23,6 +27,7 @@
 #   callback API. See Otto::Security::Core#enable_csp_reporting!.
 
 require_relative 'csp/policy'
+require_relative 'csp/request_extras'
 require_relative 'csp/nonce'
 require_relative 'csp/writer'
 require_relative 'csp/report'

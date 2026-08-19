@@ -19,9 +19,192 @@ RSpec.describe Otto::Security::CSP::Writer do
     headers
   end
 
+  # Extras contract helper (see spec/support/csp_request_extras_examples.rb):
+  # the Writer reads extras from the env passed via its env: kwarg, gated on
+  # the config's boot-time opt-in.
+  def emit_csp_with_env(headers:, nonce:, env:, extras_enabled: true)
+    config = build_config
+    config.enable_csp_request_extras! if extras_enabled
+    described_class.apply(headers, nonce, config: config, env: env)
+    headers
+  end
+
   include_examples 'a nonce-CSP emission surface'
   include_examples 'a CSP override surface'
   include_examples 'a CSP backstop surface'
+  include_examples 'a request-extras-aware CSP surface'
+
+  describe 'request extras with a config lacking the extra_directives: kwarg' do
+    # A duck-typed config frozen at the pre-#243 generate_nonce_csp signature:
+    # passing extra_directives: to it would ArgumentError at request time.
+    let(:legacy_config) do
+      Class.new do
+        def csp_nonce_enabled? = true
+
+        def csp_request_extras_enabled? = true
+
+        def generate_nonce_csp(nonce, development_mode: false)
+          _ = development_mode
+          "script-src 'nonce-#{nonce}'; form-action 'self';"
+        end
+      end.new
+    end
+
+    it 'never raises: falls back to the legacy call shape, drops the extras, and warns once' do
+      allow(Otto).to receive(:structured_log)
+      headers = { 'content-type' => 'text/html' }
+      env = mock_rack_env(method: 'GET', path: '/legacy')
+      env['otto.csp.extra_directives'] = { 'form-action' => ['https://idp.example.com'] }
+
+      result = described_class.apply(headers, 'N', config: legacy_config, env: env)
+
+      expect(result).to be_applied
+      expect(result.extra_directives).to be_nil
+      expect(headers['content-security-policy']).to eq("script-src 'nonce-N'; form-action 'self';")
+      expect(Otto).to have_received(:structured_log)
+        .with(:warn, 'CSP request extras dropped',
+              hash_including(directives: 'form-action', reason: :config_without_extras_support,
+                             path: '/legacy'))
+        .once
+    end
+  end
+
+  describe 'request extras with a config that takes the kwarg but never reports' do
+    # A duck-typed config halfway into the #243 protocol: it declares the
+    # extra_directives: kwarg (so the Writer passes the extras) but never
+    # invokes the outcome block, leaving what actually landed unknown.
+    let(:hybrid_config) do
+      Class.new do
+        def csp_nonce_enabled? = true
+
+        def csp_request_extras_enabled? = true
+
+        def generate_nonce_csp(nonce, development_mode: false, extra_directives: nil)
+          _ = development_mode
+          _ = extra_directives
+          "script-src 'nonce-#{nonce}'; form-action 'self';"
+        end
+      end.new
+    end
+
+    it 'uses the returned policy, reports no applied extras, and warns once about the unreported outcome' do
+      allow(Otto).to receive(:structured_log)
+      headers = { 'content-type' => 'text/html' }
+      env = mock_rack_env(method: 'GET', path: '/hybrid')
+      env['otto.csp.extra_directives'] = { 'form-action' => ['https://idp.example.com'] }
+
+      result = described_class.apply(headers, 'N', config: hybrid_config, env: env)
+
+      expect(result).to be_applied
+      # The outcome is unknown, not "everything applied" — the Result must
+      # never fabricate applied extras from the pre-append input.
+      expect(result.extra_directives).to be_nil
+      expect(headers['content-security-policy']).to eq("script-src 'nonce-N'; form-action 'self';")
+      expect(Otto).to have_received(:structured_log)
+        .with(:warn, 'CSP request extras outcome unreported',
+              hash_including(directives: 'form-action', reason: :config_outcome_not_reported,
+                             path: '/hybrid'))
+        .once
+    end
+  end
+
+  describe 'request extras applied/dropped accounting' do
+    it 'excludes an absent-directive entry from Result#extra_directives and logs it with request context' do
+      allow(Otto).to receive(:structured_log)
+      config = build_config
+      config.enable_csp_request_extras!
+      config.csp_directive_overrides = { 'form-action' => nil } # boot removed it
+      headers = { 'content-type' => 'text/html' }
+      env = mock_rack_env(method: 'POST', path: '/signin')
+      env['otto.csp.extra_directives'] = {
+        'form-action' => ['https://idp.example.com'],
+        'connect-src' => ['https://api.example.com'],
+      }
+
+      result = described_class.apply(headers, 'N', config: config, env: env)
+
+      expect(result).to be_applied
+      # Only what actually landed — the form-action entry was dropped by the
+      # append (absent directive), so the Result must not claim it.
+      expect(result.extra_directives).to eq('connect-src' => ['https://api.example.com'])
+      expect(headers['content-security-policy']).not_to include('form-action')
+      expect(headers['content-security-policy']).to include('https://api.example.com')
+      expect(Otto).to have_received(:structured_log)
+        .with(:warn, 'CSP request extra dropped',
+              hash_including(directive: 'form-action', reason: :absent_directive,
+                             method: 'POST', path: '/signin'))
+    end
+
+    it 'reports nil extras when every entry was dropped by the append' do
+      allow(Otto).to receive(:structured_log)
+      config = build_config
+      config.enable_csp_request_extras!
+      config.csp_directive_overrides = { 'form-action' => nil }
+      headers = { 'content-type' => 'text/html' }
+      env = { 'otto.csp.extra_directives' => { 'form-action' => ['https://idp.example.com'] } }
+
+      result = described_class.apply(headers, 'N', config: config, env: env)
+
+      expect(result).to be_applied
+      expect(result.extra_directives).to be_nil
+      # The config DID report (empty applied) — the unreported-outcome warn
+      # must key off the block having run, not off applied staying nil.
+      expect(Otto).not_to have_received(:structured_log)
+        .with(:warn, 'CSP request extras outcome unreported', anything)
+    end
+
+    it 'keeps a valueless directive intact, excludes it from the Result, and rejects it during sanitization' do
+      allow(Otto).to receive(:structured_log)
+      config = build_config
+      config.enable_csp_request_extras!
+      # How a real config carries the directive: an override with no sources.
+      config.csp_directive_overrides = { 'upgrade-insecure-requests' => [] }
+      headers = { 'content-type' => 'text/html' }
+      env = mock_rack_env(method: 'POST', path: '/signin')
+      env['otto.csp.extra_directives'] = {
+        'upgrade-insecure-requests' => ['https://idp.example.com'],
+        'form-action' => ['https://idp.example.com'],
+      }
+
+      result = described_class.apply(headers, 'N', config: config, env: env)
+
+      policy = headers['content-security-policy']
+      # Appending here would emit `upgrade-insecure-requests https://...;`,
+      # which browsers discard — silently disabling the directive.
+      expect(policy).to include('upgrade-insecure-requests;')
+      expect(policy).not_to include('upgrade-insecure-requests https')
+      expect(policy).to include("form-action 'self' https://idp.example.com;")
+      expect(result.extra_directives).to eq('form-action' => ['https://idp.example.com'])
+      expect(Otto).to have_received(:structured_log)
+        .with(:warn, 'CSP request extra dropped',
+              hash_including(directive: 'upgrade-insecure-requests', reason: :refused_directive,
+                             method: 'POST', path: '/signin'))
+    end
+  end
+
+  describe 'request extras opt-in gating' do
+    it 'treats a duck-typed config without the predicate as extras-disabled' do
+      allow(Otto).to receive(:structured_log)
+      duck_config = Class.new do
+        def csp_nonce_enabled? = true
+
+        def generate_nonce_csp(nonce, development_mode: false, extra_directives: nil)
+          _ = development_mode
+          _ = extra_directives
+          "script-src 'nonce-#{nonce}'; form-action 'self';"
+        end
+      end.new
+      headers = { 'content-type' => 'text/html' }
+      env = { 'otto.csp.extra_directives' => { 'form-action' => ['https://idp.example.com'] } }
+
+      result = described_class.apply(headers, 'N', config: duck_config, env: env)
+
+      expect(result).to be_applied
+      expect(result.extra_directives).to be_nil
+      expect(headers['content-security-policy']).not_to include('idp.example.com')
+      expect(Otto).not_to have_received(:structured_log)
+    end
+  end
 
   describe '.apply return value (Result)' do
     let(:config) { build_config }

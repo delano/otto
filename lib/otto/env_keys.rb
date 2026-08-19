@@ -74,6 +74,28 @@ class Otto
     #   (e.g. 'onetime.nonce'), so the header and views still share one value.
     NONCE = 'otto.nonce'
 
+    # Content-Security-Policy request-scoped keys
+    module CSP
+      # Request-scoped CSP directive extras (delano/otto#243).
+      # Type: Hash{String|Symbol directive-name => String|Array<String> tokens}
+      # Set by: the consuming application (a handler, logic class, or
+      #   middleware) any time before the response is finalized
+      # Used by: Otto::Security::CSP::RequestExtras (read + sanitized) and
+      #   folded ADDITIVELY into the nonce policy by
+      #   Otto::Security::CSP::Policy.append_extra_sources at build time
+      # Note: BOOT-TIME OPT-IN — the channel does not exist until the app
+      #   calls Otto::Security::Config#enable_csp_request_extras! (default
+      #   off); without it the key is ignored entirely, no sanitize work and
+      #   no logs. The env key is a write surface any middleware in the Rack
+      #   stack can reach, a lower-trust position than boot code.
+      # Note: additive-only — extras can only APPEND origin tokens
+      #   (scheme://host[:port], http/https) to directives already present in
+      #   the built policy. The script-src family and default-src are refused
+      #   outright, keyword/scheme sources and wildcards are dropped, and every
+      #   drop is logged. See Otto::Security::CSP::RequestExtras.
+      EXTRA_DIRECTIVES = 'otto.csp.extra_directives'
+    end
+
     # Whether the request arrived via a trusted proxy. TRI-STATE.
     # Type: Boolean when present; the key may be ABSENT.
     # Set by: IPPrivacyMiddleware, evaluated on the original peer BEFORE

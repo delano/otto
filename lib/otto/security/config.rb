@@ -90,7 +90,7 @@ class Otto
                   :csp_nonce_enabled, :debug_csp, :mcp_auth, :csp_nonce_key,
                   :ip_privacy_config, :trusted_proxy_depth, :trusted_proxy_header,
                   :csp_report_uri, :csp_report_to_url, :csp_violation_callback,
-                  :csp_directive_overrides
+                  :csp_directive_overrides, :csp_request_extras_enabled
 
       # Initialize security configuration with safe defaults
       #
@@ -119,6 +119,7 @@ class Otto
         @csp_report_to_url      = nil
         @csp_violation_callback = nil
         @csp_directive_overrides = {}
+        @csp_request_extras_enabled = false
         @csp_script_src_override_warned = false
         @rate_limiting_config   = { custom_rules: {} }
         @ip_privacy_config      = Otto::Privacy::Config.new
@@ -512,6 +513,39 @@ class Otto
         @csp_nonce_enabled
       end
 
+      # Enable the request-scoped CSP directive extras channel (delano/otto#243)
+      #
+      # Off by default: `env['otto.csp.extra_directives']` is a write surface
+      # that ANY middleware in the Rack stack can reach — a lower-trust
+      # position than boot code — so the channel does not exist until the app
+      # explicitly opts in here. Until then the Writer ignores the env key
+      # entirely (no sanitize work, no logs).
+      #
+      # With the channel enabled, a handler (or middleware) can widen
+      # directives with values only known at request time by writing a hash of
+      # directive name => additional origin tokens to the env before the
+      # response is finalized. Extras are additive-only and sanitized
+      # defensively; see {Otto::Security::CSP::RequestExtras}.
+      #
+      # @return [void]
+      # @raise [FrozenError] if configuration is frozen
+      #
+      # @example At boot, alongside nonce CSP
+      #   config.enable_csp_with_nonce!
+      #   config.enable_csp_request_extras!
+      def enable_csp_request_extras!
+        ensure_not_frozen!
+
+        @csp_request_extras_enabled = true
+      end
+
+      # Check if the request-scoped CSP directive extras channel is enabled
+      #
+      # @return [Boolean] true when {#enable_csp_request_extras!} was called
+      def csp_request_extras_enabled?
+        @csp_request_extras_enabled
+      end
+
       # Set the Rack env key the framework-owned lazy nonce is memoized under
       # ({Otto::Security::CSP.nonce} / {Otto::Request#csp_nonce}). Defaults to
       # `'otto.nonce'`; override it for an app with an existing convention (e.g.
@@ -649,14 +683,25 @@ class Otto
       #
       # @param nonce [String] The nonce value to include in the CSP
       # @param development_mode [Boolean] Whether to use development-friendly directives
+      # @param extra_directives [Hash{String=>Array<String>}, nil] request-scoped
+      #   extra source tokens appended additively after the overrides merge
+      #   (see {Otto::Security::CSP::Policy.append_extra_sources}, delano/otto#243).
+      #   Per-request data — passed through, never stored on this (deep-frozen
+      #   in production) config.
+      # @yield [applied, dropped] forwarded to
+      #   {Otto::Security::CSP::Policy.nonce_policy}: the extras entries that
+      #   actually landed in the policy and the entries dropped because their
+      #   directive was absent.
       # @return [String] Complete CSP policy string
-      def generate_nonce_csp(nonce, development_mode: false)
+      def generate_nonce_csp(nonce, development_mode: false, extra_directives: nil, &extras_outcome)
         Otto::Security::CSP::Policy.nonce_policy(
           nonce,
-          development_mode: development_mode,
-          report_uri: @csp_report_uri,
-          report_to_url: @csp_report_to_url,
-          directive_overrides: @csp_directive_overrides
+          development_mode:    development_mode,
+                report_uri:    @csp_report_uri,
+             report_to_url:    @csp_report_to_url,
+       directive_overrides:    @csp_directive_overrides,
+          extra_directives:    extra_directives,
+          &extras_outcome
         )
       end
 

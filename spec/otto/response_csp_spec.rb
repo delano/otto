@@ -27,9 +27,24 @@ RSpec.describe Otto::Response do
       response.headers
     end
 
+    # Extras contract helper (see spec/support/csp_request_extras_examples.rb):
+    # #apply_csp sees extras only through a WIRED request (request&.env), so
+    # the helper attaches one carrying the given env; the config's boot-time
+    # opt-in still gates the channel.
+    def emit_csp_with_env(headers:, nonce:, env:, extras_enabled: true)
+      config = build_config
+      config.enable_csp_request_extras! if extras_enabled
+      response = described_class.new
+      headers.each { |k, v| response.headers[k] = v }
+      response.request = Otto::Request.new(env)
+      response.apply_csp(nonce, security_config: config)
+      response.headers
+    end
+
     include_examples 'a nonce-CSP emission surface'
     include_examples 'a CSP override surface'
     include_examples 'a CSP backstop surface'
+    include_examples 'a request-extras-aware CSP surface'
 
     it 'returns the Writer::Result' do
       response = described_class.new
@@ -58,6 +73,36 @@ RSpec.describe Otto::Response do
 
       expect(response.headers).not_to have_key('content-security-policy')
       expect(result.skip_reason).to eq(:non_html)
+    end
+
+    context 'request-scoped directive extras' do
+      it 'reads extras from the wired request env' do
+        config = build_config
+        config.enable_csp_request_extras!
+        env = mock_rack_env(method: 'GET', path: '/')
+        env['otto.security_config'] = config
+        env['otto.csp.extra_directives'] = { 'form-action' => ['https://idp.example.com'] }
+        response = described_class.new
+        response.headers['content-type'] = 'text/html'
+        response.request = Otto::Request.new(env)
+
+        result = response.apply_csp('N')
+
+        expect(response.headers['content-security-policy'])
+          .to include("form-action 'self' https://idp.example.com;")
+        expect(result.extra_directives).to eq('form-action' => ['https://idp.example.com'])
+      end
+
+      it 'degrades silently to the base policy when no request is wired' do
+        response = described_class.new
+        response.headers['content-type'] = 'text/html'
+
+        result = response.apply_csp('N', security_config: build_config)
+
+        expect(result).to be_applied
+        expect(result.extra_directives).to be_nil
+        expect(response.headers['content-security-policy']).to include("form-action 'self';")
+      end
     end
   end
 

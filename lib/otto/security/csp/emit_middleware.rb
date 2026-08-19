@@ -66,7 +66,8 @@ class Otto
 
           Otto::Security::CSP::Writer.apply(
             headers, nonce,
-            config: @config, mode: :backstop, development_mode: development_mode?(env)
+            config: @config, mode: :backstop, development_mode: development_mode?(env),
+            env: env # request-scoped extras (env['otto.csp.extra_directives'], #243)
           )
         end
 

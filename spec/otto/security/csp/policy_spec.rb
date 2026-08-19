@@ -81,6 +81,44 @@ RSpec.describe Otto::Security::CSP::Policy do
       )
       expect(csp).to eq("#{production.sub("worker-src 'self' blob:;", "worker-src 'self' data:;")} report-uri /r;")
     end
+
+    it 'is byte-identical when extra_directives is nil or empty' do
+      expect(described_class.nonce_policy('N', extra_directives: nil)).to eq(production)
+      expect(described_class.nonce_policy('N', extra_directives: {})).to eq(production)
+    end
+
+    it 'applies extras AFTER overrides and BEFORE reporting directives' do
+      csp = described_class.nonce_policy(
+        'N', report_uri: '/r',
+             directive_overrides: { 'form-action' => "'self' https://boot.example.com" },
+             extra_directives: { 'form-action' => ['https://req.example.com'] }
+      )
+      expect(csp).to include("form-action 'self' https://boot.example.com https://req.example.com;")
+      expect(csp).to end_with('report-uri /r;')
+    end
+
+    it 'does not resurrect a directive a boot override deliberately removed' do
+      outcome = nil
+      csp = described_class.nonce_policy(
+        'N', directive_overrides: { 'form-action' => nil },
+             extra_directives: { 'form-action' => ['https://req.example.com'] }
+      ) { |applied, dropped| outcome = [applied, dropped] }
+
+      expect(csp).not_to include('form-action')
+      # Pure reporting, no logging: the dropped entry comes back through the
+      # outcome block so the caller holding the env can log it.
+      expect(outcome).to eq([{}, { 'form-action' => ['https://req.example.com'] }])
+    end
+
+    it 'yields the applied/dropped outcome without changing the returned policy' do
+      outcome = nil
+      csp = described_class.nonce_policy(
+        'N', extra_directives: { 'form-action' => ['https://req.example.com'] }
+      ) { |applied, dropped| outcome = [applied, dropped] }
+
+      expect(csp).to include("form-action 'self' https://req.example.com;")
+      expect(outcome).to eq([{ 'form-action' => ['https://req.example.com'] }, {}])
+    end
   end
 
   describe '.merge_directives' do
@@ -112,6 +150,157 @@ RSpec.describe Otto::Security::CSP::Policy do
       base = ["default-src 'none';"]
       expect { described_class.merge_directives(base, { 'media-src; script-src *' => "'self'" }) }
         .to raise_error(ArgumentError)
+    end
+  end
+
+  describe '.append_extra_sources' do
+    let(:base) { ["default-src 'none';", "form-action 'self';", "worker-src 'self' blob:;"] }
+
+    it 'returns [base, {}, {}] unchanged for nil/empty extras' do
+      expect(described_class.append_extra_sources(base, nil)).to eq([base, {}, {}])
+      expect(described_class.append_extra_sources(base, {})).to eq([base, {}, {}])
+    end
+
+    it 'appends extra tokens to a directive present in the built list and reports it applied' do
+      merged, applied, dropped = described_class.append_extra_sources(
+        base, { 'form-action' => ['https://idp.example.com'] }
+      )
+      expect(merged).to eq(
+        ["default-src 'none';", "form-action 'self' https://idp.example.com;", "worker-src 'self' blob:;"]
+      )
+      expect(applied).to eq('form-action' => ['https://idp.example.com'])
+      expect(dropped).to eq({})
+    end
+
+    it 'does not append a token the directive already carries (dedupe)' do
+      merged, applied, = described_class.append_extra_sources(
+        ["form-action 'self' https://idp.example.com;"],
+        { 'form-action' => ['https://idp.example.com', 'https://other.example.com'] }
+      )
+      expect(merged).to eq(["form-action 'self' https://idp.example.com https://other.example.com;"])
+      # Already-present tokens still count as applied: they ARE in the policy.
+      expect(applied).to eq('form-action' => ['https://idp.example.com', 'https://other.example.com'])
+    end
+
+    it 'drops a directive absent from the built list, reporting it — never logging' do
+      allow(Otto).to receive(:structured_log)
+
+      merged, applied, dropped = described_class.append_extra_sources(
+        base, { 'media-src' => ['https://media.example.com'] }
+      )
+
+      expect(merged).to eq(base)
+      expect(applied).to eq({})
+      expect(dropped).to eq('media-src' => ['https://media.example.com'])
+      # Pure function of its arguments: logging is the env-holding caller's job.
+      expect(Otto).not_to have_received(:structured_log)
+    end
+
+    it 'leaves the directive BYTE-IDENTICAL when an entry has no surviving tokens' do
+      # The likely bug this pins: routing the merge through build_directive
+      # would collapse an empty source list into a bare "worker-src;",
+      # silently TIGHTENING the policy. The directive string must come back
+      # untouched instead.
+      merged, applied, dropped = described_class.append_extra_sources(base, { 'worker-src' => [] })
+
+      expect(merged).to eq(base)
+      expect(merged[2]).to equal(base[2]).or eq("worker-src 'self' blob:;")
+      expect(merged[2]).not_to eq('worker-src;')
+      # An empty entry neither applies nor drops — nothing was requested.
+      expect(applied).to eq({})
+      expect(dropped).to eq({})
+    end
+
+    it 'skips a nil token list gracefully (defensive; sanitizer never sends one)' do
+      expect(described_class.append_extra_sources(base, { 'worker-src' => nil })).to eq([base, {}, {}])
+    end
+
+    context 'with a directive that takes no value' do
+      # A source appended to upgrade-insecure-requests makes the directive
+      # MALFORMED, and browsers discard a malformed directive wholesale — so
+      # an unguarded append would silently turn the directive OFF.
+      let(:valueless_base) do
+        ["default-src 'none';", 'upgrade-insecure-requests;', "form-action 'self';"]
+      end
+
+      Otto::Security::CSP::Policy::VALUELESS_DIRECTIVES.each do |name|
+        it "leaves #{name} byte-identical and reports the entry dropped" do
+          policy = ["default-src 'none';", "#{name};"]
+
+          merged, applied, dropped = described_class.append_extra_sources(
+            policy, { name => ['https://idp.example.com'] }
+          )
+
+          expect(merged).to eq(policy)
+          expect(merged.last).to eq("#{name};")
+          expect(merged.join(' ')).not_to include('https://idp.example.com')
+          expect(applied).to eq({})
+          expect(dropped).to eq(name => ['https://idp.example.com'])
+        end
+      end
+
+      it 'drops a symbol/underscore key form addressing a valueless directive' do
+        merged, applied, dropped = described_class.append_extra_sources(
+          valueless_base, { upgrade_insecure_requests: ['https://idp.example.com'] }
+        )
+
+        expect(merged).to eq(valueless_base)
+        expect(applied).to eq({})
+        expect(dropped).to eq(upgrade_insecure_requests: ['https://idp.example.com'])
+      end
+
+      it 'drops a mixed-case key form addressing a valueless directive' do
+        merged, applied, dropped = described_class.append_extra_sources(
+          valueless_base, { 'Upgrade-Insecure-Requests' => ['https://idp.example.com'] }
+        )
+
+        expect(merged).to eq(valueless_base)
+        expect(applied).to eq({})
+        expect(dropped).to eq('Upgrade-Insecure-Requests' => ['https://idp.example.com'])
+      end
+
+      it 'still applies the other entries in the same call (one bad key does not poison the batch)' do
+        merged, applied, dropped = described_class.append_extra_sources(
+          valueless_base,
+          {
+            'upgrade-insecure-requests' => ['https://idp.example.com'],
+            'form-action' => ['https://idp.example.com'],
+          }
+        )
+
+        expect(merged).to eq(
+          ["default-src 'none';", 'upgrade-insecure-requests;', "form-action 'self' https://idp.example.com;"]
+        )
+        expect(applied).to eq('form-action' => ['https://idp.example.com'])
+        expect(dropped).to eq('upgrade-insecure-requests' => ['https://idp.example.com'])
+      end
+    end
+  end
+
+  describe '.valueless_directive?' do
+    it 'recognizes the valueless directives in any key form' do
+      expect(described_class.valueless_directive?('upgrade-insecure-requests')).to be true
+      expect(described_class.valueless_directive?(:upgrade_insecure_requests)).to be true
+      expect(described_class.valueless_directive?(' Block-All-Mixed-Content ')).to be true
+    end
+
+    it 'leaves value-taking directives alone (scope discipline: sandbox et al. stay appendable)' do
+      expect(described_class.valueless_directive?('form-action')).to be false
+      expect(described_class.valueless_directive?('sandbox')).to be false
+      expect(described_class.valueless_directive?('trusted-types')).to be false
+      expect(described_class.valueless_directive?('require-trusted-types-for')).to be false
+    end
+  end
+
+  describe '.normalize_directive_name' do
+    it 'strips, downcases, and maps underscores to hyphens' do
+      expect(described_class.normalize_directive_name(' FORM_ACTION ')).to eq('form-action')
+      expect(described_class.normalize_directive_name(:form_action)).to eq('form-action')
+      expect(described_class.normalize_directive_name('form-action')).to eq('form-action')
+    end
+
+    it 'returns an empty string for blank input' do
+      expect(described_class.normalize_directive_name('   ')).to eq('')
     end
   end
 

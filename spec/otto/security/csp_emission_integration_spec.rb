@@ -44,6 +44,14 @@ RSpec.describe 'Otto CSP emission (integration)' do
       @res['content-security-policy'] = "default-src 'self'"
       @res.write('preset')
     end
+
+    # A handler that widens form-action with request-time data via the
+    # request-scoped extras channel (delano/otto#243).
+    def with_extras
+      @req.env['otto.csp.extra_directives'] = { 'form-action' => ['https://idp.tenant.example'] }
+      @res['content-type'] = 'text/html; charset=utf-8'
+      @res.write(%(<script nonce="#{@req.csp_nonce}">1</script>))
+    end
   end
 
   let(:routes_file) do
@@ -53,6 +61,7 @@ RSpec.describe 'Otto CSP emission (integration)' do
       GET /without CspEmitApp#without_nonce
       GET /json CspEmitApp#json
       GET /preset CspEmitApp#preset_csp
+      GET /with_extras CspEmitApp#with_extras
     ROUTES
     file.flush
     file
@@ -62,6 +71,7 @@ RSpec.describe 'Otto CSP emission (integration)' do
     instance = Otto.new(routes_file.path)
     instance.enable_csp_with_nonce!
     instance.enable_csp_emission!
+    instance.security_config.enable_csp_request_extras! # opt the extras channel in at boot
     instance
   end
 
@@ -91,6 +101,36 @@ RSpec.describe 'Otto CSP emission (integration)' do
   it 'stays silent for a non-HTML (JSON) response' do
     get '/json'
     expect(last_response.headers).not_to have_key('content-security-policy')
+  end
+
+  it 'widens the policy with extras the handler wrote (request-scoped, end to end)' do
+    get '/with_extras'
+    csp = last_response.headers['content-security-policy']
+    body_nonce = last_response.body[/nonce="([^"]+)"/, 1]
+
+    expect(csp).to include("form-action 'self' https://idp.tenant.example;")
+    expect(csp).to include("script-src 'nonce-#{body_nonce}'") # extras never touch script-src
+  end
+
+  it 'ignores handler-written extras when the channel was not enabled at boot (default off)' do
+    plain = Otto.new(routes_file.path)
+    plain.enable_csp_with_nonce!
+    plain.enable_csp_emission!
+
+    _status, headers, = plain.call(Rack::MockRequest.env_for('/with_extras'))
+
+    expect(headers['content-security-policy']).to include("form-action 'self';")
+    expect(headers['content-security-policy']).not_to include('idp.tenant.example')
+  end
+
+  it 'does not carry extras over to a request that wrote none' do
+    get '/with_extras'
+    get '/with'
+
+    expect(last_response.headers['content-security-policy'])
+      .to include("form-action 'self';")
+    expect(last_response.headers['content-security-policy'])
+      .not_to include('idp.tenant.example')
   end
 
   it 'defers to a CSP the route already set (never clobbers)' do

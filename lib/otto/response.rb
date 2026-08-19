@@ -124,6 +124,11 @@ class Otto
     # @return [Otto::Security::CSP::Writer::Result] the outcome (applied?, policy,
     #   skip_reason) for uniform observability
     #
+    # @note request-scoped directive extras (`env['otto.csp.extra_directives']`,
+    #   delano/otto#243) are seen only when this response has its {#request}
+    #   wired — the env is resolved via `request&.env`, so a bare Response
+    #   degrades gracefully to the base policy.
+    #
     # @example
     #   res['content-type'] = 'text/html; charset=utf-8'
     #   res.apply_csp(req.csp_nonce)
@@ -131,7 +136,8 @@ class Otto
       config = security_config || (request&.env && request.env['otto.security_config'])
       Otto::Security::CSP::Writer.apply(
         headers, nonce,
-        config: config, mode: mode, development_mode: development_mode
+        config: config, mode: mode, development_mode: development_mode,
+        env: request&.env # nil-safe: specs and bare responses have no request
       )
     end
 

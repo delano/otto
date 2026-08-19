@@ -99,6 +99,12 @@ RSpec.describe Otto::Security::CSP::RequestExtras do
       'an IDN host in punycode form' => ['https://xn--mnchen-3ya.example', 'https://xn--mnchen-3ya.example'],
       'a single trailing dot (FQDN root form, stripped)' => ['https://idp.example.com.', 'https://idp.example.com'],
       'the highest valid port' => ['https://idp.example.com:65535', 'https://idp.example.com:65535'],
+      # URI::Generic#host retains the brackets for IPv6 literals ('[2001:db8::1]',
+      # not '2001:db8::1') — exactly what a CSP host-source needs. Pinned here so
+      # a future refactor to uri.hostname (which strips them) fails loudly.
+      'an IPv6 literal (brackets retained)' => ['https://[2001:db8::1]', 'https://[2001:db8::1]'],
+      'an IPv6 literal with a port (downcased, port kept)' =>
+        ['https://[2001:DB8::1]:8443', 'https://[2001:db8::1]:8443'],
     }.each do |label, (token, normalized)|
       it "accepts #{label}" do
         expect(from_env_with('form-action' => [token])).to eq('form-action' => [normalized])
@@ -128,6 +134,7 @@ RSpec.describe Otto::Security::CSP::RequestExtras do
       ['a bare wildcard', '*'],
       ['a wildcard host', 'https://*.example.com'],
       ['a path suffix', 'https://idp.example.com/login'],
+      ['a path suffix on an IPv6 literal', 'https://[2001:db8::1]/path'],
       ['a bare trailing slash (still a path)', 'https://idp.example.com/'],
       ['userinfo', 'https://user:secret@idp.example.com'],
       ['a query string', 'https://idp.example.com?next=x'],

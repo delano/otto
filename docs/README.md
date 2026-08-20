@@ -13,28 +13,32 @@ the smallest complete configuration that uses it safely.
 
 ## Capabilities at a glance
 
-| Area | What Otto provides | Planned reader-facing guide |
+| Area | What Otto provides | Reader-facing guide or next destination |
 | --- | --- | --- |
-| Application model | Plain-text routes; class, instance, Logic-class, and registered lambda handlers; response selection | `guides/routing.md` |
+| Application model | Plain-text routes; class, instance, Logic-class, and registered lambda handlers; response selection | [Routing](guides/routing.md) and [route syntax](reference/route-syntax.md) |
 | Request lifecycle | Rack integration, middleware ordering, helper registration, lifecycle hooks, and boot-time configuration | `guides/application-lifecycle.md` |
-| Authentication and authorization | Named authentication strategies, ordered multi-strategy fallback, terminal failures, route roles, and resource-level authorization | `guides/authentication.md` |
+| Authentication and authorization | Named authentication strategies, ordered multi-strategy fallback, terminal failures, route roles, and resource-level authorization | [Authentication](guides/authentication.md) |
 | Security | CSRF enforcement, request validation, rate limiting, security headers, CSP, error handling, and trusted proxies | `guides/security.md` |
-| Privacy and network identity | IP privacy profiles, privacy-safe client signals, country resolution, ASN lookup, and anonymizer classification | `guides/privacy.md` |
+| Privacy and network identity | IP privacy profiles, privacy-safe client signals, country resolution, ASN lookup, and anonymizer classification | [Privacy](guides/privacy.md), [geo-country](geo-country.md), and [enrichment](enrichment.md) |
 | Internationalization | Locale configuration and request locale resolution | `guides/locales.md` |
 | Operations | Structured logging, safe error reporting, static files, and testing Otto applications | `guides/operations.md` |
-| Integrations | Model Context Protocol (MCP) endpoints and Caddy on-demand TLS permission checks | `integrations/mcp.md`, `integrations/caddy-tls.md` |
-
-The target names above are the next public documentation surface. They are not
-links yet: a link should only be added when the guide is accurate, reviewed, and
-shipped.
+| Integrations | Model Context Protocol (MCP) endpoints and Caddy on-demand TLS permission checks | [Caddy TLS](integrations/caddy-tls.md); `integrations/mcp.md` |
 
 ## Start here today
 
 - [Project README](../README.md) — installation and a minimal Rack app.
+- [Routing guide](guides/routing.md) — choose a handler style and response
+  contract.
+- [Authentication guide](guides/authentication.md) — protect routes and separate
+  authentication from authorization.
+- [Privacy guide](guides/privacy.md) — privacy profiles and request-safe client
+  signals.
 - [Geo-country resolution](geo-country.md) — trusted headers, local MMDB
   fallback, and the privacy model.
 - [ASN and anonymizer enrichment](enrichment.md) — opt-in network signals and
   their database contracts.
+- [Caddy TLS integration](integrations/caddy-tls.md) — deploy the loopback-only
+  permission endpoint.
 - [Migration guides](migrating/) — version-specific behavior changes.
 - [Changelog](../CHANGELOG.rst) — release history and upgrade-impacting changes.
 
@@ -138,15 +142,15 @@ and explicitly track them before treating them as published documentation.
 
 A useful first milestone is intentionally small:
 
-1. Publish this map and make it the `README` documentation destination.
+1. Publish this map and make it the `README` documentation destination. **Done.**
 2. Write `reference/route-syntax.md` from `Otto::RouteDefinition` and route
    handler behavior, including handler kinds and fail-fast `auth=`, `role=`, and
-   `csrf=` option syntax.
-3. Publish `guides/authentication.md`, `guides/privacy.md`, and
-   `integrations/caddy-tls.md` by reconciling the existing material with the
-   current code and specs.
+   `csrf=` option syntax. **Done.**
+3. Publish `guides/routing.md`, `guides/authentication.md`, `guides/privacy.md`,
+   and `integrations/caddy-tls.md` by reconciling the existing material with the
+   current code and specs. **Initial guides done.**
 4. Move completed designs and working investigations behind `maintainers/` so
-   the top-level reader journey remains stable.
+   the top-level reader journey remains stable. **Next.**
 
 That sequence makes Otto's current shape visible quickly while leaving room for
 new capabilities without turning `docs/` into a second, drifting codebase.

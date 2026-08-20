@@ -9,3 +9,9 @@
 !multi-strategy-authentication-design.md
 !reverse-proxy-network-services.md
 !README.md
+!guides/
+!guides/*.md
+!reference/
+!reference/*.md
+!integrations/
+!integrations/*.md

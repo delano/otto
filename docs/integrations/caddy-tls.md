@@ -6,8 +6,8 @@ access guard, response semantics, and fail-closed behavior. The application
 supplies one decision block: whether the requested domain is allowed.
 
 This guide covers the shipped integration. The [network-service design
-record](../reverse-proxy-network-services.md) explains the rejected alternatives
-and the security rationale in more detail.
+record](../maintainers/decisions/reverse-proxy-network-services.md) explains the
+rejected alternatives and the security rationale in more detail.
 
 ## Enable the endpoint
 

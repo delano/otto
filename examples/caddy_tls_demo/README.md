@@ -103,4 +103,4 @@ your real data over whatever channel your app already trusts. Two more defenses:
   respond @tls_permission 404
   ```
 
-See [`docs/reverse-proxy-network-services.md`](../../docs/reverse-proxy-network-services.md).
+See the [Caddy TLS design record](../../docs/maintainers/decisions/reverse-proxy-network-services.md).

@@ -5,10 +5,12 @@
 !ipaddr-encoding-quirk.md
 !enrichment.md
 !geo-country.md
-!modern-authentication-authorization-landscape.md
-!multi-strategy-authentication-design.md
-!reverse-proxy-network-services.md
 !README.md
+!maintainers/
+!maintainers/decisions/
+!maintainers/decisions/*.md
+!maintainers/investigations/
+!maintainers/investigations/.gitignore
 !guides/
 !guides/*.md
 !reference/

@@ -42,14 +42,11 @@ the smallest complete configuration that uses it safely.
 - [Migration guides](migrating/) — version-specific behavior changes.
 - [Changelog](../CHANGELOG.rst) — release history and upgrade-impacting changes.
 
-The following tracked documents are useful historical or design context. They
-are **not** the primary entry point for implementing an application:
+The following tracked design records are useful historical context. They are
+**not** the primary entry point for implementing an application:
 
-- [Multi-strategy authentication design](multi-strategy-authentication-design.md)
-- [Authentication/authorization landscape](modern-authentication-authorization-landscape.md)
-- [Reverse-proxy/network-service design](reverse-proxy-network-services.md)
-- [Streaming analysis](1108-STREAMING_ARCHITECTURE_ANALYSIS.md) and
-  [summary](1108-STREAMING_SUPPORT_SUMMARY.md)
+- [Multi-strategy authentication decision](maintainers/decisions/multi-strategy-authentication-design.md)
+- [Reverse-proxy/network-service decision](maintainers/decisions/reverse-proxy-network-services.md)
 - [Ruby `IPAddr#to_s` encoding note](ipaddr-encoding-quirk.md)
 
 ## Target structure
@@ -150,7 +147,7 @@ A useful first milestone is intentionally small:
    and `integrations/caddy-tls.md` by reconciling the existing material with the
    current code and specs. **Initial guides done.**
 4. Move completed designs and working investigations behind `maintainers/` so
-   the top-level reader journey remains stable. **Next.**
+   the top-level reader journey remains stable. **Done.**
 
 That sequence makes Otto's current shape visible quickly while leaving room for
 new capabilities without turning `docs/` into a second, drifting codebase.

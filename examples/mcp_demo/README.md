@@ -139,4 +139,4 @@ they are not registered by this checkout's route-loading path.
 
 ## Further Reading
 
-- [MCP implementation notes](../../docs/MCP_IMPLEMENTATION.md)
+- [MCP implementation notes](../../docs/maintainers/investigations/MCP_IMPLEMENTATION.md)

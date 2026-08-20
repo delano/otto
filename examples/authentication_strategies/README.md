@@ -63,4 +63,4 @@ In this checkout, `app/controllers/main_controller.rb` and `app/controllers/auth
 ## Next steps
 
 - See the [security features example](../security_features/README.md) for CSRF and request-validation configuration.
-- Read [authentication documentation](../../docs/authentication.md) for application authentication design.
+- Read the [authentication guide](../../docs/guides/authentication.md) for application authentication design.

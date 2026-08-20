@@ -435,8 +435,8 @@ See the [examples/](examples/) directory for more.
 
 ## Documentation
 
-- **[AGENTS.md](AGENTS.md)** - Comprehensive developer guidance covering authentication architecture, configuration freezing, IP privacy, structured logging, and multi-app patterns
-- **[docs/](docs/)** - Technical guides and migration guides
+- **[Documentation map](docs/README.md)** - Capabilities, current guides, and the documentation structure Otto is growing toward
+- **[AGENTS.md](AGENTS.md)** - Contributor and agent guidance for Otto conventions; it is not application documentation
 - **[CHANGELOG.rst](CHANGELOG.rst)** - Version history, breaking changes, and upgrade notes
 
 ## AI Development Assistance

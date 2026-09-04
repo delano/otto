@@ -123,6 +123,19 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapperComponents::RoleA
         expect(authorizer.check(result_for(user_class.new(roles: ['viewer'], role: 'admin')), env))
           .to eq(authorized: false, required: ['admin'], actual: ['viewer'])
       end
+
+      it 'falls back to #role when #roles is empty, matching StrategyResult#roles' do
+        expect(authorizer.check(result_for(user_class.new(roles: [], role: 'admin')), env)).to be(true)
+      end
+
+      it 'falls back to #role when #roles is nil' do
+        expect(authorizer.check(result_for(user_class.new(roles: nil, role: 'admin')), env)).to be(true)
+      end
+
+      it 'denies when #roles is empty and #role does not match' do
+        expect(authorizer.check(result_for(user_class.new(roles: [], role: 'viewer')), env))
+          .to eq(authorized: false, required: ['admin'], actual: ['viewer'])
+      end
     end
 
     context 'with an object-backed user exposing only a singular #role' do

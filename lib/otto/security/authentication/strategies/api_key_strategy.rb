@@ -173,7 +173,10 @@ class Otto
             # strategy only ever receives a shallow freeze from config
             # finalization, so a caller mutating its key after boot would
             # otherwise change which credential is accepted.
-            keys = Array(api_keys).map { |key| key.to_s.dup.freeze }.reject(&:empty?).freeze
+            # Keys are kept verbatim, but a whitespace-only value is a blank
+            # configuration (`API_KEYS=" "`), not a credential: reject it so the
+            # fail-closed startup guarantee covers it.
+            keys = Array(api_keys).map { |key| key.to_s.dup.freeze }.reject { |key| key.strip.empty? }.freeze
             if keys.empty?
               raise ArgumentError,
                     'APIKeyStrategy requires at least one non-empty API key ' \

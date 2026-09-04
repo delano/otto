@@ -38,6 +38,20 @@ RSpec.describe Otto::Security::Authentication::Strategies::APIKeyStrategy do
         .to raise_error(ArgumentError, /at least one non-empty API key/)
     end
 
+    it 'rejects whitespace-only keys, as produced by a blank API_KEYS environment value' do
+      expect { described_class.new(api_keys: ' '.split(',')) }
+        .to raise_error(ArgumentError, /at least one non-empty API key/)
+      expect { described_class.new(api_keys: [' ', "\t\n"]) }
+        .to raise_error(ArgumentError, /at least one non-empty API key/)
+    end
+
+    it 'does not authenticate a whitespace-only presented key when the list also had a real key' do
+      strategy = described_class.new(api_keys: [' ', 'real-key'])
+
+      expect(strategy.authenticate({ 'HTTP_X_API_KEY' => ' ' }, nil).authenticated?).to be(false)
+      expect(strategy.authenticate({ 'HTTP_X_API_KEY' => 'real-key' }, nil).authenticated?).to be(true)
+    end
+
     it 'copies static keys so mutating the caller string afterwards does not change what is accepted' do
       original = +'mutable-key'
       strategy = described_class.new(api_keys: [original])

@@ -93,12 +93,17 @@ class Otto
             if user.is_a?(Hash)
               roles = user[:roles] || user['roles']
               return Array(roles) if roles
-            elsif user.respond_to?(:roles)
-              roles = user.roles
-              return Array(roles).map(&:to_s) if roles
-            elsif user.respond_to?(:role)
-              role = user.role
-              return [role.to_s] if role
+            else
+              # Same fallback as StrategyResult#roles: an empty or nil #roles
+              # falls through to a singular #role.
+              if user.respond_to?(:roles)
+                roles = Array(user.roles).map(&:to_s)
+                return roles unless roles.empty?
+              end
+              if user.respond_to?(:role)
+                role = user.role
+                return [role.to_s] if role
+              end
             end
 
             # Try metadata

@@ -20,13 +20,17 @@ otto.add_auth_strategy(
     session_key: 'user_id'
   )
 )
+api_keys = ENV.fetch('API_KEYS').split(',').reject(&:empty?)
+raise 'API_KEYS is empty' if api_keys.empty?
+
 otto.add_auth_strategy(
   'api_key',
-  Otto::Security::Authentication::Strategies::APIKeyStrategy.new(
-    api_keys: ENV.fetch('API_KEYS', '').split(',')
-  )
+  Otto::Security::Authentication::Strategies::APIKeyStrategy.new(api_keys: api_keys)
 )
 ```
+
+`APIKeyStrategy` accepts any nonblank key when its configured key list is empty,
+so never register it with an empty set. Fail startup instead, as above.
 
 A strategy implements `authenticate(env, requirement)` and returns a
 `StrategyResult`, `AuthFailure`, or `AuthorizationFailure`. Subclass
@@ -196,5 +200,5 @@ store.
 - [Route syntax](../reference/route-syntax.md) — `auth=`, `role=`, and route
   parsing rules.
 - [Routing guide](routing.md) — choosing controller, Logic, and lambda handlers.
-- [Configuration freezing](../configuration_freezing.md) — boot-time mutation
+- Configuration freezing (`Otto::Core::Freezable`) — boot-time mutation
   boundary and multi-step setup.

@@ -77,7 +77,7 @@ docs/
 ├── migrating/                        # release-specific upgrade guides
 └── maintainers/                      # architecture, decisions, and investigations
     ├── decisions/
-    └── investigations/
+    └── investigations/                # local working notes; untracked by design
 ```
 
 ### What belongs where

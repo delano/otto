@@ -136,7 +136,3 @@ they are not registered by this checkout's route-loading path.
 - Integrate with AI systems that support MCP
 - Combine with [Authentication](../authentication_strategies/) for role-based MCP access
 - Explore [Advanced Routes](../advanced_routes/) for more routing patterns
-
-## Further Reading
-
-- [MCP implementation notes](../../docs/maintainers/investigations/MCP_IMPLEMENTATION.md)

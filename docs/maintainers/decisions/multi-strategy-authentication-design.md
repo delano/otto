@@ -2,7 +2,6 @@
 
 **Date:** November 2025
 **Status:** Implemented; retained as a historical decision record.
-**Related:** [Modern Authentication/Authorization Landscape](../investigations/modern-authentication-authorization-landscape.md)
 
 > **Outcome:** Ordered `auth=` fallback, terminal failures, and route `role=`
 > checks are implemented. For the supported application contract, use the

@@ -118,8 +118,9 @@ them. Malformed non-security options are ignored and logged.
 | `response=redirect` | Redirect response handling. |
 | `response=auto` | Content-negotiated response handling. |
 
-An unknown response type falls back to the default handler and logs in debug
-mode.
+An unknown response type falls back to the default handler silently. A typo in
+`response=` therefore changes behavior with no diagnostic; check the value here
+rather than expecting a log line.
 
 ### CSRF
 

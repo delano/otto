@@ -145,7 +145,7 @@ When building a larger Rack stack, put privacy before components that log or
 inspect the request:
 
 ```ruby
-builder.use Otto::Security::Middleware::IPPrivacyMiddleware
+builder.use Otto::Security::Middleware::IPPrivacyMiddleware, otto.security_config
 builder.use Rack::CommonLogger
 builder.use Sentry::Rack::CaptureExceptions
 # Then mount the Otto application.
@@ -154,6 +154,11 @@ builder.use Sentry::Rack::CaptureExceptions
 Otto also installs its privacy middleware internally. The outer common-stack
 placement is needed when middleware outside the Otto app would otherwise see the
 raw peer first.
+
+Pass `otto.security_config` as shown. The outer instance resolves `otto.client_ip`
+first and the inner one then short-circuits, so an outer instance constructed
+without the configuration would silently apply defaults instead of the
+application's profile, precision, correlation secret, and enrichment settings.
 
 ## Operational rules
 

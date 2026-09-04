@@ -479,7 +479,7 @@ RSpec.describe Otto::Security::Authentication::Strategies::APIKeyStrategy do
 
         expect(result).to be_a(Otto::Security::Authentication::StrategyResult)
         expect(result.authenticated?).to be true
-        expect(result.user[:api_key_fingerprint]).to eq(Digest::SHA256.hexdigest('key_123')[0, 12])
+        expect(result.user[:api_key_fingerprint]).to eq(described_class.digest('key_123')[0, 12])
       end
     end
 

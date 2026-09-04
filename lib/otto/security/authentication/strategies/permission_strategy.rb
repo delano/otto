@@ -11,6 +11,7 @@ class Otto
         # Permission-based authentication strategy
         class PermissionStrategy < AuthStrategy
           def initialize(required_permissions, session_key: 'user_permissions')
+            super()
             @required_permissions = Array(required_permissions)
             @session_key = session_key
           end

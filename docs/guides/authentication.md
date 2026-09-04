@@ -29,8 +29,141 @@ otto.add_auth_strategy(
 )
 ```
 
-`APIKeyStrategy` accepts any nonblank key when its configured key list is empty,
-so never register it with an empty set. Fail startup instead, as above.
+`APIKeyStrategy` fails closed. Its constructor requires exactly one key source
+(`api_keys:`, `resolver:`, or a block; see below) and raises `ArgumentError`
+when none is given, or when an `api_keys:` list normalizes to empty (`[]` or
+only blank strings), so the strategy enforces the check the example above makes
+explicit. A request that presents a key is accepted only when that key matches a
+configured key under constant-time comparison. Both sides are reduced to
+fixed-width SHA-256 digests before comparing, so the check never short-circuits
+on a length mismatch and configured key lengths are not observable. A blank
+credential (empty or whitespace-only) is rejected as missing.
+A presented-but-invalid key is a terminal failure, so it aborts the strategy
+chain instead of falling through to a later strategy in a multi-strategy `OR`
+route.
+
+The strategy reads the `X-API-Key` header only. The query/form parameter path is
+opt-in via `param_name:`, because a key placed in a URL is captured by access
+logs, proxies, and browser history:
+
+```ruby
+Otto::Security::Authentication::Strategies::APIKeyStrategy.new(
+  api_keys: api_keys,
+  param_name: 'api_key' # caution: keys in URLs are logged; prefer the header
+)
+```
+
+The strategy never places the raw key in the result. `metadata[:api_key_fingerprint]`
+(and, for the static list, `user[:api_key_fingerprint]`) holds a truncated
+SHA-256 digest of the presented key, so audit logs can correlate requests
+without recording the credential. With a resolver, `user` is whatever the
+resolver returns, so that guarantee covers only the strategy's own fields; see
+the rules below.
+
+### Resolve keys from a database
+
+A static list is the simple default. When keys live in a database, a
+repository, or a cache, give the strategy a resolver instead. The resolver
+receives the presented key and returns the account behind it, or `nil` when
+there is none:
+
+```ruby
+APIKeyStrategy = Otto::Security::Authentication::Strategies::APIKeyStrategy
+
+otto.add_auth_strategy(
+  'api_key',
+  APIKeyStrategy.new do |presented_key|
+    ApiKey.find_by(digest: APIKeyStrategy.digest(presented_key))&.account
+  end
+)
+```
+
+Anything that responds to `#call` works as well, passed as `resolver:`:
+
+```ruby
+APIKeyStrategy.new(resolver: repo.method(:find_by_key))
+APIKeyStrategy.new(resolver: ->(key) { KeyCache.fetch(APIKeyStrategy.digest(key)) })
+```
+
+The rules are the same in every form:
+
+- Exactly one source: `api_keys:`, `resolver:`, or a block. Passing none, or
+  more than one, raises `ArgumentError`, as does a `resolver:` that does not
+  respond to `#call`.
+- The resolver receives only the presented key, as a non-blank `String`, and
+  nothing else. The blank check (empty or whitespace-only) and the non-String
+  rejection run before it, so a missing or blank header is still the
+  non-terminal `No API key provided` failure and the resolver is never asked
+  about it.
+- A `nil` or `false` return is a terminal `Invalid API key` failure, identical
+  to a static mismatch. It aborts the strategy chain with a 401. Every other
+  return value is a match, including empty containers: a `where(...)` relation,
+  an empty Array from `select`, or `{}` from a cache miss is truthy and
+  authenticates every presented key. Return one record (`find_by`, `first`) or
+  `nil`.
+- Exceptions from the resolver propagate. The strategy does not rescue them,
+  so a database outage surfaces as an error rather than a silent 401, and can
+  never become a success.
+- Whatever the resolver returns becomes `user` in the result, verbatim, and
+  `api_key_fingerprint` is still set in the result metadata. The strategy
+  itself never places the raw key in the result, but the result is stored in
+  `env['otto.strategy_result']` and exposed to handlers, so anything the
+  application serializes or logs from it carries `user`. It is the resolver's
+  responsibility not to return an object that carries the raw key. Return the
+  account, not the `ApiKey` row that stores the key, and store digests. A
+  resolver that returns the presented key string itself as the user raises
+  `ArgumentError`.
+
+The strategy cannot make a black-box lookup constant-time. Store SHA-256
+digests rather than raw keys and look up by `APIKeyStrategy.digest(key)`, as
+in the example above. The digest step is constant-time by construction, the
+lookup that follows is an exact match on a fixed-width value, and a database
+dump of high-entropy keys (generate them with `SecureRandom`, 32 bytes or
+more) does not expose usable credentials. Unsalted SHA-256 is not a password
+hash, so do not accept user-chosen keys. `APIKeyStrategy.digest(key)` returns
+the full hex digest; the fingerprint in the result is its first 12 characters.
+
+### What `APIKeyStrategy` does not provide
+
+`APIKeyStrategy` is a conventional small static-allowlist authenticator
+included as a low-dependency convenience and reference implementation. The
+fail-closed changes in #256 make that existing convenience safe by default;
+they do not establish that all Otto API-key authentication should use
+boot-loaded lists.
+
+The shape is deliberate and has precedent. A key list loaded once at start,
+checked with a constant-time comparison, is what the Rails guides show for
+`authenticate_or_request_with_http_token` (a token from the environment,
+compared with `ActiveSupport::SecurityUtils.secure_compare`), what the
+Kubernetes API server does with its `--token-auth-file` CSV, and what Traefik
+and nginx do with their basic-auth user lists. Warden and Devise token
+examples, and the common Sinatra `before` filter that compares a header
+against `ENV['API_KEY']`, are the same pattern. All of them share the
+properties here: no source configured means no access, the set of keys is
+fixed for the life of the process, and a mismatch is final. The resolver form
+is the escape hatch for the dynamic case those tools also leave to an external
+store.
+
+In either form, the strategy has no native support for:
+
+- Runtime addition or immediate revocation.
+- Expiration.
+- Per-client roles or scopes.
+- Ownership and descriptive metadata.
+- Usage quotas.
+- A management API.
+- Persisted audit history.
+- Hashed verifier storage.
+
+With a static list, none of these exist: changing the set of valid keys means
+restarting the process, and every key is equal. With a resolver, the first
+four and the last become the application's key store's responsibility. The
+resolver decides whether a key is still valid, and whatever it returns is the
+`user` the handler sees, so roles, scopes, ownership, and expiry live on that
+record. Quotas, a management API, and audit history remain outside the
+strategy entirely. An application that needs them should build a custom
+`AuthStrategy` around its own key model, using `APIKeyStrategy` as the
+reference for header handling, terminal failures, and fingerprinting.
 
 A strategy implements `authenticate(env, requirement)` and returns a
 `StrategyResult`, `AuthFailure`, or `AuthorizationFailure`. Subclass
@@ -182,8 +315,10 @@ its own `StrategyResult`. The result is immutable.
 Otto includes these strategy classes as implementation starting points:
 
 - `SessionStrategy` — reads a configured key from `env['rack.session']`.
-- `APIKeyStrategy` — checks the configured header first and then a query
-  parameter; configure a non-empty key set for actual validation.
+- `APIKeyStrategy` — checks the configured header; the query parameter is opt-in
+  via `param_name:`. Keys come from a non-empty `api_keys:` list, a `resolver:`
+  callable, or a block that looks the presented key up; a rejected key is a
+  terminal failure, and the result exposes only a key fingerprint.
 - `RoleStrategy` — checks session roles against allowed roles or a
   colon-qualified requirement.
 - `PermissionStrategy` — checks application-provided permission data.

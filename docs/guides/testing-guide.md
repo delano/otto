@@ -467,7 +467,8 @@ require 'spec_helper'
 
 RSpec.describe Otto::Security::Authentication::Strategies::APIKeyStrategy do
   let(:valid_keys) { ['key_123', 'key_456'] }
-  let(:strategy) { described_class.new(api_keys: valid_keys) }
+  # param_name: is opt-in; the default reads the X-API-Key header only.
+  let(:strategy) { described_class.new(api_keys: valid_keys, param_name: 'api_key') }
 
   describe '#authenticate' do
     context 'with valid API key in header' do
@@ -478,7 +479,7 @@ RSpec.describe Otto::Security::Authentication::Strategies::APIKeyStrategy do
 
         expect(result).to be_a(Otto::Security::Authentication::StrategyResult)
         expect(result.authenticated?).to be true
-        expect(result.user[:api_key]).to eq('key_123')
+        expect(result.user[:api_key_fingerprint]).to eq(described_class.digest('key_123')[0, 12])
       end
     end
 

@@ -159,45 +159,34 @@ class Otto
 
         # Check if the user has a specific role
         #
+        # A user model that defines `#has_role?` is asked directly. Otherwise
+        # the answer is derived from {#roles}, so the predicate and the accessor
+        # always agree: `has_role?(r)` is `roles.include?(r.to_s)` for Hash,
+        # PORO, ORM, Set-backed, and single-`#role` users alike.
+        #
         # @param role [String, Symbol] Role to check
         # @return [Boolean] True if user has the role
         def has_role?(role)
           return false unless authenticated?
+          return user.has_role?(role) if user.respond_to?(:has_role?)
 
-          # Try user model methods first, fall back to hash access for backward compatibility
-          if user.respond_to?(:role)
-            user.role.to_s == role.to_s
-          elsif user.respond_to?(:has_role?)
-            user.has_role?(role)
-          elsif user.is_a?(Hash)
-            user_role = user[:role] || user['role']
-            user_role.to_s == role.to_s
-          else
-            false
-          end
+          roles.include?(role.to_s)
         end
 
         # Check if the user has a specific permission
+        #
+        # A user model that defines `#has_permission?` is asked directly.
+        # Otherwise the answer is derived from {#permissions}, so the predicate
+        # and the accessor always agree, including for Set-backed and other
+        # non-Array Enumerable collections.
         #
         # @param permission [String, Symbol] Permission to check
         # @return [Boolean] True if user has the permission
         def has_permission?(permission)
           return false unless authenticated?
+          return user.has_permission?(permission) if user.respond_to?(:has_permission?)
 
-          # Try user model methods first, fall back to hash access for backward compatibility
-          if user.respond_to?(:has_permission?)
-            user.has_permission?(permission)
-          elsif user.respond_to?(:permissions)
-            permissions = user.permissions || []
-            permissions = [permissions] unless permissions.is_a?(Array)
-            permissions.map(&:to_s).include?(permission.to_s)
-          elsif user.is_a?(Hash)
-            permissions = user[:permissions] || user['permissions'] || []
-            permissions = [permissions] unless permissions.is_a?(Array)
-            permissions.map(&:to_s).include?(permission.to_s)
-          else
-            false
-          end
+          permissions.include?(permission.to_s)
         end
 
         # Check if the user has any of the specified roles
@@ -257,9 +246,30 @@ class Otto
 
         # Get all user roles as an array
         #
+        # Supports object-backed users (ORM models, POROs, Data/Struct) via
+        # `#roles` / `#role`, and Hash users via `:roles`/`'roles'` then
+        # `:role`/`'role'`. Never calls `#[]` on a non-Hash user, so a model
+        # without role support yields `[]` instead of raising. `#roles` on an
+        # object must return role names (Strings or Symbols, in any Enumerable);
+        # an association of role records is stringified as-is and matches
+        # nothing, which denies rather than grants.
+        #
         # @return [Array<String>] Array of roles (empty if none)
         def roles
           return [] unless authenticated?
+
+          # Try user model methods first, fall back to hash access for backward compatibility
+          if user.respond_to?(:roles)
+            normalized = normalize_list(user.roles)
+            return normalized unless normalized.empty?
+          end
+
+          if user.respond_to?(:role)
+            role = user.role
+            return [role.to_s] if role
+          end
+
+          return [] unless user.is_a?(Hash)
 
           roles_data = user[:roles] || user['roles']
           if roles_data.is_a?(Array)
@@ -274,13 +284,21 @@ class Otto
 
         # Get all user permissions as an array
         #
+        # Supports object-backed users via `#permissions` and Hash users via
+        # `:permissions`/`'permissions'`. Never calls `#[]` on a non-Hash user.
+        #
         # @return [Array<String>] Array of permissions (empty if none)
         def permissions
           return [] unless authenticated?
 
-          perms = user[:permissions] || user['permissions'] || []
-          perms = [perms] unless perms.is_a?(Array)
-          perms.map(&:to_s)
+          # Try user model methods first, fall back to hash access for backward compatibility
+          if user.respond_to?(:permissions)
+            normalize_list(user.permissions)
+          elsif user.is_a?(Hash)
+            normalize_list(user[:permissions] || user['permissions'])
+          else
+            []
+          end
         end
 
         # Create a string representation for debugging
@@ -331,6 +349,18 @@ class Otto
                              roles: roles,
                        permissions: permissions,
           }
+        end
+
+        private
+
+        # Coerce a roles/permissions value into an Array of Strings. Enumerables
+        # (Array, Set, an ORM relation) expand to their elements; a scalar
+        # becomes a one-element list; nil becomes [].
+        #
+        # @param value [Array, Enumerable, Object, nil]
+        # @return [Array<String>]
+        def normalize_list(value)
+          Array(value).map(&:to_s)
         end
       end
     end

@@ -296,15 +296,11 @@ Lint/DuplicateMethods:
   Exclude:
     - 'lib/otto/privacy/geo_resolver.rb'
 
-# Offense count: 5
+# Offense count: 1
 # Configuration parameters: AllowedParentClasses.
 Lint/MissingSuper:
   Exclude:
     - 'lib/otto/mcp/rate_limiting.rb'
-    - 'lib/otto/security/authentication/strategies/api_key_strategy.rb'
-    - 'lib/otto/security/authentication/strategies/permission_strategy.rb'
-    - 'lib/otto/security/authentication/strategies/role_strategy.rb'
-    - 'lib/otto/security/authentication/strategies/session_strategy.rb'
 
 # Offense count: 12
 # This cop supports unsafe autocorrection (--autocorrect-all).

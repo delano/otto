@@ -246,7 +246,7 @@ class Otto
       # @param strategy [AuthStrategy] Strategy instance
       # @example
       #   otto.add_auth_strategy('session', SessionStrategy.new(session_key: 'user_id'))
-      #   otto.add_auth_strategy('api_key', APIKeyStrategy.new)
+      #   otto.add_auth_strategy('api_key', APIKeyStrategy.new(api_keys: ENV.fetch('API_KEYS').split(',')))
       # @raise [ArgumentError] if strategy name already registered
       def add_auth_strategy(name, strategy)
         ensure_not_frozen!

@@ -11,6 +11,7 @@ class Otto
         # Role-based authentication strategy
         class RoleStrategy < AuthStrategy
           def initialize(allowed_roles, session_key: 'user_roles')
+            super()
             @allowed_roles = Array(allowed_roles)
             @session_key = session_key
           end

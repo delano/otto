@@ -1,10 +1,9 @@
 Changed
 -------
 
-- ``api_keys:`` is now a required keyword on
-  ``Otto::Security::Authentication::Strategies::APIKeyStrategy``, and
-  ``APIKeyStrategy.new`` without keys raises ``ArgumentError``. To migrate, pass
-  the configured keys explicitly, e.g.
+- ``Otto::Security::Authentication::Strategies::APIKeyStrategy.new`` without a
+  key source raises ``ArgumentError``. To migrate, pass the configured keys
+  explicitly, e.g.
   ``APIKeyStrategy.new(api_keys: ENV.fetch('API_KEYS').split(','))``. (#256)
 
 - ``APIKeyStrategy`` no longer places the presented key in the authentication

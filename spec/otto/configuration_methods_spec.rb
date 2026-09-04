@@ -331,6 +331,20 @@ RSpec.describe Otto, 'Configuration Methods' do
       expect(server).to be_a(Otto::MCP::Server)
     end
 
+    it 'initializes MCP server when a String-keyed "mcp_enabled" is true' do
+      app.send(:configure_mcp, { 'mcp_enabled' => true })
+
+      expect(app.instance_variable_get(:@mcp_server)).to be_a(Otto::MCP::Server)
+    end
+
+    it 'does not enable MCP server when a String-keyed "mcp_http" is false' do
+      server_double = instance_double(Otto::MCP::Server)
+      allow(Otto::MCP::Server).to receive(:new).and_return(server_double)
+      expect(server_double).not_to receive(:enable!)
+
+      app.send(:configure_mcp, { 'mcp_enabled' => true, 'mcp_http' => false })
+    end
+
     it 'does not enable MCP server when mcp_http is explicitly false' do
       server_double = instance_double(Otto::MCP::Server)
       allow(Otto::MCP::Server).to receive(:new).and_return(server_double)

@@ -123,6 +123,21 @@ class Otto
         canonical
       end
 
+      # Read the constructor-only gating keys (+mcp_enabled+, +mcp_http+,
+      # +mcp_stdio+) with the same String/Symbol tolerance as {.normalize}.
+      #
+      # Otto.new decides *whether* to enable MCP from these before it
+      # normalizes the rest, and it used to read them as raw Symbol keys, so
+      # +Otto.new(nil, "mcp_enabled" => true)+ silently did nothing while the
+      # String-keyed +"auth_tokens"+ beside it was documented as accepted.
+      #
+      # @param opts [Hash] raw constructor options
+      # @return [Hash{Symbol=>Object}] the gating keys present in +opts+
+      # @raise [ArgumentError] when a String key and its Symbol twin disagree
+      def self.gating_options(opts)
+        symbolize_keys(opts.to_h).slice(*GATING_KEYS)
+      end
+
       # Symbolize option keys once, so String-keyed options configure the
       # server instead of passing the unrecognized-key guard (which already
       # symbolized) and then being ignored by normalization — which is how

@@ -56,9 +56,13 @@ read. Neither are `http:` and `stdio:`, which the pre-2.9.0 `enable_mcp!`
 documentation advertised but which were never read either.
 
 Keys may be Strings or Symbols: `enable_mcp!('auth_tokens' => ['s3cret'])`
-configures authentication exactly like `auth_tokens:`. A String key and its
-Symbol twin are two spellings of one option, so supplying both with different
-values raises `ArgumentError` like any other conflicting pair.
+configures authentication exactly like `auth_tokens:`, and
+`Otto.new(routes, 'mcp_enabled' => true, 'auth_tokens' => [...])` enables MCP
+exactly like `mcp_enabled: true`. A String key and its Symbol twin are two
+spellings of one option, so supplying both with different values raises
+`ArgumentError` like any other conflicting pair. This applies to the MCP
+options and the `mcp_enabled` / `mcp_http` / `mcp_stdio` gating keys only; the
+rest of Otto's constructor options are read as Symbols.
 
 `enable_mcp!` configures MCP and nothing else, so it is **strict**: any key it
 does not recognize raises `ArgumentError` listing the ones it does. A typo such
@@ -223,6 +227,7 @@ request returns `401` with the `Unauthorized` envelope above.
 | Bare `endpoint:`, `validation:`, `rate_limiting:`, `http:`, or `stdio:` passed to `enable_mcp!` | `ArgumentError`; they are not MCP options. Use `http_endpoint`, `enable_validation`, `enable_rate_limiting`. `http:` and `stdio:` appeared in the pre-2.9.0 `enable_mcp!` docs but were never read; there is no `enable_mcp!` replacement, since it always enables the HTTP endpoint. Passed to `Otto.new` all five are ignored by MCP like any other non-MCP key. |
 | `mcp_enabled:`, `mcp_http:`, or `mcp_stdio:` passed to `enable_mcp!` | `ArgumentError` explaining that they are constructor-only gating options; pass them to `Otto.new`. Before this fix `enable_mcp!(mcp_http: false)` was accepted and still mounted the endpoint. |
 | String-keyed options, e.g. `enable_mcp!('auth_tokens' => ['s3cret'])` | Accepted and applied. Before this fix String keys passed validation but were then ignored, so `'auth_tokens'` normalized to no tokens and the endpoint was served unauthenticated. |
+| String-keyed gating keys, e.g. `Otto.new(routes, 'mcp_enabled' => true)` | Enables MCP. Before this fix the constructor read the gating keys as Symbols only, so a String-keyed `'mcp_enabled'` enabled nothing while the `'auth_tokens'` beside it was accepted. |
 | Two spellings of one option with different values, e.g. `http_endpoint: '/a', mcp_endpoint: '/b'` | `ArgumentError` naming the canonical option and the conflicting spellings. Identical values are accepted. |
 | `auth_tokens:` supplied but empty, e.g. `ENV['MCP_TOKEN']` unset, `''`, `['']` | `ArgumentError`. Omit the key and pass `allow_unauthenticated: true` for a deliberately open endpoint. |
 | `enable_mcp!` when MCP is already enabled, including after `Otto.new(mcp_enabled: true)` | `ArgumentError` naming the existing endpoint. A second enable used to add a second route and leave the first endpoint unauthenticated. |

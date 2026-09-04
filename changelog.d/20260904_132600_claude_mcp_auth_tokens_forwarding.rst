@@ -21,6 +21,12 @@ Security
   server on ``/api/mcp`` was never throttled. The endpoint now travels with the
   rate limiting configuration as ``mcp_http_endpoint``; the JSON-RPC 429 body
   and the ``[MCP]`` log prefix follow it. (#258)
+- ``Otto.new`` reads the ``mcp_enabled``, ``mcp_http`` and ``mcp_stdio``
+  gating keys through the MCP option normalizer, so
+  ``Otto.new(routes, "mcp_enabled" => true, "auth_tokens" => [...])`` enables
+  MCP. Previously the gating keys were read as Symbols only, so a String-keyed
+  ``"mcp_enabled"`` silently enabled nothing while the String-keyed
+  ``"auth_tokens"`` beside it was documented as accepted. (#258)
 - ``Otto::MCP::Server#enable!`` raises ``ArgumentError`` when the server is
   already enabled. A second call appended a new route and middleware without
   removing the first set, so ``enable!(http_endpoint: '/new')`` after
@@ -126,5 +132,5 @@ AI Assistance
 - Option normalization design, fail-closed authentication review, and
   documentation developed with AI assistance. (#258)
 - The follow-up review that found the String-keyed option bypass, the
-  custom-endpoint throttle bypass, the double-enable hole and the gating-key
-  no-op was produced by GPT-5.6 Sol. (#258)
+  custom-endpoint throttle bypass, the double-enable hole, the gating-key
+  no-op and the String-keyed gating keys was produced by GPT-5.6 Sol. (#258)

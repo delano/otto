@@ -132,6 +132,34 @@ RSpec.describe Otto::MCP::Server do
     end
   end
 
+  # The gating keys used to be read as raw Symbols before normalization, so
+  # Otto.new(nil, "mcp_enabled" => true, "auth_tokens" => [...]) enabled
+  # nothing at all while the docs promised String keys work everywhere.
+  describe 'String-keyed constructor options' do
+    let(:otto) do
+      otto = Otto.new(nil, 'mcp_enabled' => true, 'auth_tokens' => [token])
+      Otto.unfreeze_for_testing(otto)
+      otto
+    end
+
+    it 'enables MCP' do
+      expect(otto.mcp_enabled?).to be true
+    end
+
+    it 'requires the token' do
+      expect(mcp_request(otto).first).to eq(401)
+      expect(mcp_request(otto, headers: { 'HTTP_AUTHORIZATION' => "Bearer #{token}" }).first).to eq(200)
+    end
+
+    it 'honours a String-keyed "mcp_http" => false' do
+      otto = Otto.new(nil, 'mcp_enabled' => true, 'mcp_http' => false)
+
+      expect(otto).not_to be_mcp_enabled
+      expect(otto.middleware_stack).not_to include(Otto::MCP::Auth::TokenMiddleware)
+      expect(otto.call(Rack::MockRequest.env_for('/_mcp', method: 'POST')).first).to eq(404)
+    end
+  end
+
   describe 'custom endpoint' do
     it 'honors mcp_endpoint: from the constructor and still requires auth' do
       otto = constructor_otto(mcp_endpoint: '/api/mcp', auth_tokens: [token])

@@ -140,6 +140,34 @@ RSpec.describe Otto::MCP::Options do
     end
   end
 
+  # Otto.new reads these itself to decide whether to enable MCP at all. They
+  # go through the same key symbolization as everything else, so the
+  # String-or-Symbol contract holds for the gating keys too.
+  describe '.gating_options' do
+    it 'returns the Symbol-keyed gating keys' do
+      expect(described_class.gating_options(mcp_enabled: true, mcp_http: false))
+        .to eq(mcp_enabled: true, mcp_http: false)
+    end
+
+    it 'symbolizes String-keyed gating keys' do
+      expect(described_class.gating_options('mcp_enabled' => true, 'mcp_stdio' => true))
+        .to eq(mcp_enabled: true, mcp_stdio: true)
+    end
+
+    it 'ignores every non-gating key, including MCP options' do
+      expect(described_class.gating_options(auth_tokens: ['t'], 'public' => '/x', 42 => 'y')).to eq({})
+    end
+
+    it 'returns an empty Hash for nil' do
+      expect(described_class.gating_options(nil)).to eq({})
+    end
+
+    it 'raises when a String gating key and its Symbol twin disagree' do
+      expect { described_class.gating_options('mcp_enabled' => true, mcp_enabled: false) }
+        .to raise_error(ArgumentError, /Conflicting MCP options for mcp_enabled/)
+    end
+  end
+
   # The scopes differ only in strictness. :explicit is what #enable_mcp!
   # speaks; :constructor is what Otto.new speaks, and it is handed an options
   # hash that also configures the rest of Otto.

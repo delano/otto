@@ -93,12 +93,16 @@ class Otto
       def configure_mcp(opts)
         @mcp_server = nil
 
-        # Enable MCP if requested in options
-        return unless opts[:mcp_enabled] || opts[:mcp_http] || opts[:mcp_stdio]
+        # Enable MCP if requested in options. The gating keys are read through
+        # the MCP option normalizer so that "mcp_enabled" => true enables MCP
+        # exactly like mcp_enabled: true, matching the String-or-Symbol
+        # contract every other MCP option already honours (#258).
+        gating = Otto::MCP::Options.gating_options(opts)
+        return unless gating[:mcp_enabled] || gating[:mcp_http] || gating[:mcp_stdio]
 
         @mcp_server = Otto::MCP::Server.new(self)
 
-        return unless opts[:mcp_http] != false # Default to true unless explicitly disabled
+        return if gating[:mcp_http] == false # Default to true unless explicitly disabled
 
         # Forward the whole options hash under the :constructor scope, which
         # picks out the MCP vocabulary (auth_tokens, rate limits, ...) and

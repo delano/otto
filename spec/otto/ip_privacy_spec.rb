@@ -2087,6 +2087,13 @@ RSpec.describe 'IP Privacy Features' do
     end
 
     context 'request through untrusted proxy' do
+      around do |example|
+        original_priority = Rack::Request.forwarded_priority.dup
+        example.run
+      ensure
+        Rack::Request.forwarded_priority = original_priority
+      end
+
       it 'treats untrusted proxy IP as client IP' do
         env = {
           'REMOTE_ADDR' => '198.51.100.1',  # Untrusted proxy

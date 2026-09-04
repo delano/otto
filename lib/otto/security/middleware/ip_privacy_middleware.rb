@@ -36,10 +36,6 @@ class Otto
       #   # env['otto.original_ip'] also contains real IP
       #
       class IPPrivacyMiddleware
-        # Initialize IP Privacy middleware
-        #
-        # @param app [#call] Rack application
-        # @param security_config [Otto::Security::Config] Security configuration
         # Forwarding metadata Rack::Request reads without consulting Otto's
         # proxy trust verdict: host (#host/#authority), scheme (#scheme/#ssl?),
         # and port (#port), from both the X-Forwarded-* family and RFC 7239
@@ -53,6 +49,10 @@ class Otto
           HTTP_X_FORWARDED_PORT
         ].freeze
 
+        # Initialize IP Privacy middleware
+        #
+        # @param app [#call] Rack application
+        # @param security_config [Otto::Security::Config] Security configuration
         def initialize(app, security_config = nil)
           @app = app
           @security_config = security_config

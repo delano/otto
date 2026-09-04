@@ -77,9 +77,15 @@ class Otto
           # forced consumers into grant-only reads (#228).
           # respond_to?: like geo_headers_trusted?, a partial/duck-typed
           # config (or nil) that cannot report trust state is "unconfigured".
-          if @security_config.respond_to?(:proxy_trust_configured?) && @security_config.proxy_trust_configured?
-            env['otto.via_trusted_proxy'] = trusted_proxy?(env['REMOTE_ADDR'])
-          end
+          proxy_trust_configured = @security_config.respond_to?(:proxy_trust_configured?) &&
+                                   @security_config.proxy_trust_configured?
+          via_trusted_proxy = proxy_trust_configured && trusted_proxy?(env['REMOTE_ADDR'])
+          env['otto.via_trusted_proxy'] = via_trusted_proxy if proxy_trust_configured
+
+          # Forwarded authority is denied unless proxy trust is affirmative. An
+          # absent tri-state key still means "unconfigured" to downstream code,
+          # but unconfigured forwarding cannot authorize request.host.
+          sanitize_forwarded_authority(env) unless via_trusted_proxy
 
           # Same rationale, for loopback: this middleware runs outermost, so a
           # downstream middleware that must authenticate a DIRECT LOCAL CALL
@@ -387,6 +393,64 @@ class Otto
         # @param client_ip [String, nil] resolved, unmasked client IP
         def install_ip_match(env, client_ip)
           env['otto.ip_match'] = ->(cidrs) { Otto::Utils.ip_in_cidrs?(client_ip, cidrs) }
+        end
+
+        # Remove authority metadata supplied by an untrusted peer.
+        #
+        # Rack's forwarded_authority does not consult Otto's proxy trust verdict:
+        # it accepts X-Forwarded-Host and Forwarded host= according only to the
+        # process-global forwarding-family priority. Scrub both carriers here,
+        # while the original peer trust decision is still available, so mounted
+        # Rack applications cannot receive a client-spoofed request.host.
+        def sanitize_forwarded_authority(env)
+          env.delete('HTTP_X_FORWARDED_HOST')
+
+          forwarded = env['HTTP_FORWARDED']
+          return unless forwarded
+
+          sanitized = split_forwarded_value(forwarded.to_s.tr("\r\n", ';;'), ',').filter_map do |element|
+            parameters = split_forwarded_value(element, ';').reject do |parameter|
+              parameter.strip.empty? || parameter.match?(/\A\s*host\s*=/i)
+            end
+            value = parameters.join(';')
+            value unless value.strip.empty?
+          end.join(',')
+
+          if sanitized.empty?
+            env.delete('HTTP_FORWARDED')
+          else
+            env['HTTP_FORWARDED'] = sanitized
+          end
+        end
+
+        # Split an RFC 7239 value on an unquoted delimiter, retaining quoted
+        # delimiters and backslash escapes inside parameter values.
+        def split_forwarded_value(value, delimiter)
+          fragments = [+'']
+          quoted = false
+          escaped = false
+
+          value.each_char do |character|
+            if quoted
+              fragments.last << character
+              if escaped
+                escaped = false
+              elsif character == '\\'
+                escaped = true
+              elsif character == '"'
+                quoted = false
+              end
+            elsif character == '"'
+              quoted = true
+              fragments.last << character
+            elsif character == delimiter
+              fragments << +''
+            else
+              fragments.last << character
+            end
+          end
+
+          fragments
         end
 
         # Delete forwarded IP headers outright.

@@ -523,12 +523,14 @@ RSpec.describe 'IP Privacy Features' do
       end
 
       context 'RFC 7239 Forwarded header masking' do
-        it 'redacts for= but preserves proto/host/by metadata' do
+        it 'redacts for= and removes untrusted authority while preserving other metadata' do
           env = { 'REMOTE_ADDR' => '203.0.113.77',
+                  'HTTP_X_FORWARDED_HOST' => 'attacker.example',
                   'HTTP_FORWARDED' => 'for=203.0.113.77;proto=https;host=example.com;by=10.0.0.1' }
           middleware.call(env)
 
-          expect(env['HTTP_FORWARDED']).to eq('for=203.0.113.0;proto=https;host=example.com;by=10.0.0.1')
+          expect(env).not_to have_key('HTTP_X_FORWARDED_HOST')
+          expect(env['HTTP_FORWARDED']).to eq('for=203.0.113.0;proto=https;by=10.0.0.1')
           expect(env['HTTP_FORWARDED']).not_to include('203.0.113.77')
         end
 
@@ -2055,6 +2057,20 @@ RSpec.describe 'IP Privacy Features' do
         # Should use X-Forwarded-For (first in priority)
         expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
       end
+
+      it 'preserves forwarded authority from a trusted peer' do
+        security_config.ip_privacy_config.disable!
+        env = {
+          'REMOTE_ADDR' => '10.0.0.1',
+          'HTTP_X_FORWARDED_HOST' => 'public.example',
+          'HTTP_FORWARDED' => 'for=203.0.113.50;host=public.example;proto=https',
+        }
+
+        middleware.call(env)
+
+        expect(env['HTTP_X_FORWARDED_HOST']).to eq('public.example')
+        expect(env['HTTP_FORWARDED']).to eq('for=203.0.113.50;host=public.example;proto=https')
+      end
     end
 
     context 'request through untrusted proxy' do
@@ -2082,6 +2098,35 @@ RSpec.describe 'IP Privacy Features' do
 
         # Should use REMOTE_ADDR and ignore untrusted headers
         expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
+      end
+
+      it 'removes X-Forwarded-Host and every Forwarded host parameter' do
+        security_config.ip_privacy_config.disable!
+        env = Rack::MockRequest.env_for(
+          'http://origin.example/path',
+          'REMOTE_ADDR' => '198.51.100.1',
+          'HTTP_X_FORWARDED_HOST' => 'attacker.example',
+          'HTTP_FORWARDED' => 'for=203.0.113.50;host="attacker.example:8443";proto=https, ' \
+                              'for=192.0.2.10;HOST=other.example;by=10.0.0.1'
+        )
+
+        middleware.call(env)
+
+        expect(env).not_to have_key('HTTP_X_FORWARDED_HOST')
+        expect(env['HTTP_FORWARDED'])
+          .to eq('for=203.0.113.50;proto=https, for=192.0.2.10;by=10.0.0.1')
+        expect(Rack::Request.new(env).host).to eq('origin.example')
+      end
+
+      it 'deletes Forwarded when host is its only parameter' do
+        env = {
+          'REMOTE_ADDR' => '198.51.100.1',
+          'HTTP_FORWARDED' => 'host=attacker.example',
+        }
+
+        middleware.call(env)
+
+        expect(env).not_to have_key('HTTP_FORWARDED')
       end
     end
 

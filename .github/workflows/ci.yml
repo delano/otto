@@ -69,9 +69,9 @@ jobs:
             lockfile: "unlocked"
 
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@afeafc3d1ab54a631816aba4c914a0081c12ff2f # v1.310.0
         continue-on-error: ${{ matrix.experimental }}
         with:
           ruby-version: ${{ matrix.ruby }}
@@ -80,7 +80,7 @@ jobs:
           bundler-cache: ${{ !matrix.experimental && matrix.lockfile == 'locked' }}
 
       - name: Setup tmate session
-        uses: mxschmitt/action-tmate@35b54afac29c97fb54faba5b513f8fbd1882f113 # v3
+        uses: mxschmitt/action-tmate@35b54afac29c97fb54faba5b513f8fbd1882f113 # v3.24
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled }}
         with:
           detached: true

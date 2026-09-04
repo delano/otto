@@ -46,11 +46,25 @@ class Otto
 
       # Enable the MCP server.
       #
+      # Enabling is one-shot. Each call appends a route, an endpoint-setting
+      # proc and the MCP middleware to the Otto instance without removing the
+      # previous set, so a second call with a different endpoint would leave
+      # the first endpoint routed but guarded by nothing (the auth middleware
+      # only matches the newest endpoint). Rather than try to unwind that,
+      # a second call raises.
+      #
       # @param options [Hash] canonical or aliased options; normalized via
       #   {.normalize_options}, so both the canonical keys (:http_endpoint,
       #   :auth_tokens, ...) and their mcp_-prefixed spellings
       #   (:mcp_endpoint, :mcp_auth_tokens, ...) are accepted.
+      # @raise [ArgumentError] if the server is already enabled
       def enable!(options = {})
+        if @enabled
+          raise ArgumentError,
+                "MCP server is already enabled on #{@http_endpoint}; pass all MCP options " \
+                'in a single Otto.new or enable_mcp! call'
+        end
+
         options = self.class.normalize_options(options)
 
         @enabled               = true
@@ -180,10 +194,13 @@ class Otto
         @otto_instance.routes_literal[:POST]               ||= {}
         @otto_instance.routes_literal[:POST][@http_endpoint] = mcp_route
 
-        # Ensure env carries endpoint for middlewares
+        # Ensure env carries endpoint for middlewares. Close over a local copy:
+        # the proc must keep announcing the endpoint it was registered for even
+        # if the ivar is ever reassigned.
+        endpoint = @http_endpoint
         @otto_instance.use proc { |app|
           lambda { |env|
-            env['otto.mcp_http_endpoint'] = @http_endpoint
+            env['otto.mcp_http_endpoint'] = endpoint
             app.call(env)
           }
         }

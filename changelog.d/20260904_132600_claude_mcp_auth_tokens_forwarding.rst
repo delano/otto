@@ -21,6 +21,12 @@ Security
   server on ``/api/mcp`` was never throttled. The endpoint now travels with the
   rate limiting configuration as ``mcp_http_endpoint``; the JSON-RPC 429 body
   and the ``[MCP]`` log prefix follow it. (#258)
+- ``Otto::MCP::Server#enable!`` raises ``ArgumentError`` when the server is
+  already enabled. A second call appended a new route and middleware without
+  removing the first set, so ``enable!(http_endpoint: '/new')`` after
+  ``enable!(http_endpoint: '/old', auth_tokens: [...])`` left ``/old`` routed
+  and unauthenticated. Pass every MCP option in a single ``Otto.new`` or
+  ``enable_mcp!`` call. (#258)
 
 Fixed
 -----

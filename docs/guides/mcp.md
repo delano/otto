@@ -38,6 +38,11 @@ Before Otto 2.9.0 the constructor silently discarded everything but the
 endpoint, and `enable_mcp!(auth_tokens: ...)` raised `NoMethodError` (#258). If
 you worked around either bug, remove the workaround.
 
+MCP can be enabled once per `Otto` instance. Calling `enable_mcp!` a second
+time, or enabling via the constructor and then calling `enable_mcp!`, raises
+`ArgumentError` naming the existing endpoint. The endpoint cannot be moved or
+reconfigured after the fact, so pass every MCP option in the one call.
+
 ## Options
 
 Both entry points accept the same spellings: each canonical key and its
@@ -219,6 +224,7 @@ request returns `401` with the `Unauthorized` envelope above.
 | String-keyed options, e.g. `enable_mcp!('auth_tokens' => ['s3cret'])` | Accepted and applied. Before this fix String keys passed validation but were then ignored, so `'auth_tokens'` normalized to no tokens and the endpoint was served unauthenticated. |
 | Two spellings of one option with different values, e.g. `http_endpoint: '/a', mcp_endpoint: '/b'` | `ArgumentError` naming the canonical option and the conflicting spellings. Identical values are accepted. |
 | `auth_tokens:` supplied but empty, e.g. `ENV['MCP_TOKEN']` unset, `''`, `['']` | `ArgumentError`. Omit the key and pass `allow_unauthenticated: true` for a deliberately open endpoint. |
+| `enable_mcp!` when MCP is already enabled, including after `Otto.new(mcp_enabled: true)` | `ArgumentError` naming the existing endpoint. A second enable used to add a second route and leave the first endpoint unauthenticated. |
 | `enable_mcp!` after the instance is frozen | Raises; configure MCP during boot. See [configuration freezing](configuration_freezing.md). |
 | `POST` to the endpoint when MCP is not enabled | `404` with `{"error":"MCP not enabled"}`. |
 

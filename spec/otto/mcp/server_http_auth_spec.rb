@@ -150,6 +150,60 @@ RSpec.describe Otto::MCP::Server do
     end
   end
 
+  describe 'enabling twice' do
+    # Server#enable! appends a route, an endpoint-setting proc and the MCP
+    # middleware to the Otto instance without removing the previous set, so a
+    # second call with a different endpoint would leave the first endpoint
+    # routed but unguarded: the auth middleware only matches the newest
+    # endpoint. The server refuses a second call instead.
+    let(:otto) { explicit_otto(http_endpoint: '/old', auth_tokens: [token]) }
+    let(:mcp_handler) { 'Otto::MCP::InternalHandler.handle_request' }
+
+    def enable_again
+      otto.enable_mcp!(http_endpoint: '/new', auth_tokens: [token])
+    end
+
+    it 'raises, naming the existing endpoint and the remedy' do
+      expect { enable_again }.to raise_error(
+        ArgumentError,
+        %r{already enabled on /old; pass all MCP options in a single Otto\.new or enable_mcp! call}
+      )
+    end
+
+    it 'raises for #enable_mcp! after the constructor enabled it' do
+      otto = constructor_otto(mcp_endpoint: '/old', auth_tokens: [token])
+
+      expect { otto.enable_mcp!(http_endpoint: '/new', auth_tokens: [token]) }
+        .to raise_error(ArgumentError, %r{already enabled on /old})
+    end
+
+    it 'keeps the original endpoint authenticated' do
+      expect { enable_again }.to raise_error(ArgumentError)
+
+      expect(mcp_request(otto, endpoint: '/old').first).to eq(401)
+      expect(mcp_request(otto, endpoint: '/old',
+                               headers: { 'HTTP_AUTHORIZATION' => "Bearer #{token}" }).first).to eq(200)
+    end
+
+    it 'adds no second route' do
+      expect { enable_again }.to raise_error(ArgumentError)
+
+      mcp_routes = otto.routes[:POST].select { |route| route.definition == mcp_handler }
+      expect(mcp_routes.map(&:path)).to eq(['/old'])
+      expect(otto.routes_literal[:POST].keys).to eq(['/old'])
+
+      env = Rack::MockRequest.env_for('/new', method: 'POST', input: '{}', 'CONTENT_TYPE' => 'application/json')
+      expect(otto.call(env).first).to eq(404)
+    end
+
+    it 'mounts no second auth middleware or endpoint proc' do
+      expect { enable_again }.to raise_error(ArgumentError)
+
+      expect(otto.middleware.count(Otto::MCP::Auth::TokenMiddleware)).to eq(1)
+      expect(otto.middleware.middleware_list.count { |m| m.is_a?(Proc) }).to eq(1)
+    end
+  end
+
   describe 'without configured tokens' do
     let(:otto) { constructor_otto(allow_unauthenticated: true) }
 

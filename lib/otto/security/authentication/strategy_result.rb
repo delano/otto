@@ -159,45 +159,34 @@ class Otto
 
         # Check if the user has a specific role
         #
+        # A user model that defines `#has_role?` is asked directly. Otherwise
+        # the answer is derived from {#roles}, so the predicate and the accessor
+        # always agree: `has_role?(r)` is `roles.include?(r.to_s)` for Hash,
+        # PORO, ORM, Set-backed, and single-`#role` users alike.
+        #
         # @param role [String, Symbol] Role to check
         # @return [Boolean] True if user has the role
         def has_role?(role)
           return false unless authenticated?
+          return user.has_role?(role) if user.respond_to?(:has_role?)
 
-          # Try user model methods first, fall back to hash access for backward compatibility
-          if user.respond_to?(:role)
-            user.role.to_s == role.to_s
-          elsif user.respond_to?(:has_role?)
-            user.has_role?(role)
-          elsif user.is_a?(Hash)
-            user_role = user[:role] || user['role']
-            user_role.to_s == role.to_s
-          else
-            false
-          end
+          roles.include?(role.to_s)
         end
 
         # Check if the user has a specific permission
+        #
+        # A user model that defines `#has_permission?` is asked directly.
+        # Otherwise the answer is derived from {#permissions}, so the predicate
+        # and the accessor always agree, including for Set-backed and other
+        # non-Array Enumerable collections.
         #
         # @param permission [String, Symbol] Permission to check
         # @return [Boolean] True if user has the permission
         def has_permission?(permission)
           return false unless authenticated?
+          return user.has_permission?(permission) if user.respond_to?(:has_permission?)
 
-          # Try user model methods first, fall back to hash access for backward compatibility
-          if user.respond_to?(:has_permission?)
-            user.has_permission?(permission)
-          elsif user.respond_to?(:permissions)
-            permissions = user.permissions || []
-            permissions = [permissions] unless permissions.is_a?(Array)
-            permissions.map(&:to_s).include?(permission.to_s)
-          elsif user.is_a?(Hash)
-            permissions = user[:permissions] || user['permissions'] || []
-            permissions = [permissions] unless permissions.is_a?(Array)
-            permissions.map(&:to_s).include?(permission.to_s)
-          else
-            false
-          end
+          permissions.include?(permission.to_s)
         end
 
         # Check if the user has any of the specified roles

@@ -252,4 +252,104 @@ RSpec.describe Otto::Security::Authentication::StrategyResult do
       expect(described_class.anonymous.permissions).to eq([])
     end
   end
+
+  describe '#has_role?' do
+    let(:orm_like) do
+      Class.new do
+        def initialize(roles:, role: nil)
+          @roles = roles
+          @role = role
+        end
+
+        attr_reader :roles, :role
+
+        def id = 7
+        def [](_key) = nil
+      end
+    end
+
+    it 'agrees with #roles for a Set-backed ORM-like user' do
+      result = build(orm_like.new(roles: Set['admin']))
+      expect(result.roles).to eq(['admin'])
+      expect(result.has_role?(:admin)).to be(true)
+      expect(result.has_role?('admin')).to be(true)
+      expect(result.has_role?(:viewer)).to be(false)
+    end
+
+    it 'consults #roles before a single #role' do
+      result = build(orm_like.new(roles: %w[admin editor], role: 'viewer'))
+      expect(result.has_role?(:admin)).to be(true)
+      expect(result.has_role?(:editor)).to be(true)
+      expect(result.has_role?(:viewer)).to be(false)
+    end
+
+    it 'falls back to #role when #roles is empty' do
+      result = build(orm_like.new(roles: [], role: 'viewer'))
+      expect(result.has_role?(:viewer)).to be(true)
+    end
+
+    it 'reads a Hash :roles array' do
+      result = build({ roles: %w[admin] })
+      expect(result.has_role?(:admin)).to be(true)
+      expect(result.has_role?(:editor)).to be(false)
+    end
+
+    it 'reads a Hash :role scalar' do
+      expect(build({ 'role' => :admin }).has_role?('admin')).to be(true)
+    end
+
+    it 'delegates to a user model defining #has_role?' do
+      model = Struct.new(:granted) do
+        def has_role?(role) = granted.include?(role.to_s)
+      end
+      expect(build(model.new(%w[ops])).has_role?(:ops)).to be(true)
+      expect(build(model.new(%w[ops])).has_role?(:admin)).to be(false)
+    end
+
+    it 'is false for a user without role support' do
+      expect(build(Object.new).has_role?(:admin)).to be(false)
+    end
+
+    it 'is false when anonymous' do
+      expect(described_class.anonymous.has_role?(:admin)).to be(false)
+    end
+  end
+
+  describe '#has_permission?' do
+    it 'agrees with #permissions for a Set-backed PORO user' do
+      user = Struct.new(:permissions).new(Set['read', :write])
+      result = build(user)
+      expect(result.permissions).to eq(%w[read write])
+      expect(result.has_permission?(:read)).to be(true)
+      expect(result.has_permission?('write')).to be(true)
+      expect(result.has_permission?(:delete)).to be(false)
+    end
+
+    it 'agrees with #permissions for a Hash user holding a Set' do
+      result = build({ permissions: Set['read'] })
+      expect(result.permissions).to eq(['read'])
+      expect(result.has_permission?(:read)).to be(true)
+    end
+
+    it 'reads a Hash permissions array' do
+      expect(build({ 'permissions' => %w[read] }).has_permission?(:read)).to be(true)
+      expect(build({ 'permissions' => %w[read] }).has_permission?(:write)).to be(false)
+    end
+
+    it 'delegates to a user model defining #has_permission?' do
+      model = Struct.new(:granted) do
+        def has_permission?(permission) = granted.include?(permission.to_s)
+      end
+      expect(build(model.new(%w[read])).has_permission?(:read)).to be(true)
+      expect(build(model.new(%w[read])).has_permission?(:write)).to be(false)
+    end
+
+    it 'is false for a user without permission support' do
+      expect(build(Object.new).has_permission?(:read)).to be(false)
+    end
+
+    it 'is false when anonymous' do
+      expect(described_class.anonymous.has_permission?(:read)).to be(false)
+    end
+  end
 end

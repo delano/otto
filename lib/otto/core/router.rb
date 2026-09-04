@@ -230,7 +230,24 @@ class Otto
         # Rack::Files unescapes PATH_INFO, so escape the canonical path to
         # survive the round trip (escape_path preserves '/').
         static_env['PATH_INFO'] = "/#{Rack::Utils.escape_path(static_file.relative)}"
-        static_route.call(static_env)
+        static_route_for(static_file.root).call(static_env)
+      end
+
+      # Rack::Files rooted at the root +static_file+ was validated against.
+      #
+      # @static_route is memoised once, but the public directory can be
+      # repointed without a restart (a release symlink flip). Containment
+      # re-resolves the root on every request and would validate against the
+      # new tree while the memoised Rack::Files kept opening files under the
+      # old one, so a validated relative path could be joined to a root it was
+      # never checked against. Rebuild whenever the two diverge. The race
+      # between two threads rebuilding at once is benign: both produce an
+      # equivalent instance for the same root.
+      def static_route_for(root)
+        current = static_route
+        return current if current && current.root == root
+
+        @static_route = Rack::Files.new(root)
       end
 
       def build_static_route

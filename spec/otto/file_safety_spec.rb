@@ -243,6 +243,44 @@ RSpec.describe Otto, 'file safety checks' do
       expect(linked_app.send(:build_static_route).root).to eq(File.realpath(real_root))
     end
 
+    # Deploys commonly flip a 'current' symlink to a new release without a
+    # restart. Containment resolves the root per request, but the memoised
+    # Rack::Files must follow it, or the old tree keeps being served (and a
+    # validated relative path is joined to a root it was never checked against).
+    it 'follows the public root symlink when it is repointed between requests' do
+      release_a = Dir.mktmpdir('otto_release_a')
+      release_b = Dir.mktmpdir('otto_release_b')
+      File.write(File.join(release_a, 'asset.txt'), 'release A')
+      File.write(File.join(release_b, 'asset.txt'), 'release B')
+      File.write(File.join(release_b, 'new.txt'), 'only in B')
+      link_root = File.join(Dir.mktmpdir('otto_link_parent'), 'current')
+      File.symlink(release_a, link_root)
+      linked_app = described_class.new(nil, { public: link_root })
+
+      status, _headers, body = linked_app.call(Rack::MockRequest.env_for('/asset.txt'))
+      expect(status).to eq(200)
+      expect(body.to_enum(:each).to_a.join).to eq('release A')
+      expect(linked_app.static_route.root).to eq(File.realpath(release_a))
+
+      # Atomic repoint: symlink to a temp name, then rename over the old link.
+      tmp_link = "#{link_root}.tmp"
+      File.symlink(release_b, tmp_link)
+      File.rename(tmp_link, link_root)
+
+      status, _headers, body = linked_app.call(Rack::MockRequest.env_for('/asset.txt'))
+      expect(status).to eq(200)
+      expect(body.to_enum(:each).to_a.join).to eq('release B')
+      expect(linked_app.static_route.root).to eq(File.realpath(release_b))
+
+      status, _headers, body = linked_app.call(Rack::MockRequest.env_for('/new.txt'))
+      expect(status).to eq(200)
+      expect(body.to_enum(:each).to_a.join).to eq('only in B')
+    ensure
+      [release_a, release_b, link_root && File.dirname(link_root)].compact.each do |d|
+        FileUtils.remove_entry(d) if d && File.exist?(d)
+      end
+    end
+
     it 'returns 404 rather than raising when the public root does not exist' do
       missing_app = described_class.new(nil, { public: '/nonexistent/otto/public' })
 

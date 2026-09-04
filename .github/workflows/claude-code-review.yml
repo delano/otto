@@ -30,13 +30,20 @@ jobs:
     #      CLAUDE_CODE_OAUTH_TOKEN is empty and the action would fail.
     #   3. The event is a freshly opened PR, a 'claude-review' label add, or a push
     #      to a PR that already carries the 'claude-review' label.
+    # A manual workflow_dispatch run bypasses 2 and 3 (it can only be started by a
+    # user with write access, on a branch in this repo) but still skips bots.
     if: ${{
       !endsWith(github.actor, '[bot]') &&
-      !github.event.pull_request.head.repo.fork &&
       (
-        (github.event.action == 'opened') ||
-        (github.event.action == 'labeled' && github.event.label.name == 'claude-review') ||
-        (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'claude-review'))
+        github.event_name == 'workflow_dispatch' ||
+        (
+          !github.event.pull_request.head.repo.fork &&
+          (
+            (github.event.action == 'opened') ||
+            (github.event.action == 'labeled' && github.event.label.name == 'claude-review') ||
+            (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'claude-review'))
+          )
+        )
       )
       }}
 

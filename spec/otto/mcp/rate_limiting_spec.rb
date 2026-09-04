@@ -161,7 +161,7 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
         end
       end
 
-      # Configure MCP rate limiting (which overrides throttled_responder)
+      # Configure MCP rate limiting (which overrides throttled_response)
       Otto::MCP::RateLimiter.configure_rack_attack!({})
     end
 

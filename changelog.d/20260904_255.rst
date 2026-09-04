@@ -1,6 +1,9 @@
 Changed
 -------
 
+- MCP rate limiting no longer registers a second ``rack.attack`` log
+  subscriber on top of the general one, so throttled requests are logged once.
+  (#255)
 - Supported optional dependency ranges are now enforced during configuration:
   ``json_schemer ~> 2.0``, ``rack-attack ~> 6.7``, and ``maxmind-db ~> 1.2``.
   (#255)

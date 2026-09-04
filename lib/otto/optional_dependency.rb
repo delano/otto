@@ -36,8 +36,9 @@ class Otto
         require require_path
         nil
       # Convert loader failures into a feature-specific configuration error.
-      # rubocop:disable-next Lint/ShadowedException
-      rescue Gem::LoadError, LoadError => e
+      # Gem::LoadError (activation conflicts) is a LoadError subclass, so one
+      # rescue covers both activation and require failures.
+      rescue LoadError => e
         e
       end
 

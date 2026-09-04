@@ -14,10 +14,18 @@ class Otto
         # Start with base configuration from general rate limiting
         super
 
-        # Add MCP-specific rules
+        # Add MCP-specific rules. JSON-RPC responses and [MCP] logging come from
+        # the throttled_response / log_throttled_request overrides below, which
+        # the base configuration already wires into Rack::Attack.
         configure_mcp_rules(config)
-        configure_mcp_responses
-        configure_mcp_logging
+      end
+
+      def self.mcp_endpoint(env)
+        env['otto.mcp_http_endpoint'] || '/_mcp'
+      end
+
+      def self.mcp_request?(request)
+        request.path.start_with?(mcp_endpoint(request.env))
       end
 
       def self.configure_mcp_rules(config)
@@ -25,16 +33,14 @@ class Otto
         mcp_requests_limit = config[:mcp_requests_per_minute] || 60
 
         Rack::Attack.throttle('mcp_requests', limit: mcp_requests_limit, period: 60) do |request|
-          endpoint = request.env['otto.mcp_http_endpoint'] || '/_mcp'
-          request.ip if request.path.start_with?(endpoint)
+          request.ip if mcp_request?(request)
         end
 
         # Tool calls are more expensive - 20 per minute by default
         tool_calls_limit = config[:tool_calls_per_minute] || 20
 
         Rack::Attack.throttle('mcp_tool_calls', limit: tool_calls_limit, period: 60) do |request|
-          endpoint = request.env['otto.mcp_http_endpoint'] || '/_mcp'
-          if request.path.start_with?(endpoint) && request.post?
+          if mcp_request?(request) && request.post?
             begin
               body = request.body.read
               data = JSON.parse(body)
@@ -48,76 +54,38 @@ class Otto
         end
       end
 
-      def self.configure_mcp_responses
-        # Override throttled responder to provide JSON-RPC formatted responses for MCP requests
-        Rack::Attack.throttled_responder = lambda do |request|
-          match_data = request.env['rack.attack.match_data']
-          now        = match_data[:epoch_time]
+      # JSON-RPC formatted 429 for MCP requests; the general Otto response
+      # (route response_type, then Accept header) for everything else.
+      def self.throttled_response(request)
+        return super unless mcp_request?(request)
 
-          headers = {
-            'content-type' => 'application/json',
-            'retry-after' => (match_data[:period] - (now % match_data[:period])).to_s,
-          }
+        match_data = request.env['rack.attack.match_data']
+        headers    = throttle_headers(match_data)
 
-          # Check if this is an MCP request
-          endpoint = request.env['otto.mcp_http_endpoint'] || '/_mcp'
-          if request.path.start_with?(endpoint)
-            # JSON-RPC error response for MCP
-            error_response = {
-              jsonrpc: '2.0',
-              id: nil,
-              error: {
-                code: -32_000,
-                message: 'Rate limit exceeded',
-                data: {
-                  retry_after: headers['retry-after'].to_i,
-                  limit: match_data[:limit],
-                  period: match_data[:period],
-                },
-              },
-            }
-            [429, headers, [JSON.generate(error_response)]]
-          else
-            # Use the general rate limiting response for non-MCP requests
-            # Route's response_type takes precedence over Accept header
-            route_def = request.env['otto.route_definition']
-            wants_json = (route_def&.response_type == 'json') ||
-                         request.env['HTTP_ACCEPT'].to_s.include?('application/json')
-
-            if wants_json
-              error_response = {
-                error: 'Rate limit exceeded',
-                message: 'Too many requests',
-                retry_after: headers['retry-after'].to_i,
-                limit: match_data[:limit],
-                period: match_data[:period],
-              }
-              [429, headers, [JSON.generate(error_response)]]
-            else
-              body                    = "Rate limit exceeded. Retry after #{headers['retry-after']} seconds."
-              headers['content-type'] = 'text/plain'
-              [429, headers, [body]]
-            end
-          end
-        end
+        error_response = {
+          jsonrpc: '2.0',
+          id: nil,
+          error: {
+            code: -32_000,
+            message: 'Rate limit exceeded',
+            data: {
+              retry_after: headers['retry-after'].to_i,
+              limit: match_data[:limit],
+              period: match_data[:period],
+            },
+          },
+        }
+        [429, headers, [JSON.generate(error_response)]]
       end
 
-      def self.configure_mcp_logging
-        return unless defined?(ActiveSupport::Notifications)
+      # Masked address only — see the note on the base implementation in
+      # Otto::Security::RateLimiting (issue #219).
+      def self.log_throttled_request(payload)
+        req = payload[:request]
+        return super unless mcp_request?(req)
 
-        # Masked address only — see the note on the sibling subscriber in
-        # Otto::Security::RateLimiting.configure_rack_attack! (issue #219).
-        ActiveSupport::Notifications.subscribe('rack.attack') do |_name, _start, _finish, _request_id, payload|
-          req      = payload[:request]
-          endpoint = req.env['otto.mcp_http_endpoint'] || '/_mcp'
-          ip       = Otto::LoggingHelpers.privacy_safe_ip(req.env, req.ip)
-
-          if req.path.start_with?(endpoint)
-            Otto.logger.warn "[MCP] Rate limit #{payload[:match_type]} for #{ip}: #{payload[:matched]}"
-          else
-            Otto.logger.warn "[Otto] Rate limit #{payload[:match_type]} for #{ip}: #{payload[:matched]}"
-          end
-        end
+        ip = Otto::LoggingHelpers.privacy_safe_ip(req.env, req.ip)
+        Otto.logger.warn "[MCP] Rate limit #{payload[:match_type]} for #{ip}: #{payload[:matched]}"
       end
     end
 

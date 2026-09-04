@@ -301,10 +301,17 @@ RSpec.describe Otto, 'rate limiting features' do
   describe 'blocked-request logging' do
     let(:notifications) do
       Class.new do
-        attr_reader :subscriptions
+        attr_reader :subscriptions, :subscribe_calls
 
-        def initialize = (@subscriptions = {})
-        def subscribe(name, &block) = (@subscriptions[name] = block)
+        def initialize
+          @subscriptions   = {}
+          @subscribe_calls = 0
+        end
+
+        def subscribe(name, &block)
+          @subscribe_calls += 1
+          @subscriptions[name] = block
+        end
 
         def publish(name, payload)
           @subscriptions.fetch(name).call(name, nil, nil, nil, payload)
@@ -346,7 +353,7 @@ RSpec.describe Otto, 'rate limiting features' do
     end
 
     it 'masks the IP on the MCP subscriber too' do
-      Otto::MCP::RateLimiter.configure_mcp_logging
+      Otto::MCP::RateLimiter.configure_logging
 
       publish_throttle('REMOTE_ADDR' => '198.51.100.42', 'PATH_INFO' => '/_mcp')
 
@@ -356,12 +363,25 @@ RSpec.describe Otto, 'rate limiting features' do
     end
 
     it 'masks the IP on the MCP subscriber for non-MCP paths' do
-      Otto::MCP::RateLimiter.configure_mcp_logging
+      Otto::MCP::RateLimiter.configure_logging
 
       publish_throttle('REMOTE_ADDR' => '198.51.100.42', 'PATH_INFO' => '/other')
 
       expect(logged.last).to start_with('[Otto]')
       expect(logged.last).not_to include('198.51.100.42')
+    end
+
+    # MCP configuration runs the base configuration via super. It must not add
+    # a second 'rack.attack' subscriber on top of the base one, or every
+    # throttle event is logged twice.
+    it 'registers a single subscriber when MCP rate limiting is configured' do
+      Otto::MCP::RateLimiter.configure_rack_attack!({})
+
+      publish_throttle('REMOTE_ADDR' => '198.51.100.42', 'PATH_INFO' => '/_mcp')
+
+      expect(notifications.subscribe_calls).to eq(1)
+      expect(logged.size).to eq(1)
+      expect(logged.last).to start_with('[MCP]')
     end
   end
 end

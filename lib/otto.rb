@@ -84,6 +84,7 @@ class Otto
   attr_accessor :not_found, :server_error
 
   def initialize(path = nil, opts = {})
+    constructed = false
     initialize_core_state
     initialize_options(path, opts)
     initialize_configurations(opts)
@@ -106,6 +107,13 @@ class Otto
     # but before processing requests.
     @freeze_mutex = Mutex.new
     @configuration_frozen = false
+    constructed = true
+  ensure
+    # A config that committed to a forwarding family during configure_security
+    # is held process-wide; withdraw it if construction failed afterwards
+    # (e.g. a bad routes path), or the dead app would keep vetoing other
+    # families for the life of the process.
+    Otto::Security::Config.release_rack_forwarding_family!(@security_config) if @security_config && !constructed
   end
   alias options option
 

@@ -167,7 +167,7 @@ RSpec.describe Otto, 'initialization' do
 
       expect do
         described_class.new(nil, trusted_proxy_depth: 1, trusted_proxy_header: 'X-Forwarded-For')
-      end.to raise_error(ArgumentError, /every Otto application in one process must use the same forwarding family/)
+      end.to raise_error(ArgumentError, /must use the same forwarding family/)
     end
 
     it 'keeps rejecting the conflict after the earlier app is garbage collected' do
@@ -194,6 +194,34 @@ RSpec.describe Otto, 'initialization' do
 
       expect(later.security_config.trusted_proxy_header).to eq('X-Forwarded-For')
       expect(Rack::Request.forwarded_priority).to eq([:forwarded])
+    end
+
+    it 'treats a CIDR-mode app as committed to X-Forwarded-For' do
+      described_class.new(routes_file, trusted_proxies: ['10.0.0.0/8'])
+
+      expect do
+        described_class.new(nil, trusted_proxy_depth: 1, trusted_proxy_header: 'Forwarded')
+      end.to raise_error(ArgumentError, /already uses X-Forwarded-For/)
+    end
+
+    it 'rejects a CIDR-mode app once another app committed to Forwarded' do
+      described_class.new(routes_file, trusted_proxy_depth: 1, trusted_proxy_header: 'Forwarded')
+
+      expect do
+        described_class.new(nil, trusted_proxies: ['10.0.0.0/8'])
+      end.to raise_error(ArgumentError, /already uses Forwarded/)
+      expect(Rack::Request.forwarded_priority).to eq([:forwarded])
+    end
+
+    it 'releases the family claim when construction fails after committing' do
+      expect do
+        described_class.new('/nonexistent/routes.txt', trusted_proxy_depth: 1, trusted_proxy_header: 'Forwarded')
+      end.to raise_error(ArgumentError, /Bad path/)
+
+      expect(Otto::Security::Config.rack_forwarding_family).to be_nil
+      expect do
+        described_class.new(nil, trusted_proxy_depth: 1, trusted_proxy_header: 'X-Forwarded-For')
+      end.not_to raise_error
     end
 
     it 'rejects a non-default trusted_proxy_header alongside trusted_proxies' do

@@ -127,6 +127,19 @@ fail-closed changes in #256 make that existing convenience safe by default;
 they do not establish that all Otto API-key authentication should use
 boot-loaded lists.
 
+The shape is deliberate and has precedent. A key list loaded once at start,
+checked with a constant-time comparison, is what the Rails guides show for
+`authenticate_or_request_with_http_token` (a token from the environment,
+compared with `ActiveSupport::SecurityUtils.secure_compare`), what the
+Kubernetes API server does with its `--token-auth-file` CSV, and what Traefik
+and nginx do with their basic-auth user lists. Warden and Devise token
+examples, and the common Sinatra `before` filter that compares a header
+against `ENV['API_KEY']`, are the same pattern. All of them share the
+properties here: no source configured means no access, the set of keys is
+fixed for the life of the process, and a mismatch is final. The resolver form
+is the escape hatch for the dynamic case those tools also leave to an external
+store.
+
 In either form, the strategy has no native support for:
 
 - Runtime addition or immediate revocation.

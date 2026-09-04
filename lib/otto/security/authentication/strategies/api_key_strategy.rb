@@ -116,8 +116,10 @@ class Otto
               api_key = request.params[@param_name]
             end
 
-            # '' is truthy in Ruby; treat it as a missing credential.
-            return failure('No API key provided') if api_key.nil? || (api_key.is_a?(String) && api_key.empty?)
+            # '' is truthy in Ruby; treat it, and a whitespace-only value, as a
+            # missing credential. The static list already refuses blank keys, so
+            # the resolver must never be asked about one either.
+            return failure('No API key provided') if api_key.nil? || (api_key.is_a?(String) && api_key.strip.empty?)
 
             # A non-String credential (e.g. `?api_key[]=k` yields an Array) was
             # still presented, so reject it terminally rather than handing it to

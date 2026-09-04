@@ -5,7 +5,8 @@ Security
   static key lists at construction. Invalid presented credentials terminate a
   multi-strategy authentication chain. Static keys are compared in constant
   time as fixed-width SHA-256 digests, so configured key lengths are not
-  observable through timing. (#256)
+  observable through timing. Blank credentials, empty or whitespace-only, are
+  rejected before any key source is consulted. (#256)
 
 - Successful authentication results no longer expose the raw API key in
   strategy-generated fields. Static-list callers should replace

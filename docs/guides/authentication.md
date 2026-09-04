@@ -36,8 +36,8 @@ only blank strings), so the strategy enforces the check the example above makes
 explicit. A request that presents a key is accepted only when that key matches a
 configured key under constant-time comparison. Both sides are reduced to
 fixed-width SHA-256 digests before comparing, so the check never short-circuits
-on a length mismatch and configured key lengths are not observable. An empty
-credential is rejected.
+on a length mismatch and configured key lengths are not observable. A blank
+credential (empty or whitespace-only) is rejected as missing.
 A presented-but-invalid key is a terminal failure, so it aborts the strategy
 chain instead of falling through to a later strategy in a multi-strategy `OR`
 route.
@@ -90,10 +90,11 @@ The rules are the same in every form:
 - Exactly one source: `api_keys:`, `resolver:`, or a block. Passing none, or
   more than one, raises `ArgumentError`, as does a `resolver:` that does not
   respond to `#call`.
-- The resolver receives only the presented key, as a non-empty `String`, and
-  nothing else. The blank check and the non-String rejection run before it, so
-  a missing header is still the non-terminal `No API key provided` failure and
-  the resolver is never asked about it.
+- The resolver receives only the presented key, as a non-blank `String`, and
+  nothing else. The blank check (empty or whitespace-only) and the non-String
+  rejection run before it, so a missing or blank header is still the
+  non-terminal `No API key provided` failure and the resolver is never asked
+  about it.
 - A `nil` or `false` return is a terminal `Invalid API key` failure, identical
   to a static mismatch. It aborts the strategy chain with a 401. Every other
   return value is a match, including empty containers: a `where(...)` relation,

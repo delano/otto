@@ -131,6 +131,13 @@ RSpec.describe Otto::Security::Authentication::Strategies::APIKeyStrategy do
       expect(result.failure_reason).to eq('No API key provided')
     end
 
+    it 'rejects a whitespace-only header credential as missing, non-terminally' do
+      result = strategy.authenticate(env_with_header("  \t\n"), nil)
+      expect(result.authenticated?).to be(false)
+      expect(result.terminal?).to be(false)
+      expect(result.failure_reason).to eq('No API key provided')
+    end
+
     it 'compares fixed-width digests so configured key lengths are not observable' do
       mixed = described_class.new(api_keys: %w[k a-much-longer-configured-key])
       compared = []
@@ -318,6 +325,19 @@ RSpec.describe Otto::Security::Authentication::Strategies::APIKeyStrategy do
           account
         end
         result = strict.authenticate(env_with_header(''), nil)
+        expect(called).to be(false)
+        expect(result.authenticated?).to be(false)
+        expect(result.terminal?).to be(false)
+        expect(result.failure_reason).to eq('No API key provided')
+      end
+
+      it 'does not call the block for a whitespace-only header and fails non-terminally' do
+        called = false
+        strict = described_class.new do |_key|
+          called = true
+          account
+        end
+        result = strict.authenticate(env_with_header('   '), nil)
         expect(called).to be(false)
         expect(result.authenticated?).to be(false)
         expect(result.terminal?).to be(false)

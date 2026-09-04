@@ -7,6 +7,11 @@ Changed
   the configured keys explicitly, e.g.
   ``APIKeyStrategy.new(api_keys: ENV.fetch('API_KEYS').split(','))``. (#256)
 
+- ``APIKeyStrategy`` no longer reads the ``api_key`` query or form parameter by
+  default; only the configured header is consulted. To keep accepting
+  query-string keys, pass the parameter name explicitly, e.g.
+  ``APIKeyStrategy.new(api_keys: keys, param_name: 'api_key')``. (#256)
+
 Security
 --------
 
@@ -22,3 +27,8 @@ Security
   later strategy in a multi-strategy OR chain. Non-string credentials, such as
   an ``?api_key[]=`` array query parameter, are now rejected as invalid instead
   of raising inside the constant-time comparison. (#256)
+
+- ``APIKeyStrategy`` no longer accepts a key from the query or form parameter
+  unless ``param_name:`` is set. A credential placed in a URL is recorded by
+  access logs, proxies, and browser history, so the header is now the only
+  default transport. (#256)

@@ -46,8 +46,15 @@ RSpec.describe Otto::Security::Authentication::Strategies::APIKeyStrategy do
       expect(result.user[:api_key]).to eq('key-two')
     end
 
-    it 'authenticates a correct API key from the query parameter' do
+    it 'ignores the query parameter by default' do
       result = strategy.authenticate(env_with_param('key-one'), nil)
+      expect(result.authenticated?).to be(false)
+      expect(result.failure_reason).to eq('No API key provided')
+    end
+
+    it 'authenticates a correct API key from the query parameter when opted in' do
+      opted_in = described_class.new(api_keys: %w[key-one], param_name: 'api_key')
+      result = opted_in.authenticate(env_with_param('key-one'), nil)
       expect(result.authenticated?).to be(true)
       expect(result.user[:api_key]).to eq('key-one')
     end
@@ -86,16 +93,18 @@ RSpec.describe Otto::Security::Authentication::Strategies::APIKeyStrategy do
     end
 
     it 'rejects an array-valued credential terminally instead of raising' do
+      opted_in = described_class.new(api_keys: %w[key-one], param_name: 'api_key')
       env = Rack::MockRequest.env_for('/?api_key[]=key-one')
-      result = strategy.authenticate(env, nil)
+      result = opted_in.authenticate(env, nil)
       expect(result.authenticated?).to be(false)
       expect(result.terminal?).to be(true)
       expect(result.failure_reason).to eq('Invalid API key')
     end
 
     it 'rejects a hash-valued credential terminally instead of raising' do
+      opted_in = described_class.new(api_keys: %w[key-one], param_name: 'api_key')
       env = Rack::MockRequest.env_for('/?api_key[k]=key-one')
-      result = strategy.authenticate(env, nil)
+      result = opted_in.authenticate(env, nil)
       expect(result.authenticated?).to be(false)
       expect(result.terminal?).to be(true)
     end

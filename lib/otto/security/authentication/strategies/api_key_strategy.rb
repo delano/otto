@@ -21,14 +21,21 @@ class Otto
         # key halts the strategy chain instead of falling through to a later
         # anonymous-capable strategy. A missing credential fails non-terminally.
         #
-        # @example
+        # The query/form parameter path is opt-in (`param_name:`), because keys in
+        # URLs are recorded by access logs, proxies, and browser history.
+        #
+        # @example Header only (recommended)
         #   APIKeyStrategy.new(api_keys: ['secret123'])
+        # @example Also accept ?api_key= (logged in URLs; prefer the header)
+        #   APIKeyStrategy.new(api_keys: ['secret123'], param_name: 'api_key')
         class APIKeyStrategy < AuthStrategy
           # @param api_keys [String, Array<String>] one or more valid API keys (required)
           # @param header_name [String] request header carrying the key
-          # @param param_name [String] query/form parameter carrying the key
+          # @param param_name [String, nil] query/form parameter carrying the key.
+          #   Defaults to nil (header only): keys placed in a URL are captured by
+          #   access logs, proxies, and browser history. Pass 'api_key' to opt in.
           # @raise [ArgumentError] if no non-empty API key is configured
-          def initialize(api_keys:, header_name: 'X-API-Key', param_name: 'api_key')
+          def initialize(api_keys:, header_name: 'X-API-Key', param_name: nil)
             super()
             @api_keys = Array(api_keys).map(&:to_s).reject(&:empty?).freeze
             if @api_keys.empty?
@@ -42,10 +49,10 @@ class Otto
           end
 
           def authenticate(env, _requirement)
-            # Try header first, then query parameter
+            # Header first; the parameter path is consulted only when opted in.
             api_key = env["HTTP_#{@header_name.upcase.tr('-', '_')}"]
 
-            if api_key.nil?
+            if api_key.nil? && @param_name
               request = Otto::Request.new(env)
               api_key = request.params[@param_name]
             end

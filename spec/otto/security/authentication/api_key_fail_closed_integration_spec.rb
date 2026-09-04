@@ -45,8 +45,20 @@ RSpec.describe 'API key authentication end-to-end (issue #256)' do
       expect(status).to eq(401)
     end
 
+    it 'returns 401 for a valid key passed in the query string by default' do
+      status, = otto.call(mock_rack_env(path: "/api/data?api_key=#{api_key}"))
+      expect(status).to eq(401)
+    end
+
     it 'returns 401 for an array-valued api_key query parameter' do
-      status, = otto.call(mock_rack_env(path: '/api/data?api_key[]=valid-key-256'))
+      app = create_minimal_otto(['GET /api/data TestApp.index auth=apikey response=json'])
+      app.add_auth_strategy(
+        'apikey',
+        Otto::Security::Authentication::Strategies::APIKeyStrategy.new(
+          api_keys: [api_key], param_name: 'api_key'
+        )
+      )
+      status, = app.call(mock_rack_env(path: '/api/data?api_key[]=valid-key-256'))
       expect(status).to eq(401)
     end
 

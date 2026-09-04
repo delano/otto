@@ -38,6 +38,17 @@ A presented-but-invalid key is a terminal failure, so it aborts the strategy
 chain instead of falling through to a later strategy in a multi-strategy `OR`
 route.
 
+The strategy reads the `X-API-Key` header only. The query/form parameter path is
+opt-in via `param_name:`, because a key placed in a URL is captured by access
+logs, proxies, and browser history:
+
+```ruby
+Otto::Security::Authentication::Strategies::APIKeyStrategy.new(
+  api_keys: api_keys,
+  param_name: 'api_key' # caution: keys in URLs are logged; prefer the header
+)
+```
+
 A strategy implements `authenticate(env, requirement)` and returns a
 `StrategyResult`, `AuthFailure`, or `AuthorizationFailure`. Subclass
 `Otto::Security::Authentication::AuthStrategy` to use its `success`, `failure`,
@@ -188,9 +199,9 @@ its own `StrategyResult`. The result is immutable.
 Otto includes these strategy classes as implementation starting points:
 
 - `SessionStrategy` — reads a configured key from `env['rack.session']`.
-- `APIKeyStrategy` — checks the configured header first and then a query
-  parameter. `api_keys:` is required and must be non-empty; a rejected key is a
-  terminal failure.
+- `APIKeyStrategy` — checks the configured header; the query parameter is opt-in
+  via `param_name:`. `api_keys:` is required and must be non-empty; a rejected
+  key is a terminal failure.
 - `RoleStrategy` — checks session roles against allowed roles or a
   colon-qualified requirement.
 - `PermissionStrategy` — checks application-provided permission data.

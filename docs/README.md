@@ -19,10 +19,10 @@ the smallest complete configuration that uses it safely.
 | Request lifecycle | Rack integration, middleware ordering, helper registration, lifecycle hooks, and boot-time configuration | `guides/application-lifecycle.md` |
 | Authentication and authorization | Named authentication strategies, ordered multi-strategy fallback, terminal failures, route roles, and resource-level authorization | [Authentication](guides/authentication.md) |
 | Security | CSRF enforcement, request validation, rate limiting, security headers, CSP, error handling, and trusted proxies | `guides/security.md` |
-| Privacy and network identity | IP privacy profiles, privacy-safe client signals, country resolution, ASN lookup, and anonymizer classification | [Privacy](guides/privacy.md), [geo-country](geo-country.md), and [enrichment](enrichment.md) |
+| Privacy and network identity | IP privacy profiles, privacy-safe client signals, country resolution, ASN lookup, and anonymizer classification | [Privacy](guides/privacy.md), [geo-country](guides/geo-country.md), and [enrichment](guides/enrichment.md) |
 | Internationalization | Locale configuration and request locale resolution | `guides/locales.md` |
 | Operations | Structured logging, safe error reporting, static files, and testing Otto applications | `guides/operations.md` |
-| Integrations | Model Context Protocol (MCP) endpoints and Caddy on-demand TLS permission checks | [Caddy TLS](integrations/caddy-tls.md); `integrations/mcp.md` |
+| Integrations | Model Context Protocol (MCP) endpoints and Caddy on-demand TLS permission checks | [Caddy TLS](guides/caddy-tls.md); `integrations/mcp.md` |
 
 ## Start here today
 
@@ -33,21 +33,22 @@ the smallest complete configuration that uses it safely.
   authentication from authorization.
 - [Privacy guide](guides/privacy.md) — privacy profiles and request-safe client
   signals.
-- [Geo-country resolution](geo-country.md) — trusted headers, local MMDB
+- [Geo-country resolution](guides/geo-country.md) — trusted headers, local MMDB
   fallback, and the privacy model.
-- [ASN and anonymizer enrichment](enrichment.md) — opt-in network signals and
-  their database contracts.
-- [Caddy TLS integration](integrations/caddy-tls.md) — deploy the loopback-only
+- [ASN and anonymizer enrichment](guides/enrichment.md) — opt-in network signals
+  and their database contracts.
+- [Caddy TLS integration](guides/caddy-tls.md) — deploy the loopback-only
   permission endpoint.
 - [Migration guides](migrating/) — version-specific behavior changes.
 - [Changelog](../CHANGELOG.rst) — release history and upgrade-impacting changes.
 
-The following tracked design records are useful historical context. They are
-**not** the primary entry point for implementing an application:
+The [architecture decision records](adr/) preserve durable technical rationale.
+They are **not** the primary entry point for implementing an application:
 
-- [Multi-strategy authentication decision](maintainers/decisions/multi-strategy-authentication-design.md)
-- [Reverse-proxy/network-service decision](maintainers/decisions/reverse-proxy-network-services.md)
-- [Ruby `IPAddr#to_s` encoding note](ipaddr-encoding-quirk.md)
+- [ADR-001: Route authentication at the handler boundary](adr/adr-001-route-authentication-at-handler-boundary.md)
+- [ADR-002: Multi-strategy authentication and authorization](adr/adr-002-multi-strategy-authentication-and-authorization.md)
+- [ADR-003: Caddy TLS route-based integration](adr/adr-003-caddy-tls-route-based-integration.md)
+- [Ruby `IPAddr#to_s` encoding note](guides/ipaddr-encoding-quirk.md)
 
 ## Target structure
 
@@ -75,8 +76,8 @@ docs/
 │   ├── request-and-response.md
 │   └── errors.md
 ├── migrating/                        # release-specific upgrade guides
-└── maintainers/                      # architecture, decisions, and investigations
-    ├── decisions/
+├── adr/                              # accepted architecture decision records
+└── maintainers/
     └── investigations/                # local working notes; untracked by design
 ```
 
@@ -95,9 +96,11 @@ docs/
   method.
 - **Migration** documents a release-bound action and its before/after behavior.
   It does not become a general guide.
-- **Maintainer material** preserves rationale, alternatives, and unfinished
-  exploration without asking application developers to infer current behavior
-  from a proposal.
+- **Architecture decision records** preserve the context, decision, and
+  consequences of durable technical choices without asking application developers
+  to infer the current contract from a proposal.
+- **Maintainer investigations** preserve unfinished exploration separately from
+  accepted decisions and application documentation.
 
 ## Migration plan for the current directory
 
@@ -112,9 +115,9 @@ and explicitly track them before treating them as published documentation.
 | `authentication.md`, `AUTH_STRATEGIES.txt` | Replace with `guides/authentication.md` and `reference/route-syntax.md` | The guide should reflect current strategy results, role rules, ordered fallback, and terminal failures in one maintained place. |
 | `ADVANCED_ROUTES.txt` | Replace with `guides/routing.md` and `reference/route-syntax.md` | Route grammar and target kinds are a public contract; the current quick reference is incomplete for modern handler types and security-gating validation. |
 | `ip_privacy.md`, `structured_logging.md`, `configuration_freezing.md` | Reconcile against current behavior, then fold into privacy, operations, and lifecycle guides | They describe durable concepts, but must be verified before being promoted as canonical documentation. |
-| `reverse-proxy-network-services.md` | Extract `integrations/caddy-tls.md`; retain the design record under `maintainers/decisions/` | Operators need a concise deployment guide; implementation rationale should remain separately discoverable. |
+| `reverse-proxy-network-services.md` | Extract `guides/caddy-tls.md`; retain its decision as [ADR-003](adr/adr-003-caddy-tls-route-based-integration.md) | Operators need a concise deployment guide; implementation rationale should remain separately discoverable. |
 | `MCP_IMPLEMENTATION.md` | Extract `integrations/mcp.md`; retain implementation notes under `maintainers/` | The protocol user and the maintainer have different questions. |
-| `multi-strategy-authentication-design.md`, `route-auth-wrapper-resolution.md`, landscape papers | Move to `maintainers/decisions/` or `maintainers/investigations/`; add an outcome/status note | These explain why and how work was done, rather than providing the current application contract. |
+| `multi-strategy-authentication-design.md`, `route-auth-wrapper-resolution.md` | Retain the accepted decisions as [ADR-002](adr/adr-002-multi-strategy-authentication-and-authorization.md) and [ADR-001](adr/adr-001-route-authentication-at-handler-boundary.md) | They explain durable architecture choices rather than the current application contract. |
 | Dated architecture, hardening, enhancement, and streaming files | Move to `maintainers/investigations/`; keep only active proposals in the main tree | Dates and working notes are valuable history but should not compete with supported guides. |
 | `testing-guide.md` | Reconcile with current test support, then publish as `guides/operations.md` or `guides/testing.md` | Testing is an application task, not an implementation design. |
 
@@ -144,7 +147,7 @@ A useful first milestone is intentionally small:
    handler behavior, including handler kinds and fail-fast `auth=`, `role=`, and
    `csrf=` option syntax. **Done.**
 3. Publish `guides/routing.md`, `guides/authentication.md`, `guides/privacy.md`,
-   and `integrations/caddy-tls.md` by reconciling the existing material with the
+   and `guides/caddy-tls.md` by reconciling the existing material with the
    current code and specs. **Initial guides done.**
 4. Move completed designs and working investigations behind `maintainers/` so
    the top-level reader journey remains stable. **Done.**

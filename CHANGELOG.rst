@@ -790,6 +790,44 @@ Added
 2.0.0 — 2026-03-14
 ==================
 
+This is the stable release of Otto v2, the culmination of 10 pre-releases
+since September 2025.
+
+Highlights
+----------
+
+- **Modular architecture**: the core ``Otto`` class is now a thin composition
+  of focused modules (Router, FileSafety, Configuration, ErrorHandler,
+  UriGenerator).
+- **Security by default**: IP masking, user agent anonymization, CSRF
+  protection, input validation, and backtrace sanitization.
+- **Privacy by default**: public IP masking, country-level geo-location only
+  (no external APIs), daily-rotating IP hashes for analytics.
+- **Handler-level authentication**: authentication moved from middleware to
+  ``RouteAuthWrapper``, so it runs after routing.
+- **Configuration freezing**: configuration is frozen after the first request
+  to prevent runtime security bypasses.
+- **MCP support**: JSON-RPC 2.0 endpoints for CLI automation and integrations.
+- **Base error classes**: ``NotFoundError``, ``BadRequestError``,
+  ``ForbiddenError`` and friends, with automatic HTTP status codes.
+- **Request/response helpers**: extensible ``Otto::Request`` and
+  ``Otto::Response`` with application-specific helper registration.
+
+Breaking changes
+----------------
+
+Individual breaking changes are documented in the pre-release entries below.
+The migrations most applications need:
+
+- Logic class constructor: ``initialize(session, user, params, locale)`` →
+  ``initialize(context, params, locale)``
+- Middleware stack: ``otto.middleware_stack <<`` → ``otto.use()``
+- Request callbacks: ``Otto.on_request_complete`` → ``otto.on_request_complete``
+  (instance method)
+
+See `docs/migrating/v2.0.0.md <docs/migrating/v2.0.0.md>`__ for the full
+upgrade guide.
+
 Added
 -----
 

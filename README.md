@@ -410,8 +410,8 @@ on_demand_tls {
 
 Secure by default: the endpoint is restricted to the loopback interface (the guard
 authenticates the raw TCP peer, so a spoofed `X-Forwarded-For` cannot help), and
-every layer fails closed. See the [Caddy TLS guide](docs/integrations/caddy-tls.md)
-for deployment guidance and the [design record](docs/maintainers/decisions/reverse-proxy-network-services.md)
+every layer fails closed. See the [Caddy TLS guide](docs/guides/caddy-tls.md)
+for deployment guidance and [ADR-003](docs/adr/adr-003-caddy-tls-route-based-integration.md)
 for rationale.
 
 ## Examples

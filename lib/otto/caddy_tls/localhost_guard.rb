@@ -60,7 +60,7 @@ class Otto
     # dedicated loopback-only port that the proxy reaches directly (see
     # examples/caddy_tls_demo/standalone.ru). Blocking the endpoint path at the
     # proxy is a sound additional layer. See
-    # docs/maintainers/decisions/reverse-proxy-network-services.md.
+    # docs/adr/adr-003-caddy-tls-route-based-integration.md.
     class LocalhostGuard
       # Forwarding headers whose presence means the request was relayed by a
       # proxy rather than issued directly. Any one present => not a direct local

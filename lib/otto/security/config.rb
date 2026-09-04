@@ -94,9 +94,7 @@ class Otto
               break
             end
 
-            if existing
-              raise ArgumentError, format(FORWARDING_FAMILY_CONFLICT_MESSAGE, header, existing)
-            end
+            raise ArgumentError, format(FORWARDING_FAMILY_CONFLICT_MESSAGE, header, existing) if existing
 
             rack_forwarding_configs[config] = header
             RACK_REQUEST.forwarded_priority = RACK_FORWARDED_PRIORITIES.fetch(header).dup

@@ -75,10 +75,11 @@ class Otto
       }.freeze
       DEFAULT_TRUSTED_PROXY_HEADER = 'X-Forwarded-For'
       FORWARDING_FAMILY_CONFLICT_MESSAGE = <<~MSG.gsub(/\s+/, ' ').strip.freeze
-        Cannot configure trusted_proxy_header as %s because another Otto
-        application in this process already uses %s. Rack's
-        forwarded host, port, scheme, and IP policy is process-global, so every
-        Otto application in one process must use the same forwarding family.
+        Cannot use forwarding family %s (trusted_proxy_header) because another
+        Otto application in this process already uses %s. Rack's forwarded
+        host, port, scheme, and IP policy is process-global, so every Otto
+        application in one process that resolves proxied requests must use the
+        same forwarding family.
       MSG
       # Error raised when a non-default trusted_proxy_header is combined with
       # CIDR filter mode. Otto's CIDR-walk resolves the client IP from
@@ -102,29 +103,34 @@ class Otto
         # Pin Rack's process-global forwarding family to Otto's.
         #
         # Rack::Request.forwarded_priority is one setting per process, so two
-        # Otto applications that explicitly choose different families cannot
-        # coexist: the later explicit choice raises. A config may revise its
-        # own choice before it freezes, as long as no other explicit config
-        # has already committed to the previous family.
+        # Otto applications that commit to different families cannot coexist:
+        # the later commitment raises. A config commits (claim: true) when the
+        # operator sets trusted_proxy_header or configures proxy trust at all
+        # (trusted_proxies or a depth): an app that resolves proxied requests
+        # from X-Forwarded-For depends on Rack reading the same family, even
+        # though it never named one. A config may revise its own commitment
+        # before it freezes, as long as no other config has committed to the
+        # previous family.
         #
-        # An implicit choice (explicit: false, the default family reapplied by
-        # a bare Otto.new) never stakes a claim: it pins Rack only while no
-        # explicit choice exists, so a no-options sub-mount constructed first
-        # cannot block a later `trusted_proxy_header: 'Forwarded'` with an
-        # error naming a family nobody chose.
+        # A config with no proxy trust and no explicit header (claim: false, a
+        # bare Otto.new) is indifferent: it pins Rack to the default only while
+        # nothing is committed and otherwise defers, so a no-options sub-mount
+        # constructed first cannot block a later `trusted_proxy_header:
+        # 'Forwarded'` with an error naming a family nobody chose.
         #
-        # Explicit configs are held strongly on purpose. A weak registry made
+        # Committed configs are held strongly on purpose. A weak registry made
         # the conflict check depend on whether the earlier config had been
         # garbage collected, so boot order and GC timing decided whether the
-        # app raised.
+        # app raised. Otto#initialize releases the claim when construction
+        # fails after the config committed (see .release_rack_forwarding_family!).
         #
         # @param config [Otto::Security::Config] the config applying the family
         # @param header [String] canonical TRUSTED_PROXY_HEADERS value
-        # @param explicit [Boolean] whether an operator chose this family
-        # @raise [ArgumentError] on an explicit conflict with another config
-        def apply_rack_forwarding_family!(config, header, explicit: true)
+        # @param claim [Boolean] whether this config depends on the family
+        # @raise [ArgumentError] on a conflict with another committed config
+        def apply_rack_forwarding_family!(config, header, claim: true)
           RACK_FORWARDING_MUTEX.synchronize do
-            if explicit
+            if claim
               committed = rack_forwarding_family
               if committed && committed != header &&
                  rack_forwarding_owners.each_key.any? { |owner| !owner.equal?(config) }
@@ -134,11 +140,24 @@ class Otto
               rack_forwarding_owners[config] = true
               @rack_forwarding_family = header
             elsif rack_forwarding_family
-              # An explicit choice already governs Rack; the default defers.
+              # A committed choice already governs Rack; the default defers.
               next
             end
 
             RACK_REQUEST.forwarded_priority = RACK_FORWARDED_PRIORITIES.fetch(header).dup
+          end
+        end
+
+        # Withdraw a config's commitment, e.g. when Otto.new fails after the
+        # config committed. Rack's priority is left as-is: it is either still
+        # backed by another owner or will be re-pinned by the next app.
+        #
+        # @param config [Otto::Security::Config]
+        # @return [void]
+        def release_rack_forwarding_family!(config)
+          RACK_FORWARDING_MUTEX.synchronize do
+            rack_forwarding_owners.delete(config)
+            @rack_forwarding_family = nil if rack_forwarding_owners.empty?
           end
         end
 
@@ -162,7 +181,7 @@ class Otto
 
         private
 
-        # Identity-keyed set of configs that explicitly chose the family.
+        # Identity-keyed set of configs committed to the family.
         def rack_forwarding_owners
           @rack_forwarding_owners ||= {}.compare_by_identity
         end
@@ -444,15 +463,35 @@ class Otto
         @trusted_proxy_header = canonical_header
       end
 
-      # Align Rack's forwarding family with this config's current value without
-      # treating it as an operator choice. Used by Otto.new when no
-      # trusted_proxy_header option was given, so a bare app still pins Rack to
-      # X-Forwarded-For instead of inheriting Rack's process-global default,
-      # while deferring to any explicit choice made elsewhere in the process.
+      # Align Rack's forwarding family with this config's current value. Used by
+      # Otto.new when no trusted_proxy_header option was given, so a bare app
+      # still pins Rack to X-Forwarded-For instead of inheriting Rack's
+      # process-global default. The pin is a commitment only when this config
+      # already depends on the family (proxy trust configured); otherwise it
+      # defers to any commitment made elsewhere in the process.
       #
+      # @raise [FrozenError] if configuration is frozen
       # @return [void]
       def apply_default_rack_forwarding_family!
-        self.class.apply_rack_forwarding_family!(self, @trusted_proxy_header, explicit: false)
+        ensure_not_frozen!
+
+        self.class.apply_rack_forwarding_family!(self, @trusted_proxy_header, claim: proxy_trust_configured?)
+      end
+
+      # Commit this config's current family process-wide once it depends on
+      # one (proxy trust configured). Not called from the trusted_proxies /
+      # depth setters themselves, so assignment order relative to
+      # trusted_proxy_header= cannot raise a spurious conflict; instead it runs
+      # at the configuration boundaries: Otto.new
+      # (#apply_default_rack_forwarding_family!), Configurator#configure, and
+      # freeze (#validate_trusted_proxy_config!). A no-op without proxy trust.
+      #
+      # @raise [ArgumentError] on a conflict with another committed config
+      # @return [void]
+      def commit_rack_forwarding_family!
+        return unless proxy_trust_configured?
+
+        self.class.apply_rack_forwarding_family!(self, @trusted_proxy_header)
       end
 
       # Whether trusted_proxy_header is the X-Forwarded-For default.
@@ -982,6 +1021,10 @@ class Otto
         validate_trusted_proxy_header!(@trusted_proxy_header)
         validate_trusted_proxy_depth!(@trusted_proxy_depth)
         raise ArgumentError, FORWARDED_HEADER_CIDR_CONFLICT_MESSAGE if !default_trusted_proxy_header? && @trusted_proxies.any?
+
+        # Late-configured proxy trust (after Otto.new) commits here at the
+        # latest, so a process-wide family conflict still fails loud.
+        commit_rack_forwarding_family!
         return if @trusted_proxy_depth.nil?
 
         raise ArgumentError, PROXY_MODE_CONFLICT_MESSAGE if @trusted_proxy_depth >= 1 && @trusted_proxies.any?

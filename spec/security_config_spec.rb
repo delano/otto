@@ -503,6 +503,43 @@ RSpec.describe Otto::Security::Config do
         .to raise_error(ArgumentError, /CIDR filter mode/)
     end
 
+    it 'commits a depth-mode config to its family without naming one' do
+      config.trusted_proxy_depth = 1
+      config.commit_rack_forwarding_family!
+
+      expect(described_class.rack_forwarding_family).to eq('X-Forwarded-For')
+      expect { described_class.new.trusted_proxy_header = 'Forwarded' }
+        .to raise_error(ArgumentError, /already uses X-Forwarded-For/)
+    end
+
+    it 'does not commit from the depth setter, so header order is free' do
+      described_class.new.trusted_proxy_header = 'Forwarded'
+      config.trusted_proxy_depth = 1
+
+      expect { config.trusted_proxy_header = 'Forwarded' }.not_to raise_error
+      expect { config.commit_rack_forwarding_family! }.not_to raise_error
+    end
+
+    it 'commits at freeze for trust configured after construction' do
+      described_class.new.trusted_proxy_header = 'Forwarded'
+      config.add_trusted_proxy('10.0.0.0/8')
+
+      expect { config.deep_freeze! }.to raise_error(ArgumentError, /already uses Forwarded/)
+    end
+
+    it 'leaves a config with no proxy trust uncommitted' do
+      config.apply_default_rack_forwarding_family!
+
+      expect(described_class.rack_forwarding_family).to be_nil
+      expect(Rack::Request.forwarded_priority).to eq([:x_forwarded])
+    end
+
+    it 'refuses apply_default_rack_forwarding_family! once frozen' do
+      config.deep_freeze!
+
+      expect { config.apply_default_rack_forwarding_family! }.to raise_error(FrozenError)
+    end
+
     it 'still accepts the default header alongside trusted_proxies' do
       config.add_trusted_proxy('10.0.0.0/8')
 

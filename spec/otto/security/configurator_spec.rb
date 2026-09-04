@@ -117,6 +117,13 @@ RSpec.describe Otto::Security::Configurator do
       expect(security_config.trusted_proxy_header).to eq('Forwarded')
     end
 
+    it 'commits trusted_proxies configured after Otto.new to the forwarding family' do
+      Otto::Security::Config.new.trusted_proxy_header = 'Forwarded'
+
+      expect { configurator.configure(trusted_proxies: '10.0.0.0/8') }
+        .to raise_error(ArgumentError, /already uses Forwarded/)
+    end
+
     it 'leaves the forwarded header at its default when not specified' do
       configurator.configure(trusted_proxy_depth: 1)
 

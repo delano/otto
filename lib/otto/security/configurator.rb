@@ -79,6 +79,9 @@ class Otto
         Array(trusted_proxies).each { |proxy| add_trusted_proxy(proxy) }
         self.trusted_proxy_depth = trusted_proxy_depth unless trusted_proxy_depth.nil?
         self.trusted_proxy_header = trusted_proxy_header unless trusted_proxy_header.nil?
+        # Proxy trust configured here (after Otto.new) commits the app to its
+        # forwarding family now rather than at freeze.
+        @security_config.commit_rack_forwarding_family!
         self.security_headers = security_headers unless security_headers.empty?
 
         enable_hsts! if hsts

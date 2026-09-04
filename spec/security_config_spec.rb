@@ -456,6 +456,13 @@ RSpec.describe Otto::Security::Config do
   end
 
   describe 'trusted_proxy_header (depth-mode forwarded header)' do
+    around do |example|
+      original_priority = Rack::Request.forwarded_priority.dup
+      example.run
+    ensure
+      Rack::Request.forwarded_priority = original_priority
+    end
+
     it 'defaults to X-Forwarded-For' do
       expect(config.trusted_proxy_header).to eq('X-Forwarded-For')
     end
@@ -464,6 +471,17 @@ RSpec.describe Otto::Security::Config do
       %w[X-Forwarded-For Forwarded Both].each do |header|
         config.trusted_proxy_header = header
         expect(config.trusted_proxy_header).to eq(header)
+      end
+    end
+
+    it 'maps each forwarding family to Rack forwarded_priority' do
+      {
+        'X-Forwarded-For' => [:x_forwarded],
+        'Forwarded' => [:forwarded],
+        'Both' => %i[forwarded x_forwarded],
+      }.each do |header, priority|
+        config.trusted_proxy_header = header
+        expect(Rack::Request.forwarded_priority).to eq(priority)
       end
     end
 

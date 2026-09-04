@@ -134,9 +134,24 @@ RSpec.describe Otto, 'initialization' do
   context 'with trusted-proxy depth-header options' do
     let(:routes_file) { create_test_routes_file('test_routes_depth.txt', test_routes) }
 
-    it 'wires trusted_proxy_header through Otto.new' do
+    around do |example|
+      original_priority = Rack::Request.forwarded_priority.dup
+      example.run
+    ensure
+      Rack::Request.forwarded_priority = original_priority
+    end
+
+    it 'wires trusted_proxy_header through Otto.new and pins Rack to the same family' do
       otto = described_class.new(routes_file, trusted_proxy_depth: 1, trusted_proxy_header: 'Forwarded')
+
       expect(otto.security_config.trusted_proxy_header).to eq('Forwarded')
+      expect(Rack::Request.forwarded_priority).to eq([:forwarded])
+    end
+
+    it 'pins Rack to X-Forwarded when Otto uses the default forwarding family' do
+      described_class.new(routes_file, trusted_proxy_depth: 1)
+
+      expect(Rack::Request.forwarded_priority).to eq([:x_forwarded])
     end
 
     it 'canonicalizes a case-insensitive trusted_proxy_header from Otto.new' do

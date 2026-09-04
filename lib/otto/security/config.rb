@@ -6,6 +6,7 @@ require 'securerandom'
 require 'digest'
 require 'openssl'
 require 'ipaddr'
+require 'rack/request'
 require_relative '../core/freezable'
 require_relative 'csp/policy'
 
@@ -61,6 +62,16 @@ class Otto
       # OneTimeSecret's site.network.trusted_proxy.header. Only consulted in
       # depth mode; CIDR-walk is unaffected.
       TRUSTED_PROXY_HEADERS = %w[X-Forwarded-For Forwarded Both].freeze
+
+      # Rack uses one process-global priority for forwarded host, port, scheme,
+      # and IP resolution. Keep it aligned with Otto's configured forwarding
+      # family so the two request views cannot silently disagree.
+      RACK_REQUEST = ::Rack::Request
+      RACK_FORWARDED_PRIORITIES = {
+        'X-Forwarded-For' => [:x_forwarded].freeze,
+        'Forwarded' => [:forwarded].freeze,
+        'Both' => %i[forwarded x_forwarded].freeze,
+      }.freeze
 
       # Endpoint group name shared by the CSP `report-to` directive and the
       # `Reporting-Endpoints` response header (modern Reporting API). Browsers
@@ -309,6 +320,10 @@ class Otto
       # header, the way a permissive default would), so a typo surfaces at config
       # time instead of as subtly-wrong client IPs at request time.
       #
+      # Applying this setting also pins Rack::Request.forwarded_priority to the
+      # corresponding family. Rack exposes that policy process-wide, so all
+      # Rack consumers in the process observe Otto's operator configuration.
+      #
       # @param header [String] one of TRUSTED_PROXY_HEADERS (case-insensitive)
       # @raise [FrozenError] if configuration is frozen
       # @raise [ArgumentError] if header is not a recognized value
@@ -316,6 +331,7 @@ class Otto
         ensure_not_frozen!
 
         @trusted_proxy_header = canonicalize_trusted_proxy_header(header)
+        apply_rack_forwarded_priority!
       end
 
       # Validate that a request size is within acceptable limits
@@ -766,6 +782,13 @@ class Otto
       # Centralizes the repeated frozen-check so every setter shares one message.
       def ensure_not_frozen!
         raise FrozenError, 'Cannot modify frozen configuration' if frozen?
+      end
+
+      # Apply Otto's forwarding-family choice to Rack's process-global request
+      # resolution. Assign a fresh array so Rack callers cannot mutate the
+      # frozen configuration constant through its public accessor.
+      def apply_rack_forwarded_priority!
+        RACK_REQUEST.forwarded_priority = RACK_FORWARDED_PRIORITIES.fetch(@trusted_proxy_header).dup
       end
 
       # Validate a candidate trusted_proxy_depth value (type and range).

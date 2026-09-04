@@ -26,13 +26,13 @@ jobs:
       actions: read # Required for Claude to read CI results on PRs
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@beta
+        uses: anthropics/claude-code-action@d75b94d5ad426cb8546e6628b6f5f19b84e5cce1 # v1.0.216
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
@@ -40,8 +40,11 @@ jobs:
           # editing this file. Pinning a current id avoids the action's frozen
           # default, which 404s ("model: claude-sonnet-4-20250514"). Fall back to
           # Sonnet if the primary is unavailable or overloaded.
-          model: "${{ vars.CLAUDE_MODEL || 'claude-opus-4-6' }}"
-          fallback_model: "${{ vars.CLAUDE_FALLBACK_MODEL || 'claude-sonnet-4-6' }}"
+          # v1 removed the model/fallback_model inputs; both are now CLI flags
+          # passed through claude_args.
+          claude_args: |
+            --model ${{ vars.CLAUDE_MODEL || 'claude-opus-4-6' }}
+            --fallback-model ${{ vars.CLAUDE_FALLBACK_MODEL || 'claude-sonnet-4-6' }}
 
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |
@@ -50,7 +53,6 @@ jobs:
           # Optional: Give a custom prompt to Claude. If this is not specified, Claude will perform the instructions specified in the comment that tagged it.
           # prompt: 'Update the pull request description to include a summary of changes.'
 
-          # Optional: Add claude_args to customize behavior and configuration
-          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
-          # or https://docs.anthropic.com/en/docs/claude-code/sdk#command-line for available options
-          # claude_args: '--model claude-opus-4-1-20250805 --allowed-tools Bash(gh pr:*)'
+          # More claude_args options (tool allowlists, --max-turns, --mcp-config):
+          # https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
+          # or https://docs.anthropic.com/en/docs/claude-code/sdk#command-line

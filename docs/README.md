@@ -19,6 +19,7 @@ the smallest complete configuration that uses it safely.
 | Request lifecycle | Rack integration, middleware ordering, helper registration, lifecycle hooks, and boot-time configuration | `guides/application-lifecycle.md` |
 | Authentication and authorization | Named authentication strategies, ordered multi-strategy fallback, terminal failures, route roles, and resource-level authorization | [Authentication](guides/authentication.md) |
 | Security | CSRF enforcement, request validation, rate limiting, security headers, CSP, error handling, and trusted proxies | `guides/security.md` |
+| Runtime and dependencies | Ruby compatibility tiers, upstream security-maintenance limits, dependency-range guarantees, and consumer lockfile auditing | [Runtime and dependency security policy](reference/runtime-and-dependency-security.md) |
 | Privacy and network identity | IP privacy profiles, privacy-safe client signals, country resolution, ASN lookup, and anonymizer classification | [Privacy](guides/privacy.md), [geo-country](guides/geo-country.md), and [enrichment](guides/enrichment.md) |
 | Internationalization | Locale configuration and request locale resolution | `guides/locales.md` |
 | Operations | Structured logging, safe error reporting, static files, and testing Otto applications | `guides/operations.md` |
@@ -27,6 +28,8 @@ the smallest complete configuration that uses it safely.
 ## Start here today
 
 - [Project README](../README.md) — installation and a minimal Rack app.
+- [Runtime and dependency security policy](reference/runtime-and-dependency-security.md)
+  — choose a maintained Ruby and keep the application's resolved bundle audited.
 - [Routing guide](guides/routing.md) — choose a handler style and response
   contract.
 - [Authentication guide](guides/authentication.md) — protect routes and separate
@@ -50,6 +53,7 @@ They are **not** the primary entry point for implementing an application:
 - [ADR-001: Route authentication at the handler boundary](adr/adr-001-route-authentication-at-handler-boundary.md)
 - [ADR-002: Multi-strategy authentication and authorization](adr/adr-002-multi-strategy-authentication-and-authorization.md)
 - [ADR-003: Caddy TLS route-based integration](adr/adr-003-caddy-tls-route-based-integration.md)
+- [ADR-004: Compatibility support and security maintenance](adr/adr-004-separate-compatibility-from-security-maintenance.md)
 - [Ruby `IPAddr#to_s` encoding note](guides/ipaddr-encoding-quirk.md)
 
 ## Target structure
@@ -76,7 +80,8 @@ docs/
 │   ├── route-syntax.md
 │   ├── configuration.md
 │   ├── request-and-response.md
-│   └── errors.md
+│   ├── errors.md
+│   └── runtime-and-dependency-security.md
 ├── migrating/                        # release-specific upgrade guides
 ├── adr/                              # accepted architecture decision records
 └── maintainers/

@@ -30,13 +30,20 @@ jobs:
     #      CLAUDE_CODE_OAUTH_TOKEN is empty and the action would fail.
     #   3. The event is a freshly opened PR, a 'claude-review' label add, or a push
     #      to a PR that already carries the 'claude-review' label.
+    # A manual workflow_dispatch run bypasses 2 and 3 (it can only be started by a
+    # user with write access, on a branch in this repo) but still skips bots.
     if: ${{
       !endsWith(github.actor, '[bot]') &&
-      !github.event.pull_request.head.repo.fork &&
       (
-        (github.event.action == 'opened') ||
-        (github.event.action == 'labeled' && github.event.label.name == 'claude-review') ||
-        (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'claude-review'))
+        github.event_name == 'workflow_dispatch' ||
+        (
+          !github.event.pull_request.head.repo.fork &&
+          (
+            (github.event.action == 'opened') ||
+            (github.event.action == 'labeled' && github.event.label.name == 'claude-review') ||
+            (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'claude-review'))
+          )
+        )
       )
       }}
 
@@ -48,13 +55,13 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
 
       - name: Run Claude Code Review
         id: claude-review
-        uses: anthropics/claude-code-action@beta
+        uses: anthropics/claude-code-action@d75b94d5ad426cb8546e6628b6f5f19b84e5cce1 # v1.0.216
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
@@ -62,11 +69,26 @@ jobs:
           # runs) -> the CLAUDE_MODEL repo variable -> this built-in default.
           # Pinning a current id avoids the action's frozen default, which 404s
           # ("model: claude-sonnet-4-20250514"). Fall back to Sonnet on overload.
-          model: "${{ inputs.model || vars.CLAUDE_MODEL || 'claude-opus-4-6' }}"
-          fallback_model: "${{ vars.CLAUDE_FALLBACK_MODEL || 'claude-sonnet-4-6' }}"
+          # v1 removed the model/fallback_model inputs; both are now CLI flags
+          # passed through claude_args.
+          claude_args: |
+            --model ${{ inputs.model || vars.CLAUDE_MODEL || 'claude-opus-4-6' }}
+            --fallback-model ${{ vars.CLAUDE_FALLBACK_MODEL || 'claude-sonnet-4-6' }}
 
-          # Direct prompt for automated review (no @claude mention needed)
-          direct_prompt: |
+          # Prompt for automated review (no @claude mention needed).
+          # v1 renamed direct_prompt -> prompt. track_progress restores the
+          # tracking/sticky comment that v0 automation mode posted by default; it
+          # only applies to pull_request/issue events, so a workflow_dispatch run
+          # has no PR to comment on and reports to the job log instead.
+          track_progress: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number || 'none (manual run)' }}
+
+            If no PR number is given, use `gh` to find an open pull request whose
+            head is ${{ github.ref_name }}; if there is none, say so and stop.
+            (The checkout is shallow, so compare via the API, not local git.)
+
             Please review this pull request and provide feedback on:
             - Code quality and best practices
             - Potential bugs or issues
@@ -80,9 +102,12 @@ jobs:
           use_sticky_comment: true
 
       - name: Remove claude-review label
-        # Remove label whether success or failure - prevents getting stuck
-        if: always() && github.event.action != 'opened'
-        uses: actions/github-script@v9
+        # Remove label whether success or failure - prevents getting stuck.
+        # Only for pull_request events: a workflow_dispatch payload has no
+        # issue number, so context.issue.number would be undefined and the
+        # removeLabel call would fail (silently, below) with the label intact.
+        if: always() && github.event_name == 'pull_request' && github.event.action != 'opened'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             try {

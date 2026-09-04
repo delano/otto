@@ -9,7 +9,9 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
   include_context 'with rack attack isolation'
 
   before do
-    skip 'rack-attack not available' unless defined?(Rack::Attack)
+    Otto::Security::RateLimiting.ensure_available!
+  rescue Otto::OptionalDependencyError => e
+    skip e.message
   end
 
   describe 'Otto::MCP::RateLimiter' do
@@ -251,15 +253,12 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
       expect(Rack::Attack.throttles).to have_key('mcp_tool_calls')
     end
 
-    it 'logs MCP-specific warning when rack-attack not available' do
-      # Hide Rack::Attack temporarily
-      rack_attack = Object.send(:remove_const, :Rack) if defined?(Rack::Attack)
+    it 'raises a clear error when rack-attack is not available' do
+      error = Otto::OptionalDependencyError.new('Rate limiting requires rack-attack ~> 6.7')
+      allow(Otto::Security::RateLimiting).to receive(:ensure_available!).and_raise(error)
 
-      expect(Otto.logger).to receive(:warn).with(match(/\[MCP\].*rack-attack not available/))
-      Otto::MCP::RateLimitMiddleware.new(app, security_config)
-
-      # Restore Rack::Attack
-      Object.const_set(:Rack, rack_attack) if rack_attack
+      expect { Otto::MCP::RateLimitMiddleware.new(app, security_config) }
+        .to raise_error(Otto::OptionalDependencyError, /rack-attack.*~> 6\.7/)
     end
   end
 
@@ -324,7 +323,7 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
         end
       end
 
-      # Configure MCP rate limiting (which overrides throttled_responder)
+      # Configure MCP rate limiting (which overrides throttled_response)
       Otto::MCP::RateLimiter.configure_rack_attack!({})
     end
 

@@ -109,10 +109,11 @@ RSpec.describe Otto, 'router path normalization (issue #187)' do
   end
 
   describe 'the static-file branch matches against the normalized path' do
-    # The other half of the fix: safe_file? must receive the normalized
-    # dispatch path, not the raw unescape-only path, so the static gate shares
-    # the literal/guard normalization (trailing slash stripped, invalid bytes
-    # scrubbed). safe_file? is stubbed to isolate the argument it is handed.
+    # The other half of the fix: the static gate must receive the normalized
+    # dispatch path, not the raw unescape-only path, so it shares the
+    # literal/guard normalization (trailing slash stripped, invalid bytes
+    # scrubbed). resolve_static_file (the containment gate behind safe_file?,
+    # issue #257) is stubbed to isolate the argument it is handed.
     let(:public_dir) { Dir.mktmpdir('otto_public') }
 
     let(:static_app) do
@@ -125,13 +126,13 @@ RSpec.describe Otto, 'router path normalization (issue #187)' do
 
     after { FileUtils.remove_entry(public_dir) if File.directory?(public_dir) }
 
-    it 'passes the trailing-slash-stripped path to safe_file?' do
-      expect(static_app).to receive(:safe_file?).with('/asset.txt').and_return(false)
+    it 'passes the trailing-slash-stripped path to the static gate' do
+      expect(static_app).to receive(:resolve_static_file).with('/asset.txt').and_return(nil)
       static_app.call(mock_rack_env(method: 'GET', path: '/asset.txt/'))
     end
 
-    it 'passes the invalid-byte-scrubbed path to safe_file?' do
-      expect(static_app).to receive(:safe_file?).with('/asset.txt').and_return(false)
+    it 'passes the invalid-byte-scrubbed path to the static gate' do
+      expect(static_app).to receive(:resolve_static_file).with('/asset.txt').and_return(nil)
       static_app.call(mock_rack_env(method: 'GET', path: '/asset.txt%FF'))
     end
   end

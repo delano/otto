@@ -127,7 +127,7 @@ RSpec.describe Otto::MCP::Server do
     # exercises: once the limit trips, the throttled response wins over the 401
     # the auth middleware would otherwise return.
     before do
-      skip 'rack-attack not available' unless defined?(Rack::Attack)
+      Otto::Security::RateLimiting.ensure_available!
       # rack-attack ships no default store outside Rails, so nothing would count.
       Rack::Attack.cache.store = RackAttackTestStore.new
     end
@@ -160,7 +160,7 @@ RSpec.describe Otto::MCP::Server do
     # fell back to '/_mcp', so a custom endpoint was never throttled. The
     # endpoint now travels with the rate limiting config.
     before do
-      skip 'rack-attack not available' unless defined?(Rack::Attack)
+      Otto::Security::RateLimiting.ensure_available!
       Rack::Attack.cache.store = RackAttackTestStore.new
     end
 

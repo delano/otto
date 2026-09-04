@@ -67,6 +67,9 @@ class Otto
 
         options = self.class.normalize_options(options)
 
+        Validator.ensure_available! if options[:enable_validation]
+        Otto::Security::RateLimiting.ensure_available! if options[:enable_rate_limiting]
+
         @enabled               = true
         @http_endpoint         = options[:http_endpoint]
         @auth_tokens           = options[:auth_tokens]

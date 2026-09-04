@@ -6,12 +6,6 @@ require 'json'
 
 require_relative '../security/rate_limiting'
 
-begin
-  require 'rack/attack'
-rescue LoadError
-  # rack-attack is optional - graceful fallback
-end
-
 class Otto
   module MCP
     # Rate limiter for MCP protocol endpoints
@@ -56,16 +50,13 @@ class Otto
       end
 
       def self.configure_rack_attack!(config = {})
-        return unless defined?(Rack::Attack)
-
-        # Start with base configuration from general rate limiting
+        # Start with base configuration from general rate limiting. The base
+        # class wires this subclass's response and logging hooks into
+        # Rack::Attack without registering duplicate callbacks.
         super
 
-        # Add MCP-specific rules
         register_endpoint(config[:mcp_http_endpoint])
         configure_mcp_rules(config)
-        configure_mcp_responses(config)
-        configure_mcp_logging(config)
       end
 
       # Resolve the MCP endpoint a Rack::Attack throttle should match against.
@@ -152,96 +143,59 @@ class Otto
         end
       end
 
-      def self.configure_mcp_responses(_config = {})
-        # Override throttled responder to provide JSON-RPC formatted responses
-        # for MCP requests. The responder is global, so it matches against
-        # every registered endpoint rather than the one being configured now.
-        Rack::Attack.throttled_responder = lambda do |request|
-          match_data = request.env['rack.attack.match_data']
-          now        = match_data[:epoch_time]
+      # JSON-RPC formatted 429 for MCP requests; the general Otto response
+      # (route response_type, then Accept header) for everything else.
+      def self.throttled_response(request)
+        return super unless mcp_request?(request)
 
-          headers = {
-            'content-type' => 'application/json',
-            'retry-after' => (match_data[:period] - (now % match_data[:period])).to_s,
-          }
+        match_data = request.env['rack.attack.match_data']
+        headers    = throttle_headers(match_data)
 
-          # Check if this is an MCP request
-          if mcp_request?(request)
-            # JSON-RPC error response for MCP
-            error_response = {
-              jsonrpc: '2.0',
-              id: nil,
-              error: {
-                code: -32_000,
-                message: 'Rate limit exceeded',
-                data: {
-                  retry_after: headers['retry-after'].to_i,
-                  limit: match_data[:limit],
-                  period: match_data[:period],
-                },
-              },
-            }
-            [429, headers, [JSON.generate(error_response)]]
-          else
-            # Use the general rate limiting response for non-MCP requests
-            # Route's response_type takes precedence over Accept header
-            route_def = request.env['otto.route_definition']
-            wants_json = (route_def&.response_type == 'json') ||
-                         request.env['HTTP_ACCEPT'].to_s.include?('application/json')
+        error_response = {
+          jsonrpc: '2.0',
+          id: nil,
+          error: {
+            code: -32_000,
+            message: 'Rate limit exceeded',
+            data: {
+              retry_after: headers['retry-after'].to_i,
+              limit: match_data[:limit],
+              period: match_data[:period],
+            },
+          },
+        }
+        [429, headers, [JSON.generate(error_response)]]
+      end
 
-            if wants_json
-              error_response = {
-                error: 'Rate limit exceeded',
-                message: 'Too many requests',
-                retry_after: headers['retry-after'].to_i,
-                limit: match_data[:limit],
-                period: match_data[:period],
-              }
-              [429, headers, [JSON.generate(error_response)]]
-            else
-              body                    = "Rate limit exceeded. Retry after #{headers['retry-after']} seconds."
-              headers['content-type'] = 'text/plain'
-              [429, headers, [body]]
-            end
-          end
+      # Keep one MCP-aware subscriber while allowing it to recognize every
+      # endpoint registered in this process.
+      def self.configure_logging
+        return unless defined?(ActiveSupport::Notifications)
+
+        ActiveSupport::Notifications.unsubscribe(@log_subscriber) if @log_subscriber
+        @log_subscriber = ActiveSupport::Notifications.subscribe('rack.attack') do |_name, _start, _finish, _request_id, payload|
+          log_throttled_request(payload)
         end
       end
 
-      def self.configure_mcp_logging(_config = {})
-        return unless defined?(ActiveSupport::Notifications)
+      # Masked address only — see the note on the base implementation in
+      # Otto::Security::RateLimiting (issue #219).
+      def self.log_throttled_request(payload)
+        req = payload[:request]
+        return super unless mcp_request?(req)
 
-        # One subscriber per process: each MCP app configured here would
-        # otherwise add another, and every throttle event would be logged once
-        # per app. The subscriber consults the endpoint registry per event.
-        ActiveSupport::Notifications.unsubscribe(@log_subscriber) if @log_subscriber
-
-        # Masked address only — see the note on the sibling subscriber in
-        # Otto::Security::RateLimiting.configure_rack_attack! (issue #219).
-        @log_subscriber = ActiveSupport::Notifications.subscribe('rack.attack') do |_name, _start, _finish, _request_id, payload|
-          req = payload[:request]
-          ip  = Otto::LoggingHelpers.privacy_safe_ip(req.env, req.ip)
-
-          if mcp_request?(req)
-            Otto.logger.warn "[MCP] Rate limit #{payload[:match_type]} for #{ip}: #{payload[:matched]}"
-          else
-            Otto.logger.warn "[Otto] Rate limit #{payload[:match_type]} for #{ip}: #{payload[:matched]}"
-          end
-        end
+        ip = Otto::LoggingHelpers.privacy_safe_ip(req.env, req.ip)
+        Otto.logger.warn "[MCP] Rate limit #{payload[:match_type]} for #{ip}: #{payload[:matched]}"
       end
     end
 
     # Middleware for applying rate limits to MCP protocol endpoints
     class RateLimitMiddleware < Otto::Security::RateLimitMiddleware
       def initialize(app, security_config = nil)
-        @app                    = app
-        @security_config        = security_config
-        @rate_limiter_available = defined?(Rack::Attack)
+        @app             = app
+        @security_config = security_config
 
-        if @rate_limiter_available
-          configure_mcp_rate_limiting
-        else
-          Otto.logger.warn '[MCP] rack-attack not available - rate limiting disabled'
-        end
+        configure_mcp_rate_limiting
       end
 
       private

@@ -1,4 +1,4 @@
-# Otto - A Ruby Gem
+# Otto - All Rack, no Pinion
 
 **Define Rack apps in plain text, with privacy by default and opt-in security features.**
 
@@ -8,7 +8,11 @@ Otto apps have three files: a rackup file, a Ruby class, and a routes file. The 
 
 ## Quick start
 
-Requirements: Ruby `>= 3.2, < 4.1` and Rack `>= 3.1, < 4.0`.
+Requirements: Ruby `>= 3.2, < 4.1` and Rack `>= 3.1, < 4.0`. Ruby 3.2
+remains compatibility-tested after upstream end of life, but receives no
+interpreter security maintenance. See the [runtime and dependency security
+policy](docs/reference/runtime-and-dependency-security.md) for support tiers and
+consumer lockfile requirements.
 
 Install Otto and the Rack server CLI, then create the three files shown below:
 
@@ -97,7 +101,27 @@ app = Otto.new("./routes", {
 })
 ```
 
-Security features include CSRF protection, input validation, security headers, and trusted proxy configuration.
+Security features include CSRF protection, input validation, security headers, rate limiting, and trusted proxy configuration.
+
+### Rate limiting (`rack-attack`)
+
+Rate limiting requires `rack-attack` 6.7.0 or newer in the 6.x series. Add the
+optional dependency and mount it before Otto; `enable_rate_limiting!` configures
+rules, while `Rack::Attack` enforces them:
+
+```ruby
+# Gemfile
+gem 'rack-attack', '~> 6.7'
+
+# config.ru
+use Rack::Attack
+app = Otto.new('./routes')
+app.enable_rate_limiting!(requests_per_minute: 50)
+run app
+```
+
+Enabling rate limiting raises `Otto::OptionalDependencyError` at configuration
+time when the gem is missing or outside the supported range.
 
 ### Content Security Policy (nonce-based emission)
 
@@ -315,7 +339,7 @@ Private and localhost IPs are exempted by default for development convenience, b
 ```ruby
 otto.configure_ip_privacy(
   geo_header: 'X-Client-Country',        # trusted app header, checked first
-  geo_db_path: 'data/country.mmdb'       # offline fallback (needs the maxmind-db gem)
+  geo_db_path: 'data/country.mmdb'       # offline fallback (needs maxmind-db >= 1.2.0, < 2)
 )
 ```
 
@@ -437,18 +461,26 @@ See the [examples/](examples/) directory for more.
 ## Documentation
 
 - **[Documentation map](docs/README.md)** - Capabilities, current guides, and the documentation structure Otto is growing toward
-- **[AGENTS.md](AGENTS.md)** - Contributor and agent guidance for Otto conventions; it is not application documentation
+- **[Runtime and dependency security policy](docs/reference/runtime-and-dependency-security.md)** - Ruby compatibility, dependency-range guarantees, and consumer lockfile auditing
 - **[CHANGELOG.rst](CHANGELOG.rst)** - Version history, breaking changes, and upgrade notes
 
-## AI Development Assistance
+## AI-assisted development
 
-Version 1.2.0's security features were developed with AI assistance:
+AI tools have contributed to Otto since v1.2.0. They are used for implementation, testing, documentation, maintenance, and additional code review.
 
-* **Zed Agent (Claude Sonnet 4)** - Security implementation and testing
-* **Claude Desktop** - Rack 3+ compatibility and debugging
-* **GitHub Copilot** - Code completion
+### Tools used
 
-The maintainer remains responsible for all security decisions and implementation. We believe in transparency about development tools, especially for security-focused software.
+* **Claude Code CLI (Opus and Fable)** - Primary development tool for implementation, test coverage, and adversarial review
+* **Greptile and GitHub Copilot** - Pull request reviews
+* **Claude Desktop routines** - Unattended cloud agents that run on a cron schedule and open pull requests for maintenance chores. Nobody is at the keyboard for these, so they go through the same PR review as human work.
+
+### How it is tracked
+
+* All PR reviews are publicly visible. The `greptile-review` and `claude-review` labels are applied to PRs that have been reviewed.
+* Release notes in [CHANGELOG.rst](CHANGELOG.rst) list AI-assisted work under an "AI Assistance" heading.
+* [AGENTS.md](AGENTS.md) sets the conventions agents follow in this repository.
+
+The maintainer reviews the resulting changes and remains responsible for security, implementation, and releases.
 
 ## License
 

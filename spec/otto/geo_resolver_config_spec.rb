@@ -89,6 +89,16 @@ RSpec.describe 'Configurable geo resolution' do
         expect { described_class.new(geo_enabled: false, geo_db_path: '/no/such/geo.mmdb') }
           .not_to raise_error
       end
+
+      it 'reports a missing or incompatible maxmind-db gem at configuration time' do
+        error = Otto::OptionalDependencyError.new(
+          "geo_db_path database loading requires optional dependency 'maxmind-db' (~> 1.2)"
+        )
+        allow(Otto::OptionalDependency).to receive(:require!).and_raise(error)
+
+        expect { described_class.new(geo_db_path: __FILE__) }
+          .to raise_error(Otto::OptionalDependencyError, /maxmind-db.*~> 1\.2/)
+      end
     end
 
     describe '.canonicalize_geo_header' do

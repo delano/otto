@@ -74,6 +74,7 @@ RSpec.shared_context 'with rack attack isolation' do
     end
 
     clear_rack_attack_store.call
+    Otto::MCP::RateLimiter.reset_endpoints!
 
     begin
       example.run

@@ -9,6 +9,7 @@ require 'digest'
 require 'concurrent'
 
 require_relative '../core/freezable'
+require_relative '../optional_dependency'
 
 class Otto
   module Privacy
@@ -30,6 +31,8 @@ class Otto
     # modules would hide the symmetry that makes them reviewable.
     class Config
       include Otto::Core::Freezable
+
+      MAXMIND_DB_REQUIREMENT = '~> 1.2'
 
       # Named privacy profiles: validated presets over the individual knobs,
       # so a deployment's observability posture is declared in one reviewable
@@ -540,14 +543,13 @@ class Otto
       def build_maxmind_reader(path, option_name: 'geo_db_path')
         raise ArgumentError, "#{option_name} is not readable: #{path.inspect}" unless File.readable?(path)
 
-        begin
-          require 'maxmind/db'
-        rescue LoadError
-          raise ArgumentError,
-                "#{option_name} is set (#{path.inspect}) but the 'maxmind-db' gem is not available. " \
-                "Add `gem 'maxmind-db'` to your Gemfile, or inject your own reader via " \
-                "configure_ip_privacy(#{option_name.sub('_path', '_reader')}: ...)."
-        end
+        Otto::OptionalDependency.require!(
+          'maxmind-db',
+          MAXMIND_DB_REQUIREMENT,
+          require_path: 'maxmind/db',
+          feature: "#{option_name} database loading",
+          alternative: "Or inject a reader with `#{option_name.sub('_path', '_reader')}:`."
+        )
 
         begin
           MaxMind::DB.new(path, mode: MaxMind::DB::MODE_MEMORY)

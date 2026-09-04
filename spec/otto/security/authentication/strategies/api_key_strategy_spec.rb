@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'digest'
+
 require_relative '../../../../spec_helper'
 
 RSpec.describe Otto::Security::Authentication::Strategies::APIKeyStrategy do
@@ -43,7 +45,15 @@ RSpec.describe Otto::Security::Authentication::Strategies::APIKeyStrategy do
     it 'authenticates a correct API key from the header' do
       result = strategy.authenticate(env_with_header('key-two'), nil)
       expect(result.authenticated?).to be(true)
-      expect(result.user[:api_key]).to eq('key-two')
+      expect(result.user[:api_key_fingerprint]).to eq(Digest::SHA256.hexdigest('key-two')[0, 12])
+      expect(result.auth_method).to eq('api_key')
+    end
+
+    it 'does not expose the raw key in the result' do
+      result = strategy.authenticate(env_with_header('key-two'), nil)
+      expect(result.user).not_to have_key(:api_key)
+      expect(result.metadata).not_to have_key(:api_key)
+      expect(result.to_h.inspect).not_to include('key-two')
     end
 
     it 'ignores the query parameter by default' do
@@ -56,7 +66,7 @@ RSpec.describe Otto::Security::Authentication::Strategies::APIKeyStrategy do
       opted_in = described_class.new(api_keys: %w[key-one], param_name: 'api_key')
       result = opted_in.authenticate(env_with_param('key-one'), nil)
       expect(result.authenticated?).to be(true)
-      expect(result.user[:api_key]).to eq('key-one')
+      expect(result.user[:api_key_fingerprint]).to eq(Digest::SHA256.hexdigest('key-one')[0, 12])
     end
 
     it 'authenticates the first configured key' do

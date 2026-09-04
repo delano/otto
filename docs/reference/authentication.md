@@ -146,7 +146,8 @@ Otto ships `Otto::Security::Authentication::Strategies::APIKeyStrategy`; see
 that class for the real implementation. It reads the `X-API-Key` header only
 unless you pass `param_name: 'api_key'` to also accept the credential as a query
 or form parameter — keys in URLs are recorded by access logs, proxies, and
-browser history. A custom key-backed strategy follows the
+browser history. Its result carries `user[:api_key_fingerprint]` (a truncated
+SHA-256 digest), never the key itself. A custom key-backed strategy follows the
 same shape:
 
 ```ruby

@@ -49,6 +49,10 @@ Otto::Security::Authentication::Strategies::APIKeyStrategy.new(
 )
 ```
 
+The authenticated result never carries the raw key. `user[:api_key_fingerprint]`
+holds a truncated SHA-256 digest of the presented key, so audit logs can
+correlate requests without recording the credential.
+
 A strategy implements `authenticate(env, requirement)` and returns a
 `StrategyResult`, `AuthFailure`, or `AuthorizationFailure`. Subclass
 `Otto::Security::Authentication::AuthStrategy` to use its `success`, `failure`,
@@ -201,7 +205,7 @@ Otto includes these strategy classes as implementation starting points:
 - `SessionStrategy` — reads a configured key from `env['rack.session']`.
 - `APIKeyStrategy` — checks the configured header; the query parameter is opt-in
   via `param_name:`. `api_keys:` is required and must be non-empty; a rejected
-  key is a terminal failure.
+  key is a terminal failure, and the result exposes only a key fingerprint.
 - `RoleStrategy` — checks session roles against allowed roles or a
   colon-qualified requirement.
 - `PermissionStrategy` — checks application-provided permission data.

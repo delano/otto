@@ -3,6 +3,7 @@
 # frozen_string_literal: true
 
 require_relative '../auth_strategy'
+require 'digest'
 require 'rack/utils'
 
 class Otto
@@ -20,6 +21,9 @@ class Otto
         # credential such as an array query parameter — fails TERMINALLY, so a bad
         # key halts the strategy chain instead of falling through to a later
         # anonymous-capable strategy. A missing credential fails non-terminally.
+        #
+        # The result never carries the raw key: it exposes only a short SHA-256
+        # fingerprint, so the secret does not reach env, session, or logs.
         #
         # The query/form parameter path is opt-in (`param_name:`), because keys in
         # URLs are recorded by access logs, proxies, and browser history.
@@ -68,12 +72,21 @@ class Otto
               return failure('Invalid API key', terminal: true)
             end
 
-            # Create a simple user hash for API key authentication
-            user_data = { api_key: api_key }
-            success(user: user_data, api_key: api_key)
+            # Identify the credential by a non-reversible fingerprint. The raw key
+            # must not reach the result, since it flows into env, session, and logs.
+            fingerprint = key_fingerprint(api_key)
+            success(user: { api_key_fingerprint: fingerprint },
+                    auth_method: 'api_key',
+                    api_key_fingerprint: fingerprint)
           end
 
           private
+
+          # Short, non-reversible identifier for a key: enough to correlate
+          # requests and audit logs without exposing the credential.
+          def key_fingerprint(api_key)
+            Digest::SHA256.hexdigest(api_key)[0, 12]
+          end
 
           # Constant-time membership check over the configured API keys. Compares
           # against every key without short-circuiting so match position/membership is

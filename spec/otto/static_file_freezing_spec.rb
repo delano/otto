@@ -25,19 +25,21 @@ RSpec.describe Otto, 'static file serving after configuration freeze' do
   it 'serves an uncached static file without raising FrozenError' do
     otto.freeze_configuration!
     expect(otto.frozen_configuration?).to be true
-    expect(otto.routes_static[:GET].key?('/asset.txt')).to be false
+    expect(otto.routes_static[:GET].key?('/')).to be false
 
     status, = otto.call(Rack::MockRequest.env_for('/asset.txt'))
 
     expect(status).to eq(200)
   end
 
+  # The cache key is the canonical *directory* of the served file (issue
+  # #257), so a file in the public root is cached under '/'.
   it 'caches the base path in routes_static[:GET] for subsequent requests' do
     otto.freeze_configuration!
 
     otto.call(Rack::MockRequest.env_for('/asset.txt'))
 
-    expect(otto.routes_static[:GET].key?('/asset.txt')).to be true
+    expect(otto.routes_static[:GET].key?('/')).to be true
   end
 
   it 'does not deep-freeze routes_static, so the request-time cache write succeeds' do
@@ -70,8 +72,6 @@ RSpec.describe Otto, 'static file serving after configuration freeze' do
     threads.each(&:join)
 
     expect(errors).to be_empty
-    file_count.times do |i|
-      expect(otto.routes_static[:GET].key?("/concurrent_#{i}.txt")).to be true
-    end
+    expect(otto.routes_static[:GET].key?('/')).to be true
   end
 end

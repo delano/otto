@@ -5,6 +5,9 @@
 require 'spec_helper'
 
 RSpec.describe Otto::MCP, 'rate limiting features' do
+  # These examples rewrite the process-global Rack::Attack configuration.
+  include_context 'with rack attack isolation'
+
   before do
     skip 'rack-attack not available' unless defined?(Rack::Attack)
   end

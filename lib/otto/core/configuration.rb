@@ -98,12 +98,13 @@ class Otto
 
         @mcp_server = Otto::MCP::Server.new(self)
 
-        mcp_options = {}
-        mcp_options[:http_endpoint] = opts[:mcp_endpoint] if opts[:mcp_endpoint]
-
         return unless opts[:mcp_http] != false # Default to true unless explicitly disabled
 
-        @mcp_server.enable!(mcp_options)
+        # Forward the whole options hash under the :constructor scope, which
+        # picks out the MCP vocabulary (auth_tokens, rate limits, ...) and
+        # ignores the rest of Otto's options. Previously only the endpoint
+        # survived, silently starting an unauthenticated MCP endpoint (#258).
+        @mcp_server.enable!(Otto::MCP::Server.normalize_options(opts, scope: :constructor))
       end
 
       # Validate and freeze the lambda handler registry supplied at construction

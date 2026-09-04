@@ -149,11 +149,12 @@ class Otto
         # Get base configuration from security config
         base_config = @security_config&.rate_limiting_config || {}
 
-        # Add MCP-specific defaults
-        mcp_config = base_config.merge({
-                                         mcp_requests_per_minute: 60,
+        # MCP defaults, overridden by anything the security config carries
+        # (Server#apply_rate_limits publishes the configured limits there).
+        mcp_config = {
+          mcp_requests_per_minute: 60,
           tool_calls_per_minute: 20,
-                                       })
+        }.merge(base_config)
 
         RateLimiter.configure_rack_attack!(mcp_config)
       end

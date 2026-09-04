@@ -54,9 +54,11 @@ class Otto
           # Only apply to MCP endpoints
           return @app.call(env) unless mcp_endpoint?(env)
 
-          # Get auth instance from security config
+          # Fail closed: this middleware is only mounted when MCP auth was
+          # requested, so a missing authenticator is a misconfiguration, not a
+          # licence to serve the endpoint unauthenticated (issue #258).
           auth = @security_config&.mcp_auth
-          return unauthorized_response if auth && !auth.authenticate(env)
+          return unauthorized_response if auth.nil? || !auth.authenticate(env)
 
           @app.call(env)
         end

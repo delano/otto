@@ -100,7 +100,12 @@ class Otto
         locale             = determine_locale env
         env['rack.locale'] = locale
         env['otto.locale_config'] = @locale_config.to_h if @locale_config
-        @static_route    ||= Rack::Files.new(option[:public]) if option[:public] && safe_dir?(option[:public])
+        # Rack::Files is rooted at the CANONICAL public directory, so the
+        # symlink-free relative path #serve_static_file hands it is joined to a
+        # symlink-free root (issue #257). A missing root leaves @static_route
+        # nil and the request falls through to normal routing (404), rather
+        # than raising at construction.
+        @static_route    ||= build_static_route
         path_info          = Rack::Utils.unescape(env['PATH_INFO'])
         path_info          = '/' if path_info.to_s.empty?
 
@@ -117,9 +122,6 @@ class Otto
           path_info_clean = path_info
         end
 
-        base_path      = File.split(path_info).first
-        # Files in the root directory can refer to themselves
-        base_path      = path_info if base_path == '/'
         http_verb      = env['REQUEST_METHOD'].upcase.to_sym
         literal_routes = routes_literal[http_verb] || {}
         literal_routes.merge! routes_literal[:GET] if http_verb == :HEAD
@@ -138,13 +140,30 @@ class Otto
         # for them. Literal lookup keeps '' — it already keys root that way.
         dispatch_path = path_info_clean.empty? ? '/' : path_info_clean
 
-        if static_route && http_verb == :GET && routes_static[:GET].key?(base_path)
+        # Static dispatch is gated on the SAME containment check every time,
+        # including cache hits (issue #257). routes_static caches the base
+        # path (the *directory* of an approved file), so a cache hit alone
+        # authorized every sibling of an already-served file -- a symlink
+        # dropped next to it escaped the public root. The cache now only
+        # decides ordering versus literal routes, never safety.
+        static_candidate = !static_route.nil? && http_verb == :GET
+        # The cache is keyed on the CANONICAL directory of an approved file
+        # (see #static_cache_key), not on File.split of the request path: the
+        # latter preserved '.' segments, so '/a/./././x.txt' variants minted
+        # unbounded distinct keys in the Concurrent::Map. Lookups use the
+        # lexical dirname; odd paths simply miss and take the cold branch.
+        lookup_key       = File.dirname(dispatch_path)
+        static_file      = if static_candidate && routes_static[:GET].key?(lookup_key)
+                             resolve_static_file(dispatch_path)
+                           end
+
+        if static_file
           Otto.structured_log(:debug, 'Route matched',
             Otto::LoggingHelpers.request_context(env).merge(
               type: 'static_cached',
-              base_path: base_path
+              base_path: lookup_key
             ))
-          static_route.call(env)
+          serve_static_file(env, static_file)
         elsif literal_routes.has_key?(path_info_clean)
           route = literal_routes[path_info_clean]
           Otto.structured_log(:debug, 'Route matched',
@@ -158,14 +177,15 @@ class Otto
             @route_matched_callbacks.each { |cb| cb.call(env, route.route_definition) }
           end
           route.call(env)
-        elsif static_route && http_verb == :GET && safe_file?(dispatch_path)
+        elsif static_candidate && (static_file = resolve_static_file(dispatch_path))
+          cache_key = static_cache_key(static_file)
           Otto.structured_log(:debug, 'Route matched',
             Otto::LoggingHelpers.request_context(env).merge(
               type: 'static_new',
-              base_path: base_path
+              base_path: cache_key
             ))
-          routes_static[:GET][base_path] = base_path
-          static_route.call(env)
+          routes_static[:GET][cache_key] = cache_key
+          serve_static_file(env, static_file)
         else
           match_dynamic_route(env, dispatch_path, http_verb, literal_routes)
         end
@@ -190,6 +210,53 @@ class Otto
       end
 
       private
+
+      # Serve the path that was actually validated, not the request path.
+      #
+      # Rack::Files re-derives its target by joining its root with PATH_INFO,
+      # so handing it the raw request path reopened the check/open gap that
+      # #resolve_static_file just closed: an approved request path could be
+      # re-resolved through a symlink at open time. Rewriting PATH_INFO to the
+      # canonical (fully symlink-resolved) relative path means the path
+      # Rack::Files opens contains no symlink components at all.
+      #
+      # Residual TOCTOU: a real (non-symlink) component renamed between the
+      # File.realpath in #resolve_static_file and the File.open inside
+      # Rack::Files could still redirect the open. Closing that requires an
+      # O_NOFOLLOW-per-component or fd-based serve, i.e. replacing
+      # Rack::Files. Accepted for now; see issue #257.
+      def serve_static_file(env, static_file)
+        static_env = env.dup
+        # Rack::Files unescapes PATH_INFO, so escape the canonical path to
+        # survive the round trip (escape_path preserves '/').
+        static_env['PATH_INFO'] = "/#{Rack::Utils.escape_path(static_file.relative)}"
+        static_route_for(static_file.root).call(static_env)
+      end
+
+      # Rack::Files rooted at the root +static_file+ was validated against.
+      #
+      # @static_route is memoised once, but the public directory can be
+      # repointed without a restart (a release symlink flip). Containment
+      # re-resolves the root on every request and would validate against the
+      # new tree while the memoised Rack::Files kept opening files under the
+      # old one, so a validated relative path could be joined to a root it was
+      # never checked against. Rebuild whenever the two diverge. The race
+      # between two threads rebuilding at once is benign: both produce an
+      # equivalent instance for the same root.
+      def static_route_for(root)
+        current = static_route
+        return current if current && current.root == root
+
+        @static_route = Rack::Files.new(root)
+      end
+
+      def build_static_route
+        return nil if option[:public].nil? || option[:public].empty?
+        return nil unless safe_dir?(option[:public])
+
+        root = canonical_public_dir
+        root && Rack::Files.new(root)
+      end
 
       # +dispatch_path+ is the normalized path from #handle_request (see the
       # +dispatch_path+ comment there): +Otto::Utils.normalize_path+ output with

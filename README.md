@@ -1,4 +1,4 @@
-# Otto - A Ruby Gem
+# Otto - All Rack, no Pinion
 
 **Define Rack apps in plain text, with privacy by default and opt-in security features.**
 
@@ -462,18 +462,25 @@ See the [examples/](examples/) directory for more.
 
 - **[Documentation map](docs/README.md)** - Capabilities, current guides, and the documentation structure Otto is growing toward
 - **[Runtime and dependency security policy](docs/reference/runtime-and-dependency-security.md)** - Ruby compatibility, dependency-range guarantees, and consumer lockfile auditing
-- **[AGENTS.md](AGENTS.md)** - Contributor and agent guidance for Otto conventions; it is not application documentation
 - **[CHANGELOG.rst](CHANGELOG.rst)** - Version history, breaking changes, and upgrade notes
 
-## AI Development Assistance
+## AI-assisted development
 
-Version 1.2.0's security features were developed with AI assistance:
+AI tools have contributed to Otto since v1.2.0. They are used for implementation, testing, documentation, maintenance, and additional code review.
 
-* **Zed Agent (Claude Sonnet 4)** - Security implementation and testing
-* **Claude Desktop** - Rack 3+ compatibility and debugging
-* **GitHub Copilot** - Code completion
+### Tools used
 
-The maintainer remains responsible for all security decisions and implementation. We believe in transparency about development tools, especially for security-focused software.
+* **Claude Code CLI (Opus and Fable)** - Primary development tool for implementation, test coverage, and adversarial review
+* **Greptile and GitHub Copilot** - Pull request reviews
+* **Claude Desktop routines** - Unattended cloud agents that run on a cron schedule and open pull requests for maintenance chores. Nobody is at the keyboard for these, so they go through the same PR review as human work.
+
+### How it is tracked
+
+* All PR reviews are publicly visible. The `greptile-review` and `claude-review` labels are applied to PRs that have been reviewed.
+* Release notes in [CHANGELOG.rst](CHANGELOG.rst) list AI-assisted work under an "AI Assistance" heading.
+* [AGENTS.md](AGENTS.md) sets the conventions agents follow in this repository.
+
+The maintainer reviews the resulting changes and remains responsible for security, implementation, and releases.
 
 ## License
 

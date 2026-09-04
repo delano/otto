@@ -102,3 +102,41 @@ module V2
     end
   end
 end
+
+# MCP tool and resource handlers used by the MCP registry/protocol specs.
+class TestMCPTool
+  # Spy state for the MCP specs; a container constant avoids mutable class
+  # attributes while still recording the last invocation.
+  CALLS = {} # rubocop:disable Style/MutableConstant -- spy sink, mutated by design
+
+  def self.last_arguments = CALLS[:arguments]
+  def self.last_env = CALLS[:env]
+
+  def self.echo(arguments, env)
+    CALLS[:arguments] = arguments
+    CALLS[:env]       = env
+    "echo:#{arguments['message']}"
+  end
+
+  def self.boom(_arguments, _env)
+    raise 'tool exploded'
+  end
+end
+
+module TestMCP
+  class NestedTool
+    def self.ping(arguments, _env)
+      "pong:#{arguments['n']}"
+    end
+  end
+end
+
+class TestMCPResource
+  def self.content
+    'resource contents'
+  end
+
+  def self.boom
+    raise 'resource exploded'
+  end
+end

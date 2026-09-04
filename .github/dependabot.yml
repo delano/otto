@@ -9,6 +9,11 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "weekly"
+    # All action bumps arrive as one PR instead of one per action.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
   - package-ecosystem: "bundler"
     directory: "/" # Location of package manifests
     schedule:

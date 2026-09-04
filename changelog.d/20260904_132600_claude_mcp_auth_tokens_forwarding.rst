@@ -59,6 +59,11 @@ Fixed
   ``enable_mcp!(mcp_http: false)`` still mounted the endpoint. They are only
   read by ``Otto.new`` and are now rejected by ``#enable_mcp!`` with an
   ``ArgumentError`` that says so. The constructor still tolerates them. (#258)
+- ``MiddlewareStack#validate_mcp_middleware_order`` only checked the first
+  occurrence of each MCP middleware class, so a stack executing rate limiting,
+  then authentication, then a second rate limiter produced no warning. It now
+  warns when any occurrence of the outer middleware executes after any
+  occurrence of the inner one. (#258)
 
 Added
 -----

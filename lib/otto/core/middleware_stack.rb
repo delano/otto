@@ -153,12 +153,19 @@ class Otto
 
         return warnings if mcp_middlewares.size < 2
 
-        # Position in EXECUTION order: smaller means it sees the request sooner.
-        position = ->(name) { mcp_middlewares.find_index { |m| m.to_s == name } }
+        # Positions in EXECUTION order: smaller means it sees the request
+        # sooner. The same class can be registered more than once (entries are
+        # keyed on class + args + options), so compare the LAST occurrence of
+        # the outer middleware against the FIRST occurrence of the inner one:
+        # the order is only right when every outer occurrence precedes every
+        # inner occurrence. Checking first-vs-first would pass a stack shaped
+        # rate-limit, auth, rate-limit.
+        first_position = ->(name) { mcp_middlewares.find_index { |m| m.to_s == name } }
+        last_position  = ->(name) { mcp_middlewares.rindex { |m| m.to_s == name } }
 
         MCP_MIDDLEWARE_EXECUTION_ORDER.combination(2) do |outer, inner|
-          outer_pos = position.call(outer)
-          inner_pos = position.call(inner)
+          outer_pos = last_position.call(outer)
+          inner_pos = first_position.call(inner)
           next unless outer_pos && inner_pos && outer_pos > inner_pos
 
           warnings << "[MCP Middleware] #{outer.split('::').last} should run before #{inner.split('::').last}"

@@ -36,6 +36,19 @@ class Otto
       #   # env['otto.original_ip'] also contains real IP
       #
       class IPPrivacyMiddleware
+        # Forwarding metadata Rack::Request reads without consulting Otto's
+        # proxy trust verdict: host (#host/#authority), scheme (#scheme/#ssl?),
+        # and port (#port), from both the X-Forwarded-* family and RFC 7239
+        # Forwarded (host=, proto=, and the port inside for=).
+        UNTRUSTED_FORWARDING_METADATA_HEADERS = %w[
+          HTTP_FORWARDED
+          HTTP_X_FORWARDED_HOST
+          HTTP_X_FORWARDED_PROTO
+          HTTP_X_FORWARDED_SCHEME
+          HTTP_X_FORWARDED_SSL
+          HTTP_X_FORWARDED_PORT
+        ].freeze
+
         # Initialize IP Privacy middleware
         #
         # @param app [#call] Rack application
@@ -77,9 +90,17 @@ class Otto
           # forced consumers into grant-only reads (#228).
           # respond_to?: like geo_headers_trusted?, a partial/duck-typed
           # config (or nil) that cannot report trust state is "unconfigured".
-          if @security_config.respond_to?(:proxy_trust_configured?) && @security_config.proxy_trust_configured?
-            env['otto.via_trusted_proxy'] = trusted_proxy?(env['REMOTE_ADDR'])
-          end
+          proxy_trust_configured = @security_config.respond_to?(:proxy_trust_configured?) &&
+                                   @security_config.proxy_trust_configured?
+          via_trusted_proxy = proxy_trust_configured && trusted_proxy?(env['REMOTE_ADDR'])
+          env['otto.via_trusted_proxy'] = via_trusted_proxy if proxy_trust_configured
+
+          # A peer that failed configured proxy trust cannot supply forwarded
+          # host, scheme, or port either. Unconfigured trust (absent tri-state
+          # key) is left alone: the operator has asserted nothing, and the
+          # contract reserves that state for downstream heuristics (#228), so
+          # Rack keeps its own defaults there.
+          scrub_untrusted_forwarding_metadata(env) if proxy_trust_configured && !via_trusted_proxy
 
           # Same rationale, for loopback: this middleware runs outermost, so a
           # downstream middleware that must authenticate a DIRECT LOCAL CALL
@@ -387,6 +408,24 @@ class Otto
         # @param client_ip [String, nil] resolved, unmasked client IP
         def install_ip_match(env, client_ip)
           env['otto.ip_match'] = ->(cidrs) { Otto::Utils.ip_in_cidrs?(client_ip, cidrs) }
+        end
+
+        # Remove forwarding metadata supplied by a peer that failed proxy trust.
+        #
+        # Rack honors these according only to the process-global forwarding
+        # family, so without this an untrusted client would control
+        # request.host, request.ssl?, and request.port for every mounted Rack
+        # app (Rack::Session's Secure-cookie gate reads ssl?). Delete the
+        # carriers rather than editing them: this path only runs in CIDR filter
+        # mode, where Otto never reads the Forwarded header itself, and a
+        # hand-rolled RFC 7239 parser that disagrees with Rack's on quoting
+        # (e.g. `for=a"b;host=evil`) would let a host= survive the edit.
+        # X-Forwarded-For stays, masked or not, because Otto's own resolution
+        # already ignores it from an untrusted peer.
+        #
+        # @param env [Hash] Rack environment
+        def scrub_untrusted_forwarding_metadata(env)
+          UNTRUSTED_FORWARDING_METADATA_HEADERS.each { |key| env.delete(key) }
         end
 
         # Delete forwarded IP headers outright.

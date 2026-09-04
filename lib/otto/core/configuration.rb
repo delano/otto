@@ -64,10 +64,16 @@ class Otto
         # and fails loud instead of being silently dropped.
         @security_config.trusted_proxy_depth = opts[:trusted_proxy_depth] unless opts[:trusted_proxy_depth].nil?
 
-        # Select the forwarded header depth mode reads from ('X-Forwarded-For',
-        # 'Forwarded', or 'Both'). Only consulted in depth mode. Same presence
-        # guard: a provided-but-invalid value is validated, not ignored.
-        @security_config.trusted_proxy_header = opts[:trusted_proxy_header] unless opts[:trusted_proxy_header].nil?
+        # Select the forwarded family Otto and Rack read from. An explicit
+        # option is an operator choice that every Otto app in the process must
+        # share; with no option, align Rack with Otto's default family without
+        # staking that claim, so a no-options sub-mount never blocks a later
+        # explicit choice. A provided-but-invalid value is still validated.
+        if opts[:trusted_proxy_header].nil?
+          @security_config.apply_default_rack_forwarding_family!
+        else
+          @security_config.trusted_proxy_header = opts[:trusted_proxy_header]
+        end
 
         # Set custom security headers
         return unless opts[:security_headers]

@@ -456,6 +456,13 @@ RSpec.describe Otto::Security::Config do
   end
 
   describe 'trusted_proxy_header (depth-mode forwarded header)' do
+    around do |example|
+      original_priority = Rack::Request.forwarded_priority.dup
+      example.run
+    ensure
+      Rack::Request.forwarded_priority = original_priority
+    end
+
     it 'defaults to X-Forwarded-For' do
       expect(config.trusted_proxy_header).to eq('X-Forwarded-For')
     end
@@ -464,6 +471,105 @@ RSpec.describe Otto::Security::Config do
       %w[X-Forwarded-For Forwarded Both].each do |header|
         config.trusted_proxy_header = header
         expect(config.trusted_proxy_header).to eq(header)
+      end
+    end
+
+    it 'lets one config revise its own explicit choice' do
+      config.trusted_proxy_header = 'Forwarded'
+      expect { config.trusted_proxy_header = 'Both' }.not_to raise_error
+      expect(Rack::Request.forwarded_priority).to eq(%i[forwarded x_forwarded])
+    end
+
+    it 'rejects a revision once another config has committed to the family' do
+      config.trusted_proxy_header = 'Forwarded'
+      described_class.new.trusted_proxy_header = 'Forwarded'
+
+      expect { config.trusted_proxy_header = 'Both' }
+        .to raise_error(ArgumentError, /same forwarding family/)
+    end
+
+    it "rejects 'Forwarded' after trusted_proxies are configured" do
+      config.add_trusted_proxy('10.0.0.0/8')
+
+      expect { config.trusted_proxy_header = 'Forwarded' }
+        .to raise_error(ArgumentError, /CIDR filter mode/)
+      expect(config.trusted_proxy_header).to eq('X-Forwarded-For')
+    end
+
+    it "rejects trusted_proxies after 'Both' is configured" do
+      config.trusted_proxy_header = 'Both'
+
+      expect { config.add_trusted_proxy('10.0.0.0/8') }
+        .to raise_error(ArgumentError, /CIDR filter mode/)
+    end
+
+    it 'commits a depth-mode config to its family without naming one' do
+      config.trusted_proxy_depth = 1
+      config.commit_rack_forwarding_family!
+
+      expect(described_class.rack_forwarding_family).to eq('X-Forwarded-For')
+      expect { described_class.new.trusted_proxy_header = 'Forwarded' }
+        .to raise_error(ArgumentError, /already uses X-Forwarded-For/)
+    end
+
+    it 'does not commit from the depth setter, so header order is free' do
+      described_class.new.trusted_proxy_header = 'Forwarded'
+      config.trusted_proxy_depth = 1
+
+      expect { config.trusted_proxy_header = 'Forwarded' }.not_to raise_error
+      expect { config.commit_rack_forwarding_family! }.not_to raise_error
+    end
+
+    it 'commits at freeze for trust configured after construction' do
+      described_class.new.trusted_proxy_header = 'Forwarded'
+      config.add_trusted_proxy('10.0.0.0/8')
+
+      expect { config.deep_freeze! }.to raise_error(ArgumentError, /already uses Forwarded/)
+    end
+
+    it 'pins and commits a depth-mode config at freeze' do
+      config.trusted_proxy_depth = 1
+      config.deep_freeze!
+
+      expect(described_class.rack_forwarding_family).to eq('X-Forwarded-For')
+      expect(Rack::Request.forwarded_priority).to eq([:x_forwarded])
+    end
+
+    it 'does not register a config that fails freeze-time validation' do
+      config.add_trusted_proxy('10.0.0.0/8')
+      config.instance_variable_set(:@trusted_proxy_depth, 1) # bypass the eager setter
+
+      expect { config.deep_freeze! }.to raise_error(ArgumentError, /Cannot configure both/)
+      expect(described_class.rack_forwarding_family).to be_nil
+    end
+
+    it 'leaves a config with no proxy trust uncommitted' do
+      config.apply_default_rack_forwarding_family!
+
+      expect(described_class.rack_forwarding_family).to be_nil
+      expect(Rack::Request.forwarded_priority).to eq([:x_forwarded])
+    end
+
+    it 'refuses apply_default_rack_forwarding_family! once frozen' do
+      config.deep_freeze!
+
+      expect { config.apply_default_rack_forwarding_family! }.to raise_error(FrozenError)
+    end
+
+    it 'still accepts the default header alongside trusted_proxies' do
+      config.add_trusted_proxy('10.0.0.0/8')
+
+      expect { config.trusted_proxy_header = 'x-forwarded-for' }.not_to raise_error
+    end
+
+    it 'maps each forwarding family to Rack forwarded_priority' do
+      {
+        'X-Forwarded-For' => [:x_forwarded],
+        'Forwarded' => [:forwarded],
+        'Both' => %i[forwarded x_forwarded],
+      }.each do |header, priority|
+        config.trusted_proxy_header = header
+        expect(Rack::Request.forwarded_priority).to eq(priority)
       end
     end
 

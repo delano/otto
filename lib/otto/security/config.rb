@@ -67,11 +67,64 @@ class Otto
       # and IP resolution. Keep it aligned with Otto's configured forwarding
       # family so the two request views cannot silently disagree.
       RACK_REQUEST = ::Rack::Request
+      DEFAULT_RACK_FORWARDED_PRIORITY = RACK_REQUEST.forwarded_priority.dup.freeze
       RACK_FORWARDED_PRIORITIES = {
         'X-Forwarded-For' => [:x_forwarded].freeze,
         'Forwarded' => [:forwarded].freeze,
         'Both' => %i[forwarded x_forwarded].freeze,
       }.freeze
+      FORWARDING_FAMILY_CONFLICT_MESSAGE = <<~MSG.gsub(/\s+/, ' ').strip.freeze
+        Cannot configure trusted_proxy_header as %s because another Otto
+        application in this process already uses %s. Rack's
+        forwarded host, port, scheme, and IP policy is process-global, so every
+        Otto application in one process must use the same forwarding family.
+      MSG
+
+      class << self
+        # Register an Otto security config's forwarding family and apply it to
+        # Rack. A config may change its own choice before freezing, but all live
+        # configs in one process must agree because Rack's setting is global.
+        def apply_rack_forwarding_family!(config, header)
+          rack_forwarding_mutex.synchronize do
+            existing = nil
+            rack_forwarding_configs.each_pair do |registered_config, registered_header|
+              next if registered_config.equal?(config) || registered_header == header
+
+              existing = registered_header
+              break
+            end
+
+            if existing
+              raise ArgumentError, format(FORWARDING_FAMILY_CONFLICT_MESSAGE, header, existing)
+            end
+
+            rack_forwarding_configs[config] = header
+            RACK_REQUEST.forwarded_priority = RACK_FORWARDED_PRIORITIES.fetch(header).dup
+          end
+        end
+
+        # Clear process-global forwarding state between isolated RSpec examples.
+        #
+        # @api private
+        def reset_rack_forwarding_family_for_testing!
+          raise 'reset_rack_forwarding_family_for_testing! is only available in RSpec test environment' unless defined?(RSpec)
+
+          rack_forwarding_mutex.synchronize do
+            @rack_forwarding_configs = ObjectSpace::WeakMap.new
+            RACK_REQUEST.forwarded_priority = DEFAULT_RACK_FORWARDED_PRIORITY.dup
+          end
+        end
+
+        private
+
+        def rack_forwarding_configs
+          @rack_forwarding_configs ||= ObjectSpace::WeakMap.new
+        end
+
+        def rack_forwarding_mutex
+          @rack_forwarding_mutex ||= Mutex.new
+        end
+      end
 
       # Endpoint group name shared by the CSP `report-to` directive and the
       # `Reporting-Endpoints` response header (modern Reporting API). Browsers
@@ -330,8 +383,9 @@ class Otto
       def trusted_proxy_header=(header)
         ensure_not_frozen!
 
-        @trusted_proxy_header = canonicalize_trusted_proxy_header(header)
-        apply_rack_forwarded_priority!
+        canonical_header = canonicalize_trusted_proxy_header(header)
+        self.class.apply_rack_forwarding_family!(self, canonical_header)
+        @trusted_proxy_header = canonical_header
       end
 
       # Validate that a request size is within acceptable limits
@@ -782,13 +836,6 @@ class Otto
       # Centralizes the repeated frozen-check so every setter shares one message.
       def ensure_not_frozen!
         raise FrozenError, 'Cannot modify frozen configuration' if frozen?
-      end
-
-      # Apply Otto's forwarding-family choice to Rack's process-global request
-      # resolution. Assign a fresh array so Rack callers cannot mutate the
-      # frozen configuration constant through its public accessor.
-      def apply_rack_forwarded_priority!
-        RACK_REQUEST.forwarded_priority = RACK_FORWARDED_PRIORITIES.fetch(@trusted_proxy_header).dup
       end
 
       # Validate a candidate trusted_proxy_depth value (type and range).

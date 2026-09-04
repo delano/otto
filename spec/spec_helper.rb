@@ -52,6 +52,7 @@ RSpec.configure do |config|
     # Reset environment variables
     ENV['RACK_ENV'] = 'test'
     ENV['OTTO_DEBUG'] = 'false' unless ENV['OTTO_DEBUG'] == 'true'
+    Otto::Security::Config.reset_rack_forwarding_family_for_testing!
 
     # Clean up any test files in spec/fixtures
     Dir.glob('spec/fixtures/test_routes_*.txt').each { |f| File.delete(f) if File.exist?(f) }

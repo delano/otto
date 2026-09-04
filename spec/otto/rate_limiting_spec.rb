@@ -8,8 +8,9 @@ RSpec.describe Otto, 'rate limiting features' do
   subject(:otto) { create_minimal_otto }
 
   before do
-    # Skip rate limiting tests if rack-attack is not available
-    skip 'rack-attack not available' unless defined?(Rack::Attack)
+    Otto::Security::RateLimiting.ensure_available!
+  rescue Otto::OptionalDependencyError => e
+    skip e.message
   end
 
   describe '#enable_rate_limiting!' do
@@ -18,6 +19,16 @@ RSpec.describe Otto, 'rate limiting features' do
 
       expect(otto.middleware.includes?(Otto::Security::RateLimitMiddleware)).to be true
       expect(otto.security_config.rate_limiting_config).to be_a(Hash)
+    end
+
+    it 'fails before changing configuration when rack-attack is unavailable' do
+      error = Otto::OptionalDependencyError.new('Rate limiting requires rack-attack ~> 6.7')
+      allow(Otto::Security::RateLimiting).to receive(:ensure_available!).and_raise(error)
+
+      expect { otto.enable_rate_limiting!(requests_per_minute: 50) }
+        .to raise_error(Otto::OptionalDependencyError, /rack-attack.*~> 6\.7/)
+      expect(otto.middleware.includes?(Otto::Security::RateLimitMiddleware)).to be false
+      expect(otto.security_config.rate_limiting_config[:requests_per_minute]).not_to eq(50)
     end
 
     it 'accepts custom rate limiting options' do
@@ -139,14 +150,12 @@ RSpec.describe Otto, 'rate limiting features' do
         expect(Rack::Attack.throttles).to have_key('heavy_api')
       end
 
-      it 'skips configuration when rack-attack is not available' do
-        # Temporarily hide Rack::Attack
-        rack_attack = Object.send(:remove_const, :Rack) if defined?(Rack::Attack)
+      it 'raises a clear error when rack-attack is not available' do
+        error = Otto::OptionalDependencyError.new('Rate limiting requires rack-attack ~> 6.7')
+        allow(Otto::Security::RateLimiting).to receive(:ensure_available!).and_raise(error)
 
-        expect { Otto::Security::RateLimiting.configure_rack_attack!({}) }.not_to raise_error
-
-        # Restore Rack::Attack
-        Object.const_set(:Rack, rack_attack) if rack_attack
+        expect { Otto::Security::RateLimiting.configure_rack_attack!({}) }
+          .to raise_error(Otto::OptionalDependencyError, /rack-attack.*~> 6\.7/)
       end
     end
   end
@@ -160,15 +169,12 @@ RSpec.describe Otto, 'rate limiting features' do
       expect { middleware }.not_to raise_error
     end
 
-    it 'logs warning when rack-attack is not available' do
-      # Hide Rack::Attack temporarily
-      rack_attack = Object.send(:remove_const, :Rack) if defined?(Rack::Attack)
+    it 'raises a clear error when rack-attack is not available' do
+      error = Otto::OptionalDependencyError.new('Rate limiting requires rack-attack ~> 6.7')
+      allow(Otto::Security::RateLimiting).to receive(:ensure_available!).and_raise(error)
 
-      expect(Otto.logger).to receive(:warn).with(match(/rack-attack not available/))
-      Otto::Security::RateLimitMiddleware.new(app, security_config)
-
-      # Restore Rack::Attack
-      Object.const_set(:Rack, rack_attack) if rack_attack
+      expect { Otto::Security::RateLimitMiddleware.new(app, security_config) }
+        .to raise_error(Otto::OptionalDependencyError, /rack-attack.*~> 6\.7/)
     end
 
     it 'calls through to app when rate limiting is available' do
@@ -295,10 +301,17 @@ RSpec.describe Otto, 'rate limiting features' do
   describe 'blocked-request logging' do
     let(:notifications) do
       Class.new do
-        attr_reader :subscriptions
+        attr_reader :subscriptions, :subscribe_calls
 
-        def initialize = (@subscriptions = {})
-        def subscribe(name, &block) = (@subscriptions[name] = block)
+        def initialize
+          @subscriptions   = {}
+          @subscribe_calls = 0
+        end
+
+        def subscribe(name, &block)
+          @subscribe_calls += 1
+          @subscriptions[name] = block
+        end
 
         def publish(name, payload)
           @subscriptions.fetch(name).call(name, nil, nil, nil, payload)
@@ -340,7 +353,7 @@ RSpec.describe Otto, 'rate limiting features' do
     end
 
     it 'masks the IP on the MCP subscriber too' do
-      Otto::MCP::RateLimiter.configure_mcp_logging
+      Otto::MCP::RateLimiter.configure_logging
 
       publish_throttle('REMOTE_ADDR' => '198.51.100.42', 'PATH_INFO' => '/_mcp')
 
@@ -350,12 +363,25 @@ RSpec.describe Otto, 'rate limiting features' do
     end
 
     it 'masks the IP on the MCP subscriber for non-MCP paths' do
-      Otto::MCP::RateLimiter.configure_mcp_logging
+      Otto::MCP::RateLimiter.configure_logging
 
       publish_throttle('REMOTE_ADDR' => '198.51.100.42', 'PATH_INFO' => '/other')
 
       expect(logged.last).to start_with('[Otto]')
       expect(logged.last).not_to include('198.51.100.42')
+    end
+
+    # MCP configuration runs the base configuration via super. It must not add
+    # a second 'rack.attack' subscriber on top of the base one, or every
+    # throttle event is logged twice.
+    it 'registers a single subscriber when MCP rate limiting is configured' do
+      Otto::MCP::RateLimiter.configure_rack_attack!({})
+
+      publish_throttle('REMOTE_ADDR' => '198.51.100.42', 'PATH_INFO' => '/_mcp')
+
+      expect(notifications.subscribe_calls).to eq(1)
+      expect(logged.size).to eq(1)
+      expect(logged.last).to start_with('[MCP]')
     end
   end
 end

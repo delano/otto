@@ -46,6 +46,7 @@ class Otto
         ensure_not_frozen!
         return if @middleware.includes?(Otto::Security::Middleware::RateLimitMiddleware)
 
+        Otto::Security::RateLimiting.ensure_available!
         @security.configure_rate_limiting(options)
         use Otto::Security::Middleware::RateLimitMiddleware
       end

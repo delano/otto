@@ -22,7 +22,22 @@ routes.
 Run this example from an Otto source checkout. It requires Ruby 3.2 through
 4.0, Bundler, and the development dependencies: `rackup` is a development
 dependency in the root `Gemfile` and is not installed with the released `otto`
-gem.
+gem. MCP enables schema validation and rate limiting by default. Those features
+require `json_schemer` 2.0.0 or newer in the 2.x series and `rack-attack` 6.7.0
+or newer in the 6.x series:
+
+```ruby
+# Gemfile
+gem 'json_schemer', '~> 2.0'
+gem 'rack-attack', '~> 6.7'
+```
+
+If either enabled feature's gem is missing or incompatible, MCP setup raises
+`Otto::OptionalDependencyError` during configuration. Pass
+`enable_validation: false` or `enable_rate_limiting: false` to `enable_mcp!`, or
+alongside `mcp_enabled: true` in the `Otto.new` options, only when that protection
+is intentionally disabled. To enforce the configured limits, mount
+`Rack::Attack` before Otto in `config.ru`, as this example does.
 
 ```sh
 cd /path/to/otto

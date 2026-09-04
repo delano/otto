@@ -4,11 +4,7 @@
 
 require 'json'
 
-begin
-  require 'json_schemer'
-rescue LoadError
-  # json_schemer is optional - graceful fallback
-end
+require_relative '../optional_dependency'
 
 class Otto
   module MCP
@@ -16,14 +12,24 @@ class Otto
 
     # JSON Schema validator for MCP protocol requests
     class Validator
+      JSON_SCHEMER_REQUIREMENT = '~> 2.0'
+
+      def self.ensure_available!
+        Otto::OptionalDependency.require!(
+          'json_schemer',
+          JSON_SCHEMER_REQUIREMENT,
+          require_path: 'json_schemer',
+          feature: 'MCP JSON Schema validation',
+          alternative: 'Or pass `enable_validation: false` when enabling MCP.'
+        )
+      end
+
       def initialize
-        @schemas                = {}
-        @json_schemer_available = defined?(JSONSchemer)
+        self.class.ensure_available!
+        @schemas = {}
       end
 
       def validate_request(data)
-        return true unless @json_schemer_available
-
         schema            = mcp_request_schema
         validation_errors = schema.validate(data).to_a
 
@@ -36,7 +42,7 @@ class Otto
       end
 
       def validate_tool_arguments(tool_name, arguments, schema)
-        return true unless @json_schemer_available && schema
+        return true unless schema
 
         schemer           = JSONSchemer.schema(schema)
         validation_errors = schemer.validate(arguments).to_a

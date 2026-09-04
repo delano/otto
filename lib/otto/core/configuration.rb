@@ -100,6 +100,9 @@ class Otto
 
         mcp_options = {}
         mcp_options[:http_endpoint] = opts[:mcp_endpoint] if opts[:mcp_endpoint]
+        %i[enable_validation enable_rate_limiting].each do |option|
+          mcp_options[option] = opts[option] if opts.key?(option)
+        end
 
         return unless opts[:mcp_http] != false # Default to true unless explicitly disabled
 

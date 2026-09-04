@@ -1,0 +1,22 @@
+Changed
+-------
+
+- MCP rate limiting no longer registers a second ``rack.attack`` log
+  subscriber on top of the general one, so throttled requests are logged once.
+  (#255)
+- Supported optional dependency ranges are now enforced during configuration:
+  ``json_schemer ~> 2.0``, ``rack-attack ~> 6.7``, and ``maxmind-db ~> 1.2``.
+  (#255)
+
+Removed
+-------
+
+- Removed the unused ``rack-parser`` and ``rexml`` runtime dependencies. (#255)
+
+Security
+--------
+
+- MCP schema validation and rate limiting now fail closed when their optional
+  dependencies are unavailable. Set ``enable_validation: false`` or
+  ``enable_rate_limiting: false`` only when that protection is not required.
+  (#255)

@@ -34,8 +34,6 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'logger', '~> 1', '< 2.0'
 
   spec.add_dependency 'rack', '~> 3.1', '< 4.0'
-  spec.add_dependency 'rack-parser', '~> 0.7'
-  spec.add_dependency 'rexml', '~> 3.4'
 
   # Security dependencies
   spec.add_dependency 'loofah', '~> 2.20'

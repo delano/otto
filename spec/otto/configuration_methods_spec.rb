@@ -351,6 +351,21 @@ RSpec.describe Otto, 'Configuration Methods' do
         mcp_endpoint: '/custom-mcp',
                })
     end
+
+    it 'forwards explicitly disabled optional security features' do
+      server_double = instance_double(Otto::MCP::Server)
+      allow(Otto::MCP::Server).to receive(:new).and_return(server_double)
+      expect(server_double).to receive(:enable!).with({
+                                                        enable_validation: false,
+                                                        enable_rate_limiting: false,
+                                                      })
+
+      app.send(:configure_mcp, {
+                 mcp_enabled: true,
+        enable_validation: false,
+        enable_rate_limiting: false,
+               })
+    end
   end
 
   describe '#middleware_enabled?' do

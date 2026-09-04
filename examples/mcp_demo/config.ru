@@ -14,4 +14,5 @@ app = Otto.new('routes', {
 # The `mcp_enabled: true` flag automatically sets up the /_mcp endpoint.
 # The routes file maps MCP and TOOL methods to classes.
 
+use Rack::Attack
 run app

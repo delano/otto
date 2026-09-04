@@ -40,21 +40,29 @@ RSpec.describe Otto::Utils do
     end
 
     it "returns increasing values for successive calls" do
+      allow(Process).to receive(:clock_gettime)
+        .with(Process::CLOCK_MONOTONIC, :microsecond)
+        .and_return(1_000_000, 1_001_000)
+
       first_time = Otto::Utils.now_in_μs
-      sleep(0.001)
       second_time = Otto::Utils.now_in_μs
 
+      expect(first_time).to eq(1_000_000)
+      expect(second_time).to eq(1_001_000)
       expect(second_time).to be > first_time
     end
 
     it "can be used to measure duration accurately" do
+      allow(Process).to receive(:clock_gettime)
+        .with(Process::CLOCK_MONOTONIC, :microsecond)
+        .and_return(2_000_000, 2_010_000)
+
       start_time = Otto::Utils.now_in_μs
-      sleep(0.01)
       end_time = Otto::Utils.now_in_μs
 
       duration = end_time - start_time
 
-      expect(duration).to be_between(8_000, 15_000)
+      expect(duration).to eq(10_000)
     end
   end
 

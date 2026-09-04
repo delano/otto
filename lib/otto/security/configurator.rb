@@ -117,6 +117,7 @@ class Otto
       def enable_rate_limiting!(options = {})
         return if middleware_enabled?(Otto::Security::Middleware::RateLimitMiddleware)
 
+        Otto::Security::RateLimiting.ensure_available!
         configure_rate_limiting(options)
         @middleware_stack.add(Otto::Security::Middleware::RateLimitMiddleware)
       end

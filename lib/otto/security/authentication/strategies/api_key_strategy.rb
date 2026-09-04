@@ -43,8 +43,16 @@ class Otto
         # up by {APIKeyStrategy.digest}, which is constant-time by construction
         # and keeps raw keys out of the database.
         #
-        # The result never carries the raw key: it exposes only a short SHA-256
-        # fingerprint, so the secret does not reach env, session, or logs.
+        # The strategy never places the raw key in the result itself: the only
+        # strategy-generated field derived from the key is a short SHA-256
+        # fingerprint. With a resolver, `user` is whatever the resolver returns,
+        # verbatim; the result is stored in env['otto.strategy_result'] and
+        # exposed to handlers, so anything the application serializes or logs
+        # from it carries `user`. It is the resolver's responsibility not to
+        # return an object that holds the raw key: return the account, not the
+        # ApiKey row that stores the key, and store digests. A resolver that
+        # returns the presented key String itself as the user raises
+        # ArgumentError.
         #
         # The query/form parameter path is opt-in (`param_name:`), because keys in
         # URLs are recorded by access logs, proxies, and browser history.
@@ -118,8 +126,17 @@ class Otto
             user = @resolver.call(api_key)
             return failure('Invalid API key', terminal: true) unless user
 
-            # Identify the credential by a non-reversible fingerprint. The raw key
-            # must not reach the result, since it flows into env, session, and logs.
+            # The most likely naive misuse: `->(k) { k if keys.include?(k) }`.
+            # Fail loud before the key can reach the result and env.
+            if user.is_a?(String) && Rack::Utils.secure_compare(user, api_key)
+              raise ArgumentError,
+                    'APIKeyStrategy resolver returned the presented key as the user; ' \
+                    'return the account behind the key, not the key'
+            end
+
+            # Identify the credential by a non-reversible fingerprint. The strategy
+            # itself never places the raw key in the result; `user` is the
+            # resolver's return value, verbatim (see class docs).
             success(user: user,
                     auth_method: 'api_key',
                     api_key_fingerprint: key_fingerprint(api_key))
@@ -152,7 +169,11 @@ class Otto
           # Wrap a static key list in a resolver performing a constant-time,
           # non-short-circuiting membership check.
           def static_resolver(api_keys)
-            keys = Array(api_keys).map(&:to_s).reject(&:empty?).freeze
+            # Own frozen copies: `to_s` returns the caller's String, and the
+            # strategy only ever receives a shallow freeze from config
+            # finalization, so a caller mutating its key after boot would
+            # otherwise change which credential is accepted.
+            keys = Array(api_keys).map { |key| key.to_s.dup.freeze }.reject(&:empty?).freeze
             if keys.empty?
               raise ArgumentError,
                     'APIKeyStrategy requires at least one non-empty API key ' \

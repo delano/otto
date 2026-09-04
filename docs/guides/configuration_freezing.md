@@ -52,7 +52,7 @@ otto = Otto.new('routes.txt')
 
 # Step 2: Configure after initialization (BEFORE first request)
 otto.add_auth_strategy('session', SessionStrategy.new(session_key: 'user_id'))
-otto.add_auth_strategy('api_key', APIKeyStrategy.new(api_keys: ENV['API_KEYS']))
+otto.add_auth_strategy('api_key', APIKeyStrategy.new(api_keys: ENV.fetch('API_KEYS').split(',')))
 otto.enable_csrf_protection!
 otto.use CustomMiddleware
 

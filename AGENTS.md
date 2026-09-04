@@ -56,7 +56,7 @@ Authentication is handled by `RouteAuthWrapper` at the handler level, NOT by mid
 
 ```ruby
 otto.add_auth_strategy('session', SessionStrategy.new)
-otto.add_auth_strategy('apikey', APIKeyStrategy.new)
+otto.add_auth_strategy('apikey', APIKeyStrategy.new(api_keys: ENV.fetch('API_KEYS').split(',')))
 ```
 
 - Strategy names must be unique

@@ -29,8 +29,14 @@ otto.add_auth_strategy(
 )
 ```
 
-`APIKeyStrategy` accepts any nonblank key when its configured key list is empty,
-so never register it with an empty set. Fail startup instead, as above.
+`APIKeyStrategy` fails closed. Its constructor requires `api_keys:` and raises
+`ArgumentError` when the normalized key list is empty (`nil`, `[]`, or only
+blank strings), so the strategy enforces the check the example above makes
+explicit. A request that presents a key is accepted only when that key matches a
+configured key under constant-time comparison; an empty credential is rejected.
+A presented-but-invalid key is a terminal failure, so it aborts the strategy
+chain instead of falling through to a later strategy in a multi-strategy `OR`
+route.
 
 A strategy implements `authenticate(env, requirement)` and returns a
 `StrategyResult`, `AuthFailure`, or `AuthorizationFailure`. Subclass
@@ -183,7 +189,8 @@ Otto includes these strategy classes as implementation starting points:
 
 - `SessionStrategy` — reads a configured key from `env['rack.session']`.
 - `APIKeyStrategy` — checks the configured header first and then a query
-  parameter; configure a non-empty key set for actual validation.
+  parameter. `api_keys:` is required and must be non-empty; a rejected key is a
+  terminal failure.
 - `RoleStrategy` — checks session roles against allowed roles or a
   colon-qualified requirement.
 - `PermissionStrategy` — checks application-provided permission data.

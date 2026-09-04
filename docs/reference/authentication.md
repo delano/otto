@@ -9,7 +9,7 @@ Authentication strategies are configured during Otto initialization:
 ```ruby
 otto = Otto.new('routes.txt')
 otto.add_auth_strategy('session', SessionStrategy.new)
-otto.add_auth_strategy('apikey', APIKeyStrategy.new)
+otto.add_auth_strategy('apikey', APIKeyStrategy.new(api_keys: ENV.fetch('API_KEYS').split(',')))
 otto.add_auth_strategy('oauth', OAuthStrategy.new)
 ```
 

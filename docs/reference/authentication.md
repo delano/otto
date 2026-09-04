@@ -114,16 +114,18 @@ end
 ### Session Strategy with Roles
 
 ```ruby
-class SessionStrategy
+class RoleAwareSessionStrategy < Otto::Security::Authentication::AuthStrategy
   def authenticate(env, _requirement)
     session = env['rack.session']
     return failure('No session') unless session
 
     user_id = session['user_id']
+    # A session cookie is an ambient credential: leave this non-terminal so a
+    # later strategy in an OR chain can still run.
     return failure('Not authenticated') unless user_id
 
     # Include roles in the user data
-    StrategyResult.success(
+    success(
       user: {
         id: user_id,
         roles: session['user_roles'] || []  # Accessible as user[:roles]
@@ -131,39 +133,44 @@ class SessionStrategy
       session: session
     )
   end
-
-  private
-
-  def failure(message)
-    StrategyResult.failure(message: message, redirect_to: '/login')
-  end
 end
 ```
+
+Strategies do not choose a redirect. `RouteAuthWrapper` turns a `failure` into
+a 401 for API clients and, for HTML requests, a 302 to
+`otto.auth_config[:login_path]` (default `/signin`).
 
 ### API Key Strategy
 
+Otto ships `Otto::Security::Authentication::Strategies::APIKeyStrategy`; see
+that class for the real implementation. A custom key-backed strategy follows the
+same shape:
+
 ```ruby
-class APIKeyStrategy
+class DatabaseAPIKeyStrategy < Otto::Security::Authentication::AuthStrategy
   def authenticate(env, _requirement)
     api_key = env['HTTP_X_API_KEY'] || extract_from_params(env)
-    return failure('Missing API key') unless api_key
+    # No credential presented: non-terminal, so a later strategy may still run.
+    return failure('Missing API key') if api_key.nil? || api_key.empty?
 
     user = User.find_by_api_key(api_key)
-    return failure('Invalid API key') unless user
+    # A credential WAS presented and rejected: terminal, fail closed with 401.
+    return failure('Invalid API key', terminal: true) unless user
 
-    StrategyResult.success(
-      user: { id: user.id, roles: user.roles },
-      metadata: { auth_method: 'api_key' }
-    )
+    success(user: { id: user.id, roles: user.roles }, auth_method: 'api_key')
   end
 
   private
 
-  def failure(message)
-    StrategyResult.failure(message: message, status: 401)
+  def extract_from_params(env)
+    Otto::Request.new(env).params['api_key']
   end
 end
 ```
+
+`success`, `failure`, and `authorization_failure` are protected helpers on
+`AuthStrategy`; `failure` maps to 401 (or the login redirect above, for HTML
+requests) and `authorization_failure` to 403.
 
 ## Complex Authorization Example
 

@@ -154,6 +154,22 @@ RSpec.describe Otto, 'initialization' do
       expect(Rack::Request.forwarded_priority).to eq([:x_forwarded])
     end
 
+    it 'allows multiple Otto applications to use the same forwarding family' do
+      described_class.new(routes_file, trusted_proxy_depth: 1, trusted_proxy_header: 'Forwarded')
+
+      expect do
+        described_class.new(nil, trusted_proxy_depth: 2, trusted_proxy_header: 'Forwarded')
+      end.not_to raise_error
+    end
+
+    it 'rejects conflicting forwarding families in the same process' do
+      described_class.new(routes_file, trusted_proxy_depth: 1, trusted_proxy_header: 'Forwarded')
+
+      expect do
+        described_class.new(nil, trusted_proxy_depth: 1, trusted_proxy_header: 'X-Forwarded-For')
+      end.to raise_error(ArgumentError, /every Otto application in one process must use the same forwarding family/)
+    end
+
     it 'canonicalizes a case-insensitive trusted_proxy_header from Otto.new' do
       otto = described_class.new(routes_file, trusted_proxy_depth: 1, trusted_proxy_header: 'both')
       expect(otto.security_config.trusted_proxy_header).to eq('Both')

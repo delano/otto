@@ -146,10 +146,10 @@ Otto ships `Otto::Security::Authentication::Strategies::APIKeyStrategy`; see
 that class for the real implementation. It reads the `X-API-Key` header only
 unless you pass `param_name: 'api_key'` to also accept the credential as a query
 or form parameter; keys in URLs are recorded by access logs, proxies, and
-browser history. Its result carries `metadata[:api_key_fingerprint]` (a
-truncated SHA-256 digest), never the key itself; with a static `api_keys:` list
-`user` is a Hash carrying the same fingerprint, and with a resolver `user` is
-whatever the resolver returned.
+browser history. The strategy never places the raw key in the result; its own
+field is `metadata[:api_key_fingerprint]` (a truncated SHA-256 digest). With a
+static `api_keys:` list `user` is a Hash carrying the same fingerprint, and
+with a resolver `user` is whatever the resolver returned, verbatim.
 
 Keys come from exactly one of three sources. `api_keys:` takes a static list
 and matches under constant-time comparison. A block, or a `resolver:` that
@@ -180,8 +180,13 @@ value, including an empty relation, Array, or Hash, is a match, so return one
 record or `nil`, not a `where(...)` relation. Exceptions from
 the resolver propagate rather than turning into a 401 or a success. The
 returned value becomes `user`, and `api_key_fingerprint` is set in the metadata
-regardless. `APIKeyStrategy.digest(key)` is the full SHA-256 hex digest; the
-fingerprint is its first 12 characters.
+regardless. The result is stored in `env['otto.strategy_result']` and exposed
+to handlers, so anything the application serializes or logs from it carries
+`user`; the resolver must not return an object that carries the raw key:
+return the account, not the `ApiKey` row that stores the key, and store
+digests. Returning the presented key string itself as the user raises
+`ArgumentError`. `APIKeyStrategy.digest(key)` is the full SHA-256 hex digest;
+the fingerprint is its first 12 characters.
 
 The strategy cannot make a black-box lookup constant-time. Store SHA-256
 digests and look up by `APIKeyStrategy.digest(presented_key)`, as above.

@@ -37,6 +37,21 @@ RSpec.describe Otto::Security::Authentication::Strategies::APIKeyStrategy do
       expect { described_class.new(api_keys: ['', nil]) }
         .to raise_error(ArgumentError, /at least one non-empty API key/)
     end
+
+    it 'copies static keys so mutating the caller string afterwards does not change what is accepted' do
+      original = +'mutable-key'
+      strategy = described_class.new(api_keys: [original])
+      original << '-changed'
+
+      expect(strategy.authenticate({ 'HTTP_X_API_KEY' => 'mutable-key' }, nil).authenticated?).to be(true)
+      expect(strategy.authenticate({ 'HTTP_X_API_KEY' => 'mutable-key-changed' }, nil).authenticated?).to be(false)
+    end
+
+    it 'does not freeze the caller string it copies from' do
+      original = +'mutable-key'
+      described_class.new(api_keys: [original])
+      expect(original).not_to be_frozen
+    end
   end
 
   describe '#authenticate' do
@@ -234,6 +249,30 @@ RSpec.describe Otto::Security::Authentication::Strategies::APIKeyStrategy do
         raising = described_class.new { |_key| raise error_class, 'db down' }
         expect { raising.authenticate(env_with_header(presented), nil) }
           .to raise_error(error_class, 'db down')
+      end
+
+      it 'raises ArgumentError when the resolver returns the presented key itself as the user' do
+        keys = [presented]
+        naive = described_class.new { |key| key if keys.include?(key) }
+        expect { naive.authenticate(env_with_header(presented), nil) }
+          .to raise_error(ArgumentError,
+                          'APIKeyStrategy resolver returned the presented key as the user; ' \
+                          'return the account behind the key, not the key')
+      end
+
+      it 'accepts a String user that is not the presented key' do
+        by_id = described_class.new { |key| key == presented ? 'acct_42' : nil }
+        result = by_id.authenticate(env_with_header(presented), nil)
+        expect(result.authenticated?).to be(true)
+        expect(result.user).to eq('acct_42')
+      end
+
+      it 'accepts a String user of the same length as the presented key' do
+        same_length = presented.reverse
+        expect(same_length.bytesize).to eq(presented.bytesize)
+        by_id = described_class.new { |key| key == presented ? same_length : nil }
+        result = by_id.authenticate(env_with_header(presented), nil)
+        expect(result.user).to eq(same_length)
       end
 
       it 'does not call the block for a blank header and fails non-terminally' do

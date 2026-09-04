@@ -50,10 +50,12 @@ Otto::Security::Authentication::Strategies::APIKeyStrategy.new(
 )
 ```
 
-The authenticated result never carries the raw key. `metadata[:api_key_fingerprint]`
+The strategy never places the raw key in the result. `metadata[:api_key_fingerprint]`
 (and, for the static list, `user[:api_key_fingerprint]`) holds a truncated
 SHA-256 digest of the presented key, so audit logs can correlate requests
-without recording the credential.
+without recording the credential. With a resolver, `user` is whatever the
+resolver returns, so that guarantee covers only the strategy's own fields; see
+the rules below.
 
 ### Resolve keys from a database
 
@@ -98,9 +100,15 @@ The rules are the same in every form:
 - Exceptions from the resolver propagate. The strategy does not rescue them,
   so a database outage surfaces as an error rather than a silent 401, and can
   never become a success.
-- Whatever the resolver returns becomes `user` in the result, and
-  `api_key_fingerprint` is still set in the result metadata. The raw key never
-  reaches the result, the Rack environment, the session, or the logs.
+- Whatever the resolver returns becomes `user` in the result, verbatim, and
+  `api_key_fingerprint` is still set in the result metadata. The strategy
+  itself never places the raw key in the result, but the result is stored in
+  `env['otto.strategy_result']` and exposed to handlers, so anything the
+  application serializes or logs from it carries `user`. It is the resolver's
+  responsibility not to return an object that carries the raw key. Return the
+  account, not the `ApiKey` row that stores the key, and store digests. A
+  resolver that returns the presented key string itself as the user raises
+  `ArgumentError`.
 
 The strategy cannot make a black-box lookup constant-time. Store SHA-256
 digests rather than raw keys and look up by `APIKeyStrategy.digest(key)`, as

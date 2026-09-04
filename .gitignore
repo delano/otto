@@ -6,7 +6,6 @@
 .vscode
 *.env
 *.log
-*.md
 *.txt
 .*.json
 !LICENSE.txt

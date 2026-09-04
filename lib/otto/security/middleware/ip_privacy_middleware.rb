@@ -40,6 +40,19 @@ class Otto
         #
         # @param app [#call] Rack application
         # @param security_config [Otto::Security::Config] Security configuration
+        # Forwarding metadata Rack::Request reads without consulting Otto's
+        # proxy trust verdict: host (#host/#authority), scheme (#scheme/#ssl?),
+        # and port (#port), from both the X-Forwarded-* family and RFC 7239
+        # Forwarded (host=, proto=, and the port inside for=).
+        UNTRUSTED_FORWARDING_METADATA_HEADERS = %w[
+          HTTP_FORWARDED
+          HTTP_X_FORWARDED_HOST
+          HTTP_X_FORWARDED_PROTO
+          HTTP_X_FORWARDED_SCHEME
+          HTTP_X_FORWARDED_SSL
+          HTTP_X_FORWARDED_PORT
+        ].freeze
+
         def initialize(app, security_config = nil)
           @app = app
           @security_config = security_config
@@ -82,10 +95,12 @@ class Otto
           via_trusted_proxy = proxy_trust_configured && trusted_proxy?(env['REMOTE_ADDR'])
           env['otto.via_trusted_proxy'] = via_trusted_proxy if proxy_trust_configured
 
-          # Forwarded authority is denied unless proxy trust is affirmative. An
-          # absent tri-state key still means "unconfigured" to downstream code,
-          # but unconfigured forwarding cannot authorize request.host.
-          sanitize_forwarded_authority(env) unless via_trusted_proxy
+          # A peer that failed configured proxy trust cannot supply forwarded
+          # host, scheme, or port either. Unconfigured trust (absent tri-state
+          # key) is left alone: the operator has asserted nothing, and the
+          # contract reserves that state for downstream heuristics (#228), so
+          # Rack keeps its own defaults there.
+          scrub_untrusted_forwarding_metadata(env) if proxy_trust_configured && !via_trusted_proxy
 
           # Same rationale, for loopback: this middleware runs outermost, so a
           # downstream middleware that must authenticate a DIRECT LOCAL CALL
@@ -395,62 +410,22 @@ class Otto
           env['otto.ip_match'] = ->(cidrs) { Otto::Utils.ip_in_cidrs?(client_ip, cidrs) }
         end
 
-        # Remove authority metadata supplied by an untrusted peer.
+        # Remove forwarding metadata supplied by a peer that failed proxy trust.
         #
-        # Rack's forwarded_authority does not consult Otto's proxy trust verdict:
-        # it accepts X-Forwarded-Host and Forwarded host= according only to the
-        # process-global forwarding-family priority. Scrub both carriers here,
-        # while the original peer trust decision is still available, so mounted
-        # Rack applications cannot receive a client-spoofed request.host.
-        def sanitize_forwarded_authority(env)
-          env.delete('HTTP_X_FORWARDED_HOST')
-
-          forwarded = env['HTTP_FORWARDED']
-          return unless forwarded
-
-          sanitized = split_forwarded_value(forwarded.to_s.tr("\r\n", ';;'), ',').filter_map do |element|
-            parameters = split_forwarded_value(element, ';').reject do |parameter|
-              parameter.strip.empty? || parameter.match?(/\A\s*host\s*=/i)
-            end
-            value = parameters.join(';')
-            value unless value.strip.empty?
-          end.join(',')
-
-          if sanitized.empty?
-            env.delete('HTTP_FORWARDED')
-          else
-            env['HTTP_FORWARDED'] = sanitized
-          end
-        end
-
-        # Split an RFC 7239 value on an unquoted delimiter, retaining quoted
-        # delimiters and backslash escapes inside parameter values.
-        def split_forwarded_value(value, delimiter)
-          fragments = [+'']
-          quoted = false
-          escaped = false
-
-          value.each_char do |character|
-            if quoted
-              fragments.last << character
-              if escaped
-                escaped = false
-              elsif character == '\\'
-                escaped = true
-              elsif character == '"'
-                quoted = false
-              end
-            elsif character == '"'
-              quoted = true
-              fragments.last << character
-            elsif character == delimiter
-              fragments << +''
-            else
-              fragments.last << character
-            end
-          end
-
-          fragments
+        # Rack honors these according only to the process-global forwarding
+        # family, so without this an untrusted client would control
+        # request.host, request.ssl?, and request.port for every mounted Rack
+        # app (Rack::Session's Secure-cookie gate reads ssl?). Delete the
+        # carriers rather than editing them: this path only runs in CIDR filter
+        # mode, where Otto never reads the Forwarded header itself, and a
+        # hand-rolled RFC 7239 parser that disagrees with Rack's on quoting
+        # (e.g. `for=a"b;host=evil`) would let a host= survive the edit.
+        # X-Forwarded-For stays, masked or not, because Otto's own resolution
+        # already ignores it from an untrusted peer.
+        #
+        # @param env [Hash] Rack environment
+        def scrub_untrusted_forwarding_metadata(env)
+          UNTRUSTED_FORWARDING_METADATA_HEADERS.each { |key| env.delete(key) }
         end
 
         # Delete forwarded IP headers outright.

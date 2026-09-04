@@ -474,6 +474,41 @@ RSpec.describe Otto::Security::Config do
       end
     end
 
+    it 'lets one config revise its own explicit choice' do
+      config.trusted_proxy_header = 'Forwarded'
+      expect { config.trusted_proxy_header = 'Both' }.not_to raise_error
+      expect(Rack::Request.forwarded_priority).to eq(%i[forwarded x_forwarded])
+    end
+
+    it 'rejects a revision once another config has committed to the family' do
+      config.trusted_proxy_header = 'Forwarded'
+      described_class.new.trusted_proxy_header = 'Forwarded'
+
+      expect { config.trusted_proxy_header = 'Both' }
+        .to raise_error(ArgumentError, /same forwarding family/)
+    end
+
+    it "rejects 'Forwarded' after trusted_proxies are configured" do
+      config.add_trusted_proxy('10.0.0.0/8')
+
+      expect { config.trusted_proxy_header = 'Forwarded' }
+        .to raise_error(ArgumentError, /CIDR filter mode/)
+      expect(config.trusted_proxy_header).to eq('X-Forwarded-For')
+    end
+
+    it "rejects trusted_proxies after 'Both' is configured" do
+      config.trusted_proxy_header = 'Both'
+
+      expect { config.add_trusted_proxy('10.0.0.0/8') }
+        .to raise_error(ArgumentError, /CIDR filter mode/)
+    end
+
+    it 'still accepts the default header alongside trusted_proxies' do
+      config.add_trusted_proxy('10.0.0.0/8')
+
+      expect { config.trusted_proxy_header = 'x-forwarded-for' }.not_to raise_error
+    end
+
     it 'maps each forwarding family to Rack forwarded_priority' do
       {
         'X-Forwarded-For' => [:x_forwarded],

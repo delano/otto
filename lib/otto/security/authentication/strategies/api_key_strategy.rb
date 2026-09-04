@@ -9,10 +9,34 @@ class Otto
   module Security
     module Authentication
       module Strategies
-        # API key authentication strategy
+        # API key authentication strategy.
+        #
+        # Fails closed: at least one non-empty API key MUST be configured. A
+        # strategy with no usable keys is a misconfiguration and raises
+        # ArgumentError at construction rather than authenticating every caller.
+        # Only a constant-time match against a configured key grants success.
+        #
+        # A credential that was presented and rejected — including a non-String
+        # credential such as an array query parameter — fails TERMINALLY, so a bad
+        # key halts the strategy chain instead of falling through to a later
+        # anonymous-capable strategy. A missing credential fails non-terminally.
+        #
+        # @example
+        #   APIKeyStrategy.new(api_keys: ['secret123'])
         class APIKeyStrategy < AuthStrategy
-          def initialize(api_keys: [], header_name: 'X-API-Key', param_name: 'api_key')
-            @api_keys = Array(api_keys)
+          # @param api_keys [String, Array<String>] one or more valid API keys (required)
+          # @param header_name [String] request header carrying the key
+          # @param param_name [String] query/form parameter carrying the key
+          # @raise [ArgumentError] if no non-empty API key is configured
+          def initialize(api_keys:, header_name: 'X-API-Key', param_name: 'api_key')
+            super()
+            @api_keys = Array(api_keys).map(&:to_s).reject(&:empty?).freeze
+            if @api_keys.empty?
+              raise ArgumentError,
+                    'APIKeyStrategy requires at least one non-empty API key ' \
+                    '(api_keys: was empty, nil, or contained only blank values)'
+            end
+
             @header_name = header_name
             @param_name = param_name
           end
@@ -26,15 +50,20 @@ class Otto
               api_key = request.params[@param_name]
             end
 
-            return failure('No API key provided') unless api_key
+            # '' is truthy in Ruby; treat it as a missing credential.
+            return failure('No API key provided') if api_key.nil? || (api_key.is_a?(String) && api_key.empty?)
 
-            if @api_keys.empty? || valid_api_key?(api_key)
-              # Create a simple user hash for API key authentication
-              user_data = { api_key: api_key }
-              success(user: user_data, api_key: api_key)
-            else
-              failure('Invalid API key')
+            # A non-String credential (e.g. `?api_key[]=k` yields an Array) was
+            # still presented, so reject it terminally rather than coercing it
+            # into a comparison Rack::Utils.secure_compare cannot perform.
+            unless api_key.is_a?(String) && valid_api_key?(api_key)
+              # Credentials were explicitly presented and rejected: fail closed.
+              return failure('Invalid API key', terminal: true)
             end
+
+            # Create a simple user hash for API key authentication
+            user_data = { api_key: api_key }
+            success(user: user_data, api_key: api_key)
           end
 
           private

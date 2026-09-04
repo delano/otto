@@ -51,6 +51,7 @@ They are **not** the primary entry point for implementing an application:
 - [ADR-001: Route authentication at the handler boundary](adr/adr-001-route-authentication-at-handler-boundary.md)
 - [ADR-002: Multi-strategy authentication and authorization](adr/adr-002-multi-strategy-authentication-and-authorization.md)
 - [ADR-003: Caddy TLS route-based integration](adr/adr-003-caddy-tls-route-based-integration.md)
+- [ADR-004: Compatibility support and security maintenance](adr/adr-004-separate-compatibility-from-security-maintenance.md)
 - [Ruby `IPAddr#to_s` encoding note](guides/ipaddr-encoding-quirk.md)
 
 ## Target structure

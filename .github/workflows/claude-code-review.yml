@@ -102,8 +102,11 @@ jobs:
           use_sticky_comment: true
 
       - name: Remove claude-review label
-        # Remove label whether success or failure - prevents getting stuck
-        if: always() && github.event.action != 'opened'
+        # Remove label whether success or failure - prevents getting stuck.
+        # Only for pull_request events: a workflow_dispatch payload has no
+        # issue number, so context.issue.number would be undefined and the
+        # removeLabel call would fail (silently, below) with the label intact.
+        if: always() && github.event_name == 'pull_request' && github.event.action != 'opened'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |

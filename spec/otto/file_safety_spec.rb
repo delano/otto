@@ -166,6 +166,10 @@ RSpec.describe Otto, 'file safety checks' do
 
       expect(app.safe_file?('/asset.txt')).to be true
       expect(app.safe_dir?(link_root)).to be true
+    ensure
+      [real_root, link_root && File.dirname(link_root)].compact.each do |d|
+        FileUtils.remove_entry(d) if File.exist?(d)
+      end
     end
   end
 
@@ -241,6 +245,10 @@ RSpec.describe Otto, 'file safety checks' do
       expect(status).to eq(200)
       expect(body.to_enum(:each).to_a.join).to eq('via symlinked root')
       expect(linked_app.send(:build_static_route).root).to eq(File.realpath(real_root))
+    ensure
+      [real_root, link_root && File.dirname(link_root)].compact.each do |d|
+        FileUtils.remove_entry(d) if File.exist?(d)
+      end
     end
 
     # Deploys commonly flip a 'current' symlink to a new release without a

@@ -58,22 +58,18 @@ class Otto
         resource = @resources[uri]
         return nil unless resource
 
-        begin
-          content = resource[:handler].call
-          {
-            contents: [{
-              uri: uri,
-              mimeType: resource[:mimeType],
-              text: content.to_s,
-            }],
-          }
-        rescue StandardError => e
-          # Log and re-raise: a handler that blows up is an execution fault
-          # (-32603/500), not a missing resource (-32001/404). Returning nil
-          # here previously made the two indistinguishable to the protocol.
-          Otto.logger.error "[MCP] Resource read error for #{uri}: #{e.message}"
-          raise
-        end
+        # A handler that blows up propagates: it is an execution fault
+        # (-32603/500), not a missing resource (-32001/404). Returning nil
+        # here previously made the two indistinguishable to the protocol,
+        # which owns the logging (Protocol#handle_resources_read).
+        content = resource[:handler].call
+        {
+          contents: [{
+            uri: uri,
+            mimeType: resource[:mimeType],
+            text: content.to_s,
+          }],
+        }
       end
 
       def call_tool(name, arguments, env)

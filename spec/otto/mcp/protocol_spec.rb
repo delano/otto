@@ -173,7 +173,9 @@ RSpec.describe Otto::MCP::Protocol, 'JSON-RPC request handling' do
       expect(body.dig('error', 'code')).to eq(-32_603)
       expect(body.dig('error', 'data')).to eq('Resource read failed')
       expect(raw.first).not_to include('resource exploded')
-      expect(logged.join).to include('resource exploded')
+      # Logged exactly once, at the protocol boundary, with URI and class.
+      expect(logged.grep(/resource exploded/).size).to eq(1)
+      expect(logged.first).to include('docs/boom', 'RuntimeError')
     end
   end
 

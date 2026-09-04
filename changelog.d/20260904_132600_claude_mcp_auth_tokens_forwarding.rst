@@ -13,6 +13,14 @@ Security
   any ``auth_tokens``. Pass ``allow_unauthenticated: true`` to acknowledge an
   intentionally open endpoint and silence the warning; it changes no access
   check. (#258)
+- MCP rate limiting now applies to a custom ``http_endpoint``. The
+  ``mcp_requests`` and ``mcp_tool_calls`` throttles read the endpoint from
+  ``env['otto.mcp_http_endpoint']``, which Otto sets inside its own middleware
+  stack, but ``Rack::Attack`` is mounted by the host app ahead of Otto, so the
+  key was never present and the throttles fell back to ``/_mcp``. An MCP
+  server on ``/api/mcp`` was never throttled. The endpoint now travels with the
+  rate limiting configuration as ``mcp_http_endpoint``; the JSON-RPC 429 body
+  and the ``[MCP]`` log prefix follow it. (#258)
 
 Fixed
 -----

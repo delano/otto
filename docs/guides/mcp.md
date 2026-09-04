@@ -162,6 +162,14 @@ applies to `POST` requests whose JSON-RPC `method` is `tools/call`, and is
 additional to `requests_per_minute`. Throttled MCP requests receive a JSON-RPC
 formatted error rather than a bare Rack 429 body.
 
+The configured `http_endpoint` is published to the same rate-limiting
+configuration as `mcp_http_endpoint`, so the `Rack::Attack` throttles match a
+custom endpoint even though `Rack::Attack` runs outside Otto's middleware stack,
+before Otto sets `env['otto.mcp_http_endpoint']`. Before this fix a server on
+`/api/mcp` was never throttled. If you call
+`Otto::MCP::RateLimiter.configure_rack_attack!` yourself, pass
+`mcp_http_endpoint:` explicitly.
+
 Note that the JSON-RPC 429 body only applies when Otto's *general* rate
 limiting is off. Both rate limiters assign `Rack::Attack.throttled_responder`,
 and the general one is registered last, so when you enable both, throttled MCP

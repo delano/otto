@@ -59,6 +59,59 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
         expect(Rack::Attack.throttled_responder).to be_a(Proc)
       end
     end
+
+    # Rack::Attack runs OUTSIDE Otto, ahead of the proc that sets
+    # env['otto.mcp_http_endpoint'], so the throttles cannot learn a custom
+    # endpoint from the env. It has to come in with the configuration.
+    describe 'endpoint resolution' do
+      let(:match_data) { { limit: 1, period: 60, epoch_time: Time.now.to_i } }
+
+      def bare_request(path, env = {})
+        Rack::Attack::Request.new(
+          Rack::MockRequest.env_for(path, method: 'POST', 'REMOTE_ADDR' => '203.0.113.9').merge(env)
+        )
+      end
+
+      it 'throttles the configured endpoint with no env key present' do
+        Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/api/mcp')
+
+        throttle = Rack::Attack.throttles['mcp_requests']
+
+        expect(throttle.block.call(bare_request('/api/mcp'))).to eq('203.0.113.9')
+        expect(throttle.block.call(bare_request('/_mcp'))).to be_nil
+      end
+
+      it 'prefers the configured endpoint over the env key' do
+        Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/api/mcp')
+
+        throttle = Rack::Attack.throttles['mcp_requests']
+        request  = bare_request('/_mcp', 'otto.mcp_http_endpoint' => '/_mcp')
+
+        expect(throttle.block.call(request)).to be_nil
+      end
+
+      it 'falls back to the env key, then to /_mcp, when none is configured' do
+        Otto::MCP::RateLimiter.configure_rack_attack!({})
+
+        throttle = Rack::Attack.throttles['mcp_requests']
+
+        expect(throttle.block.call(bare_request('/api/mcp', 'otto.mcp_http_endpoint' => '/api/mcp')))
+          .to eq('203.0.113.9')
+        expect(throttle.block.call(bare_request('/_mcp'))).to eq('203.0.113.9')
+        expect(throttle.block.call(bare_request('/api/mcp'))).to be_nil
+      end
+
+      it 'answers JSON-RPC on the configured endpoint with no env key present' do
+        Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/api/mcp')
+
+        request = bare_request('/api/mcp', 'rack.attack.match_data' => match_data)
+        status, headers, body = Rack::Attack.throttled_responder.call(request)
+
+        expect(status).to eq(429)
+        expect(headers['content-type']).to eq('application/json')
+        expect(JSON.parse(body.join)).to include('jsonrpc' => '2.0')
+      end
+    end
   end
 
   describe 'Otto::MCP::RateLimitMiddleware' do

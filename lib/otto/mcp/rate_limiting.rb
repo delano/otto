@@ -16,6 +16,8 @@ class Otto
   module MCP
     # Rate limiter for MCP protocol endpoints
     class RateLimiter < Otto::Security::RateLimiting
+      DEFAULT_HTTP_ENDPOINT = '/_mcp'
+
       def self.configure_rack_attack!(config = {})
         return unless defined?(Rack::Attack)
 
@@ -24,16 +26,37 @@ class Otto
 
         # Add MCP-specific rules
         configure_mcp_rules(config)
-        configure_mcp_responses
-        configure_mcp_logging
+        configure_mcp_responses(config)
+        configure_mcp_logging(config)
+      end
+
+      # Resolve the MCP endpoint a Rack::Attack callback should match against.
+      #
+      # Rack::Attack is mounted by the hosting app OUTSIDE Otto and runs before
+      # every Otto middleware, including the proc that sets
+      # env['otto.mcp_http_endpoint'], so inside a throttle that env key is
+      # absent. The endpoint therefore has to arrive with the configuration
+      # (Server#apply_rate_limits publishes it as :mcp_http_endpoint). The env
+      # key is kept as a fallback for callers that run Rack::Attack inside
+      # Otto's own stack, and the documented default closes the chain.
+      #
+      # @param configured [String, nil] endpoint from the rate limiting config
+      # @param env [Hash] the request env
+      # @return [String]
+      def self.mcp_endpoint_for(configured, env)
+        configured || env['otto.mcp_http_endpoint'] || DEFAULT_HTTP_ENDPOINT
       end
 
       def self.configure_mcp_rules(config)
+        # Captured once, outside the blocks: they run per request, long after
+        # this configuration hash is gone.
+        configured_endpoint = config[:mcp_http_endpoint]
+
         # MCP endpoint requests - 60 per minute by default
         mcp_requests_limit = config[:mcp_requests_per_minute] || 60
 
         Rack::Attack.throttle('mcp_requests', limit: mcp_requests_limit, period: 60) do |request|
-          endpoint = request.env['otto.mcp_http_endpoint'] || '/_mcp'
+          endpoint = mcp_endpoint_for(configured_endpoint, request.env)
           request.ip if request.path.start_with?(endpoint)
         end
 
@@ -41,7 +64,7 @@ class Otto
         tool_calls_limit = config[:tool_calls_per_minute] || 20
 
         Rack::Attack.throttle('mcp_tool_calls', limit: tool_calls_limit, period: 60) do |request|
-          endpoint = request.env['otto.mcp_http_endpoint'] || '/_mcp'
+          endpoint = mcp_endpoint_for(configured_endpoint, request.env)
           if request.path.start_with?(endpoint) && request.post?
             begin
               body = request.body.read
@@ -56,7 +79,9 @@ class Otto
         end
       end
 
-      def self.configure_mcp_responses
+      def self.configure_mcp_responses(config = {})
+        configured_endpoint = config[:mcp_http_endpoint]
+
         # Override throttled responder to provide JSON-RPC formatted responses for MCP requests
         Rack::Attack.throttled_responder = lambda do |request|
           match_data = request.env['rack.attack.match_data']
@@ -68,7 +93,7 @@ class Otto
           }
 
           # Check if this is an MCP request
-          endpoint = request.env['otto.mcp_http_endpoint'] || '/_mcp'
+          endpoint = mcp_endpoint_for(configured_endpoint, request.env)
           if request.path.start_with?(endpoint)
             # JSON-RPC error response for MCP
             error_response = {
@@ -110,14 +135,16 @@ class Otto
         end
       end
 
-      def self.configure_mcp_logging
+      def self.configure_mcp_logging(config = {})
         return unless defined?(ActiveSupport::Notifications)
+
+        configured_endpoint = config[:mcp_http_endpoint]
 
         # Masked address only — see the note on the sibling subscriber in
         # Otto::Security::RateLimiting.configure_rack_attack! (issue #219).
         ActiveSupport::Notifications.subscribe('rack.attack') do |_name, _start, _finish, _request_id, payload|
           req      = payload[:request]
-          endpoint = req.env['otto.mcp_http_endpoint'] || '/_mcp'
+          endpoint = mcp_endpoint_for(configured_endpoint, req.env)
           ip       = Otto::LoggingHelpers.privacy_safe_ip(req.env, req.ip)
 
           if req.path.start_with?(endpoint)
@@ -150,7 +177,8 @@ class Otto
         base_config = @security_config&.rate_limiting_config || {}
 
         # MCP defaults, overridden by anything the security config carries
-        # (Server#apply_rate_limits publishes the configured limits there).
+        # (Server#apply_rate_limits publishes the configured limits and the
+        # endpoint there).
         mcp_config = {
           mcp_requests_per_minute: 60,
           tool_calls_per_minute: 20,

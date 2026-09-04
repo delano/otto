@@ -92,10 +92,17 @@ class Otto
       # RateLimiter.configure_rack_attack! already read, via Otto's sanctioned
       # rate-limiting configuration entry point. Before this, the values passed
       # to enable! were dead and the hardcoded 60/20 always won.
+      #
+      # The endpoint travels with them. Rack::Attack is mounted by the host app
+      # OUTSIDE Otto and runs before any of Otto's middleware, so the
+      # env['otto.mcp_http_endpoint'] set by add_mcp_endpoint_route is not yet
+      # present when the throttles are evaluated; without this, a custom
+      # endpoint was compared against the '/_mcp' fallback and never throttled.
       def apply_rate_limits(options)
         return unless @enable_rate_limiting
 
         @otto_instance.configure_rate_limiting(
+          mcp_http_endpoint: @http_endpoint,
           mcp_requests_per_minute: options[:requests_per_minute],
           tool_calls_per_minute: options[:tools_per_minute]
         )

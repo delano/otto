@@ -152,4 +152,60 @@ RSpec.describe Otto::MCP::Server do
       expect(post(app, valid, headers: headers).first).to eq(429)
     end
   end
+
+  describe 'rate limiting on a custom endpoint' do
+    # Same deployed shape as above, but the endpoint is not the default. The
+    # throttles used to read env['otto.mcp_http_endpoint'], which is set by a
+    # proc INSIDE Otto's stack — and Rack::Attack runs before any of it. They
+    # fell back to '/_mcp', so a custom endpoint was never throttled. The
+    # endpoint now travels with the rate limiting config.
+    before do
+      skip 'rack-attack not available' unless defined?(Rack::Attack)
+      Rack::Attack.cache.store = RackAttackTestStore.new
+    end
+
+    let(:endpoint) { '/api/mcp' }
+    let(:headers) { { 'HTTP_AUTHORIZATION' => "Bearer #{token}" } }
+    let(:tools_list) { JSON.generate({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }) }
+    let(:tools_call) do
+      JSON.generate({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'missing', arguments: {} } })
+    end
+
+    it 'publishes the endpoint alongside the limits' do
+      otto = build_otto(mcp_endpoint: endpoint)
+
+      expect(otto.security_config.rate_limiting_config).to include(mcp_http_endpoint: endpoint)
+    end
+
+    it 'throttles the custom endpoint through Rack::Attack mounted outside Otto' do
+      app = Rack::Attack.new(build_otto(mcp_endpoint: endpoint, requests_per_minute: 1))
+
+      expect(post(app, tools_list, headers: headers, path: endpoint).first).to eq(200)
+
+      status, body = post(app, tools_list, headers: headers, path: endpoint)
+
+      expect(status).to eq(429)
+      expect(JSON.parse(body)).to include('jsonrpc' => '2.0')
+      expect(JSON.parse(body).dig('error', 'message')).to eq('Rate limit exceeded')
+    end
+
+    it 'throttles tools/call on the custom endpoint' do
+      app = Rack::Attack.new(build_otto(mcp_endpoint: endpoint, tools_per_minute: 1))
+
+      # tools/list does not count against the tool-call limit. The tool itself
+      # is unknown, so the protocol rejects the first call — what matters is
+      # that the throttle still counted it.
+      expect(post(app, tools_list, headers: headers, path: endpoint).first).to eq(200)
+      expect(post(app, tools_call, headers: headers, path: endpoint).first).not_to eq(429)
+      expect(post(app, tools_call, headers: headers, path: endpoint).first).to eq(429)
+    end
+
+    it 'leaves other paths on the general limiter' do
+      app = Rack::Attack.new(build_otto(mcp_endpoint: endpoint, requests_per_minute: 1))
+
+      post(app, tools_list, headers: headers, path: endpoint)
+      expect(post(app, tools_list, headers: headers, path: endpoint).first).to eq(429)
+      expect(post(app, tools_list, headers: headers, path: '/_mcp').first).not_to eq(429)
+    end
+  end
 end

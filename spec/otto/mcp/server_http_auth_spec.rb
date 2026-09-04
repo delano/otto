@@ -141,8 +141,8 @@ RSpec.describe Otto::MCP::Server do
                                headers: { 'HTTP_AUTHORIZATION' => "Bearer #{token}" }).first).to eq(200)
     end
 
-    it 'honors endpoint: from #enable_mcp! and still requires auth' do
-      otto = explicit_otto(endpoint: '/api/mcp', auth_tokens: [token])
+    it 'honors http_endpoint: from #enable_mcp! and still requires auth' do
+      otto = explicit_otto(http_endpoint: '/api/mcp', auth_tokens: [token])
 
       expect(mcp_request(otto, endpoint: '/api/mcp').first).to eq(401)
       expect(mcp_request(otto, endpoint: '/api/mcp',

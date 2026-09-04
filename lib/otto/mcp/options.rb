@@ -10,58 +10,45 @@ class Otto
     # of the same settings and the constructor dropped all but the endpoint
     # (issue #258). Every path now funnels through {.normalize}.
     #
-    # Two vocabularies, selected with the +scope:+ keyword:
+    # One vocabulary: the canonical keys, their +mcp_+-prefixed variants (the
+    # constructor needs a namespace inside an options hash that also
+    # configures the rest of Otto), and +tool_calls_per_minute+, which is the
+    # name the rate-limiting middleware itself uses. Bare generic names such
+    # as +endpoint+, +validation+ and +rate_limiting+ are NOT accepted:
+    # +rate_limiting:+ is Otto's own general rate-limiting option (a Hash),
+    # and the others were documented before #258 but never read.
+    #
+    # Two strictness rules, selected with the +scope+ argument:
     #
     # +:constructor+ (used by Otto.new / #configure_mcp)
     #   The constructor forwards its ENTIRE options hash here, most of which
-    #   configures things other than MCP. This scope therefore accepts only
-    #   unambiguous spellings — the canonical keys, their +mcp_+-prefixed
-    #   variants, and the documented bare keys (+auth_tokens+,
-    #   +requests_per_minute+, +tools_per_minute+, +allow_unauthenticated+) —
-    #   and ignores everything else. Notably it does NOT read bare +endpoint+,
-    #   +validation+, or +rate_limiting+: those names are generic, and
-    #   +rate_limiting:+ is Otto's own general rate-limiting option (a Hash),
-    #   not an MCP flag. Unknown +mcp_+-prefixed keys still fail loud, since
-    #   such a key can only have been meant for MCP.
+    #   configures things other than MCP, so unrecognized keys are ignored.
+    #   Unknown +mcp_+-prefixed keys still fail loud, since such a key can
+    #   only have been meant for MCP.
     #
     # +:explicit+ (used by Otto#enable_mcp!)
-    #   The caller is configuring MCP and nothing else, so the full alias set
-    #   is accepted and the scope is STRICT: any unrecognized key raises. That
-    #   turns +enable_mcp!(auth_token: 'x')+ — a singular-vs-plural typo that
-    #   silently left the endpoint open — into a boot failure.
+    #   The caller is configuring MCP and nothing else, so any unrecognized
+    #   key raises. That turns +enable_mcp!(auth_token: 'x')+ — a
+    #   singular-vs-plural typo that silently left the endpoint open — into a
+    #   boot failure.
     #
     # Both scopes accept the canonical output of {.normalize}, so normalization
     # is idempotent under either.
     module Options
-      # Canonical MCP option keys and every accepted alias (the +:explicit+
-      # vocabulary).
+      # Canonical MCP option keys and every accepted alias.
       # @api private
       OPTION_ALIASES = {
-                http_endpoint: %i[http_endpoint mcp_endpoint endpoint],
+                http_endpoint: %i[http_endpoint mcp_endpoint],
                   auth_tokens: %i[auth_tokens mcp_auth_tokens],
-            enable_validation: %i[enable_validation validation mcp_validation],
-         enable_rate_limiting: %i[enable_rate_limiting rate_limiting mcp_rate_limiting],
+            enable_validation: %i[enable_validation mcp_validation],
+         enable_rate_limiting: %i[enable_rate_limiting mcp_rate_limiting],
           requests_per_minute: %i[requests_per_minute mcp_requests_per_minute],
              tools_per_minute: %i[tools_per_minute tool_calls_per_minute mcp_tool_calls_per_minute],
         allow_unauthenticated: %i[allow_unauthenticated mcp_allow_unauthenticated],
       }.freeze
 
-      # Bare aliases that are too generic to claim from a constructor hash that
-      # also configures the rest of Otto. +rate_limiting:+ in particular is
-      # Otto's general rate-limiting option and carries a Hash there.
       # @api private
-      GENERIC_ALIASES = %i[endpoint validation rate_limiting].freeze
-
-      # The +:constructor+ vocabulary: everything in {OPTION_ALIASES} except
-      # the generic bare spellings.
-      # @api private
-      CONSTRUCTOR_ALIASES = OPTION_ALIASES.transform_values { |aliases| (aliases - GENERIC_ALIASES).freeze }.freeze
-
-      # @api private
-      SCOPES = {
-        constructor: CONSTRUCTOR_ALIASES,
-           explicit: OPTION_ALIASES,
-      }.freeze
+      SCOPES = %i[constructor explicit].freeze
 
       # Canonical defaults applied when no alias supplies a value.
       # @api private
@@ -81,27 +68,32 @@ class Otto
       # @api private
       GATING_KEYS = %i[mcp_enabled mcp_http mcp_stdio].freeze
 
+      # Every key {.normalize} recognizes, in either scope.
+      # @api private
+      RECOGNIZED_KEYS = (OPTION_ALIASES.values.flatten + GATING_KEYS).freeze
+
       # Normalize a constructor- or #enable_mcp!-style option hash into the
       # single canonical shape consumed by {Otto::MCP::Server#enable!}.
       #
+      # +scope+ is positional, not a keyword, so a brace-less hash at the call
+      # site (+normalize(auth_tokens: ['t'])+) binds to +opts+ as intended.
+      #
       # @param opts [Hash] raw options
-      # @param scope [Symbol] :constructor (permissive about non-MCP keys) or
-      #   :explicit (strict; the default)
+      # @param scope [Symbol] :explicit (strict; the default) or :constructor
+      #   (permissive about non-MCP keys)
       # @return [Hash] canonical hash with keys :http_endpoint, :auth_tokens,
       #   :enable_validation, :enable_rate_limiting, :requests_per_minute,
       #   :tools_per_minute, :allow_unauthenticated
       # @raise [ArgumentError] on an unrecognized key, conflicting aliases,
       #   values of the wrong type, or auth tokens supplied but empty/blank
-      def self.normalize(opts = {}, scope: :explicit)
-        aliases = SCOPES.fetch(scope) do
-          raise ArgumentError, "Unknown MCP option scope #{scope.inspect}; expected one of #{SCOPES.keys.inspect}"
-        end
+      def self.normalize(opts = {}, scope = :explicit)
+        raise ArgumentError, "Unknown MCP option scope #{scope.inspect}; expected one of #{SCOPES.inspect}" unless SCOPES.include?(scope)
 
         opts = opts.to_h
-        reject_unrecognized_keys!(opts, aliases, scope)
+        reject_unrecognized_keys!(opts, scope)
 
         canonical = OPTION_DEFAULTS.dup
-        aliases.each do |key, key_aliases|
+        OPTION_ALIASES.each do |key, key_aliases|
           supplied = key_aliases.select { |a| opts.key?(a) }
           next if supplied.empty?
 
@@ -124,16 +116,14 @@ class Otto
       # unrecognized +mcp_+-prefixed keys, because it is handed Otto's whole
       # options hash and most keys legitimately belong to other subsystems.
       # @api private
-      def self.reject_unrecognized_keys!(opts, aliases, scope)
-        recognized = aliases.values.flatten + GATING_KEYS
-
-        unknown = opts.keys.reject { |k| recognized.include?(k.to_sym) }
+      def self.reject_unrecognized_keys!(opts, scope)
+        unknown = opts.keys.reject { |k| RECOGNIZED_KEYS.include?(k.to_sym) }
         unknown.select! { |k| k.to_s.start_with?('mcp_') } if scope == :constructor
         return if unknown.empty?
 
         raise ArgumentError,
               "Unknown MCP option(s): #{unknown.map(&:inspect).join(', ')}. " \
-              "Recognized MCP options: #{recognized.map(&:inspect).join(', ')}"
+              "Recognized MCP options: #{RECOGNIZED_KEYS.map(&:inspect).join(', ')}"
       end
       private_class_method :reject_unrecognized_keys!
 

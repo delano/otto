@@ -109,7 +109,7 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
 
     it 'passes security config to MCP rate limiting middleware' do
       # Enable MCP with rate limiting
-      otto.enable_mcp!(rate_limiting: true)
+      otto.enable_mcp!(enable_rate_limiting: true)
 
       # Check that the middleware was added with security config
       expect(otto.middleware_stack).to include(Otto::MCP::RateLimitMiddleware)
@@ -117,7 +117,7 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
 
     it 'configures MCP endpoint in environment for rate limiting' do
       custom_endpoint = '/api/mcp'
-      otto.enable_mcp!(http_endpoint: custom_endpoint, rate_limiting: true)
+      otto.enable_mcp!(http_endpoint: custom_endpoint, enable_rate_limiting: true)
 
       # Check that the MCP server was configured with custom endpoint
       expect(otto.mcp_enabled?).to be true

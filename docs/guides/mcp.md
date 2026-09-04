@@ -10,8 +10,8 @@ The endpoint is unauthenticated unless you configure bearer tokens. Read
 ## Enable MCP
 
 Two entry points. Both normalize through `Otto::MCP::Options.normalize`, so the
-same canonical options and defaults apply — but they accept different spellings
-and differ in strictness. See [Options](#options).
+same options, spellings, and defaults apply — they differ only in strictness.
+See [Options](#options).
 
 At construction:
 
@@ -30,7 +30,7 @@ After construction, before the app is frozen or serves its first request:
 
 ```ruby
 otto = Otto.new('routes')
-otto.enable_mcp!(endpoint: '/api/mcp', auth_tokens: ['s3cret'])
+otto.enable_mcp!(http_endpoint: '/api/mcp', auth_tokens: ['s3cret'])
 otto.mcp_enabled? # => true
 ```
 
@@ -40,31 +40,35 @@ you worked around either bug, remove the workaround.
 
 ## Options
 
-The two entry points share one set of canonical options but accept different
-sets of *spellings*, because they are handed different things.
+Both entry points accept the same spellings: each canonical key and its
+`mcp_`-prefixed variant. The prefix exists so the constructor can pick MCP
+settings out of an options hash that also configures the rest of Otto; it is
+accepted by `enable_mcp!` too, so one hash can feed either entry point. The
+bare generic names `endpoint:`, `validation:`, and `rate_limiting:` are **not**
+MCP options: `rate_limiting:` is Otto's own general rate-limiting option and
+carries a Hash, and the other two were documented before Otto 2.9.0 but never
+read.
 
-`enable_mcp!` configures MCP and nothing else, so it takes the full alias set
-and is **strict**: any key it does not recognize raises `ArgumentError` listing
-the ones it does. A typo such as `enable_mcp!(auth_token: 'x')` (singular) used
-to be dropped in silence — which is exactly how an endpoint ends up
-unauthenticated — and now fails at boot.
+`enable_mcp!` configures MCP and nothing else, so it is **strict**: any key it
+does not recognize raises `ArgumentError` listing the ones it does. A typo such
+as `enable_mcp!(auth_token: 'x')` (singular) used to be dropped in silence —
+which is exactly how an endpoint ends up unauthenticated — and now fails at
+boot.
 
 `Otto.new` forwards its *entire* options hash, most of which configures other
-subsystems, so the constructor scope accepts only unambiguous spellings and
-ignores everything else. In particular it does **not** read bare `endpoint:`,
-`validation:`, or `rate_limiting:`; `rate_limiting:` is Otto's own general
-rate-limiting option and carries a Hash there. An unrecognized `mcp_`-prefixed
-key still raises, since such a key can only have been meant for MCP.
+subsystems, so the constructor scope ignores keys it does not recognize. An
+unrecognized `mcp_`-prefixed key still raises, since such a key can only have
+been meant for MCP.
 
-| Canonical key | Accepted by `Otto.new` | Additionally accepted by `enable_mcp!` | Type | Default | Effect |
-| --- | --- | --- | --- | --- | --- |
-| `http_endpoint` | `http_endpoint`, `mcp_endpoint` | `endpoint` | String path starting with `/` | `'/_mcp'` | Path the `POST` MCP route is mounted at. |
-| `auth_tokens` | `auth_tokens`, `mcp_auth_tokens` | — | Array of String (a bare String is wrapped) | `[]` | Accepted bearer tokens. Empty means no authentication middleware is mounted. |
-| `enable_validation` | `enable_validation`, `mcp_validation` | `validation` | Boolean | `true` | Mounts JSON schema validation of MCP requests, last in the MCP middleware order. |
-| `enable_rate_limiting` | `enable_rate_limiting`, `mcp_rate_limiting` | `rate_limiting` | Boolean | `true` | Mounts the MCP rate-limit middleware first. |
-| `requests_per_minute` | `requests_per_minute`, `mcp_requests_per_minute` | — | positive Integer | `60` | Per-IP limit on all requests to the MCP endpoint. |
-| `tools_per_minute` | `tools_per_minute`, `tool_calls_per_minute`, `mcp_tool_calls_per_minute` | — | positive Integer | `20` | Per-IP limit on `tools/call` requests. |
-| `allow_unauthenticated` | `allow_unauthenticated`, `mcp_allow_unauthenticated` | — | Boolean | `false` | Acknowledges an intentionally token-less endpoint and silences the boot warning. Does not itself change access. |
+| Canonical key | Accepted spellings | Type | Default | Effect |
+| --- | --- | --- | --- | --- |
+| `http_endpoint` | `http_endpoint`, `mcp_endpoint` | String path starting with `/` | `'/_mcp'` | Path the `POST` MCP route is mounted at. |
+| `auth_tokens` | `auth_tokens`, `mcp_auth_tokens` | Array of String (a bare String is wrapped) | `[]` | Accepted bearer tokens. Empty means no authentication middleware is mounted. |
+| `enable_validation` | `enable_validation`, `mcp_validation` | Boolean | `true` | Mounts JSON schema validation of MCP requests, last in the MCP middleware order. |
+| `enable_rate_limiting` | `enable_rate_limiting`, `mcp_rate_limiting` | Boolean | `true` | Mounts the MCP rate-limit middleware first. |
+| `requests_per_minute` | `requests_per_minute`, `mcp_requests_per_minute` | positive Integer | `60` | Per-IP limit on all requests to the MCP endpoint. |
+| `tools_per_minute` | `tools_per_minute`, `tool_calls_per_minute`, `mcp_tool_calls_per_minute` | positive Integer | `20` | Per-IP limit on `tools/call` requests. |
+| `allow_unauthenticated` | `allow_unauthenticated`, `mcp_allow_unauthenticated` | Boolean | `false` | Acknowledges an intentionally token-less endpoint and silences the boot warning. Does not itself change access. |
 
 Supplying two spellings of the same option with different values raises
 `ArgumentError`; identical values are accepted.
@@ -194,8 +198,8 @@ request returns `401` with the `Unauthorized` envelope above.
 | --- | --- |
 | Unknown key passed to `enable_mcp!`, e.g. `auth_token: 'x'` | `ArgumentError` listing the unknown key and every recognized MCP option. This scope is strict. |
 | Unknown `mcp_`-prefixed key passed to `Otto.new`, e.g. `mcp_tokens:` | Same `ArgumentError`. Non-`mcp_` keys are ignored there, since the constructor forwards its whole options hash. |
-| Bare `endpoint:`, `validation:`, or `rate_limiting:` passed to `Otto.new` | Silently ignored by MCP — they are not MCP options in that scope. Use the `mcp_` spelling. |
-| Two spellings of one option with different values, e.g. `endpoint: '/a', mcp_endpoint: '/b'` | `ArgumentError` naming the canonical option and the conflicting spellings. Identical values are accepted. |
+| Bare `endpoint:`, `validation:`, or `rate_limiting:` passed to `enable_mcp!` | `ArgumentError`; they are not MCP options. Use `http_endpoint`, `enable_validation`, `enable_rate_limiting`. Passed to `Otto.new` they are ignored by MCP like any other non-MCP key. |
+| Two spellings of one option with different values, e.g. `http_endpoint: '/a', mcp_endpoint: '/b'` | `ArgumentError` naming the canonical option and the conflicting spellings. Identical values are accepted. |
 | `auth_tokens:` supplied but empty, e.g. `ENV['MCP_TOKEN']` unset, `''`, `['']` | `ArgumentError`. Omit the key and pass `allow_unauthenticated: true` for a deliberately open endpoint. |
 | `enable_mcp!` after the instance is frozen | Raises; configure MCP during boot. See [configuration freezing](configuration_freezing.md). |
 | `POST` to the endpoint when MCP is not enabled | `404` with `{"error":"MCP not enabled"}`. |

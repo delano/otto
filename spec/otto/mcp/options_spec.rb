@@ -17,9 +17,6 @@ RSpec.describe Otto::MCP::Options do
     }
   end
 
-  # .normalize takes a `scope:` keyword, so a brace-less hash literal at the
-  # call site is parsed as keywords ("unknown keyword: :auth_tokens"). This
-  # helper keeps the examples readable by passing a positional Hash.
   def norm(opts)
     described_class.normalize(opts)
   end
@@ -38,50 +35,58 @@ RSpec.describe Otto::MCP::Options do
         .to raise_error(ArgumentError, /Unknown MCP option\(s\): :auth_token/)
     end
 
+    it 'binds a brace-less hash at the call site to opts, not to scope' do
+      expect(described_class.normalize(auth_tokens: ['t'])[:auth_tokens]).to eq(['t'])
+    end
+
     it 'rejects an unknown scope' do
-      expect { described_class.normalize({}, scope: :nonsense) }
+      expect { described_class.normalize({}, :nonsense) }
         .to raise_error(ArgumentError, /Unknown MCP option scope :nonsense/)
     end
   end
 
-  # The two vocabularies. :explicit is what #enable_mcp! speaks; :constructor is
-  # what Otto.new speaks, and it must not claim generic keys out of an options
-  # hash that also configures the rest of Otto.
-  describe 'the :explicit scope (#enable_mcp!)' do
-    def normalize(opts)
-      described_class.normalize(opts, scope: :explicit)
-    end
-
-    describe 'aliases' do
-      {
-                http_endpoint: [%i[http_endpoint mcp_endpoint endpoint], '/api/mcp'],
-                  auth_tokens: [%i[auth_tokens mcp_auth_tokens], ['tok']],
-            enable_validation: [%i[enable_validation validation mcp_validation], false],
-         enable_rate_limiting: [%i[enable_rate_limiting rate_limiting mcp_rate_limiting], false],
-          requests_per_minute: [%i[requests_per_minute mcp_requests_per_minute], 5],
-             tools_per_minute: [%i[tools_per_minute tool_calls_per_minute mcp_tool_calls_per_minute], 2],
-        allow_unauthenticated: [%i[allow_unauthenticated mcp_allow_unauthenticated], true],
-      }.each do |canonical, (aliases, value)|
-        aliases.each do |alias_key|
-          it "maps #{alias_key} to #{canonical}" do
-            expect(normalize(alias_key => value)).to eq(defaults.merge(canonical => value))
+  # One vocabulary, shared by both scopes: canonical keys plus their
+  # mcp_-prefixed spellings (and tool_calls_per_minute, the rate limiter's own
+  # name). The bare generic names endpoint / validation / rate_limiting were
+  # documented before #258 but never read, and rate_limiting: is Otto's own
+  # general rate-limiting option, so none of them is an MCP alias.
+  describe 'aliases' do
+    {
+              http_endpoint: [%i[http_endpoint mcp_endpoint], '/api/mcp'],
+                auth_tokens: [%i[auth_tokens mcp_auth_tokens], ['tok']],
+          enable_validation: [%i[enable_validation mcp_validation], false],
+       enable_rate_limiting: [%i[enable_rate_limiting mcp_rate_limiting], false],
+        requests_per_minute: [%i[requests_per_minute mcp_requests_per_minute], 5],
+           tools_per_minute: [%i[tools_per_minute tool_calls_per_minute mcp_tool_calls_per_minute], 2],
+      allow_unauthenticated: [%i[allow_unauthenticated mcp_allow_unauthenticated], true],
+    }.each do |canonical, (aliases, value)|
+      aliases.each do |alias_key|
+        described_class::SCOPES.each do |scope|
+          it "maps #{alias_key} to #{canonical} under the #{scope} scope" do
+            expect(described_class.normalize({ alias_key => value }, scope))
+              .to eq(defaults.merge(canonical => value))
           end
         end
       end
+    end
 
-      it 'declares exactly these canonical options' do
-        expect(described_class::OPTION_ALIASES.keys).to match_array(defaults.keys)
+    it 'declares exactly these canonical options' do
+      expect(described_class::OPTION_ALIASES.keys).to match_array(defaults.keys)
+    end
+
+    %i[endpoint validation rate_limiting].each do |generic|
+      it "does not recognize the bare generic #{generic}" do
+        expect(described_class::RECOGNIZED_KEYS).not_to include(generic)
       end
     end
+  end
 
-    it 'accepts the generic bare spellings this scope owns' do
-      expect(normalize(endpoint: '/api/mcp', validation: false, rate_limiting: false))
-        .to eq(defaults.merge(http_endpoint: '/api/mcp', enable_validation: false,
-                              enable_rate_limiting: false))
-    end
-
-    it 'keeps the rate_limiting_spec spelling working' do
-      expect { normalize(rate_limiting: true, http_endpoint: '/api/mcp') }.not_to raise_error
+  # The scopes differ only in strictness. :explicit is what #enable_mcp!
+  # speaks; :constructor is what Otto.new speaks, and it is handed an options
+  # hash that also configures the rest of Otto.
+  describe 'the :explicit scope (#enable_mcp!)' do
+    def normalize(opts)
+      described_class.normalize(opts, :explicit)
     end
 
     describe 'strictness' do
@@ -97,6 +102,15 @@ RSpec.describe Otto::MCP::Options do
           .to raise_error(ArgumentError, /Unknown MCP option\(s\): :mcp_tokens/)
       end
 
+      it 'rejects the pre-#258 bare spellings instead of dropping them' do
+        expect { normalize(endpoint: '/api/mcp') }
+          .to raise_error(ArgumentError, /Unknown MCP option\(s\): :endpoint/)
+        expect { normalize(validation: false) }
+          .to raise_error(ArgumentError, /Unknown MCP option\(s\): :validation/)
+        expect { normalize(rate_limiting: false) }
+          .to raise_error(ArgumentError, /Unknown MCP option\(s\): :rate_limiting/)
+      end
+
       it 'reports every unrecognized key' do
         expect { normalize(foo: 1, mcp_bar: 2) }
           .to raise_error(ArgumentError, /:foo, :mcp_bar/)
@@ -106,7 +120,7 @@ RSpec.describe Otto::MCP::Options do
         normalize(nope: 1)
       rescue ArgumentError => e
         expect(e.message).to include('Recognized MCP options:', ':auth_tokens', ':mcp_auth_tokens',
-                                     ':endpoint', ':mcp_enabled')
+                                     ':mcp_endpoint', ':mcp_enabled')
       else
         raise 'expected ArgumentError'
       end
@@ -121,26 +135,10 @@ RSpec.describe Otto::MCP::Options do
 
   describe 'the :constructor scope (Otto.new)' do
     def normalize(opts)
-      described_class.normalize(opts, scope: :constructor)
+      described_class.normalize(opts, :constructor)
     end
 
     describe 'accepted spellings' do
-      {
-                http_endpoint: [%i[http_endpoint mcp_endpoint], '/api/mcp'],
-                  auth_tokens: [%i[auth_tokens mcp_auth_tokens], ['tok']],
-            enable_validation: [%i[enable_validation mcp_validation], false],
-         enable_rate_limiting: [%i[enable_rate_limiting mcp_rate_limiting], false],
-          requests_per_minute: [%i[requests_per_minute mcp_requests_per_minute], 5],
-             tools_per_minute: [%i[tools_per_minute tool_calls_per_minute mcp_tool_calls_per_minute], 2],
-        allow_unauthenticated: [%i[allow_unauthenticated mcp_allow_unauthenticated], true],
-      }.each do |canonical, (aliases, value)|
-        aliases.each do |alias_key|
-          it "maps #{alias_key} to #{canonical}" do
-            expect(normalize(alias_key => value)).to eq(defaults.merge(canonical => value))
-          end
-        end
-      end
-
       it 'accepts the four documented bare keys' do
         normalized = normalize(
           auth_tokens: ['tok'],
@@ -154,13 +152,9 @@ RSpec.describe Otto::MCP::Options do
       end
     end
 
+    # These are not MCP keys in any scope; here they fall under the general
+    # "ignore what belongs to other subsystems" rule instead of raising.
     describe 'generic keys it must not claim' do
-      described_class::GENERIC_ALIASES.each do |generic|
-        it "ignores bare #{generic}" do
-          expect(described_class::CONSTRUCTOR_ALIASES.values.flatten).not_to include(generic)
-        end
-      end
-
       it 'ignores bare endpoint:' do
         expect(normalize(endpoint: '/somewhere/else')[:http_endpoint]).to eq('/_mcp')
       end
@@ -264,7 +258,7 @@ RSpec.describe Otto::MCP::Options do
       end
 
       it 'raises in the constructor scope too' do
-        expect { described_class.normalize({ auth_tokens: nil }, scope: :constructor) }
+        expect { described_class.normalize({ auth_tokens: nil }, :constructor) }
           .to raise_error(ArgumentError, /resolves to no tokens/)
       end
 
@@ -297,17 +291,17 @@ RSpec.describe Otto::MCP::Options do
 
   describe 'value validation' do
     it 'rejects a non-boolean rate limiting flag' do
-      expect { norm(rate_limiting: 'yes') }
+      expect { norm(enable_rate_limiting: 'yes') }
         .to raise_error(ArgumentError, /enable_rate_limiting must be true or false/)
     end
 
     it 'rejects a Hash rate limiting flag in the explicit scope' do
-      expect { norm(rate_limiting: { requests_per_minute: 10 }) }
+      expect { norm(enable_rate_limiting: { requests_per_minute: 10 }) }
         .to raise_error(ArgumentError, /enable_rate_limiting must be true or false/)
     end
 
     it 'rejects a non-boolean validation flag' do
-      expect { norm(validation: 'yes') }
+      expect { norm(enable_validation: 'yes') }
         .to raise_error(ArgumentError, /enable_validation must be true or false/)
     end
 
@@ -338,7 +332,7 @@ RSpec.describe Otto::MCP::Options do
 
   describe 'conflicting aliases' do
     it 'raises when two aliases disagree' do
-      expect { norm(endpoint: '/a', mcp_endpoint: '/b') }
+      expect { norm(http_endpoint: '/a', mcp_endpoint: '/b') }
         .to raise_error(ArgumentError, /Conflicting MCP options for http_endpoint/)
     end
 
@@ -348,12 +342,12 @@ RSpec.describe Otto::MCP::Options do
     end
 
     it 'accepts two aliases that agree' do
-      expect(norm(endpoint: '/a', mcp_endpoint: '/a')[:http_endpoint]).to eq('/a')
+      expect(norm(http_endpoint: '/a', mcp_endpoint: '/a')[:http_endpoint]).to eq('/a')
     end
 
-    it 'does not see a conflict for an alias the constructor scope ignores' do
-      expect(described_class.normalize({ endpoint: '/a', mcp_endpoint: '/b' }, scope: :constructor)[:http_endpoint])
-        .to eq('/b')
+    it 'raises in the constructor scope too' do
+      expect { described_class.normalize({ http_endpoint: '/a', mcp_endpoint: '/b' }, :constructor) }
+        .to raise_error(ArgumentError, /Conflicting MCP options for http_endpoint/)
     end
   end
 
@@ -362,16 +356,16 @@ RSpec.describe Otto::MCP::Options do
       it "re-normalizes its own output unchanged under the #{scope} scope" do
         once = described_class.normalize(
           { mcp_endpoint: '/api/mcp', mcp_auth_tokens: 'tok', tool_calls_per_minute: 2 },
-          scope: scope
+          scope
         )
 
-        expect(described_class.normalize(once, scope: scope)).to eq(once)
+        expect(described_class.normalize(once, scope)).to eq(once)
       end
 
       it "re-normalizes the bare defaults unchanged under the #{scope} scope" do
-        once = described_class.normalize({}, scope: scope)
+        once = described_class.normalize({}, scope)
 
-        expect(described_class.normalize(once, scope: scope)).to eq(once)
+        expect(described_class.normalize(once, scope)).to eq(once)
       end
     end
   end
@@ -393,8 +387,8 @@ RSpec.describe Otto::MCP::Options do
         .to raise_error(ArgumentError, /Unknown MCP option/)
     end
 
-    it 'forwards the scope keyword' do
-      expect(Otto::MCP::Server.normalize_options({ csrf_protection: true }, scope: :constructor))
+    it 'forwards the scope' do
+      expect(Otto::MCP::Server.normalize_options({ csrf_protection: true }, :constructor))
         .to eq(defaults)
     end
   end

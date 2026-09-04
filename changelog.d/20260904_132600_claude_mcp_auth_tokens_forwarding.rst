@@ -38,28 +38,28 @@ Added
 
 - ``Otto::MCP::Options.normalize`` is the single normalization path for MCP
   options, shared by the constructor and ``#enable_mcp!``. Both entry points
-  accept the same canonical keys plus historical aliases (``mcp_endpoint`` and
-  ``endpoint`` for ``http_endpoint``, ``mcp_auth_tokens`` for ``auth_tokens``,
-  ``tool_calls_per_minute`` for ``tools_per_minute``, and others). (#258)
+  accept the same canonical keys plus their ``mcp_``-prefixed spellings
+  (``mcp_endpoint`` for ``http_endpoint``, ``mcp_auth_tokens`` for
+  ``auth_tokens``, and so on) and ``tool_calls_per_minute`` for
+  ``tools_per_minute``. (#258)
 
 Changed
 -------
 
-- **Behavior change:** the two entry points now have explicitly different option
-  vocabularies. ``Otto.new`` (constructor scope) reads the canonical keys, their
-  ``mcp_``-prefixed spellings, and the documented bare keys ``auth_tokens``,
-  ``requests_per_minute``, ``tools_per_minute`` and ``allow_unauthenticated``.
-  It deliberately does NOT read bare ``endpoint``, ``validation`` or
-  ``rate_limiting``: those names are generic, and ``rate_limiting:`` is Otto's
-  own general rate-limiting option, which previously collided with the MCP flag.
-  Everything else in the constructor hash is ignored, but an unrecognized
-  ``mcp_``-prefixed key still raises ``ArgumentError``. (#258)
-- **Behavior change:** ``Otto#enable_mcp!`` (explicit scope) accepts the full
-  alias set — canonical keys, the bare ``endpoint`` / ``validation`` /
-  ``rate_limiting`` spellings, and the ``mcp_`` spellings — and is now STRICT:
-  any other key raises ``ArgumentError`` listing the recognized options.
-  ``enable_mcp!(auth_token: 'x')`` used to be dropped in silence, leaving the
-  endpoint unauthenticated; it now fails at boot. (#258)
+- **Behavior change:** the bare generic names ``endpoint``, ``validation`` and
+  ``rate_limiting`` are not MCP options. ``endpoint:`` appeared in the
+  ``#enable_mcp!`` documentation but was never read, ``rate_limiting:`` is
+  Otto's own general rate-limiting option (a Hash) and collided with the MCP
+  flag, and none of the three ever had an effect. Use ``http_endpoint``,
+  ``enable_validation`` and ``enable_rate_limiting``, or their ``mcp_``
+  spellings. (#258)
+- **Behavior change:** ``Otto.new`` (constructor scope) ignores keys it does not
+  recognize, since it is handed the whole options hash, but an unrecognized
+  ``mcp_``-prefixed key raises ``ArgumentError``. ``Otto#enable_mcp!``
+  (explicit scope) is STRICT: any unrecognized key raises ``ArgumentError``
+  listing the recognized options. ``enable_mcp!(auth_token: 'x')`` used to be
+  dropped in silence, leaving the endpoint unauthenticated; it now fails at
+  boot. (#258)
 - **Behavior change:** supplying two spellings of the same option with
   conflicting values raises ``ArgumentError``. (#258)
 - **Behavior change:** ``auth_tokens`` that is supplied but resolves to no

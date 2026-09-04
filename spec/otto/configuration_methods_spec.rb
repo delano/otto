@@ -289,15 +289,15 @@ RSpec.describe Otto, 'Configuration Methods' do
 
   describe '#configure_mcp' do
     let(:app) { Otto.new }
-    let(:normalized_defaults) { Otto::MCP::Options.normalize({}, scope: :constructor) }
+    let(:normalized_defaults) { Otto::MCP::Options.normalize({}, :constructor) }
 
     before do
       # Mock the Otto::MCP::Server class, keeping the real option normalizer so
       # the hash configure_mcp forwards is the one production code builds.
       real_server = Otto::MCP::Server
       stub_const('Otto::MCP::Server', Class.new do
-        define_singleton_method(:normalize_options) do |opts, scope: :explicit|
-          real_server.normalize_options(opts, scope: scope)
+        define_singleton_method(:normalize_options) do |opts, scope = :explicit|
+          real_server.normalize_options(opts, scope)
         end
         def initialize(otto_instance); end
         def enable!(options); end

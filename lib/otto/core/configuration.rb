@@ -104,7 +104,7 @@ class Otto
         # picks out the MCP vocabulary (auth_tokens, rate limits, ...) and
         # ignores the rest of Otto's options. Previously only the endpoint
         # survived, silently starting an unauthenticated MCP endpoint (#258).
-        @mcp_server.enable!(Otto::MCP::Server.normalize_options(opts, scope: :constructor))
+        @mcp_server.enable!(Otto::MCP::Server.normalize_options(opts, :constructor))
       end
 
       # Validate and freeze the lambda handler registry supplied at construction

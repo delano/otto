@@ -23,8 +23,8 @@ class Otto
       # @param scope [Symbol] :explicit (strict, for #enable_mcp!) or
       #   :constructor (ignores non-MCP keys, for Otto.new)
       # @see Otto::MCP::Options.normalize
-      def self.normalize_options(opts = {}, scope: :explicit)
-        Otto::MCP::Options.normalize(opts, scope: scope)
+      def self.normalize_options(opts = {}, scope = :explicit)
+        Otto::MCP::Options.normalize(opts, scope)
       end
 
       def initialize(otto_instance)
@@ -47,9 +47,9 @@ class Otto
       # Enable the MCP server.
       #
       # @param options [Hash] canonical or aliased options; normalized via
-      #   {.normalize_options}, so both the Otto constructor vocabulary
-      #   (:mcp_endpoint, :mcp_auth_tokens, ...) and the #enable_mcp!
-      #   vocabulary (:endpoint, :auth_tokens, ...) are accepted.
+      #   {.normalize_options}, so both the canonical keys (:http_endpoint,
+      #   :auth_tokens, ...) and their mcp_-prefixed spellings
+      #   (:mcp_endpoint, :mcp_auth_tokens, ...) are accepted.
       def enable!(options = {})
         options = self.class.normalize_options(options)
 

@@ -27,13 +27,8 @@ class Otto
         def initialize(app, security_config = nil)
           @app = app
           @security_config = security_config
-          @rate_limiter_available = defined?(Rack::Attack)
 
-          if @rate_limiter_available
-            configure_rate_limiting
-          else
-            Otto.logger.warn '[Otto] rack-attack not available - rate limiting disabled'
-          end
+          configure_rate_limiting
         end
 
         # Pass-through call - actual rate limiting handled by Rack::Attack

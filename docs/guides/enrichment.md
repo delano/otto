@@ -37,7 +37,9 @@ Both accept the same bring-your-own-reader seam as geo (`asn_db_reader:` /
 `anonymizer_db_reader:` — any object responding to `#get(ip)`; a reader
 supplied in the same call wins over a path). Bad paths raise at boot, not
 per-request. The [`maxmind-db`](https://rubygems.org/gems/maxmind-db) gem is
-required only when a `*_db_path` is configured.
+required only when a `*_db_path` is configured; Otto supports version 1.2.0 or
+newer in the 1.x series (`gem 'maxmind-db', '~> 1.2'`). Missing or incompatible
+versions raise `Otto::OptionalDependencyError` during configuration.
 
 ## ASN: which address is looked up, and why that's safe
 

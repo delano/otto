@@ -6,19 +6,11 @@ require 'json'
 
 require_relative '../security/rate_limiting'
 
-begin
-  require 'rack/attack'
-rescue LoadError
-  # rack-attack is optional - graceful fallback
-end
-
 class Otto
   module MCP
     # Rate limiter for MCP protocol endpoints
     class RateLimiter < Otto::Security::RateLimiting
       def self.configure_rack_attack!(config = {})
-        return unless defined?(Rack::Attack)
-
         # Start with base configuration from general rate limiting
         super
 
@@ -132,15 +124,10 @@ class Otto
     # Middleware for applying rate limits to MCP protocol endpoints
     class RateLimitMiddleware < Otto::Security::RateLimitMiddleware
       def initialize(app, security_config = nil)
-        @app                    = app
-        @security_config        = security_config
-        @rate_limiter_available = defined?(Rack::Attack)
+        @app             = app
+        @security_config = security_config
 
-        if @rate_limiter_available
-          configure_mcp_rate_limiting
-        else
-          Otto.logger.warn '[MCP] rack-attack not available - rate limiting disabled'
-        end
+        configure_mcp_rate_limiting
       end
 
       private

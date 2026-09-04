@@ -23,11 +23,17 @@ class Otto
       end
 
       def enable!(options = {})
+        enable_validation = options.fetch(:enable_validation, true) != false
+        enable_rate_limiting = options.fetch(:enable_rate_limiting, true) != false
+
+        Validator.ensure_available! if enable_validation
+        Otto::Security::RateLimiting.ensure_available! if enable_rate_limiting
+
         @enabled              = true
         @http_endpoint        = options.fetch(:http_endpoint, '/_mcp')
         @auth_tokens          = options[:auth_tokens] || []
-        @enable_validation    = options.fetch(:enable_validation, true)
-        @enable_rate_limiting = options.fetch(:enable_rate_limiting, true)
+        @enable_validation    = enable_validation
+        @enable_rate_limiting = enable_rate_limiting
 
         # Configure middleware
         configure_middleware(options)

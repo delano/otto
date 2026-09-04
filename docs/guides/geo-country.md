@@ -101,12 +101,14 @@ point.
 
 The [`maxmind-db`](https://rubygems.org/gems/maxmind-db) gem (official MaxMind
 reader, Apache-2.0, pure Ruby, zero runtime deps) is an **optional**
-dependency. Otto only `require`s it when a database is configured. Add it to
-your app when you use the database fallback:
+dependency. Otto supports version 1.2.0 or newer in the 1.x series and only
+loads it when a database path is configured. A missing or incompatible gem
+raises `Otto::OptionalDependencyError` at configuration time. Add it to your
+app when you use the database fallback:
 
 ```ruby
 # Gemfile
-gem 'maxmind-db', '~> 1.4'
+gem 'maxmind-db', '~> 1.2'
 ```
 
 ### Data file (`geo-whois-asn-country`)

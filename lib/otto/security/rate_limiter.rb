@@ -4,18 +4,25 @@
 
 require 'json'
 
-begin
-  require 'rack/attack'
-rescue LoadError
-  # rack-attack is optional - graceful fallback
-end
+require_relative '../optional_dependency'
 
 class Otto
   module Security
     # Rate limiting implementation using Rack::Attack
     class RateLimiting
+      RACK_ATTACK_REQUIREMENT = '~> 6.7'
+
+      def self.ensure_available!
+        Otto::OptionalDependency.require!(
+          'rack-attack',
+          RACK_ATTACK_REQUIREMENT,
+          require_path: 'rack/attack',
+          feature: 'Rate limiting'
+        )
+      end
+
       def self.configure_rack_attack!(config = {})
-        return unless defined?(Rack::Attack)
+        ensure_available!
 
         # Use provided cache store or default
         Rack::Attack.cache.store = config[:cache_store] if config[:cache_store]

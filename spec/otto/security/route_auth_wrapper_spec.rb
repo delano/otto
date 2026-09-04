@@ -1188,6 +1188,22 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
                   metadata: { user_roles: ['admin'] },
                   strategy_name: 'custom'
                 )
+              when :user_object_with_roles
+                Otto::Security::Authentication::StrategyResult.new(
+                  user: Data.define(:id, :roles).new(id: 123, roles: ['admin']),
+                  session: env['rack.session'],
+                  auth_method: 'custom',
+                  metadata: {},
+                  strategy_name: 'custom'
+                )
+              when :user_object_without_roles
+                Otto::Security::Authentication::StrategyResult.new(
+                  user: Data.define(:id).new(id: 123),
+                  session: env['rack.session'],
+                  auth_method: 'custom',
+                  metadata: {},
+                  strategy_name: 'custom'
+                )
               end
             end
           end.new
@@ -1242,6 +1258,29 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
 
         status, _headers, _body = wrapper.call(env)
         expect(status).to eq(200)
+      end
+
+      it 'extracts roles from an object-backed user via #roles' do
+        config = { auth_strategies: { 'custom' => custom_strategy.call(:user_object_with_roles) } }
+        wrapper = described_class.new(mock_handler, role_route, config)
+
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123 }
+
+        status, _headers, _body = wrapper.call(env)
+        expect(status).to eq(200)
+      end
+
+      it 'denies (403) an object-backed user without #roles instead of raising' do
+        config = { auth_strategies: { 'custom' => custom_strategy.call(:user_object_without_roles) } }
+        wrapper = described_class.new(mock_handler, role_route, config)
+
+        env = mock_rack_env
+        env['rack.session'] = { 'user_id' => 123 }
+
+        status = nil
+        expect { status, _headers, _body = wrapper.call(env) }.not_to raise_error
+        expect(status).to eq(403)
       end
     end
   end

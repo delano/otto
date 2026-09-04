@@ -73,9 +73,14 @@ class Otto
           #
           # Supports multiple role sources in order of precedence:
           # 1. result.user_roles (Array)
-          # 2. result.user[:roles] (Array)
-          # 3. result.user['roles'] (Array)
+          # 2. result.user[:roles] / result.user['roles'] (Hash user)
+          # 3. result.user.roles, then result.user.role (object-backed user:
+          #    ORM model, PORO, Data/Struct); #roles must return role names
           # 4. result.metadata[:user_roles] (Array)
+          #
+          # A user object that is neither a Hash nor responds to `#roles`/`#role`
+          # contributes no roles rather than raising, so authorization yields a
+          # deny result instead of a NoMethodError.
           #
           # @param result [StrategyResult] Authentication result
           # @return [Array<String>] Array of role strings
@@ -83,10 +88,17 @@ class Otto
             # Try direct user_roles accessor (e.g., from RoleStrategy)
             return Array(result.user_roles) if result.respond_to?(:user_roles) && result.user_roles
 
-            # Try user hash/object with roles
-            if result.user
-              roles = result.user[:roles] || result.user['roles']
+            # Hash access first (unchanged behaviour), then object-backed users
+            user = result.user
+            if user.is_a?(Hash)
+              roles = user[:roles] || user['roles']
               return Array(roles) if roles
+            elsif user.respond_to?(:roles)
+              roles = user.roles
+              return Array(roles).map(&:to_s) if roles
+            elsif user.respond_to?(:role)
+              role = user.role
+              return [role.to_s] if role
             end
 
             # Try metadata

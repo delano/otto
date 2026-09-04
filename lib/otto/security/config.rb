@@ -489,6 +489,7 @@ class Otto
       # @raise [ArgumentError] on a conflict with another committed config
       # @return [void]
       def commit_rack_forwarding_family!
+        ensure_not_frozen!
         return unless proxy_trust_configured?
 
         self.class.apply_rack_forwarding_family!(self, @trusted_proxy_header)
@@ -1022,18 +1023,18 @@ class Otto
         validate_trusted_proxy_depth!(@trusted_proxy_depth)
         raise ArgumentError, FORWARDED_HEADER_CIDR_CONFLICT_MESSAGE if !default_trusted_proxy_header? && @trusted_proxies.any?
 
-        # Late-configured proxy trust (after Otto.new) commits here at the
-        # latest, so a process-wide family conflict still fails loud.
+        if @trusted_proxy_depth
+          raise ArgumentError, PROXY_MODE_CONFLICT_MESSAGE if @trusted_proxy_depth >= 1 && @trusted_proxies.any?
+
+          # Backstop for the direct path (ip_privacy_config.geo_header=) that
+          # bypasses both eager checks; the setters cover the common orders.
+          raise ArgumentError, GEO_HEADER_DEPTH_CONFLICT_MESSAGE if @trusted_proxy_depth >= 1 && @ip_privacy_config&.geo_header
+        end
+
+        # Last, so a config that fails the checks above never registers as an
+        # owner: late-configured proxy trust (after Otto.new) commits here at
+        # the latest, so a process-wide family conflict still fails loud.
         commit_rack_forwarding_family!
-        return if @trusted_proxy_depth.nil?
-
-        raise ArgumentError, PROXY_MODE_CONFLICT_MESSAGE if @trusted_proxy_depth >= 1 && @trusted_proxies.any?
-
-        # Backstop for the direct path (ip_privacy_config.geo_header=) that
-        # bypasses both eager checks; the setters cover the common orders.
-        return unless @trusted_proxy_depth >= 1 && @ip_privacy_config&.geo_header
-
-        raise ArgumentError, GEO_HEADER_DEPTH_CONFLICT_MESSAGE
       end
 
       # Parse a value into an IPAddr, returning nil for invalid / non-IP input.

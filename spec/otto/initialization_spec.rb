@@ -224,6 +224,35 @@ RSpec.describe Otto, 'initialization' do
       end.not_to raise_error
     end
 
+    it 'keeps a surviving owner committed when another construction fails' do
+      described_class.new(routes_file, trusted_proxy_depth: 1, trusted_proxy_header: 'Forwarded')
+
+      expect do
+        described_class.new('/nonexistent/routes.txt', trusted_proxy_depth: 1, trusted_proxy_header: 'Forwarded')
+      end.to raise_error(ArgumentError, /Bad path/)
+
+      expect(Otto::Security::Config.rack_forwarding_family).to eq('Forwarded')
+      expect do
+        described_class.new(nil, trusted_proxy_depth: 1, trusted_proxy_header: 'X-Forwarded-For')
+      end.to raise_error(ArgumentError, /already uses Forwarded/)
+    end
+
+    it 'treats a depth-mode app as committed to X-Forwarded-For' do
+      described_class.new(routes_file, trusted_proxy_depth: 1)
+
+      expect do
+        described_class.new(nil, trusted_proxy_depth: 1, trusted_proxy_header: 'Forwarded')
+      end.to raise_error(ArgumentError, /already uses X-Forwarded-For/)
+    end
+
+    it 'lets the sole owner revise its family through the configurator' do
+      otto = described_class.new(routes_file, trusted_proxy_depth: 1)
+
+      expect { otto.security.configure(trusted_proxy_header: 'Forwarded') }.not_to raise_error
+      expect(otto.security_config.trusted_proxy_header).to eq('Forwarded')
+      expect(Rack::Request.forwarded_priority).to eq([:forwarded])
+    end
+
     it 'rejects a non-default trusted_proxy_header alongside trusted_proxies' do
       expect do
         described_class.new(nil, trusted_proxies: ['10.0.0.0/8'], trusted_proxy_header: 'Forwarded')

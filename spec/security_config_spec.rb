@@ -527,6 +527,22 @@ RSpec.describe Otto::Security::Config do
       expect { config.deep_freeze! }.to raise_error(ArgumentError, /already uses Forwarded/)
     end
 
+    it 'pins and commits a depth-mode config at freeze' do
+      config.trusted_proxy_depth = 1
+      config.deep_freeze!
+
+      expect(described_class.rack_forwarding_family).to eq('X-Forwarded-For')
+      expect(Rack::Request.forwarded_priority).to eq([:x_forwarded])
+    end
+
+    it 'does not register a config that fails freeze-time validation' do
+      config.add_trusted_proxy('10.0.0.0/8')
+      config.instance_variable_set(:@trusted_proxy_depth, 1) # bypass the eager setter
+
+      expect { config.deep_freeze! }.to raise_error(ArgumentError, /Cannot configure both/)
+      expect(described_class.rack_forwarding_family).to be_nil
+    end
+
     it 'leaves a config with no proxy trust uncommitted' do
       config.apply_default_rack_forwarding_family!
 

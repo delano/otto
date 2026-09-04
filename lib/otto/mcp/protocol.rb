@@ -4,11 +4,47 @@
 
 require 'json'
 require_relative 'registry'
+require_relative 'errors'
 
 class Otto
   module MCP
-    # MCP protocol handler providing Model Context Protocol functionality
+    # MCP protocol handler providing Model Context Protocol functionality.
+    #
+    # == JSON-RPC error code to HTTP status mapping
+    #
+    #   Code     Meaning                 HTTP
+    #   -32700   Parse error             400
+    #   -32600   Invalid Request         400
+    #   -32601   Method not found        400
+    #   -32602   Invalid params          400
+    #   -32001   Resource not found      404
+    #   -32002   Tool not found          404
+    #   -32603   Internal error          500
+    #   -32099..-32000  server errors    500
+    #
+    # Protocol-level faults (a malformed or unsupported payload against a valid
+    # endpoint) are 400, including method-not-found: 404 there would conflate a
+    # bad payload with "no such route", which the MCP endpoint handler already
+    # returns when MCP is disabled. 404 is reserved for a well-formed request
+    # naming an entity that is not registered, and 500 for handler execution
+    # faults. Handler exception messages are logged, never returned: -32603
+    # responses carry a fixed message.
     class Protocol
+      # @see Protocol for the rationale behind this mapping.
+      ERROR_STATUS_MAP = {
+        -32_700 => 400, # Parse error
+        -32_600 => 400, # Invalid Request
+        -32_601 => 400, # Method not found
+        -32_602 => 400, # Invalid params
+        -32_001 => 404, # Resource not found
+        -32_002 => 404, # Tool not found
+        -32_603 => 500, # Internal error
+      }.freeze
+
+      # Implementation-defined server error range; anything unmapped inside it
+      # is an execution fault.
+      SERVER_ERROR_RANGE = (-32_099..-32_000)
+
       attr_reader :registry
 
       def initialize(otto_instance)
@@ -89,7 +125,15 @@ class Otto
 
         return error_response(data['id'], -32_602, 'Invalid params', 'Missing uri parameter') unless uri
 
-        resource = @registry.read_resource(uri)
+        begin
+          resource = @registry.read_resource(uri)
+        rescue StandardError => e
+          # Detail stays in the log: handler exceptions (Errno::*, constant
+          # resolution) can carry absolute paths and internals.
+          Otto.logger.error "[MCP] Resource read error for #{uri}: #{e.class}: #{e.message}"
+          return error_response(data['id'], -32_603, 'Internal error', 'Resource read failed')
+        end
+
         if resource
           success_response(data['id'], resource)
         else
@@ -112,9 +156,11 @@ class Otto
         begin
           result = @registry.call_tool(name, arguments, env)
           success_response(data['id'], result)
+        rescue Otto::MCP::ToolNotFoundError => e
+          error_response(data['id'], -32_002, 'Tool not found', e.message)
         rescue StandardError => e
-          Otto.logger.error "[MCP] Tool call error: #{e.message}"
-          error_response(data['id'], -32_603, 'Internal error', e.message)
+          Otto.logger.error "[MCP] Tool call error for #{name}: #{e.class}: #{e.message}"
+          error_response(data['id'], -32_603, 'Internal error', 'Tool execution failed')
         end
       end
 
@@ -138,24 +184,8 @@ class Otto
           error: error,
                              })
 
-        # Map JSON-RPC error codes to appropriate HTTP status codes
-        http_status = case code
-                      when -32_700..-32_600 # Parse error, Invalid Request, Method not found
-                        400
-                      when -32_603, -32_000..-32_099 # Internal error and all server error range (-32000..-32099)
-                        500
-                      when -32_001         # Resource not found
-                        404
-                      when -32_002         # Tool not found
-                        404
-                      when -32_601         # Method not found
-                        404
-                      when -32_602         # Invalid params
-                        400
-                      else
-                        # Default client error for unknown non-server codes; treat server-range as 500
-                        (-32_099..-32_000).cover?(code) ? 500 : 400
-                      end
+        # Map JSON-RPC error codes to HTTP status codes (see ERROR_STATUS_MAP).
+        http_status = ERROR_STATUS_MAP[code] || (SERVER_ERROR_RANGE.cover?(code) ? 500 : 400)
 
         [http_status, { 'content-type' => 'application/json' }, [body]]
       end

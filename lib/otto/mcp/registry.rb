@@ -3,6 +3,7 @@
 # frozen_string_literal: true
 
 require_relative '../security/constant_resolver'
+require_relative 'errors'
 
 class Otto
   module MCP
@@ -67,14 +68,17 @@ class Otto
             }],
           }
         rescue StandardError => e
+          # Log and re-raise: a handler that blows up is an execution fault
+          # (-32603/500), not a missing resource (-32001/404). Returning nil
+          # here previously made the two indistinguishable to the protocol.
           Otto.logger.error "[MCP] Resource read error for #{uri}: #{e.message}"
-          nil
+          raise
         end
       end
 
       def call_tool(name, arguments, env)
         tool = @tools[name]
-        raise "Tool not found: #{name}" unless tool
+        raise ToolNotFoundError, "Tool not found: #{name}" unless tool
 
         handler = tool[:handler]
         if handler.respond_to?(:call)

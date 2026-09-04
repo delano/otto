@@ -410,8 +410,9 @@ on_demand_tls {
 
 Secure by default: the endpoint is restricted to the loopback interface (the guard
 authenticates the raw TCP peer, so a spoofed `X-Forwarded-For` cannot help), and
-every layer fails closed. See [docs/reverse-proxy-network-services.md](docs/reverse-proxy-network-services.md)
-for the design and deployment notes.
+every layer fails closed. See the [Caddy TLS guide](docs/integrations/caddy-tls.md)
+for deployment guidance and the [design record](docs/maintainers/decisions/reverse-proxy-network-services.md)
+for rationale.
 
 ## Examples
 
@@ -435,8 +436,8 @@ See the [examples/](examples/) directory for more.
 
 ## Documentation
 
-- **[AGENTS.md](AGENTS.md)** - Comprehensive developer guidance covering authentication architecture, configuration freezing, IP privacy, structured logging, and multi-app patterns
-- **[docs/](docs/)** - Technical guides and migration guides
+- **[Documentation map](docs/README.md)** - Capabilities, current guides, and the documentation structure Otto is growing toward
+- **[AGENTS.md](AGENTS.md)** - Contributor and agent guidance for Otto conventions; it is not application documentation
 - **[CHANGELOG.rst](CHANGELOG.rst)** - Version history, breaking changes, and upgrade notes
 
 ## AI Development Assistance

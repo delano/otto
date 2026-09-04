@@ -134,4 +134,4 @@ curl -X POST --data 'hello' localhost:10780/webhook
 
 ## Further Reading
 
-- [docs/ADVANCED_ROUTES.txt](../../docs/ADVANCED_ROUTES.txt)
+- [Route syntax reference](../../docs/reference/route-syntax.md)

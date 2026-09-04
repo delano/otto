@@ -45,5 +45,5 @@ OTTO_DEBUG=true bundle exec rspec spec/security_config_spec.rb --format document
 - Exercise privacy and security boundaries, including malformed input, trusted
   proxies, and error responses.
 
-See [`../docs/testing-guide.md`](../docs/testing-guide.md) for guidance on
-writing tests for Otto applications.
+See the [documentation map](../docs/README.md) for the current documentation
+structure. Application-specific testing guidance is planned under `docs/guides/`.

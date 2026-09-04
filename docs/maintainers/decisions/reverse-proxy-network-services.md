@@ -4,6 +4,12 @@
 **Ships:** `Otto::CaddyTLS` — Caddy on-demand TLS permission endpoint
 **Date:** 2026-07
 
+> **Outcome:** The Caddy TLS pilot shipped as `Otto::CaddyTLS`. Its supported
+> endpoint and deployment contract are documented in the
+> [Caddy TLS integration guide](../../integrations/caddy-tls.md). This record
+> preserves the design rationale; unresolved options or proposed API details
+> below are historical.
+
 This document captures the design exploration for how Otto absorbs
 *network-service integrations* — small, optional, turnkey endpoints where an
 external network component (a reverse proxy, a TLS layer, a monitoring probe)

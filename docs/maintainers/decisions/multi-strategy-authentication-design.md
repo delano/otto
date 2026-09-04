@@ -1,8 +1,13 @@
 # Multi-Strategy Authentication Design for Otto
 
 **Date:** November 2025
-**Status:** Design Document
-**Related:** [Modern Authentication/Authorization Landscape](modern-authentication-authorization-landscape.md)
+**Status:** Implemented; retained as a historical decision record.
+
+> **Outcome:** Ordered `auth=` fallback, terminal failures, and route `role=`
+> checks are implemented. For the supported application contract, use the
+> [authentication guide](../../guides/authentication.md) and
+> [route-syntax reference](../../reference/route-syntax.md); implementation
+> estimates and proposed code below are historical.
 
 ---
 

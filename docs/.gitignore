@@ -6,9 +6,9 @@
 !enrichment.md
 !geo-country.md
 !README.md
+!adr/
+!adr/*.md
 !maintainers/
-!maintainers/decisions/
-!maintainers/decisions/*.md
 !maintainers/investigations/
 !maintainers/investigations/.gitignore
 !guides/

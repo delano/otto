@@ -49,6 +49,11 @@ MCP options: `rate_limiting:` is Otto's own general rate-limiting option and
 carries a Hash, and the other two were documented before Otto 2.9.0 but never
 read.
 
+Keys may be Strings or Symbols: `enable_mcp!('auth_tokens' => ['s3cret'])`
+configures authentication exactly like `auth_tokens:`. A String key and its
+Symbol twin are two spellings of one option, so supplying both with different
+values raises `ArgumentError` like any other conflicting pair.
+
 `enable_mcp!` configures MCP and nothing else, so it is **strict**: any key it
 does not recognize raises `ArgumentError` listing the ones it does. A typo such
 as `enable_mcp!(auth_token: 'x')` (singular) used to be dropped in silence —
@@ -73,8 +78,11 @@ been meant for MCP.
 Supplying two spellings of the same option with different values raises
 `ArgumentError`; identical values are accepted.
 
-Three further keys are recognized on the **constructor only**, and gate whether
-MCP is enabled rather than configuring it:
+Three further keys gate whether MCP is enabled rather than configuring it. They
+are read by `Otto.new` **only**; `enable_mcp!` always enables the HTTP endpoint,
+so it cannot honour them and raises `ArgumentError` (naming them as
+constructor-only) rather than accepting, say, `mcp_http: false` and mounting the
+endpoint anyway:
 
 | Key | Effect |
 | --- | --- |
@@ -199,6 +207,8 @@ request returns `401` with the `Unauthorized` envelope above.
 | Unknown key passed to `enable_mcp!`, e.g. `auth_token: 'x'` | `ArgumentError` listing the unknown key and every recognized MCP option. This scope is strict. |
 | Unknown `mcp_`-prefixed key passed to `Otto.new`, e.g. `mcp_tokens:` | Same `ArgumentError`. Non-`mcp_` keys are ignored there, since the constructor forwards its whole options hash. |
 | Bare `endpoint:`, `validation:`, or `rate_limiting:` passed to `enable_mcp!` | `ArgumentError`; they are not MCP options. Use `http_endpoint`, `enable_validation`, `enable_rate_limiting`. Passed to `Otto.new` they are ignored by MCP like any other non-MCP key. |
+| `mcp_enabled:`, `mcp_http:`, or `mcp_stdio:` passed to `enable_mcp!` | `ArgumentError` explaining that they are constructor-only gating options; pass them to `Otto.new`. Before this fix `enable_mcp!(mcp_http: false)` was accepted and still mounted the endpoint. |
+| String-keyed options, e.g. `enable_mcp!('auth_tokens' => ['s3cret'])` | Accepted and applied. Before this fix String keys passed validation but were then ignored, so `'auth_tokens'` normalized to no tokens and the endpoint was served unauthenticated. |
 | Two spellings of one option with different values, e.g. `http_endpoint: '/a', mcp_endpoint: '/b'` | `ArgumentError` naming the canonical option and the conflicting spellings. Identical values are accepted. |
 | `auth_tokens:` supplied but empty, e.g. `ENV['MCP_TOKEN']` unset, `''`, `['']` | `ArgumentError`. Omit the key and pass `allow_unauthenticated: true` for a deliberately open endpoint. |
 | `enable_mcp!` after the instance is frozen | Raises; configure MCP during boot. See [configuration freezing](configuration_freezing.md). |

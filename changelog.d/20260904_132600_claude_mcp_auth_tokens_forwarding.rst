@@ -32,6 +32,19 @@ Fixed
   ``Otto::Security::Config`` accepts the MCP authenticator. (#258)
 - MCP ``requests_per_minute`` and ``tools_per_minute`` are now applied. The
   hardcoded 60 and 20 defaults previously overrode configured values. (#258)
+- String-keyed MCP options silently disabled authentication.
+  ``Otto::MCP::Options.normalize`` symbolized keys for the unrecognized-key
+  check but read only Symbol keys afterwards, so
+  ``enable_mcp!("auth_tokens" => [...])`` was accepted, normalized to no
+  tokens, and served the endpoint unauthenticated. Keys are now symbolized once
+  before anything is read, in both the constructor and ``#enable_mcp!`` scopes.
+  A String key and its Symbol twin with different values raise the same
+  ``Conflicting MCP options`` ``ArgumentError`` as any other alias pair. (#258)
+- ``Otto#enable_mcp!`` accepted the constructor-only gating keys
+  ``mcp_enabled``, ``mcp_http`` and ``mcp_stdio`` and ignored them, so
+  ``enable_mcp!(mcp_http: false)`` still mounted the endpoint. They are only
+  read by ``Otto.new`` and are now rejected by ``#enable_mcp!`` with an
+  ``ArgumentError`` that says so. The constructor still tolerates them. (#258)
 
 Added
 -----

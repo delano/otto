@@ -75,9 +75,68 @@ RSpec.describe Otto::MCP::Options do
     end
 
     %i[endpoint validation rate_limiting].each do |generic|
-      it "does not recognize the bare generic #{generic}" do
-        expect(described_class::RECOGNIZED_KEYS).not_to include(generic)
+      described_class::SCOPES.each do |scope|
+        it "does not recognize the bare generic #{generic} under the #{scope} scope" do
+          expect(described_class::RECOGNIZED_KEYS.fetch(scope)).not_to include(generic)
+        end
       end
+    end
+
+    it 'recognizes a key list for exactly the declared scopes' do
+      expect(described_class::RECOGNIZED_KEYS.keys).to match_array(described_class::SCOPES)
+    end
+  end
+
+  # Keys are symbolized before anything is read. Before this fix the
+  # unrecognized-key guard symbolized (so "auth_tokens" passed it) but
+  # normalization read Symbols only, so enable_mcp!("auth_tokens" => [...])
+  # normalized to auth_tokens: [] and served the endpoint unauthenticated.
+  describe 'String keys' do
+    described_class::SCOPES.each do |scope|
+      it "normalizes a String-keyed auth_tokens to the tokens under the #{scope} scope" do
+        expect(described_class.normalize({ 'auth_tokens' => ['secret'] }, scope)[:auth_tokens])
+          .to eq(['secret'])
+      end
+
+      it "normalizes a String-keyed mcp_ alias under the #{scope} scope" do
+        expect(described_class.normalize({ 'mcp_auth_tokens' => 'secret' }, scope)[:auth_tokens])
+          .to eq(['secret'])
+      end
+
+      it "accepts a String key and its Symbol twin with identical values under the #{scope} scope" do
+        normalized = described_class.normalize({ 'auth_tokens' => ['same'], auth_tokens: ['same'] }, scope)
+        expect(normalized[:auth_tokens]).to eq(['same'])
+      end
+
+      it "raises when a String key and its Symbol twin disagree under the #{scope} scope" do
+        expect { described_class.normalize({ 'auth_tokens' => ['a'], auth_tokens: ['b'] }, scope) }
+          .to raise_error(ArgumentError, /Conflicting MCP options for auth_tokens: .*"auth_tokens"=\["a"\].*:auth_tokens=\["b"\]/)
+      end
+    end
+
+    it 'applies every String-keyed option, not just auth_tokens' do
+      normalized = norm('http_endpoint' => '/api/mcp', 'requests_per_minute' => 5, 'enable_validation' => false)
+      expect(normalized).to eq(defaults.merge(http_endpoint: '/api/mcp', requests_per_minute: 5,
+                                              enable_validation: false))
+    end
+
+    it 'raises on a String-keyed unknown key in the explicit scope' do
+      expect { norm('auth_token' => 'x') }
+        .to raise_error(ArgumentError, /Unknown MCP option\(s\): :auth_token/)
+    end
+
+    it 'still validates a String-keyed value' do
+      expect { norm('auth_tokens' => nil) }
+        .to raise_error(ArgumentError, /resolves to no tokens/)
+    end
+
+    it 'raises on a key that cannot be symbolized in the explicit scope' do
+      expect { norm(42 => 'x') }
+        .to raise_error(ArgumentError, /Unknown MCP option\(s\): 42/)
+    end
+
+    it 'ignores a non-mcp key that cannot be symbolized in the constructor scope' do
+      expect(described_class.normalize({ 42 => 'x' }, :constructor)).to eq(defaults)
     end
   end
 
@@ -116,19 +175,54 @@ RSpec.describe Otto::MCP::Options do
           .to raise_error(ArgumentError, /:foo, :mcp_bar/)
       end
 
-      it 'lists the recognized options in the message' do
+      it 'lists the recognized options for this scope in the message' do
         normalize(nope: 1)
       rescue ArgumentError => e
-        expect(e.message).to include('Recognized MCP options:', ':auth_tokens', ':mcp_auth_tokens',
-                                     ':mcp_endpoint', ':mcp_enabled')
+        expect(e.message).to include('Recognized MCP options (explicit):', ':auth_tokens', ':mcp_auth_tokens',
+                                     ':mcp_endpoint')
+        expect(e.message).not_to include(':mcp_enabled', ':mcp_http', ':mcp_stdio')
       else
         raise 'expected ArgumentError'
       end
 
+      # The pre-#258 docs advertised enable_mcp!(http: true, endpoint: ...);
+      # neither flag was ever read. Rejecting them is the documented break.
+      it 'rejects the pre-#258 http: and stdio: flags instead of dropping them' do
+        expect { normalize(http: true) }
+          .to raise_error(ArgumentError, /Unknown MCP option\(s\): :http/)
+        expect { normalize(stdio: true) }
+          .to raise_error(ArgumentError, /Unknown MCP option\(s\): :stdio/)
+      end
+    end
+
+    # The constructor reads these itself to decide whether to build the server
+    # and mount the endpoint. enable_mcp! always mounts, so accepting
+    # enable_mcp!(mcp_http: false) would be a silent no-op.
+    describe 'constructor-only gating keys' do
       described_class::GATING_KEYS.each do |gating_key|
-        it "tolerates the gating key #{gating_key} and ignores its value" do
-          expect(normalize(gating_key => true)).to eq(defaults)
+        it "rejects #{gating_key} as unrecognized" do
+          expect { normalize(gating_key => false) }
+            .to raise_error(ArgumentError, /Unknown MCP option\(s\): :#{gating_key}/)
         end
+
+        it "explains that #{gating_key} is constructor-only and names Otto.new" do
+          normalize(gating_key => false)
+        rescue ArgumentError => e
+          expect(e.message).to include(":#{gating_key} gate whether MCP is enabled", 'constructor-only',
+                                       'Otto.new', '#enable_mcp!')
+        else
+          raise 'expected ArgumentError'
+        end
+      end
+
+      it 'rejects a String-keyed gating key too' do
+        expect { normalize('mcp_http' => false) }
+          .to raise_error(ArgumentError, /:mcp_http gate whether MCP is enabled/)
+      end
+
+      it 'does not mention gating when the unknown key is not a gating key' do
+        expect { normalize(foo: 1) }
+          .to raise_error(ArgumentError) { |e| expect(e.message).not_to include('constructor-only') }
       end
     end
   end
@@ -193,10 +287,19 @@ RSpec.describe Otto::MCP::Options do
           .to raise_error(ArgumentError, /:mcp_foo, :mcp_bar/)
       end
 
-      described_class::GATING_KEYS.each do |gating_key|
-        it "accepts the gating key #{gating_key} and ignores its value" do
-          expect(normalize(gating_key => true)).to eq(defaults)
+      described_class::GATING_KEYS.product([true, false]).each do |gating_key, value|
+        it "tolerates the gating key #{gating_key}: #{value}, which the constructor reads itself" do
+          expect(normalize(gating_key => value)).to eq(defaults)
         end
+      end
+
+      it 'lists the constructor-scope options, gating keys included, in the message' do
+        normalize(mcp_nope: 1)
+      rescue ArgumentError => e
+        expect(e.message).to include('Recognized MCP options (constructor):', ':mcp_enabled', ':mcp_http',
+                                     ':mcp_stdio', ':mcp_auth_tokens')
+      else
+        raise 'expected ArgumentError'
       end
     end
 
@@ -371,8 +474,8 @@ RSpec.describe Otto::MCP::Options do
   end
 
   it 'does not mutate the input hash' do
-    opts = { mcp_enabled: true, auth_tokens: 'tok' }
-    expect { described_class.normalize(opts) }
+    opts = { mcp_enabled: true, auth_tokens: 'tok', 'mcp_endpoint' => '/api/mcp' }
+    expect { described_class.normalize(opts, :constructor) }
       .not_to(change { opts.dup })
   end
 

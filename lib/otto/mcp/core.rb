@@ -11,12 +11,15 @@ class Otto
       #
       # Options are normalized by Otto::MCP::Server.normalize_options under the
       # :explicit scope. That scope accepts the canonical keys below and their
-      # mcp_-prefixed spellings (:mcp_endpoint, :mcp_auth_tokens, ...), so one
-      # hash can feed both Otto.new and this method.
+      # mcp_-prefixed spellings (:mcp_endpoint, :mcp_auth_tokens, ...), as
+      # String or Symbol keys, so one hash can feed both Otto.new and this
+      # method.
       #
       # It is STRICT: any other key raises ArgumentError rather than being
       # ignored, so a typo such as `enable_mcp!(auth_token: 'x')` fails at boot
-      # instead of quietly leaving the endpoint unauthenticated.
+      # instead of quietly leaving the endpoint unauthenticated. That includes
+      # the constructor-only gating keys (:mcp_enabled, :mcp_http, :mcp_stdio):
+      # this method always enables the HTTP endpoint, so it cannot honour them.
       #
       # @param options [Hash] MCP configuration options
       # @option options [String] :http_endpoint HTTP endpoint path (default: '/_mcp')

@@ -32,6 +32,18 @@ class Otto
     #   singular-vs-plural typo that silently left the endpoint open — into a
     #   boot failure.
     #
+    # The +mcp_+-prefixed gating keys (+mcp_enabled+, +mcp_http+, +mcp_stdio+)
+    # decide *whether* MCP is enabled and are read by the constructor itself
+    # (Otto::Core::Configuration#configure_mcp). The +:constructor+ scope
+    # tolerates them; the +:explicit+ scope rejects them, because
+    # +enable_mcp!(mcp_http: false)+ would otherwise be accepted and still
+    # mount the endpoint.
+    #
+    # Keys may be Strings or Symbols; they are symbolized before anything is
+    # read, so +"auth_tokens" => [...]+ configures authentication exactly like
+    # +auth_tokens:+. A String key and its Symbol twin are two spellings of one
+    # option and conflict when their values differ.
+    #
     # Both scopes accept the canonical output of {.normalize}, so normalization
     # is idempotent under either.
     module Options
@@ -63,14 +75,18 @@ class Otto
       }.freeze
 
       # +mcp_+-prefixed constructor keys that gate *whether* MCP is enabled
-      # rather than configure the server. Recognized in both scopes so neither
-      # the unknown-+mcp_+-key guard nor the strict guard rejects them.
+      # rather than configure the server. Otto.new reads them itself, so the
+      # :constructor scope tolerates them (and never emits them). #enable_mcp!
+      # cannot honour them, so the :explicit scope rejects them.
       # @api private
       GATING_KEYS = %i[mcp_enabled mcp_http mcp_stdio].freeze
 
-      # Every key {.normalize} recognizes, in either scope.
+      # Every key {.normalize} recognizes, per scope.
       # @api private
-      RECOGNIZED_KEYS = (OPTION_ALIASES.values.flatten + GATING_KEYS).freeze
+      RECOGNIZED_KEYS = {
+        constructor: (OPTION_ALIASES.values.flatten + GATING_KEYS).freeze,
+           explicit: OPTION_ALIASES.values.flatten.freeze,
+      }.freeze
 
       # Normalize a constructor- or #enable_mcp!-style option hash into the
       # single canonical shape consumed by {Otto::MCP::Server#enable!}.
@@ -78,18 +94,19 @@ class Otto
       # +scope+ is positional, not a keyword, so a brace-less hash at the call
       # site (+normalize(auth_tokens: ['t'])+) binds to +opts+ as intended.
       #
-      # @param opts [Hash] raw options
+      # @param opts [Hash] raw options; String and Symbol keys are equivalent
       # @param scope [Symbol] :explicit (strict; the default) or :constructor
       #   (permissive about non-MCP keys)
       # @return [Hash] canonical hash with keys :http_endpoint, :auth_tokens,
       #   :enable_validation, :enable_rate_limiting, :requests_per_minute,
       #   :tools_per_minute, :allow_unauthenticated
-      # @raise [ArgumentError] on an unrecognized key, conflicting aliases,
-      #   values of the wrong type, or auth tokens supplied but empty/blank
+      # @raise [ArgumentError] on an unrecognized key, conflicting aliases or
+      #   String/Symbol spellings, values of the wrong type, or auth tokens
+      #   supplied but empty/blank
       def self.normalize(opts = {}, scope = :explicit)
         raise ArgumentError, "Unknown MCP option scope #{scope.inspect}; expected one of #{SCOPES.inspect}" unless SCOPES.include?(scope)
 
-        opts = opts.to_h
+        opts = symbolize_keys(opts.to_h)
         reject_unrecognized_keys!(opts, scope)
 
         canonical = OPTION_DEFAULTS.dup
@@ -98,11 +115,7 @@ class Otto
           next if supplied.empty?
 
           values = supplied.map { |a| opts[a] }
-          if values.uniq.size > 1
-            raise ArgumentError,
-                  "Conflicting MCP options for #{key}: " \
-                  "#{supplied.map { |a| "#{a}=#{opts[a].inspect}" }.join(', ')}"
-          end
+          raise_conflict!(key, supplied.map { |a| [a, opts[a]] }) if values.uniq.size > 1
 
           canonical[key] = coerce_option(key, values.first)
         end
@@ -110,20 +123,60 @@ class Otto
         canonical
       end
 
+      # Symbolize option keys once, so String-keyed options configure the
+      # server instead of passing the unrecognized-key guard (which already
+      # symbolized) and then being ignored by normalization — which is how
+      # +enable_mcp!("auth_tokens" => [...])+ served the endpoint without
+      # authentication.
+      #
+      # A String key and its Symbol twin are two spellings of one option: equal
+      # values collapse, differing values conflict. Keys that cannot be
+      # symbolized are kept as-is for the unrecognized-key guard.
+      # @api private
+      def self.symbolize_keys(opts)
+        seen = {} # symbolized key => [original spelling, value]
+        opts.each do |key, value|
+          sym = key.respond_to?(:to_sym) ? key.to_sym : key
+          raise_conflict!(sym, [seen[sym], [key, value]]) if seen.key?(sym) && seen[sym].last != value
+
+          seen[sym] = [key, value]
+        end
+
+        seen.transform_values(&:last)
+      end
+      private_class_method :symbolize_keys
+
+      # @api private
+      def self.raise_conflict!(key, spellings)
+        raise ArgumentError,
+              "Conflicting MCP options for #{key}: " \
+              "#{spellings.map { |spelling, value| "#{spelling.inspect}=#{value.inspect}" }.join(', ')}"
+      end
+      private_class_method :raise_conflict!
+
       # Reject keys the given scope cannot accept.
       #
-      # :explicit rejects anything unrecognized. :constructor rejects only
+      # :explicit rejects anything unrecognized, including the constructor-only
+      # gating keys, which it explains by name. :constructor rejects only
       # unrecognized +mcp_+-prefixed keys, because it is handed Otto's whole
       # options hash and most keys legitimately belong to other subsystems.
       # @api private
       def self.reject_unrecognized_keys!(opts, scope)
-        unknown = opts.keys.reject { |k| RECOGNIZED_KEYS.include?(k.to_sym) }
+        recognized = RECOGNIZED_KEYS.fetch(scope)
+        unknown    = opts.keys.reject { |k| recognized.include?(k) }
         unknown.select! { |k| k.to_s.start_with?('mcp_') } if scope == :constructor
         return if unknown.empty?
 
+        message = "Unknown MCP option(s): #{unknown.map(&:inspect).join(', ')}. "
+        gating  = unknown & GATING_KEYS
+        unless gating.empty?
+          message += "#{gating.map(&:inspect).join(', ')} gate whether MCP is enabled and are " \
+                     'constructor-only: pass them to Otto.new. #enable_mcp! always enables the ' \
+                     'HTTP endpoint, so it cannot honour them. '
+        end
+
         raise ArgumentError,
-              "Unknown MCP option(s): #{unknown.map(&:inspect).join(', ')}. " \
-              "Recognized MCP options: #{RECOGNIZED_KEYS.map(&:inspect).join(', ')}"
+              message + "Recognized MCP options (#{scope}): #{recognized.map(&:inspect).join(', ')}"
       end
       private_class_method :reject_unrecognized_keys!
 

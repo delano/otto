@@ -38,10 +38,13 @@ class Otto
         # surface as an error, not as a silent 401 and never as success.
         #
         # Timing: the static list is compared in constant time against every
-        # configured key. A black-box lookup cannot be made constant-time by the
-        # strategy; the documented pattern is to store SHA-256 digests and look
-        # up by {APIKeyStrategy.digest}, which is constant-time by construction
-        # and keeps raw keys out of the database.
+        # configured key. Both sides are reduced to fixed-width SHA-256 digests
+        # first, so the comparison never short-circuits on a length mismatch and
+        # the lengths of configured keys are not observable. A black-box lookup
+        # cannot be made constant-time by the strategy; the documented pattern
+        # is to store SHA-256 digests and look up by {APIKeyStrategy.digest},
+        # which is constant-time by construction and keeps raw keys out of the
+        # database.
         #
         # The strategy never places the raw key in the result itself: the only
         # strategy-generated field derived from the key is a short SHA-256
@@ -128,7 +131,7 @@ class Otto
 
             # The most likely naive misuse: `->(k) { k if keys.include?(k) }`.
             # Fail loud before the key can reach the result and env.
-            if user.is_a?(String) && Rack::Utils.secure_compare(user, api_key)
+            if user.is_a?(String) && constant_time_equal?(user, api_key)
               raise ArgumentError,
                     'APIKeyStrategy resolver returned the presented key as the user; ' \
                     'return the account behind the key, not the key'
@@ -169,26 +172,35 @@ class Otto
           # Wrap a static key list in a resolver performing a constant-time,
           # non-short-circuiting membership check.
           def static_resolver(api_keys)
-            # Own frozen copies: `to_s` returns the caller's String, and the
-            # strategy only ever receives a shallow freeze from config
-            # finalization, so a caller mutating its key after boot would
-            # otherwise change which credential is accepted.
-            # Keys are kept verbatim, but a whitespace-only value is a blank
+            # `to_s` returns the caller's String and the strategy only ever
+            # receives a shallow freeze from config finalization, so the digest
+            # is taken now: a caller mutating its key after boot cannot change
+            # which credential is accepted, and the raw keys are not retained.
+            # Keys are matched verbatim, but a whitespace-only value is a blank
             # configuration (`API_KEYS=" "`), not a credential: reject it so the
             # fail-closed startup guarantee covers it.
-            keys = Array(api_keys).map { |key| key.to_s.dup.freeze }.reject { |key| key.strip.empty? }.freeze
-            if keys.empty?
+            digests = Array(api_keys).map(&:to_s).reject { |key| key.strip.empty? }
+                                     .map { |key| self.class.digest(key).freeze }.freeze
+            if digests.empty?
               raise ArgumentError,
                     'APIKeyStrategy requires at least one non-empty API key ' \
                     '(api_keys: was empty or contained only blank values)'
             end
 
             lambda do |presented|
-              matched = keys.reduce(false) do |acc, key|
-                Rack::Utils.secure_compare(key, presented) || acc
+              presented_digest = self.class.digest(presented)
+              matched = digests.reduce(false) do |acc, digest|
+                Rack::Utils.secure_compare(digest, presented_digest) || acc
               end
-              matched ? { api_key_fingerprint: key_fingerprint(presented) } : nil
+              matched ? { api_key_fingerprint: presented_digest[0, 12] } : nil
             end
+          end
+
+          # Constant-time equality that does not leak the length of either side:
+          # `Rack::Utils.secure_compare` returns immediately on a length mismatch,
+          # so compare fixed-width digests instead of the raw values.
+          def constant_time_equal?(left, right)
+            Rack::Utils.secure_compare(self.class.digest(left), self.class.digest(right))
           end
 
           # Short, non-reversible identifier for a key: enough to correlate

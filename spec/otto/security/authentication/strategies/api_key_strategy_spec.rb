@@ -131,6 +131,28 @@ RSpec.describe Otto::Security::Authentication::Strategies::APIKeyStrategy do
       expect(result.failure_reason).to eq('No API key provided')
     end
 
+    it 'compares fixed-width digests so configured key lengths are not observable' do
+      mixed = described_class.new(api_keys: %w[k a-much-longer-configured-key])
+      compared = []
+      allow(Rack::Utils).to receive(:secure_compare).and_wrap_original do |original, left, right|
+        compared << [left, right]
+        original.call(left, right)
+      end
+
+      expect(mixed.authenticate(env_with_header('nope'), nil).authenticated?).to be(false)
+
+      expect(compared.length).to eq(2)
+      expect(compared.flatten.map(&:bytesize).uniq).to eq([64])
+      expect(compared.flatten).not_to include('nope', 'k', 'a-much-longer-configured-key')
+    end
+
+    it 'authenticates keys whose length differs from the presented key length of a sibling' do
+      mixed = described_class.new(api_keys: %w[k a-much-longer-configured-key])
+      expect(mixed.authenticate(env_with_header('k'), nil).authenticated?).to be(true)
+      expect(mixed.authenticate(env_with_header('a-much-longer-configured-key'), nil).authenticated?).to be(true)
+      expect(mixed.authenticate(env_with_header('a-much-longer-configured-ke'), nil).authenticated?).to be(false)
+    end
+
     it 'rejects an array-valued credential terminally instead of raising' do
       opted_in = described_class.new(api_keys: %w[key-one], param_name: 'api_key')
       env = Rack::MockRequest.env_for('/?api_key[]=key-one')

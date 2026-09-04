@@ -34,7 +34,10 @@ otto.add_auth_strategy(
 when none is given, or when an `api_keys:` list normalizes to empty (`[]` or
 only blank strings), so the strategy enforces the check the example above makes
 explicit. A request that presents a key is accepted only when that key matches a
-configured key under constant-time comparison; an empty credential is rejected.
+configured key under constant-time comparison. Both sides are reduced to
+fixed-width SHA-256 digests before comparing, so the check never short-circuits
+on a length mismatch and configured key lengths are not observable. An empty
+credential is rejected.
 A presented-but-invalid key is a terminal failure, so it aborts the strategy
 chain instead of falling through to a later strategy in a multi-strategy `OR`
 route.

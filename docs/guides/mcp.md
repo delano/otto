@@ -52,7 +52,8 @@ accepted by `enable_mcp!` too, so one hash can feed either entry point. The
 bare generic names `endpoint:`, `validation:`, and `rate_limiting:` are **not**
 MCP options: `rate_limiting:` is Otto's own general rate-limiting option and
 carries a Hash, and the other two were documented before Otto 2.9.0 but never
-read.
+read. Neither are `http:` and `stdio:`, which the pre-2.9.0 `enable_mcp!`
+documentation advertised but which were never read either.
 
 Keys may be Strings or Symbols: `enable_mcp!('auth_tokens' => ['s3cret'])`
 configures authentication exactly like `auth_tokens:`. A String key and its
@@ -219,7 +220,7 @@ request returns `401` with the `Unauthorized` envelope above.
 | --- | --- |
 | Unknown key passed to `enable_mcp!`, e.g. `auth_token: 'x'` | `ArgumentError` listing the unknown key and every recognized MCP option. This scope is strict. |
 | Unknown `mcp_`-prefixed key passed to `Otto.new`, e.g. `mcp_tokens:` | Same `ArgumentError`. Non-`mcp_` keys are ignored there, since the constructor forwards its whole options hash. |
-| Bare `endpoint:`, `validation:`, or `rate_limiting:` passed to `enable_mcp!` | `ArgumentError`; they are not MCP options. Use `http_endpoint`, `enable_validation`, `enable_rate_limiting`. Passed to `Otto.new` they are ignored by MCP like any other non-MCP key. |
+| Bare `endpoint:`, `validation:`, `rate_limiting:`, `http:`, or `stdio:` passed to `enable_mcp!` | `ArgumentError`; they are not MCP options. Use `http_endpoint`, `enable_validation`, `enable_rate_limiting`. `http:` and `stdio:` appeared in the pre-2.9.0 `enable_mcp!` docs but were never read; there is no `enable_mcp!` replacement, since it always enables the HTTP endpoint. Passed to `Otto.new` all five are ignored by MCP like any other non-MCP key. |
 | `mcp_enabled:`, `mcp_http:`, or `mcp_stdio:` passed to `enable_mcp!` | `ArgumentError` explaining that they are constructor-only gating options; pass them to `Otto.new`. Before this fix `enable_mcp!(mcp_http: false)` was accepted and still mounted the endpoint. |
 | String-keyed options, e.g. `enable_mcp!('auth_tokens' => ['s3cret'])` | Accepted and applied. Before this fix String keys passed validation but were then ignored, so `'auth_tokens'` normalized to no tokens and the endpoint was served unauthenticated. |
 | Two spellings of one option with different values, e.g. `http_endpoint: '/a', mcp_endpoint: '/b'` | `ArgumentError` naming the canonical option and the conflicting spellings. Identical values are accepted. |

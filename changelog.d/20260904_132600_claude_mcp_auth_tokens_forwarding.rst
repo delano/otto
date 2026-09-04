@@ -78,13 +78,16 @@ Added
 Changed
 -------
 
-- **Behavior change:** the bare generic names ``endpoint``, ``validation`` and
-  ``rate_limiting`` are not MCP options. ``endpoint:`` appeared in the
-  ``#enable_mcp!`` documentation but was never read, ``rate_limiting:`` is
-  Otto's own general rate-limiting option (a Hash) and collided with the MCP
-  flag, and none of the three ever had an effect. Use ``http_endpoint``,
-  ``enable_validation`` and ``enable_rate_limiting``, or their ``mcp_``
-  spellings. (#258)
+- **Behavior change:** the bare generic names ``endpoint``, ``validation``,
+  ``rate_limiting``, ``http`` and ``stdio`` are not MCP options and
+  ``#enable_mcp!`` now rejects them. ``endpoint:`` and ``http:`` appeared in
+  the documented ``otto.enable_mcp!(http: true, endpoint: '/api/mcp')`` but
+  were never read, ``rate_limiting:`` is Otto's own general rate-limiting
+  option (a Hash) and collided with the MCP flag, and none of the five ever
+  had an effect. Use ``http_endpoint``, ``enable_validation`` and
+  ``enable_rate_limiting``, or their ``mcp_`` spellings; ``http:`` and
+  ``stdio:`` have no ``#enable_mcp!`` replacement because it always enables the
+  HTTP endpoint (``Otto.new(mcp_http:, mcp_stdio:)`` is unchanged). (#258)
 - **Behavior change:** ``Otto.new`` (constructor scope) ignores keys it does not
   recognize, since it is handed the whole options hash, but an unrecognized
   ``mcp_``-prefixed key raises ``ArgumentError``. ``Otto#enable_mcp!``
@@ -122,3 +125,6 @@ AI Assistance
 
 - Option normalization design, fail-closed authentication review, and
   documentation developed with AI assistance. (#258)
+- The follow-up review that found the String-keyed option bypass, the
+  custom-endpoint throttle bypass, the double-enable hole and the gating-key
+  no-op was produced by GPT-5.6 Sol. (#258)

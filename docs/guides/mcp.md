@@ -180,6 +180,19 @@ before Otto sets `env['otto.mcp_http_endpoint']`. Before this fix a server on
 `Otto::MCP::RateLimiter.configure_rack_attack!` yourself, pass
 `mcp_http_endpoint:` explicitly.
 
+`Rack::Attack` configuration is process-global and keyed by throttle name, so
+each configured endpoint gets its own pair of throttles, named
+`mcp_requests:<endpoint>` and `mcp_tool_calls:<endpoint>`, with its own limits
+and its own counters. Two Otto apps with MCP on `/a` and `/b` in one process
+are throttled independently; before this fix configuring `/b` replaced the
+`/a` throttles and `/a` stopped being rate limited. Every endpoint configured
+in the process is listed by `Otto::MCP::RateLimiter.registered_endpoints`, and
+the JSON-RPC 429 body and `[MCP]` log prefix apply to all of them. When
+`configure_rack_attack!` is called with no `mcp_http_endpoint:` the throttles
+keep the bare names `mcp_requests` and `mcp_tool_calls` and resolve the
+endpoint per request from `env['otto.mcp_http_endpoint']`, falling back to
+`/_mcp`.
+
 Note that the JSON-RPC 429 body only applies when Otto's *general* rate
 limiting is off. Both rate limiters assign `Rack::Attack.throttled_responder`,
 and the general one is registered last, so when you enable both, throttled MCP
@@ -228,6 +241,7 @@ request returns `401` with the `Unauthorized` envelope above.
 | `mcp_enabled:`, `mcp_http:`, or `mcp_stdio:` passed to `enable_mcp!` | `ArgumentError` explaining that they are constructor-only gating options; pass them to `Otto.new`. Before this fix `enable_mcp!(mcp_http: false)` was accepted and still mounted the endpoint. |
 | String-keyed options, e.g. `enable_mcp!('auth_tokens' => ['s3cret'])` | Accepted and applied. Before this fix String keys passed validation but were then ignored, so `'auth_tokens'` normalized to no tokens and the endpoint was served unauthenticated. |
 | String-keyed gating keys, e.g. `Otto.new(routes, 'mcp_enabled' => true)` | Enables MCP. Before this fix the constructor read the gating keys as Symbols only, so a String-keyed `'mcp_enabled'` enabled nothing while the `'auth_tokens'` beside it was accepted. |
+| Two MCP apps with different endpoints in one process | Each endpoint keeps its own `Rack::Attack` throttles and counters. Before this fix the second app's configuration replaced the first app's throttles and the first endpoint was no longer rate limited. |
 | Two spellings of one option with different values, e.g. `http_endpoint: '/a', mcp_endpoint: '/b'` | `ArgumentError` naming the canonical option and the conflicting spellings. Identical values are accepted. |
 | `auth_tokens:` supplied but empty, e.g. `ENV['MCP_TOKEN']` unset, `''`, `['']` | `ArgumentError`. Omit the key and pass `allow_unauthenticated: true` for a deliberately open endpoint. |
 | `enable_mcp!` when MCP is already enabled, including after `Otto.new(mcp_enabled: true)` | `ArgumentError` naming the existing endpoint. A second enable used to add a second route and leave the first endpoint unauthenticated. |

@@ -3,10 +3,11 @@
 # frozen_string_literal: true
 
 # Rack::Attack keeps its throttles, its throttled responder, and its counter
-# cache in PROCESS-GLOBAL state. Merely constructing an Otto rate-limit
+# cache in PROCESS-GLOBAL state, and Otto::MCP::RateLimiter keeps a
+# process-global registry of configured MCP endpoints beside them. Merely constructing an Otto rate-limit
 # middleware calls configure_rack_attack!, which re-registers the global
-# 'requests' / 'mcp_requests' / 'mcp_tool_calls' throttles with whatever limits
-# that instance was built with — so a spec that builds an Otto with
+# 'requests' / 'mcp_requests:<endpoint>' / 'mcp_tool_calls:<endpoint>'
+# throttles with whatever limits that instance was built with — so a spec that builds an Otto with
 # `requests_per_minute: 5` silently rewrites the limits every later spec sees.
 # Combined with spec_helper's random ordering, that produces failures that only
 # reproduce under one seed.
@@ -65,6 +66,7 @@ RSpec.shared_context 'with rack attack isolation' do
     throttles = Rack::Attack.throttles.dup
     responder = Rack::Attack.throttled_responder
     store     = Rack::Attack.cache.store
+    endpoints = Otto::MCP::RateLimiter.registered_endpoints
 
     clear_rack_attack_store = lambda do
       current = Rack::Attack.cache.store
@@ -80,6 +82,8 @@ RSpec.shared_context 'with rack attack isolation' do
       Rack::Attack.throttles.replace(throttles)
       Rack::Attack.throttled_responder = responder
       Rack::Attack.cache.store         = store
+      Otto::MCP::RateLimiter.reset_endpoints!
+      endpoints.each { |endpoint| Otto::MCP::RateLimiter.register_endpoint(endpoint) }
     end
   end
 end

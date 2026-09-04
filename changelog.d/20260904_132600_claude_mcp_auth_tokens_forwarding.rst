@@ -21,6 +21,16 @@ Security
   server on ``/api/mcp`` was never throttled. The endpoint now travels with the
   rate limiting configuration as ``mcp_http_endpoint``; the JSON-RPC 429 body
   and the ``[MCP]`` log prefix follow it. (#258)
+- MCP rate limiting survives a second MCP app in the same process.
+  ``Rack::Attack`` configuration is process-global and keyed by throttle name,
+  so configuring an MCP server on ``/b`` replaced the ``mcp_requests`` and
+  ``mcp_tool_calls`` throttles registered for ``/a``, including their captured
+  endpoint, and ``/a`` stopped being rate limited. Each configured endpoint now
+  gets its own throttle pair (``mcp_requests:/a``, ``mcp_tool_calls:/a``, ...)
+  with its own limits and counters. The throttled responder and the
+  ``rack.attack`` log subscriber match every endpoint registered in the
+  process (``Otto::MCP::RateLimiter.registered_endpoints``) instead of the
+  most recent one. (#258)
 - ``Otto.new`` reads the ``mcp_enabled``, ``mcp_http`` and ``mcp_stdio``
   gating keys through the MCP option normalizer, so
   ``Otto.new(routes, "mcp_enabled" => true, "auth_tokens" => [...])`` enables
@@ -48,6 +58,9 @@ Fixed
 - ``MiddlewareStack#validate_mcp_middleware_order`` compared raw array indices
   as if they were execution order, so it warned about correct stacks and stayed
   silent about inverted ones. It now reasons over ``#execution_order``. (#258)
+- ``Otto::MCP::RateLimiter.configure_mcp_logging`` subscribes to
+  ``rack.attack`` once per process instead of once per configured MCP app, so
+  a throttle event is logged once rather than once per app. (#258)
 - ``Otto#enable_mcp!(auth_tokens: [...])`` no longer raises ``NoMethodError``;
   ``Otto::Security::Config`` accepts the MCP authenticator. (#258)
 - MCP ``requests_per_minute`` and ``tools_per_minute`` are now applied. The
@@ -84,6 +97,12 @@ Added
 Changed
 -------
 
+- **Behavior change:** the MCP ``Rack::Attack`` throttles are named
+  ``mcp_requests:<endpoint>`` and ``mcp_tool_calls:<endpoint>`` when an
+  endpoint is configured, which is always the case when Otto configures them.
+  Anything that looked up ``Rack::Attack.throttles['mcp_requests']`` must use
+  the endpoint-qualified name; the bare names remain only for a direct
+  ``configure_rack_attack!`` call with no ``mcp_http_endpoint:``. (#258)
 - **Behavior change:** the bare generic names ``endpoint``, ``validation``,
   ``rate_limiting``, ``http`` and ``stdio`` are not MCP options and
   ``#enable_mcp!`` now rejects them. ``endpoint:`` and ``http:`` appeared in
@@ -133,4 +152,5 @@ AI Assistance
   documentation developed with AI assistance. (#258)
 - The follow-up review that found the String-keyed option bypass, the
   custom-endpoint throttle bypass, the double-enable hole, the gating-key
-  no-op and the String-keyed gating keys was produced by GPT-5.6 Sol. (#258)
+  no-op, the String-keyed gating keys and the multi-app throttle replacement
+  was produced by GPT-5.6 Sol. (#258)

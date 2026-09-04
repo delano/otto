@@ -75,7 +75,7 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
       it 'throttles the configured endpoint with no env key present' do
         Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/api/mcp')
 
-        throttle = Rack::Attack.throttles['mcp_requests']
+        throttle = Rack::Attack.throttles['mcp_requests:/api/mcp']
 
         expect(throttle.block.call(bare_request('/api/mcp'))).to eq('203.0.113.9')
         expect(throttle.block.call(bare_request('/_mcp'))).to be_nil
@@ -84,7 +84,7 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
       it 'prefers the configured endpoint over the env key' do
         Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/api/mcp')
 
-        throttle = Rack::Attack.throttles['mcp_requests']
+        throttle = Rack::Attack.throttles['mcp_requests:/api/mcp']
         request  = bare_request('/_mcp', 'otto.mcp_http_endpoint' => '/_mcp')
 
         expect(throttle.block.call(request)).to be_nil
@@ -110,6 +110,112 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
         expect(status).to eq(429)
         expect(headers['content-type']).to eq('application/json')
         expect(JSON.parse(body.join)).to include('jsonrpc' => '2.0')
+      end
+    end
+
+    # Rack::Attack keys throttles by name, process-wide. Registering
+    # 'mcp_requests' for a second MCP app used to replace the first app's
+    # throttle, and with it the captured endpoint: /a went unthrottled the
+    # moment /b was configured.
+    describe 'multiple MCP apps in one process' do
+      let(:token) { 'multi-app-token' }
+      let(:match_data) { { limit: 1, period: 60, epoch_time: Time.now.to_i } }
+
+      def mcp_env(path, ip: '203.0.113.9')
+        Rack::MockRequest.env_for(
+          path,
+          method: 'POST',
+          input: JSON.generate({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+          'CONTENT_TYPE' => 'application/json',
+          'HTTP_AUTHORIZATION' => "Bearer #{token}",
+          'REMOTE_ADDR' => ip
+        )
+      end
+
+      def mcp_app(endpoint, **opts)
+        otto = Otto.new(nil, { mcp_enabled: true, mcp_endpoint: endpoint, auth_tokens: [token] }.merge(opts))
+        Otto.unfreeze_for_testing(otto)
+        otto
+      end
+
+      it 'registers every configured endpoint' do
+        Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/a')
+        Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/b')
+
+        expect(Otto::MCP::RateLimiter.registered_endpoints).to eq(['/a', '/b'])
+      end
+
+      it 'keeps one throttle pair per endpoint, each with its own limit' do
+        Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/a', mcp_requests_per_minute: 1)
+        Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/b', mcp_requests_per_minute: 7)
+
+        expect(Rack::Attack.throttles.keys).to include(
+          'mcp_requests:/a', 'mcp_tool_calls:/a', 'mcp_requests:/b', 'mcp_tool_calls:/b'
+        )
+        expect(Rack::Attack.throttles['mcp_requests:/a'].limit).to eq(1)
+        expect(Rack::Attack.throttles['mcp_requests:/b'].limit).to eq(7)
+      end
+
+      it 'answers JSON-RPC on the first endpoint after a second one is configured' do
+        Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/a')
+        Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/b')
+
+        request = Rack::Attack::Request.new(
+          Rack::MockRequest.env_for('/a', method: 'POST').merge('rack.attack.match_data' => match_data)
+        )
+        status, headers, body = Rack::Attack.throttled_responder.call(request)
+
+        expect(status).to eq(429)
+        expect(headers['content-type']).to eq('application/json')
+        expect(JSON.parse(body.join)).to include('jsonrpc' => '2.0')
+      end
+
+      it 'still throttles the first app after a second app is constructed' do
+        Rack::Attack.cache.store = RackAttackTestStore.new
+
+        app_a = mcp_app('/a', requests_per_minute: 1)
+        app_b = mcp_app('/b', requests_per_minute: 1)
+        stack = Rack::Attack.new(->(env) { env['PATH_INFO'].start_with?('/a') ? app_a.call(env) : app_b.call(env) })
+
+        statuses = ['/a', '/b', '/a', '/b'].map { |path| stack.call(mcp_env(path)).first }
+
+        expect(statuses).to eq([200, 200, 429, 429])
+      end
+
+      it 'counts each endpoint independently' do
+        Rack::Attack.cache.store = RackAttackTestStore.new
+
+        app_a = mcp_app('/a', requests_per_minute: 1)
+        app_b = mcp_app('/b', requests_per_minute: 2)
+        stack = Rack::Attack.new(->(env) { env['PATH_INFO'].start_with?('/a') ? app_a.call(env) : app_b.call(env) })
+
+        expect(stack.call(mcp_env('/a')).first).to eq(200)
+        expect(stack.call(mcp_env('/b')).first).to eq(200)
+        expect(stack.call(mcp_env('/b')).first).to eq(200)
+        expect(stack.call(mcp_env('/b')).first).to eq(429)
+      end
+    end
+
+    describe '.mcp_request?' do
+      def bare_request(path, env = {})
+        Rack::Attack::Request.new(Rack::MockRequest.env_for(path, method: 'POST').merge(env))
+      end
+
+      it 'matches any registered endpoint' do
+        Otto::MCP::RateLimiter.register_endpoint('/a')
+        Otto::MCP::RateLimiter.register_endpoint('/b')
+
+        expect(Otto::MCP::RateLimiter.mcp_request?(bare_request('/a'))).to be true
+        expect(Otto::MCP::RateLimiter.mcp_request?(bare_request('/b'))).to be true
+        expect(Otto::MCP::RateLimiter.mcp_request?(bare_request('/_mcp'))).to be false
+      end
+
+      it 'falls back to the env key, then to /_mcp, when nothing is registered' do
+        Otto::MCP::RateLimiter.reset_endpoints!
+
+        expect(Otto::MCP::RateLimiter.mcp_request?(bare_request('/x', 'otto.mcp_http_endpoint' => '/x'))).to be true
+        expect(Otto::MCP::RateLimiter.mcp_request?(bare_request('/_mcp'))).to be true
+        expect(Otto::MCP::RateLimiter.mcp_request?(bare_request('/x'))).to be false
       end
     end
   end

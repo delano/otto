@@ -15,8 +15,45 @@ end
 class Otto
   module MCP
     # Rate limiter for MCP protocol endpoints
+    #
+    # Rack::Attack configuration is process-global and a throttle is keyed by
+    # name alone, so registering 'mcp_requests' for a second MCP app in the
+    # same process used to REPLACE the first app's throttle: the captured
+    # endpoint moved from /a to /b and /a stopped being rate limited. Each
+    # configured endpoint now gets its own throttle pair
+    # ('mcp_requests:/a', 'mcp_tool_calls:/a', ...) with its own limits, and
+    # every endpoint configured in the process is remembered in
+    # {.registered_endpoints} so the (single, global) throttled responder and
+    # log subscriber recognise all of them, not just the most recent.
     class RateLimiter < Otto::Security::RateLimiting
       DEFAULT_HTTP_ENDPOINT = '/_mcp'
+
+      @endpoints       = Set.new
+      @endpoints_mutex = Mutex.new
+
+      class << self
+        # Every MCP endpoint configured via {.configure_rack_attack!} in this
+        # process, in configuration order.
+        # @return [Array<String>]
+        def registered_endpoints
+          @endpoints_mutex.synchronize { @endpoints.to_a }
+        end
+
+        # Forget every registered endpoint. Test isolation only: production
+        # configuration is additive for the life of the process, like
+        # Rack::Attack's own.
+        # @api private
+        def reset_endpoints!
+          @endpoints_mutex.synchronize { @endpoints.clear }
+        end
+
+        # @api private
+        def register_endpoint(endpoint)
+          return if endpoint.nil?
+
+          @endpoints_mutex.synchronize { @endpoints << endpoint }
+        end
+      end
 
       def self.configure_rack_attack!(config = {})
         return unless defined?(Rack::Attack)
@@ -25,12 +62,13 @@ class Otto
         super
 
         # Add MCP-specific rules
+        register_endpoint(config[:mcp_http_endpoint])
         configure_mcp_rules(config)
         configure_mcp_responses(config)
         configure_mcp_logging(config)
       end
 
-      # Resolve the MCP endpoint a Rack::Attack callback should match against.
+      # Resolve the MCP endpoint a Rack::Attack throttle should match against.
       #
       # Rack::Attack is mounted by the hosting app OUTSIDE Otto and runs before
       # every Otto middleware, including the proc that sets
@@ -47,6 +85,39 @@ class Otto
         configured || env['otto.mcp_http_endpoint'] || DEFAULT_HTTP_ENDPOINT
       end
 
+      # Whether a request targets ANY MCP endpoint configured in this process.
+      #
+      # Used by the throttled responder and the log subscriber, which are
+      # global (the last configuration wins) and so cannot capture a single
+      # endpoint the way a per-endpoint throttle can. Consults the registry at
+      # call time, then the env key, then the default when nothing is
+      # configured at all.
+      #
+      # @param request [Rack::Attack::Request, #path, #env]
+      # @return [Boolean]
+      def self.mcp_request?(request)
+        candidates = registered_endpoints
+        env_endpoint = request.env['otto.mcp_http_endpoint']
+        candidates << env_endpoint if env_endpoint
+        candidates << DEFAULT_HTTP_ENDPOINT if candidates.empty?
+
+        candidates.any? { |endpoint| request.path.start_with?(endpoint) }
+      end
+
+      # Name of the Rack::Attack throttle for +rule+ on +endpoint+.
+      #
+      # The endpoint is part of the name so that two MCP apps in one process
+      # get independent throttles (and independent counters: Rack::Attack keys
+      # the cache by throttle name). Without a configured endpoint the bare
+      # rule name is used and the block resolves the endpoint per request.
+      #
+      # @param rule [String] 'mcp_requests' or 'mcp_tool_calls'
+      # @param endpoint [String, nil]
+      # @return [String]
+      def self.throttle_name(rule, endpoint)
+        endpoint ? "#{rule}:#{endpoint}" : rule
+      end
+
       def self.configure_mcp_rules(config)
         # Captured once, outside the blocks: they run per request, long after
         # this configuration hash is gone.
@@ -55,7 +126,8 @@ class Otto
         # MCP endpoint requests - 60 per minute by default
         mcp_requests_limit = config[:mcp_requests_per_minute] || 60
 
-        Rack::Attack.throttle('mcp_requests', limit: mcp_requests_limit, period: 60) do |request|
+        Rack::Attack.throttle(throttle_name('mcp_requests', configured_endpoint),
+                              limit: mcp_requests_limit, period: 60) do |request|
           endpoint = mcp_endpoint_for(configured_endpoint, request.env)
           request.ip if request.path.start_with?(endpoint)
         end
@@ -63,7 +135,8 @@ class Otto
         # Tool calls are more expensive - 20 per minute by default
         tool_calls_limit = config[:tool_calls_per_minute] || 20
 
-        Rack::Attack.throttle('mcp_tool_calls', limit: tool_calls_limit, period: 60) do |request|
+        Rack::Attack.throttle(throttle_name('mcp_tool_calls', configured_endpoint),
+                              limit: tool_calls_limit, period: 60) do |request|
           endpoint = mcp_endpoint_for(configured_endpoint, request.env)
           if request.path.start_with?(endpoint) && request.post?
             begin
@@ -79,10 +152,10 @@ class Otto
         end
       end
 
-      def self.configure_mcp_responses(config = {})
-        configured_endpoint = config[:mcp_http_endpoint]
-
-        # Override throttled responder to provide JSON-RPC formatted responses for MCP requests
+      def self.configure_mcp_responses(_config = {})
+        # Override throttled responder to provide JSON-RPC formatted responses
+        # for MCP requests. The responder is global, so it matches against
+        # every registered endpoint rather than the one being configured now.
         Rack::Attack.throttled_responder = lambda do |request|
           match_data = request.env['rack.attack.match_data']
           now        = match_data[:epoch_time]
@@ -93,8 +166,7 @@ class Otto
           }
 
           # Check if this is an MCP request
-          endpoint = mcp_endpoint_for(configured_endpoint, request.env)
-          if request.path.start_with?(endpoint)
+          if mcp_request?(request)
             # JSON-RPC error response for MCP
             error_response = {
               jsonrpc: '2.0',
@@ -135,19 +207,21 @@ class Otto
         end
       end
 
-      def self.configure_mcp_logging(config = {})
+      def self.configure_mcp_logging(_config = {})
         return unless defined?(ActiveSupport::Notifications)
 
-        configured_endpoint = config[:mcp_http_endpoint]
+        # One subscriber per process: each MCP app configured here would
+        # otherwise add another, and every throttle event would be logged once
+        # per app. The subscriber consults the endpoint registry per event.
+        ActiveSupport::Notifications.unsubscribe(@log_subscriber) if @log_subscriber
 
         # Masked address only — see the note on the sibling subscriber in
         # Otto::Security::RateLimiting.configure_rack_attack! (issue #219).
-        ActiveSupport::Notifications.subscribe('rack.attack') do |_name, _start, _finish, _request_id, payload|
-          req      = payload[:request]
-          endpoint = mcp_endpoint_for(configured_endpoint, req.env)
-          ip       = Otto::LoggingHelpers.privacy_safe_ip(req.env, req.ip)
+        @log_subscriber = ActiveSupport::Notifications.subscribe('rack.attack') do |_name, _start, _finish, _request_id, payload|
+          req = payload[:request]
+          ip  = Otto::LoggingHelpers.privacy_safe_ip(req.env, req.ip)
 
-          if req.path.start_with?(endpoint)
+          if mcp_request?(req)
             Otto.logger.warn "[MCP] Rate limit #{payload[:match_type]} for #{ip}: #{payload[:matched]}"
           else
             Otto.logger.warn "[Otto] Rate limit #{payload[:match_type]} for #{ip}: #{payload[:matched]}"

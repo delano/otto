@@ -11,6 +11,7 @@ class Otto
         # Session-based authentication strategy
         class SessionStrategy < AuthStrategy
           def initialize(session_key: 'user_id', session_store: nil)
+            super()
             @session_key = session_key
             @session_store = session_store
           end

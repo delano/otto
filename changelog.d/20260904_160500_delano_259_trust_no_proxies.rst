@@ -7,3 +7,8 @@ Added
   forwarded metadata. Applications behind a reverse proxy, including one on
   loopback, must explicitly trust that proxy instead. See
   ``docs/guides/forwarded-authority.md`` for configuration guidance. (#259)
+
+- ``env['otto.peer_relayed']`` records whether a request carried any relay
+  marker header, evaluated before forwarded carriers may be deleted, so
+  ``Otto::CaddyTLS::LocalhostGuard`` still refuses a relayed loopback call once
+  the carriers are stripped. (#259)

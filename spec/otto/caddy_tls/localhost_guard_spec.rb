@@ -121,6 +121,25 @@ RSpec.describe Otto::CaddyTLS::LocalhostGuard do
     end
   end
 
+  describe "env['otto.peer_relayed'] (pre-scrub relay record, otto#259)" do
+    it 'denies when the record says relayed even though the carriers were deleted' do
+      status, = call(remote_addr: '127.0.0.1', headers: { 'otto.peer_relayed' => true })
+      expect(status).to eq(401)
+      expect(downstream.calls).to be_empty
+    end
+
+    it 'allows when the record says not relayed' do
+      expect(call(remote_addr: '127.0.0.1', headers: { 'otto.peer_relayed' => false })[0]).to eq(200)
+    end
+
+    it 'falls back to a header scan when the record is absent or not a Boolean' do
+      expect(call(remote_addr: '127.0.0.1', headers: { 'HTTP_FORWARDED' => 'for=203.0.113.9' })[0]).to eq(401)
+      expect(call(remote_addr: '127.0.0.1',
+                  headers: { 'otto.peer_relayed' => 'true', 'HTTP_FORWARDED' => 'for=1.2.3.4' })[0]).to eq(401)
+      expect(call(remote_addr: '127.0.0.1', headers: { 'otto.peer_relayed' => nil })[0]).to eq(200)
+    end
+  end
+
   describe 'behind IPPrivacyMiddleware (the real Otto stack order)' do
     let(:security_config) { Otto::Security::Config.new }
 
@@ -172,6 +191,33 @@ RSpec.describe Otto::CaddyTLS::LocalhostGuard do
       expect(env['otto.peer_loopback']).to be false       # but the peer check holds
       expect(status).to eq(401)
       expect(downstream.calls).to be_empty
+    end
+
+    it 'denies a Forwarded-relayed loopback call under trusted_proxies: :none (otto#259)' do
+      # Trust-nobody scrubs HTTP_FORWARDED for EVERY peer, including a loopback
+      # one, so a header scan after the scrub would see a direct call. The
+      # pre-scrub env['otto.peer_relayed'] record is what keeps this a deny.
+      security_config.trust_no_proxies!
+
+      env = env_for(remote_addr: '127.0.0.1',
+                    headers: { 'HTTP_FORWARDED' => 'for=203.0.113.9;host=evil.example' })
+      status, = stack_call(env)
+
+      expect(env).not_to have_key('HTTP_FORWARDED') # scrubbed: looks direct
+      expect(env['otto.peer_loopback']).to be true  # and the peer check passes
+      expect(env['otto.peer_relayed']).to be true   # only this record denies
+      expect(status).to eq(401)
+      expect(downstream.calls).to be_empty
+    end
+
+    it 'still allows a genuinely direct loopback call under trusted_proxies: :none' do
+      security_config.trust_no_proxies!
+
+      env = env_for(remote_addr: '127.0.0.1')
+      status, = stack_call(env)
+
+      expect(env['otto.peer_relayed']).to be false
+      expect(status).to eq(200)
     end
 
     it 'allows a direct IPv6 loopback call even when masking rewrites ::1' do

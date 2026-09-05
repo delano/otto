@@ -2603,4 +2603,100 @@ RSpec.describe 'IP Privacy Features' do
       expect { otto.configure_ip_privacy(redis: false) }.not_to raise_error
     end
   end
+
+  describe 'trust-nobody assertion (trusted_proxies: :none, otto#259)' do
+    let(:app) { ->(_env) { [200, {}, ['OK']] } }
+    let(:security_config) do
+      Otto::Security::Config.new.tap do |config|
+        config.trust_no_proxies!
+        config.ip_privacy_config.disable!
+      end
+    end
+    let(:middleware) { Otto::Security::Middleware::IPPrivacyMiddleware.new(app, security_config) }
+
+    around do |example|
+      original_priority = Rack::Request.forwarded_priority.dup
+      example.run
+    ensure
+      Rack::Request.forwarded_priority = original_priority
+    end
+
+    it 'marks every peer as not via a trusted proxy and strips the host carriers' do
+      env = Rack::MockRequest.env_for(
+        'http://origin.example/path',
+        'REMOTE_ADDR' => '203.0.113.50',
+        'HTTP_X_FORWARDED_HOST' => 'attacker.example',
+        'HTTP_FORWARDED' => 'for=192.0.2.10;host=attacker.example;proto=https',
+        'HTTP_X_FORWARDED_PROTO' => 'https'
+      )
+
+      middleware.call(env)
+
+      expect(env['otto.via_trusted_proxy']).to be(false)
+      expect(env).not_to have_key('HTTP_X_FORWARDED_HOST')
+      expect(env).not_to have_key('HTTP_FORWARDED')
+      expect(env).not_to have_key('HTTP_X_FORWARDED_PROTO')
+      expect(Rack::Request.new(env).host).to eq('origin.example')
+    end
+
+    it 'is false for a loopback peer too (no loopback special case)' do
+      env = { 'REMOTE_ADDR' => '127.0.0.1', 'HTTP_X_FORWARDED_HOST' => 'attacker.example' }
+
+      middleware.call(env)
+
+      expect(env['otto.via_trusted_proxy']).to be(false)
+      expect(env).not_to have_key('HTTP_X_FORWARDED_HOST')
+    end
+
+    it 'ignores X-Forwarded-For when resolving the client IP' do
+      env = { 'REMOTE_ADDR' => '203.0.113.50', 'HTTP_X_FORWARDED_FOR' => '198.51.100.9' }
+
+      middleware.call(env)
+
+      expect(env['otto.client_ip']).to eq('203.0.113.50')
+    end
+
+    it 'strips carriers under the DEFAULT (masked) privacy profile too' do
+      masked = Otto::Security::Config.new
+      masked.trust_no_proxies!
+      env = Rack::MockRequest.env_for(
+        'http://origin.example/path',
+        'REMOTE_ADDR' => '203.0.113.50',
+        'HTTP_X_FORWARDED_HOST' => 'attacker.example',
+        'HTTP_FORWARDED' => 'for=192.0.2.10;host=attacker.example'
+      )
+
+      Otto::Security::Middleware::IPPrivacyMiddleware.new(app, masked).call(env)
+
+      expect(env['otto.via_trusted_proxy']).to be(false)
+      expect(env).not_to have_key('HTTP_X_FORWARDED_HOST')
+      expect(env).not_to have_key('HTTP_FORWARDED')
+      expect(Rack::Request.new(env).host).to eq('origin.example')
+    end
+
+    it 'records the pre-scrub relay verdict in otto.peer_relayed' do
+      env = { 'REMOTE_ADDR' => '127.0.0.1', 'HTTP_FORWARDED' => 'for=203.0.113.9' }
+
+      middleware.call(env)
+
+      expect(env).not_to have_key('HTTP_FORWARDED')
+      expect(env['otto.peer_relayed']).to be(true)
+      expect(env['otto.peer_loopback']).to be(true)
+    end
+
+    it 'leaves carriers intact when trust is simply unconfigured (tri-state preserved)' do
+      unconfigured = Otto::Security::Config.new
+      unconfigured.ip_privacy_config.disable!
+      env = Rack::MockRequest.env_for(
+        'http://origin.example/path',
+        'REMOTE_ADDR' => '203.0.113.50',
+        'HTTP_X_FORWARDED_HOST' => 'public.example'
+      )
+
+      Otto::Security::Middleware::IPPrivacyMiddleware.new(app, unconfigured).call(env)
+
+      expect(env).not_to have_key('otto.via_trusted_proxy')
+      expect(env['HTTP_X_FORWARDED_HOST']).to eq('public.example')
+    end
+  end
 end

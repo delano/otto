@@ -78,7 +78,9 @@ class Otto
           # REMOTE_ADDR is rewritten to the masked client IP. Leak-free boolean.
           #
           # TRI-STATE: the key is written ONLY when the operator configured
-          # proxy trust (CIDR matchers or a depth). Present, its value is
+          # proxy trust (CIDR matchers, a depth, or the explicit trust-nobody
+          # assertion `trusted_proxies: :none`, which makes the value false for
+          # every peer, #259). Present, its value is
           # authoritative in both directions — true means the peer matched a
           # CIDR (filter mode) or depth mode is active (configuring a depth
           # asserts the connecting peer IS the operator's proxy tier, #226);
@@ -94,6 +96,13 @@ class Otto
                                    @security_config.proxy_trust_configured?
           via_trusted_proxy = proxy_trust_configured && trusted_proxy?(env['REMOTE_ADDR'])
           env['otto.via_trusted_proxy'] = via_trusted_proxy if proxy_trust_configured
+
+          # Record whether the request was relayed BEFORE the scrub below can
+          # delete the relay markers. Downstream middleware that must
+          # authenticate a direct local call (Otto::CaddyTLS::LocalhostGuard)
+          # runs after this one and would otherwise read a request whose
+          # HTTP_FORWARDED was deleted here as "direct". Leak-free boolean.
+          env['otto.peer_relayed'] = Otto::Utils.relayed_request?(env)
 
           # A peer that failed configured proxy trust cannot supply forwarded
           # host, scheme, or port either. Unconfigured trust (absent tri-state
@@ -416,8 +425,9 @@ class Otto
         # family, so without this an untrusted client would control
         # request.host, request.ssl?, and request.port for every mounted Rack
         # app (Rack::Session's Secure-cookie gate reads ssl?). Delete the
-        # carriers rather than editing them: this path only runs in CIDR filter
-        # mode, where Otto never reads the Forwarded header itself, and a
+        # carriers rather than editing them: this path runs only in CIDR filter
+        # mode or under the trust-nobody assertion (`trusted_proxies: :none`,
+        # #259), neither of which reads the Forwarded header itself, and a
         # hand-rolled RFC 7239 parser that disagrees with Rack's on quoting
         # (e.g. `for=a"b;host=evil`) would let a host= survive the edit.
         # X-Forwarded-For stays, masked or not, because Otto's own resolution

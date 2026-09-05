@@ -35,7 +35,8 @@ class Otto
       # @param rate_limiting [Boolean, Hash] Enable rate limiting
       #   - `true`: Enable with default settings
       #   - `Hash`: Provide custom rate limiting rules
-      # @param trusted_proxies [String, Array<String>] IP addresses or CIDR ranges to trust
+      # @param trusted_proxies [String, Array<String>, Symbol] IP addresses or
+      #   CIDR ranges to trust, or :none to assert that no proxy is trusted
       # @param trusted_proxy_depth [Integer, nil] Count-based proxy depth ("trust
       #   the last N hops") for non-enumerable proxy tiers; mutually exclusive
       #   with trusted_proxies (validated at configuration freeze)
@@ -76,7 +77,11 @@ class Otto
         enable_request_validation! if request_validation
         enable_rate_limiting!(rate_limiting.is_a?(Hash) ? rate_limiting : {}) if rate_limiting
 
-        Array(trusted_proxies).each { |proxy| add_trusted_proxy(proxy) }
+        if Otto::Security::Config.trust_no_proxies_option?(trusted_proxies)
+          trust_no_proxies!
+        else
+          Array(trusted_proxies).each { |proxy| add_trusted_proxy(proxy) }
+        end
         self.trusted_proxy_depth = trusted_proxy_depth unless trusted_proxy_depth.nil?
         self.trusted_proxy_header = trusted_proxy_header unless trusted_proxy_header.nil?
         # Proxy trust configured here (after Otto.new) commits the app to its
@@ -139,6 +144,17 @@ class Otto
       # @param proxy [String, Regexp] IP address, CIDR range, or regex pattern
       def add_trusted_proxy(proxy)
         @security_config.add_trusted_proxy(proxy)
+      end
+
+      # Assert that NO proxy is trusted (equivalent to `trusted_proxies:
+      # :none`). Makes env['otto.via_trusted_proxy'] false for every peer, so
+      # forwarded client-IP and host/scheme/port carriers are ignored and
+      # stripped. See Otto::Security::Config#trust_no_proxies!.
+      #
+      # @raise [ArgumentError] if trusted proxies or a depth >= 1 are configured
+      # @return [void]
+      def trust_no_proxies!
+        @security_config.trust_no_proxies!
       end
 
       # Set count-based trusted-proxy depth ("trust the last N hops") for

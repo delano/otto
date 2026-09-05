@@ -64,13 +64,9 @@ class Otto
     class LocalhostGuard
       # Forwarding headers whose presence means the request was relayed by a
       # proxy rather than issued directly. Any one present => not a direct local
-      # call. Mirrors Otto::Utils::FORWARDED_FOR_HEADERS plus RFC 7239 Forwarded.
-      FORWARDED_HEADERS = %w[
-        HTTP_X_FORWARDED_FOR
-        HTTP_X_REAL_IP
-        HTTP_X_CLIENT_IP
-        HTTP_FORWARDED
-      ].freeze
+      # call. The forwarded-for family plus RFC 7239 Forwarded, shared with
+      # IPPrivacyMiddleware's pre-scrub record so the two cannot drift.
+      FORWARDED_HEADERS = Otto::Utils::RELAY_MARKER_HEADERS
 
       # @param app [#call] the downstream Rack app
       # @param endpoint [String] the path to protect (e.g. '/_caddy/tls-permission')
@@ -100,27 +96,25 @@ class Otto
 
       # Whether any forwarding header is present (request came via a proxy).
       #
-      # Unlike the peer check, this reads header STATE, which IPPrivacyMiddleware
-      # has already touched by the time the guard runs. That is safe in both of
-      # its paths, but only for a reason worth writing down:
+      # Unlike the peer check, a header scan reads STATE that IPPrivacyMiddleware
+      # has already touched by the time the guard runs, and one of its paths
+      # DELETES relay markers while REMOTE_ADDR stays loopback: the
+      # untrusted-peer scrub, which removes HTTP_FORWARDED for every peer under
+      # `trusted_proxies: :none` and for any unlisted peer in CIDR mode. A
+      # request relayed over loopback by a proxy emitting only RFC 7239
+      # `Forwarded` would then look direct, turning a deny into an allow.
       #
-      # - Masking REWRITES a forwarded header to the masked IP rather than
-      #   removing it, so a relayed request still looks relayed. Correct — it was.
-      # - The no-resolvable-client-IP path DELETES them, which would make a
-      #   relayed request look direct. That path is reached only when REMOTE_ADDR
-      #   is absent or blank, which forces otto.peer_loopback to false, so
-      #   #direct_local_call? denies on the peer check before this one matters.
-      #
-      # So header deletion upstream cannot turn a deny into an allow — but that
-      # rests on the peer check failing closed for a blank address. Anything that
-      # makes an unresolvable-IP request keep a loopback peer verdict would need
-      # to record the relay state pre-scrub too (an otto.peer_relayed sibling to
-      # otto.peer_loopback).
+      # So prefer +env['otto.peer_relayed']+ — IPPrivacyMiddleware's verdict on
+      # the ORIGINAL headers, recorded before any scrub — and fall back to the
+      # live scan only when the guard runs without that middleware.
       #
       # @param env [Hash] Rack environment
       # @return [Boolean]
       def relayed?(env)
-        FORWARDED_HEADERS.any? { |header| !env[header].to_s.strip.empty? }
+        recorded = env['otto.peer_relayed']
+        return recorded if [true, false].include?(recorded)
+
+        Otto::Utils.relayed_request?(env)
       end
 
       # Whether this request is for the protected endpoint. Normalizes

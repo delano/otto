@@ -230,6 +230,21 @@ RSpec.describe Otto::Utils do
       expect(Otto::Utils.private_ip?("203.0.113.5")).to be false
     end
 
+    it "treats RFC 6598 shared address space (CGNAT) as non-public" do
+      expect(Otto::Utils.private_ip?("100.64.0.1")).to be true
+      expect(Otto::Utils.private_ip?("100.127.255.255")).to be true
+      # Neighbours outside 100.64.0.0/10 stay public.
+      expect(Otto::Utils.private_ip?("100.63.255.255")).to be false
+      expect(Otto::Utils.private_ip?("100.128.0.1")).to be false
+    end
+
+    it "keeps documentation ranges public so example clients are not skipped" do
+      expect(Otto::Utils.private_ip?("203.0.113.10")).to be false
+      expect(Otto::Utils.private_ip?("192.0.2.1")).to be false
+      expect(Otto::Utils.private_ip?("198.51.100.1")).to be false
+      expect(Otto::Utils.private_ip?("2001:db8::1")).to be false
+    end
+
     it "recognizes IPv6 loopback, ULA, link-local, multicast and unspecified" do
       expect(Otto::Utils.private_ip?("::1")).to be true             # loopback
       expect(Otto::Utils.private_ip?("fc00::1")).to be true         # ULA
@@ -325,6 +340,14 @@ RSpec.describe Otto::Utils do
         "HTTP_X_FORWARDED_FOR" => "203.0.113.50, 10.0.0.9, 10.0.0.1",
       }
       expect(Otto::Utils.resolve_client_ip(env, config_with("10.0.0.0/8"))).to eq("203.0.113.50")
+    end
+
+    it "walks past a CGNAT proxy hop to the documentation-range client" do
+      env = {
+        "REMOTE_ADDR" => "100.64.5.5",
+        "HTTP_X_FORWARDED_FOR" => "203.0.113.10, 100.64.5.5",
+      }
+      expect(Otto::Utils.resolve_client_ip(env, config_with("100.64.0.0/10"))).to eq("203.0.113.10")
     end
 
     it "honors X-Real-IP and X-Client-IP in addition to X-Forwarded-For" do

@@ -20,7 +20,7 @@ This lazy approach allows multi-app architectures (like OneTime Secret's registr
 
 - **Security Config**: All security settings including CSRF, validation, rate limiting, and headers
 - **Middleware Stack**: Prevents adding, removing, or modifying middleware after initialization
-- **Routes**: All route structures (`@routes`, `@routes_literal`, `@routes_static`, `@route_definitions`)
+- **Routes**: All route structures (`@routes`, `@routes_literal`, `@route_definitions`)
 - **Configuration Hashes**: `@auth_config`, `@locale_config`, `@option` and all nested structures
 
 ## Security Guarantees

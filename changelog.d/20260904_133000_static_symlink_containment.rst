@@ -11,14 +11,8 @@ Security
   looping and non-directory components fail closed. A symlinked public root
   (the usual ``public -> releases/<n>/public`` deploy layout) still works.
 
-- Re-check containment on cached static routes (#257). ``routes_static``
-  caches the *directory* of an approved file, and a cache hit previously
-  skipped ``safe_file?`` entirely, authorizing every sibling of an
-  already-served asset. The cache is now only a dispatch-ordering hint, and it
-  is keyed on the canonical directory of a validated file instead of the raw
-  request path (which let ``.`` segments mint unbounded keys). Static
-  responses are served from the validated canonical path: ``Rack::Files`` is
-  rooted at the canonical public directory and ``PATH_INFO`` is rewritten to
-  the canonical relative path, so neither the root nor the path below it is
+- Serve static responses from the validated canonical path (#257).
+  ``Rack::Files`` is rooted at the canonical public directory and receives the
+  canonical relative path, so neither the root nor the path below it is
   traversed through a symlink at open time. NUL bytes in a request path are
   rejected rather than stripped.

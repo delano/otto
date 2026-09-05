@@ -9,7 +9,8 @@ routes.
 - How to enable an MCP HTTP endpoint
 - How the endpoint coexists with ordinary Otto web routes
 - How to send a JSON-RPC 2.0 `initialize` request
-- The current resource, tool, and authentication limitations described below
+- How bearer-token authentication protects the endpoint
+- The current resource and tool limitations described below
 
 ## Features Demonstrated
 
@@ -54,15 +55,19 @@ The server listens at `http://localhost:9292` by default.
 - **Health check**: `curl -i http://localhost:9292/health` returns `200` and `OK`.
 - **MCP endpoint**: Send JSON-RPC 2.0 requests to `http://localhost:9292/_mcp`.
 
+## Authentication
+
+`config.ru` configures two bearer tokens, and Otto enforces them: every request
+to `/_mcp` must send `Authorization: Bearer demo-token-123` (or
+`X-MCP-Token: demo-token-123`). Requests without a valid token get HTTP `401`
+and a JSON-RPC `Unauthorized` error. The `requests_per_minute` and
+`tools_per_minute` values in `config.ru` are applied as configured. See the
+[MCP guide](../../docs/guides/mcp.md) for the full option list.
+
 ## Current Limitations
 
-The `auth_tokens`, `requests_per_minute`, and `tools_per_minute` values shown in
-`config.ru` are not forwarded to the MCP server by the current configuration
-path. Consequently, this example's endpoint does not require either displayed
-bearer token and its configured rate-limit values are not applied.
-
-Likewise, although `routes` contains `MCP /users` and `TOOL /create_user`
-declarations, the current route-loading path does not register them. Therefore
+Although `routes` contains `MCP /users` and `TOOL /create_user` declarations,
+the current route-loading path does not register them. Therefore
 `resources/list` and `tools/list` both return empty arrays, and `resources/read`
 or `tools/call` for those names fails. This README documents the runnable
 endpoint behavior; do not use this example as a resource or tool integration
@@ -77,15 +82,15 @@ All MCP interactions use the `POST /_mcp` endpoint. Each request is a JSON-RPC 2
 - `id`: Request ID (for matching responses)
 - `params`: Optional parameters as an object
 
-Required header:
+Required headers:
 - `Content-Type: application/json`
-
-`Authorization: Bearer <token>` is accepted but not enforced by the current example configuration.
+- `Authorization: Bearer demo-token-123` (or `X-MCP-Token: demo-token-123`)
 
 Example:
 ```sh
 curl -X POST http://localhost:9292/_mcp \
   -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer demo-token-123' \
   -d '{
     "jsonrpc": "2.0",
     "method": "initialize",
@@ -101,6 +106,7 @@ The `initialize` method is a built-in MCP method that returns information about 
 ```sh
 curl -X POST http://localhost:9292/_mcp \
      -H 'Content-Type: application/json' \
+     -H 'Authorization: Bearer demo-token-123' \
      -d '{"jsonrpc":"2.0","method":"initialize","id":1,"params":{}}'
 ```
 
@@ -113,10 +119,12 @@ confirm the current registry state, run:
 ```sh
 curl -X POST http://localhost:9292/_mcp \
   -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer demo-token-123' \
   -d '{"jsonrpc":"2.0","method":"resources/list","id":2}'
 
 curl -X POST http://localhost:9292/_mcp \
   -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer demo-token-123' \
   -d '{"jsonrpc":"2.0","method":"tools/list","id":3}'
 ```
 

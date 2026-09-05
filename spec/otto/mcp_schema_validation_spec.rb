@@ -58,11 +58,11 @@ RSpec.describe Otto::MCP do
         expect(Otto::Security::RateLimiting).not_to have_received(:ensure_available!)
       end
 
-      it 'requires optional security gems unless the features are explicitly false' do
+      it 'requires optional security gems by default' do
         allow(Otto::MCP::Validator).to receive(:ensure_available!).and_call_original
         allow(Otto::Security::RateLimiting).to receive(:ensure_available!).and_call_original
 
-        server.enable!(enable_validation: nil, enable_rate_limiting: nil)
+        server.enable!
 
         expect(Otto::MCP::Validator).to have_received(:ensure_available!).at_least(:once)
         expect(Otto::Security::RateLimiting).to have_received(:ensure_available!).at_least(:once)

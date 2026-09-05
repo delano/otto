@@ -289,10 +289,16 @@ RSpec.describe Otto, 'Configuration Methods' do
 
   describe '#configure_mcp' do
     let(:app) { Otto.new }
+    let(:normalized_defaults) { Otto::MCP::Options.normalize({}, :constructor) }
 
     before do
-      # Mock the Otto::MCP::Server class
+      # Mock the Otto::MCP::Server class, keeping the real option normalizer so
+      # the hash configure_mcp forwards is the one production code builds.
+      real_server = Otto::MCP::Server
       stub_const('Otto::MCP::Server', Class.new do
+        define_singleton_method(:normalize_options) do |opts, scope = :explicit|
+          real_server.normalize_options(opts, scope)
+        end
         def initialize(otto_instance); end
         def enable!(options); end
       end)
@@ -325,6 +331,20 @@ RSpec.describe Otto, 'Configuration Methods' do
       expect(server).to be_a(Otto::MCP::Server)
     end
 
+    it 'initializes MCP server when a String-keyed "mcp_enabled" is true' do
+      app.send(:configure_mcp, { 'mcp_enabled' => true })
+
+      expect(app.instance_variable_get(:@mcp_server)).to be_a(Otto::MCP::Server)
+    end
+
+    it 'does not enable MCP server when a String-keyed "mcp_http" is false' do
+      server_double = instance_double(Otto::MCP::Server)
+      allow(Otto::MCP::Server).to receive(:new).and_return(server_double)
+      expect(server_double).not_to receive(:enable!)
+
+      app.send(:configure_mcp, { 'mcp_enabled' => true, 'mcp_http' => false })
+    end
+
     it 'does not enable MCP server when mcp_http is explicitly false' do
       server_double = instance_double(Otto::MCP::Server)
       allow(Otto::MCP::Server).to receive(:new).and_return(server_double)
@@ -336,7 +356,7 @@ RSpec.describe Otto, 'Configuration Methods' do
     it 'enables MCP server with default options' do
       server_double = instance_double(Otto::MCP::Server)
       allow(Otto::MCP::Server).to receive(:new).and_return(server_double)
-      expect(server_double).to receive(:enable!).with({})
+      expect(server_double).to receive(:enable!).with(normalized_defaults)
 
       app.send(:configure_mcp, { mcp_enabled: true })
     end
@@ -344,7 +364,8 @@ RSpec.describe Otto, 'Configuration Methods' do
     it 'enables MCP server with custom endpoint' do
       server_double = instance_double(Otto::MCP::Server)
       allow(Otto::MCP::Server).to receive(:new).and_return(server_double)
-      expect(server_double).to receive(:enable!).with({ http_endpoint: '/custom-mcp' })
+      expect(server_double).to receive(:enable!)
+        .with(normalized_defaults.merge(http_endpoint: '/custom-mcp'))
 
       app.send(:configure_mcp, {
                  mcp_enabled: true,
@@ -355,10 +376,9 @@ RSpec.describe Otto, 'Configuration Methods' do
     it 'forwards explicitly disabled optional security features' do
       server_double = instance_double(Otto::MCP::Server)
       allow(Otto::MCP::Server).to receive(:new).and_return(server_double)
-      expect(server_double).to receive(:enable!).with({
-                                                        enable_validation: false,
-                                                        enable_rate_limiting: false,
-                                                      })
+      expect(server_double).to receive(:enable!).with(
+        normalized_defaults.merge(enable_validation: false, enable_rate_limiting: false)
+      )
 
       app.send(:configure_mcp, {
                  mcp_enabled: true,

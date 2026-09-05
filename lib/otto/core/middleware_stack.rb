@@ -121,54 +121,54 @@ class Otto
         @on_change_callback&.call
       end
 
-      # Validate MCP middleware ordering
+      # MCP middleware in security-optimal EXECUTION order, outermost first.
+      # @api private
+      MCP_MIDDLEWARE_EXECUTION_ORDER = [
+        'Otto::MCP::RateLimitMiddleware',
+        'Otto::MCP::Auth::TokenMiddleware',
+        'Otto::MCP::SchemaValidationMiddleware',
+      ].freeze
+
+      # Validate MCP middleware ordering.
       #
-      # MCP middleware must be in security-optimal order:
-      # 1. RateLimitMiddleware (reject excessive requests early)
+      # MCP middleware must run in this order, where "before" means "sees the
+      # request first" — i.e. is the further-out wrapper:
+      # 1. RateLimitMiddleware (shed excessive load early)
       # 2. Auth middleware (validate credentials before parsing)
       # 3. SchemaValidationMiddleware (expensive JSON schema validation last)
+      #
+      # This reasons over #execution_order, NOT over raw array indices. Array
+      # order is the reverse of execution order (see #add_with_position), so the
+      # earlier index-based implementation reported exactly the wrong stacks as
+      # correct.
       #
       # @return [Array<String>] Warning messages if order is suboptimal
       def validate_mcp_middleware_order
         warnings = []
 
-        # PERFORMANCE NOTE: This implementation intentionally uses select + find_index
-        # rather than a single-pass approach. The filtered mcp_middlewares array is
-        # typically 0-3 items, making the performance difference unmeasurable.
-        # The current approach prioritizes readability over micro-optimization.
-        # Single-pass alternatives were considered but rejected as premature optimization.
-        mcp_middlewares = @stack.select do |entry|
-          [
-            Otto::MCP::RateLimitMiddleware,
-            Otto::MCP::Auth::TokenMiddleware,
-            Otto::MCP::SchemaValidationMiddleware,
-          ].include?(entry[:middleware])
+        # 0-3 items in practice; clarity beats a single-pass micro-optimization.
+        mcp_middlewares = execution_order.select do |middleware|
+          MCP_MIDDLEWARE_EXECUTION_ORDER.include?(middleware.to_s)
         end
 
         return warnings if mcp_middlewares.size < 2
 
-        # Find positions
-        rate_limit_pos = mcp_middlewares.find_index { |e| e[:middleware] == Otto::MCP::RateLimitMiddleware }
-        auth_pos = mcp_middlewares.find_index { |e| e[:middleware] == Otto::MCP::Auth::TokenMiddleware }
-        validation_pos = mcp_middlewares.find_index { |e| e[:middleware] == Otto::MCP::SchemaValidationMiddleware }
+        # Positions in EXECUTION order: smaller means it sees the request
+        # sooner. The same class can be registered more than once (entries are
+        # keyed on class + args + options), so compare the LAST occurrence of
+        # the outer middleware against the FIRST occurrence of the inner one:
+        # the order is only right when every outer occurrence precedes every
+        # inner occurrence. Checking first-vs-first would pass a stack shaped
+        # rate-limit, auth, rate-limit.
+        first_position = ->(name) { mcp_middlewares.find_index { |m| m.to_s == name } }
+        last_position  = ->(name) { mcp_middlewares.rindex { |m| m.to_s == name } }
 
-        # Check optimal order: rate_limit < auth < validation
-        if rate_limit_pos && auth_pos && rate_limit_pos > auth_pos
-          warnings << <<~MSG.chomp
-            [MCP Middleware] RateLimitMiddleware should come before TokenMiddleware
-          MSG
-        end
+        MCP_MIDDLEWARE_EXECUTION_ORDER.combination(2) do |outer, inner|
+          outer_pos = last_position.call(outer)
+          inner_pos = first_position.call(inner)
+          next unless outer_pos && inner_pos && outer_pos > inner_pos
 
-        if auth_pos && validation_pos && auth_pos > validation_pos
-          warnings << <<~MSG.chomp
-            [MCP Middleware] TokenMiddleware should come before SchemaValidationMiddleware
-          MSG
-        end
-
-        if rate_limit_pos && validation_pos && rate_limit_pos > validation_pos
-          warnings << <<~MSG.chomp
-            [MCP Middleware] RateLimitMiddleware should come before SchemaValidationMiddleware
-          MSG
+          warnings << "[MCP Middleware] #{outer.split('::').last} should run before #{inner.split('::').last}"
         end
 
         warnings

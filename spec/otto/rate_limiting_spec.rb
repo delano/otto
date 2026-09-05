@@ -139,6 +139,36 @@ RSpec.describe Otto, 'rate limiting features' do
         expect(Rack::Attack.throttles).to have_key('requests')
       end
 
+      it 'skips internal /_ paths' do
+        Otto::Security::RateLimiting.configure_rack_attack!({})
+        throttle = Rack::Attack.throttles['requests']
+
+        request = Rack::Attack::Request.new(
+          Rack::MockRequest.env_for('/_mcp', 'REMOTE_ADDR' => '203.0.113.9')
+        )
+        expect(throttle.block.call(request)).to be_nil
+
+        request = Rack::Attack::Request.new(
+          Rack::MockRequest.env_for('/data', 'REMOTE_ADDR' => '203.0.113.9')
+        )
+        expect(throttle.block.call(request)).to eq('203.0.113.9')
+      end
+
+      # The internal-path skip reads PATH_INFO, like the router. Under
+      # `map '/api' { use Rack::Attack; run otto }` the request for /_mcp is
+      # SCRIPT_NAME=/api, PATH_INFO=/_mcp; Rack::Request#path (/api/_mcp)
+      # used to hide the /_ prefix and the internal request was counted.
+      it 'skips internal /_ paths by PATH_INFO, ignoring SCRIPT_NAME' do
+        Otto::Security::RateLimiting.configure_rack_attack!({})
+        throttle = Rack::Attack.throttles['requests']
+
+        request = Rack::Attack::Request.new(
+          Rack::MockRequest.env_for('/_mcp', 'REMOTE_ADDR' => '203.0.113.9', script_name: '/api')
+        )
+        expect(request.path).to eq('/api/_mcp')
+        expect(throttle.block.call(request)).to be_nil
+      end
+
       it 'configures custom rules' do
         config = {
           custom_rules: {
@@ -299,22 +329,28 @@ RSpec.describe Otto, 'rate limiting features' do
   # registered. Stand in a minimal Notifications double to capture the block and
   # drive it with a payload.
   describe 'blocked-request logging' do
+    # register_endpoint below writes the process-global endpoint registry.
+    include_context 'with rack attack isolation'
+
     let(:notifications) do
       Class.new do
         attr_reader :subscriptions, :subscribe_calls
 
         def initialize
-          @subscriptions   = {}
+          @subscriptions   = []
           @subscribe_calls = 0
         end
 
         def subscribe(name, &block)
           @subscribe_calls += 1
-          @subscriptions[name] = block
+          @subscriptions << [name, block]
+          block
         end
 
+        def unsubscribe(subscriber) = @subscriptions.reject! { |_, block| block.equal?(subscriber) }
+
         def publish(name, payload)
-          @subscriptions.fetch(name).call(name, nil, nil, nil, payload)
+          @subscriptions.each { |n, block| block.call(name, nil, nil, nil, payload) if n == name }
         end
       end.new
     end
@@ -322,7 +358,7 @@ RSpec.describe Otto, 'rate limiting features' do
     let(:logged) { [] }
 
     def publish_throttle(env)
-      request = instance_double('Rack::Request', env: env, ip: env['REMOTE_ADDR'], path: env['PATH_INFO'])
+      request = instance_double('Rack::Request', env: env, ip: env['REMOTE_ADDR'], path_info: env['PATH_INFO'])
       notifications.publish('rack.attack', request: request, match_type: :throttle, matched: 'requests')
     end
 
@@ -360,6 +396,39 @@ RSpec.describe Otto, 'rate limiting features' do
       expect(logged.last).to start_with('[MCP]')
       expect(logged.last).to include('198.51.100.0')
       expect(logged.last).not_to include('198.51.100.42')
+    end
+
+    # Each MCP app configured in a process used to add another subscriber, so
+    # one throttle event was logged once per app.
+    it 'keeps a single MCP subscriber across repeated configuration' do
+      Otto::MCP::RateLimiter.configure_logging
+      Otto::MCP::RateLimiter.configure_logging
+
+      publish_throttle('REMOTE_ADDR' => '198.51.100.42', 'PATH_INFO' => '/_mcp')
+
+      expect(logged.size).to eq(1)
+    end
+
+    it 'logs the [MCP] prefix for every registered endpoint' do
+      Otto::MCP::RateLimiter.register_endpoint('/a')
+      Otto::MCP::RateLimiter.register_endpoint('/b')
+      Otto::MCP::RateLimiter.configure_logging
+
+      publish_throttle('REMOTE_ADDR' => '198.51.100.42', 'PATH_INFO' => '/a')
+      publish_throttle('REMOTE_ADDR' => '198.51.100.42', 'PATH_INFO' => '/b')
+
+      expect(logged).to all(start_with('[MCP]'))
+    end
+
+    # The subscriber classifies by the exact endpoint the router dispatches,
+    # not by prefix: /admin beside an endpoint at /a is an [Otto] event.
+    it 'logs the [Otto] prefix for a sibling path sharing an endpoint prefix' do
+      Otto::MCP::RateLimiter.register_endpoint('/a')
+      Otto::MCP::RateLimiter.configure_logging
+
+      publish_throttle('REMOTE_ADDR' => '198.51.100.42', 'PATH_INFO' => '/admin')
+
+      expect(logged.last).to start_with('[Otto]')
     end
 
     it 'masks the IP on the MCP subscriber for non-MCP paths' do

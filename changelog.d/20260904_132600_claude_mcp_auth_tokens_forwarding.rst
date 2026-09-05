@@ -51,6 +51,17 @@ Security
   that counter was exhausted, and challenged for a bearer token; an endpoint of
   ``/`` claimed every route. ``Otto::MCP.endpoint_path?`` now applies the
   router's path normalization to both sides and compares for equality. (#258)
+- MCP throttles fire for an Otto mounted under a prefix. The ``mcp_requests``
+  and ``mcp_tool_calls`` throttles, the JSON-RPC 429 responder and the
+  ``[MCP]`` log subscriber compared ``Rack::Request#path``, which prepends
+  ``SCRIPT_NAME``, against the endpoint, while the router dispatches on
+  ``PATH_INFO`` alone. Under ``map '/api' { use Rack::Attack; run otto }`` the
+  MCP request read as ``/api/_mcp``, never equalled ``/_mcp``, and was never
+  throttled; the general ``requests`` throttle's internal-path skip
+  (``/_`` prefix) missed it the same way and counted it instead. All of them
+  now compare ``PATH_INFO``. ``Rack::Attack`` must sit inside the same ``map``
+  as Otto so it sees the same split; ``docs/guides/mcp.md`` shows the
+  ``config.ru``. (#258)
 - ``Otto::MCP::Server#enable!`` raises ``ArgumentError`` when the server is
   already enabled. A second call appended a new route and middleware without
   removing the first set, so ``enable!(http_endpoint: '/new')`` after

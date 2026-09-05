@@ -315,6 +315,106 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
         expect(JSON.parse(body.join)).to include('jsonrpc' => '2.0')
       end
     end
+
+    # The router dispatches on PATH_INFO alone. Under `map '/api' { run otto }`
+    # the MCP request arrives as SCRIPT_NAME=/api, PATH_INFO=/_mcp, and
+    # Rack::Request#path (SCRIPT_NAME + PATH_INFO) reads /api/_mcp: comparing
+    # #path against the endpoint meant a mounted Otto was never throttled.
+    describe 'mounted under a prefix' do
+      let(:match_data) { { limit: 1, period: 60, epoch_time: Time.now.to_i } }
+
+      def mounted_request(script_name, path_info, env = {})
+        Rack::Attack::Request.new(
+          Rack::MockRequest.env_for(path_info, method: 'POST', 'REMOTE_ADDR' => '203.0.113.9',
+                                               script_name: script_name).merge(env)
+        )
+      end
+
+      def tools_call_body
+        StringIO.new(JSON.generate({ jsonrpc: '2.0', id: 1, method: 'tools/call' }))
+      end
+
+      it 'throttles the endpoint by PATH_INFO, ignoring SCRIPT_NAME' do
+        Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/_mcp')
+        throttle = Rack::Attack.throttles['mcp_requests:/_mcp']
+
+        request = mounted_request('/api', '/_mcp')
+        expect(request.path).to eq('/api/_mcp')
+        expect(throttle.block.call(request)).to eq('203.0.113.9')
+      end
+
+      it 'throttles tool calls by PATH_INFO, ignoring SCRIPT_NAME' do
+        Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/_mcp')
+        throttle = Rack::Attack.throttles['mcp_tool_calls:/_mcp']
+
+        request = mounted_request('/api', '/_mcp', 'rack.input' => tools_call_body)
+        expect(throttle.block.call(request)).to eq('203.0.113.9')
+      end
+
+      # The router would not dispatch this: PATH_INFO is / and the endpoint is
+      # /_mcp. The full path happening to spell the endpoint must not count.
+      it 'does not count a request whose full path equals the endpoint but PATH_INFO does not' do
+        Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/_mcp')
+        throttle = Rack::Attack.throttles['mcp_requests:/_mcp']
+
+        request = mounted_request('/_mcp', '/')
+        expect(request.path).to eq('/_mcp/')
+        expect(throttle.block.call(request)).to be_nil
+      end
+
+      it 'classifies a mounted endpoint request as MCP' do
+        Otto::MCP::RateLimiter.register_endpoint('/_mcp')
+
+        expect(Otto::MCP::RateLimiter.mcp_request?(mounted_request('/api', '/_mcp'))).to be true
+        expect(Otto::MCP::RateLimiter.mcp_request?(mounted_request('/_mcp', '/'))).to be false
+      end
+
+      it 'answers a mounted endpoint request with the JSON-RPC 429' do
+        Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/_mcp')
+
+        request = mounted_request('/api', '/_mcp', 'rack.attack.match_data' => match_data)
+        status, headers, body = Rack::Attack.throttled_responder.call(request)
+
+        expect(status).to eq(429)
+        expect(headers['content-type']).to eq('application/json')
+        expect(JSON.parse(body.join)).to include('jsonrpc' => '2.0')
+      end
+
+      it 'throttles an Otto mounted with Rack::Builder#map when Rack::Attack shares the mount' do
+        Rack::Attack.cache.store = RackAttackTestStore.new
+
+        token = 'mounted-token'
+        otto  = Otto.new(nil, mcp_enabled: true, mcp_endpoint: '/_mcp', auth_tokens: [token], requests_per_minute: 1)
+        Otto.unfreeze_for_testing(otto)
+
+        # Rack::Attack goes inside the map so it sees the same SCRIPT_NAME /
+        # PATH_INFO split as Otto does (see docs/guides/mcp.md).
+        stack = Rack::Builder.new do
+          map('/api') do
+            use Rack::Attack
+            run otto
+          end
+        end.to_app
+
+        env = lambda do
+          Rack::MockRequest.env_for(
+            '/api/_mcp',
+            method: 'POST',
+            input: JSON.generate({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_AUTHORIZATION' => "Bearer #{token}",
+            'REMOTE_ADDR' => '203.0.113.9'
+          )
+        end
+
+        first  = stack.call(env.call)
+        second = stack.call(env.call)
+
+        expect(first.first).to eq(200)
+        expect(second.first).to eq(429)
+        expect(JSON.parse(second.last.join)).to include('jsonrpc' => '2.0')
+      end
+    end
   end
 
   describe 'Otto::MCP::RateLimitMiddleware' do
@@ -390,7 +490,7 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
         'Rack::Request',
         env: { 'otto.mcp_http_endpoint' => '/_mcp',
 'rack.attack.match_data' => { limit: 60, period: 60, epoch_time: Time.now.to_i } },
-        path: '/_mcp'
+        path_info: '/_mcp'
       )
 
       status, headers, body = Rack::Attack.throttled_responder.call(request)
@@ -437,7 +537,7 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
           'otto.route_definition' => json_route,
           'otto.mcp_http_endpoint' => '/_mcp',
         },
-        path: '/api/data'  # Non-MCP path
+        path_info: '/api/data'  # Non-MCP path
       )
 
       status, headers, body = Rack::Attack.throttled_responder.call(request)
@@ -460,7 +560,7 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
           'otto.route_definition' => json_route,
           'otto.mcp_http_endpoint' => '/_mcp',
         },
-        path: '/api/data'  # Non-MCP path
+        path_info: '/api/data'  # Non-MCP path
       )
 
       status, headers, body = Rack::Attack.throttled_responder.call(request)
@@ -482,7 +582,7 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
           'otto.route_definition' => default_route,
           'otto.mcp_http_endpoint' => '/_mcp',
         },
-        path: '/page'  # Non-MCP path
+        path_info: '/page'  # Non-MCP path
       )
 
       status, headers, body = Rack::Attack.throttled_responder.call(request)
@@ -504,7 +604,7 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
           'otto.route_definition' => default_route,
           'otto.mcp_http_endpoint' => '/_mcp',
         },
-        path: '/page'  # Non-MCP path
+        path_info: '/page'  # Non-MCP path
       )
 
       status, headers, body = Rack::Attack.throttled_responder.call(request)

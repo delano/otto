@@ -23,7 +23,13 @@ class Otto
     # for the Caddy endpoint, so a trailing slash or percent-encoding on either
     # side cannot make these guards and the router disagree about a request.
     #
-    # @param path [String, nil] raw request path (PATH_INFO or Rack::Request#path)
+    # Callers must pass PATH_INFO (Rack::Request#path_info), never
+    # Rack::Request#path, which prepends SCRIPT_NAME. The router matches on
+    # PATH_INFO alone, so when the host app mounts Otto under a prefix
+    # (`map '/api' { run otto }`) the endpoint /_mcp is dispatched for
+    # PATH_INFO=/_mcp while #path reads /api/_mcp and never matches.
+    #
+    # @param path [String, nil] raw PATH_INFO of the request
     # @param endpoint [String, nil] configured MCP endpoint
     # @return [Boolean]
     def self.endpoint_path?(path, endpoint)

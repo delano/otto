@@ -139,6 +139,36 @@ RSpec.describe Otto, 'rate limiting features' do
         expect(Rack::Attack.throttles).to have_key('requests')
       end
 
+      it 'skips internal /_ paths' do
+        Otto::Security::RateLimiting.configure_rack_attack!({})
+        throttle = Rack::Attack.throttles['requests']
+
+        request = Rack::Attack::Request.new(
+          Rack::MockRequest.env_for('/_mcp', 'REMOTE_ADDR' => '203.0.113.9')
+        )
+        expect(throttle.block.call(request)).to be_nil
+
+        request = Rack::Attack::Request.new(
+          Rack::MockRequest.env_for('/data', 'REMOTE_ADDR' => '203.0.113.9')
+        )
+        expect(throttle.block.call(request)).to eq('203.0.113.9')
+      end
+
+      # The internal-path skip reads PATH_INFO, like the router. Under
+      # `map '/api' { use Rack::Attack; run otto }` the request for /_mcp is
+      # SCRIPT_NAME=/api, PATH_INFO=/_mcp; Rack::Request#path (/api/_mcp)
+      # used to hide the /_ prefix and the internal request was counted.
+      it 'skips internal /_ paths by PATH_INFO, ignoring SCRIPT_NAME' do
+        Otto::Security::RateLimiting.configure_rack_attack!({})
+        throttle = Rack::Attack.throttles['requests']
+
+        request = Rack::Attack::Request.new(
+          Rack::MockRequest.env_for('/_mcp', 'REMOTE_ADDR' => '203.0.113.9', script_name: '/api')
+        )
+        expect(request.path).to eq('/api/_mcp')
+        expect(throttle.block.call(request)).to be_nil
+      end
+
       it 'configures custom rules' do
         config = {
           custom_rules: {
@@ -328,7 +358,7 @@ RSpec.describe Otto, 'rate limiting features' do
     let(:logged) { [] }
 
     def publish_throttle(env)
-      request = instance_double('Rack::Request', env: env, ip: env['REMOTE_ADDR'], path: env['PATH_INFO'])
+      request = instance_double('Rack::Request', env: env, ip: env['REMOTE_ADDR'], path_info: env['PATH_INFO'])
       notifications.publish('rack.attack', request: request, match_type: :throttle, matched: 'requests')
     end
 

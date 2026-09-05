@@ -95,7 +95,12 @@ class Otto
       # router would dispatch to the MCP handler (see Otto::MCP.endpoint_path?),
       # never a sibling that merely shares the prefix.
       #
-      # @param request [Rack::Attack::Request, #path, #env]
+      # Compares PATH_INFO, not Rack::Request#path (SCRIPT_NAME + PATH_INFO):
+      # the router dispatches on PATH_INFO, so under `map '/api' { run otto }`
+      # the MCP request for an endpoint at /_mcp arrives as SCRIPT_NAME=/api,
+      # PATH_INFO=/_mcp and the full path /api/_mcp never equals the endpoint.
+      #
+      # @param request [Rack::Attack::Request, #path_info, #env]
       # @return [Boolean]
       def self.mcp_request?(request)
         candidates = registered_endpoints
@@ -103,7 +108,7 @@ class Otto
         candidates << env_endpoint if env_endpoint
         candidates << DEFAULT_HTTP_ENDPOINT if candidates.empty?
 
-        candidates.any? { |endpoint| Otto::MCP.endpoint_path?(request.path, endpoint) }
+        candidates.any? { |endpoint| Otto::MCP.endpoint_path?(request.path_info, endpoint) }
       end
 
       # Name of the Rack::Attack throttle for +rule+ on +endpoint+.
@@ -128,13 +133,15 @@ class Otto
         # MCP endpoint requests - 60 per minute by default. Only the exact
         # endpoint path counts: the router dispatches the MCP route by literal
         # match, so a prefix match here would let /admin traffic exhaust (and be
-        # refused by) the counter for an endpoint at /a.
+        # refused by) the counter for an endpoint at /a. PATH_INFO, not #path:
+        # a mount prefix (SCRIPT_NAME) is invisible to the router and must be
+        # invisible here too, or a mounted Otto is never throttled.
         mcp_requests_limit = config[:mcp_requests_per_minute] || 60
 
         Rack::Attack.throttle(throttle_name('mcp_requests', configured_endpoint),
                               limit: mcp_requests_limit, period: 60) do |request|
           endpoint = mcp_endpoint_for(configured_endpoint, request.env)
-          request.ip if Otto::MCP.endpoint_path?(request.path, endpoint)
+          request.ip if Otto::MCP.endpoint_path?(request.path_info, endpoint)
         end
 
         # Tool calls are more expensive - 20 per minute by default
@@ -143,7 +150,7 @@ class Otto
         Rack::Attack.throttle(throttle_name('mcp_tool_calls', configured_endpoint),
                               limit: tool_calls_limit, period: 60) do |request|
           endpoint = mcp_endpoint_for(configured_endpoint, request.env)
-          if Otto::MCP.endpoint_path?(request.path, endpoint) && request.post?
+          if Otto::MCP.endpoint_path?(request.path_info, endpoint) && request.post?
             begin
               body = request.body.read
               data = JSON.parse(body)

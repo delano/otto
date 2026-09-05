@@ -185,6 +185,27 @@ before Otto sets `env['otto.mcp_http_endpoint']`. Before this fix a server on
 `Otto::MCP::RateLimiter.configure_rack_attack!` yourself, pass
 `mcp_http_endpoint:` explicitly.
 
+The throttles compare the endpoint against `PATH_INFO`, exactly as the router
+does, and ignore `SCRIPT_NAME`. That matters when the host app mounts Otto
+under a prefix: `Rack::Attack` must see the same `SCRIPT_NAME` / `PATH_INFO`
+split as Otto, so put `use Rack::Attack` inside the same `map` block.
+
+```ruby
+# config.ru
+map '/api' do
+  use Rack::Attack  # sees SCRIPT_NAME=/api, PATH_INFO=/_mcp, like Otto does
+  run otto          # MCP on /_mcp, reached as POST /api/_mcp
+end
+```
+
+A `use Rack::Attack` placed above the `map` sees `PATH_INFO=/api/_mcp` and
+cannot know Otto's mount prefix, so it never matches the `/_mcp` endpoint and
+the MCP request goes unthrottled. Before this fix even the inner placement
+failed: the throttles compared `Rack::Request#path`, which prepends
+`SCRIPT_NAME`, so `/api/_mcp` never equalled `/_mcp`. The general `requests`
+throttle skipped internal `/_` paths the same way and counted the mounted
+`/api/_mcp` instead.
+
 `Rack::Attack` configuration is process-global and keyed by throttle name, so
 each configured endpoint gets its own pair of throttles, named
 `mcp_requests:<endpoint>` and `mcp_tool_calls:<endpoint>`, with its own limits

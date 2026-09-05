@@ -151,6 +151,13 @@ which forwarding family Rack reads: `X-Forwarded-*`, RFC 7239 `Forwarded`, or
 both. Otto pins it to the family selected by `trusted_proxy_header` so Otto and
 Rack interpret the same request metadata.
 
+The pin governs host, port, and the `X-Forwarded-Proto` / `proto=` scheme
+lookup. It does not govern `X-Forwarded-SSL`: Rack (3.2.x) honors
+`X-Forwarded-SSL: on` before it consults `forwarded_priority`, in every family.
+Otto covers this by deleting `X-Forwarded-SSL` together with the other
+authority carriers for any untrusted peer, so the header only reaches Rack from
+a trusted proxy or an unconfigured deployment.
+
 ```ruby
 otto = Otto.new(
   'routes',
@@ -174,18 +181,22 @@ The two placeholders are the requested family and the already committed one.
 An application that configures no proxy trust, and one that asserts
 `trusted_proxies: :none`, read no forwarded chain and therefore stake no claim
 on the family. Neither can block a later explicit choice, unless it also names
-`trusted_proxy_header` explicitly: naming the header is always a claim, even
-under `trusted_proxies: :none`.
+`trusted_proxy_header` explicitly. Otto only reads the header in depth mode,
+but setting it is always a claim: it pins Rack's `forwarded_priority` and
+registers the family for the process, even under `trusted_proxies: :none`.
 
 `trusted_proxy_header` accepts `X-Forwarded-For` (the default), `Forwarded`, or
 `Both`. When configuring proxy trust, `Forwarded` and `Both` require depth mode.
-CIDR filter mode resolves client IPs from `X-Forwarded-For`, so a non-default
-family would make Rack read a header that Otto ignores:
+CIDR filter mode resolves client IPs from the `X-Forwarded-For` family only
+(`X-Forwarded-For`, then `X-Real-IP`, then `X-Client-IP`) and never from RFC
+7239 `Forwarded`, so a non-default family would make Rack read a header that
+Otto ignores:
 
 ```text
 Cannot configure trusted_proxy_header 'Forwarded' or 'Both' together with
-trusted_proxies (CIDR filter mode): CIDR-walk resolves client IPs from
-X-Forwarded-For only. Use trusted_proxy_depth (count mode) to read the RFC 7239
+trusted_proxies (CIDR filter mode): CIDR-walk resolves client IPs from the
+X-Forwarded-For family only (X-Forwarded-For, X-Real-IP, X-Client-IP), never
+RFC 7239 Forwarded. Use trusted_proxy_depth (count mode) to read the RFC 7239
 Forwarded header.
 ```
 
@@ -205,3 +216,17 @@ application's security configuration, as shown in
 [Privacy-preserving request data](privacy.md#middleware-placement). Without that
 configuration, the outer middleware instance applies defaults and makes no
 trust decision, so forwarded authority reaches earlier middleware unchanged.
+
+The inner instance still enforces the application's own posture when an outer
+pass has already resolved the client IP:
+
+- `trusted_proxies: :none` always applies. The inner instance records
+  `otto.via_trusted_proxy` as `false` and strips the authority carriers, whatever
+  the outer instance did.
+- `trusted_proxy_depth` records `true` unless a configured outer pass already
+  recorded a verdict.
+- `trusted_proxies: [...]` keeps the verdict of a configured outer pass. When no
+  outer pass recorded one, the connecting peer can no longer be matched, because
+  the outer pass rewrote `REMOTE_ADDR`. Otto then treats the peer as untrusted,
+  strips the carriers, and logs a warning naming the fix: pass the application's
+  security configuration to the outer instance.

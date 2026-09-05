@@ -137,12 +137,14 @@ class Otto
     # Type: Boolean
     # Set by: IPPrivacyMiddleware (every request), evaluated on the ORIGINAL
     #   headers BEFORE the untrusted-peer scrub may DELETE those carriers
-    #   (Otto::Utils::RELAY_MARKER_HEADERS include HTTP_FORWARDED, which the
-    #   scrub removes). A boolean, so it carries no identifying data.
+    #   (Otto::Utils::RELAY_MARKER_HEADERS cover the forwarded-for family, RFC
+    #   7239 Forwarded, and the X-Forwarded-Host/Proto/Scheme/SSL/Port
+    #   authority carriers — everything the scrub removes). A boolean, so it
+    #   carries no identifying data.
     # Used by: Otto::CaddyTLS::LocalhostGuard#relayed? — without this record a
     #   request relayed over loopback by a proxy emitting only RFC 7239
-    #   `Forwarded` would look like a direct local call after the scrub, and a
-    #   deny would become an allow.
+    #   `Forwarded` or only `X-Forwarded-Host` would look like a direct local
+    #   call after the scrub, and a deny would become an allow.
     PEER_RELAYED = 'otto.peer_relayed'
 
     # =========================================================================

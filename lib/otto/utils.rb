@@ -19,13 +19,31 @@ class Otto
       HTTP_X_CLIENT_IP
     ].freeze
 
+    # Forwarding metadata Rack::Request reads without consulting Otto's proxy
+    # trust verdict: host (#host/#authority), scheme (#scheme/#ssl?), and port
+    # (#port), from both the X-Forwarded-* family and RFC 7239 Forwarded
+    # (host=, proto=, and the port inside for=). IPPrivacyMiddleware deletes
+    # every one of these for a peer that failed configured proxy trust.
+    FORWARDED_AUTHORITY_HEADERS = %w[
+      HTTP_FORWARDED
+      HTTP_X_FORWARDED_HOST
+      HTTP_X_FORWARDED_PROTO
+      HTTP_X_FORWARDED_SCHEME
+      HTTP_X_FORWARDED_SSL
+      HTTP_X_FORWARDED_PORT
+    ].freeze
+
     # Headers whose presence means the request was RELAYED by a proxy rather
-    # than issued directly by the peer: the forwarded-for family plus RFC 7239
-    # Forwarded. Shared by IPPrivacyMiddleware (which records the verdict as
-    # env['otto.peer_relayed'] BEFORE it may delete these carriers) and
+    # than issued directly by the peer: every forwarding carrier Otto knows —
+    # the forwarded-for family, RFC 7239 Forwarded, and the authority (host /
+    # scheme / port) carriers. The set must cover everything IPPrivacyMiddleware
+    # may DELETE on the untrusted-peer path: a carrier that is scrubbed but not
+    # counted here would let a relayed request look direct afterwards. Shared
+    # by IPPrivacyMiddleware (which records the verdict as
+    # env['otto.peer_relayed'] BEFORE the scrub) and
     # Otto::CaddyTLS::LocalhostGuard, so the record and the guard's own
     # fallback scan cannot drift.
-    RELAY_MARKER_HEADERS = (FORWARDED_FOR_HEADERS + %w[HTTP_FORWARDED]).freeze
+    RELAY_MARKER_HEADERS = (FORWARDED_FOR_HEADERS + FORWARDED_AUTHORITY_HEADERS).uniq.freeze
 
     # Special-use IPv4/IPv6 ranges that IPAddr's #private?/#loopback?/#link_local?
     # predicates do not cover but that should still be treated as non-public
@@ -43,14 +61,10 @@ class Otto
     # address in a real chain means a misconfigured hop, which is better surfaced
     # than skipped.
     SPECIAL_USE_RANGES = [
-      IPAddr.new('0.0.0.0/8'), # "this" network / unspecified (IPv4)
-      # RFC 6598 shared address space (CGNAT): not covered by IPAddr#private?, and
-      # cloud-internal load balancers and Tailscale allocate from it, so a proxy hop
-      # here would otherwise be mistaken for the public client.
-      IPAddr.new('100.64.0.0/10'), # RFC 6598 shared address space (CGNAT)
-      IPAddr.new('224.0.0.0/4'),   # IPv4 multicast
-      IPAddr.new('::/128'),        # IPv6 unspecified
-      IPAddr.new('ff00::/8'),      # IPv6 multicast
+      IPAddr.new('0.0.0.0/8'),   # "this" network / unspecified (IPv4)
+      IPAddr.new('224.0.0.0/4'), # IPv4 multicast
+      IPAddr.new('::/128'),      # IPv6 unspecified
+      IPAddr.new('ff00::/8'),    # IPv6 multicast
     ].freeze
 
     # @return [Time] Current time in UTC

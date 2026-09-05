@@ -109,16 +109,19 @@ class Otto
         same forwarding family.
       MSG
       # Error raised when a non-default trusted_proxy_header is combined with
-      # CIDR filter mode. Otto's CIDR-walk resolves the client IP from
-      # X-Forwarded-For only, while trusted_proxy_header also pins Rack's
+      # CIDR filter mode. Otto's CIDR-walk resolves the client IP from the
+      # X-Forwarded-For family only (X-Forwarded-For, then X-Real-IP, then
+      # X-Client-IP — Otto::Utils::FORWARDED_FOR_HEADERS), never RFC 7239
+      # Forwarded, while trusted_proxy_header also pins Rack's
       # forwarding family; honoring 'Forwarded' or 'Both' there would make Rack
       # read a header Otto ignores, recreating the disagreement the pin exists
       # to close.
       FORWARDED_HEADER_CIDR_CONFLICT_MESSAGE = <<~MSG.gsub(/\s+/, ' ').strip.freeze
         Cannot configure trusted_proxy_header 'Forwarded' or 'Both' together
         with trusted_proxies (CIDR filter mode): CIDR-walk resolves client IPs
-        from X-Forwarded-For only. Use trusted_proxy_depth (count mode) to
-        read the RFC 7239 Forwarded header.
+        from the X-Forwarded-For family only (X-Forwarded-For, X-Real-IP,
+        X-Client-IP), never RFC 7239 Forwarded. Use trusted_proxy_depth (count
+        mode) to read the RFC 7239 Forwarded header.
       MSG
 
       # Eager so the first two concurrent Otto.new calls cannot race on

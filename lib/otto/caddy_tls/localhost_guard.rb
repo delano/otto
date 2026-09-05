@@ -99,10 +99,13 @@ class Otto
       # Unlike the peer check, a header scan reads STATE that IPPrivacyMiddleware
       # has already touched by the time the guard runs, and one of its paths
       # DELETES relay markers while REMOTE_ADDR stays loopback: the
-      # untrusted-peer scrub, which removes HTTP_FORWARDED for every peer under
-      # `trusted_proxies: :none` and for any unlisted peer in CIDR mode. A
-      # request relayed over loopback by a proxy emitting only RFC 7239
-      # `Forwarded` would then look direct, turning a deny into an allow.
+      # untrusted-peer scrub, which removes HTTP_FORWARDED and the
+      # X-Forwarded-Host/Proto/Scheme/SSL/Port authority carriers for every
+      # peer under `trusted_proxies: :none` and for any unlisted peer in CIDR
+      # mode. A request relayed over loopback by a proxy emitting only RFC 7239
+      # `Forwarded`, or only `X-Forwarded-Host`, would then look direct,
+      # turning a deny into an allow. Otto::Utils::RELAY_MARKER_HEADERS
+      # therefore covers every carrier the scrub can delete.
       #
       # So prefer +env['otto.peer_relayed']+ — IPPrivacyMiddleware's verdict on
       # the ORIGINAL headers, recorded before any scrub — and fall back to the

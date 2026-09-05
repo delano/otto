@@ -42,7 +42,10 @@ class Otto
       #   with trusted_proxies (validated at configuration freeze)
       # @param trusted_proxy_header [String, nil] Forwarded header depth mode
       #   counts hops from: 'X-Forwarded-For' (default), 'Forwarded' (RFC 7239),
-      #   or 'Both'. Only consulted in depth mode.
+      #   or 'Both'. Otto reads it only in depth mode, but setting it always
+      #   pins Rack::Request.forwarded_priority (process-global) to that family
+      #   and claims the family for this process; see
+      #   Otto::Security::Config.apply_rack_forwarding_family!.
       # @param security_headers [Hash] Custom security headers to merge with defaults
       # @param hsts [Boolean] Enable HTTP Strict Transport Security
       # @param csp [Boolean, String] Enable Content Security Policy
@@ -168,9 +171,13 @@ class Otto
       end
 
       # Select which forwarded header depth mode counts hops from:
-      # 'X-Forwarded-For' (default), 'Forwarded' (RFC 7239), or 'Both'. Only
-      # consulted when depth mode is active. Mirrors OneTimeSecret's
-      # site.network.trusted_proxy.header.
+      # 'X-Forwarded-For' (default), 'Forwarded' (RFC 7239), or 'Both'. Otto
+      # reads the value only when depth mode is active, but setting it always
+      # pins Rack::Request.forwarded_priority (process-global) to that family
+      # and claims the family for this process, even under
+      # `trusted_proxies: :none`; see
+      # Otto::Security::Config.apply_rack_forwarding_family!. Mirrors
+      # OneTimeSecret's site.network.trusted_proxy.header.
       #
       # @param header [String] one of Otto::Security::Config::TRUSTED_PROXY_HEADERS
       def trusted_proxy_header=(header)

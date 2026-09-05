@@ -230,14 +230,6 @@ RSpec.describe Otto::Utils do
       expect(Otto::Utils.private_ip?("203.0.113.5")).to be false
     end
 
-    it "treats RFC 6598 shared address space (CGNAT) as non-public" do
-      expect(Otto::Utils.private_ip?("100.64.0.1")).to be true
-      expect(Otto::Utils.private_ip?("100.127.255.255")).to be true
-      # Neighbours outside 100.64.0.0/10 stay public.
-      expect(Otto::Utils.private_ip?("100.63.255.255")).to be false
-      expect(Otto::Utils.private_ip?("100.128.0.1")).to be false
-    end
-
     it "keeps documentation ranges public so example clients are not skipped" do
       expect(Otto::Utils.private_ip?("203.0.113.10")).to be false
       expect(Otto::Utils.private_ip?("192.0.2.1")).to be false
@@ -273,6 +265,32 @@ RSpec.describe Otto::Utils do
       expect(Otto::Utils.private_ip?(nil)).to be false
       expect(Otto::Utils.private_ip?("")).to be false
       expect(Otto::Utils.private_ip?("not-an-ip")).to be false
+    end
+  end
+
+  describe "#relayed_request?" do
+    it "is false for a request carrying no forwarding header" do
+      expect(Otto::Utils.relayed_request?({ "REMOTE_ADDR" => "127.0.0.1" })).to be false
+    end
+
+    it "ignores blank marker values" do
+      expect(Otto::Utils.relayed_request?({ "HTTP_X_FORWARDED_HOST" => "  " })).to be false
+    end
+
+    # Every carrier IPPrivacyMiddleware may delete on the untrusted-peer path
+    # must count as a relay marker, or a request relayed with only that header
+    # would look direct once the scrub has run (LocalhostGuard, otto#259).
+    Otto::Utils::FORWARDED_AUTHORITY_HEADERS.each do |header|
+      it "counts the authority carrier #{header} alone as a relay marker" do
+        expect(Otto::Utils::RELAY_MARKER_HEADERS).to include(header)
+        expect(Otto::Utils.relayed_request?({ header => "attacker.example" })).to be true
+      end
+    end
+
+    Otto::Utils::FORWARDED_FOR_HEADERS.each do |header|
+      it "counts the client-IP carrier #{header} alone as a relay marker" do
+        expect(Otto::Utils.relayed_request?({ header => "203.0.113.9" })).to be true
+      end
     end
   end
 

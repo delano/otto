@@ -164,6 +164,10 @@ Pass `otto.security_config` as shown. The outer instance resolves `otto.client_i
 first and the inner one then short-circuits, so an outer instance constructed
 without the configuration would silently apply defaults instead of the
 application's profile, precision, correlation secret, and enrichment settings.
+Proxy trust is the exception: the inner instance re-applies its own trust
+posture even after an outer pass, and a CIDR configuration that can no longer
+see the connecting peer fails closed. See
+[Forwarded host authority](forwarded-authority.md#place-the-middleware-before-other-request-consumers).
 
 ## Operational rules
 

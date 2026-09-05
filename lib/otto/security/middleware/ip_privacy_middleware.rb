@@ -39,15 +39,10 @@ class Otto
         # Forwarding metadata Rack::Request reads without consulting Otto's
         # proxy trust verdict: host (#host/#authority), scheme (#scheme/#ssl?),
         # and port (#port), from both the X-Forwarded-* family and RFC 7239
-        # Forwarded (host=, proto=, and the port inside for=).
-        UNTRUSTED_FORWARDING_METADATA_HEADERS = %w[
-          HTTP_FORWARDED
-          HTTP_X_FORWARDED_HOST
-          HTTP_X_FORWARDED_PROTO
-          HTTP_X_FORWARDED_SCHEME
-          HTTP_X_FORWARDED_SSL
-          HTTP_X_FORWARDED_PORT
-        ].freeze
+        # Forwarded (host=, proto=, and the port inside for=). Defined in
+        # Otto::Utils so Otto::Utils::RELAY_MARKER_HEADERS is built from the
+        # same list and cannot fall out of step with what is scrubbed here.
+        UNTRUSTED_FORWARDING_METADATA_HEADERS = Otto::Utils::FORWARDED_AUTHORITY_HEADERS
 
         # Initialize IP Privacy middleware
         #
@@ -68,8 +63,13 @@ class Otto
           # canonical client IP for this request, do not re-resolve or re-mask.
           # This makes stacking two instances (e.g. an app-level mount plus
           # Otto's built-in router mount) order-safe instead of double-masking.
+          #
+          # Client-IP resolution is idempotent, but proxy TRUST is not: the
+          # prior pass may have run under a different (or no) configuration,
+          # so this instance still enforces its own trust posture below.
           if env.key?('otto.client_ip')
             ensure_ip_match_present(env)
+            enforce_proxy_trust_after_prior_pass(env)
             return @app.call(env)
           end
 
@@ -149,6 +149,58 @@ class Otto
         # @return [Boolean]
         def privacy_enabled?
           @config.enabled?
+        end
+
+        # Enforce THIS instance's proxy trust posture when a prior
+        # IPPrivacyMiddleware pass already resolved the client IP.
+        #
+        # The early return in #call keeps client-IP resolution idempotent, but
+        # trust enforcement must not ride on it: an outer instance mounted
+        # without the application's security config (the "unconfigured
+        # defaults" case in docs/guides/privacy.md) writes otto.client_ip and
+        # nothing else, and returning here would let an inner
+        # `trusted_proxies: :none` instance pass X-Forwarded-Host through
+        # untouched — the exact bypass the assertion exists to close.
+        #
+        # What can still be decided after the prior pass:
+        # - trust-nobody: the verdict is false for every peer, so it needs no
+        #   peer address. Always enforced, overriding a laxer prior verdict.
+        # - depth mode: the verdict is true by assertion. Recorded only when
+        #   no configured pass has spoken (key absent).
+        # - CIDR mode: needs the connecting peer, which the prior pass has
+        #   rewritten (REMOTE_ADDR is now the resolved, possibly masked, client
+        #   IP — matching a masked address against a narrow CIDR produces false
+        #   ALLOWs, see #ensure_ip_match_present). A verdict recorded by a prior
+        #   CONFIGURED pass is kept (the same-config stacking case). With none,
+        #   fail closed: deny, scrub, and warn so the misconfiguration is
+        #   diagnosable rather than a silent grant.
+        #
+        # Every deny also scrubs the authority carriers, which is idempotent:
+        # deleting an already-deleted key is a no-op.
+        #
+        # @param env [Hash] Rack environment
+        def enforce_proxy_trust_after_prior_pass(env)
+          return unless @security_config.respond_to?(:proxy_trust_configured?) &&
+                        @security_config.proxy_trust_configured?
+
+          if @security_config.trust_no_proxies?
+            env['otto.via_trusted_proxy'] = false
+            scrub_untrusted_forwarding_metadata(env)
+          elsif env.key?('otto.via_trusted_proxy')
+            nil # a configured pass already decided; honor it
+          elsif @security_config.trusted_proxy_depth_mode?
+            env['otto.via_trusted_proxy'] = true
+          else
+            Otto.logger.warn(
+              '[IPPrivacyMiddleware] otto.client_ip was resolved by a prior ' \
+              'pass with no proxy trust configured, so the connecting peer ' \
+              'can no longer be matched against trusted_proxies; treating ' \
+              'the peer as untrusted and stripping forwarded authority. ' \
+              'Pass the application security config to the outer instance.'
+            )
+            env['otto.via_trusted_proxy'] = false
+            scrub_untrusted_forwarding_metadata(env)
+          end
         end
 
         # Guarantee env['otto.ip_match'] exists on the idempotent-return path.

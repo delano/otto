@@ -210,6 +210,25 @@ RSpec.describe Otto::CaddyTLS::LocalhostGuard do
       expect(downstream.calls).to be_empty
     end
 
+    Otto::Utils::FORWARDED_AUTHORITY_HEADERS.each do |header|
+      it "denies a loopback call relayed with only #{header} under trusted_proxies: :none (otto#259)" do
+        # The authority carriers are scrubbed for every peer under trust-nobody.
+        # A relay that emits only one of them (no X-Forwarded-For) must still
+        # be recorded as relayed BEFORE the scrub, or the guard sees a direct
+        # local call.
+        security_config.trust_no_proxies!
+
+        env = env_for(remote_addr: '127.0.0.1', headers: { header => 'attacker.example' })
+        status, = stack_call(env)
+
+        expect(env).not_to have_key(header)          # scrubbed: looks direct
+        expect(env['otto.peer_loopback']).to be true # and the peer check passes
+        expect(env['otto.peer_relayed']).to be true  # only this record denies
+        expect(status).to eq(401)
+        expect(downstream.calls).to be_empty
+      end
+    end
+
     it 'still allows a genuinely direct loopback call under trusted_proxies: :none' do
       security_config.trust_no_proxies!
 

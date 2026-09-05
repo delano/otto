@@ -2698,5 +2698,115 @@ RSpec.describe 'IP Privacy Features' do
       expect(env).not_to have_key('otto.via_trusted_proxy')
       expect(env['HTTP_X_FORWARDED_HOST']).to eq('public.example')
     end
+
+    describe 'stacked behind a prior IPPrivacyMiddleware pass' do
+      # An outer instance mounted WITHOUT the application's security config
+      # (docs/guides/privacy.md warns against it, but it is the common mistake)
+      # resolves otto.client_ip and nothing else. The inner instance must not
+      # let that idempotency short-circuit skip its own trust enforcement.
+      let(:unconfigured) { Otto::Security::Config.new.tap { |c| c.ip_privacy_config.disable! } }
+
+      def stacked(outer_config, inner_config)
+        inner = Otto::Security::Middleware::IPPrivacyMiddleware.new(app, inner_config)
+        Otto::Security::Middleware::IPPrivacyMiddleware.new(inner, outer_config)
+      end
+
+      def hostile_env
+        Rack::MockRequest.env_for(
+          'http://origin.example/path',
+          'REMOTE_ADDR' => '203.0.113.50',
+          'HTTP_X_FORWARDED_HOST' => 'attacker.example',
+          'HTTP_FORWARDED' => 'for=192.0.2.10;host=attacker.example;proto=https',
+          'HTTP_X_FORWARDED_PROTO' => 'https',
+          'HTTP_X_FORWARDED_SSL' => 'on'
+        )
+      end
+
+      it 'enforces trust-nobody after an outer pass that configured no trust' do
+        env = hostile_env
+        stacked(unconfigured, security_config).call(env)
+
+        expect(env['otto.via_trusted_proxy']).to be(false)
+        expect(env).not_to have_key('HTTP_X_FORWARDED_HOST')
+        expect(env).not_to have_key('HTTP_FORWARDED')
+        expect(env).not_to have_key('HTTP_X_FORWARDED_PROTO')
+        expect(env).not_to have_key('HTTP_X_FORWARDED_SSL')
+        expect(Rack::Request.new(env).host).to eq('origin.example')
+        expect(Rack::Request.new(env).scheme).to eq('http')
+      end
+
+      it 'enforces trust-nobody after an outer pass that TRUSTED the peer' do
+        trusting = Otto::Security::Config.new.tap do |c|
+          c.add_trusted_proxy('203.0.113.50')
+          c.ip_privacy_config.disable!
+        end
+        env = hostile_env
+        stacked(trusting, security_config).call(env)
+
+        expect(env['otto.via_trusted_proxy']).to be(false)
+        expect(env).not_to have_key('HTTP_X_FORWARDED_HOST')
+        expect(Rack::Request.new(env).host).to eq('origin.example')
+      end
+
+      it 'still resolves the client IP only once (no double masking)' do
+        masked_none = Otto::Security::Config.new.tap(&:trust_no_proxies!)
+        env = { 'REMOTE_ADDR' => '203.0.113.50', 'HTTP_X_FORWARDED_HOST' => 'attacker.example' }
+        stacked(masked_none, masked_none).call(env)
+
+        expect(env['otto.client_ip']).to eq('203.0.113.0')
+        expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
+        expect(env['otto.via_trusted_proxy']).to be(false)
+        expect(env).not_to have_key('HTTP_X_FORWARDED_HOST')
+      end
+
+      it 'keeps the verdict of a configured outer pass in CIDR mode (same-config stacking)' do
+        cidr = Otto::Security::Config.new.tap do |c|
+          c.add_trusted_proxy('203.0.113.50')
+          c.ip_privacy_config.disable!
+        end
+        env = hostile_env
+        expect(Otto.logger).not_to receive(:warn)
+        stacked(cidr, cidr).call(env)
+
+        expect(env['otto.via_trusted_proxy']).to be(true)
+        expect(env['HTTP_X_FORWARDED_HOST']).to eq('attacker.example')
+      end
+
+      it 'fails closed in CIDR mode when the outer pass configured no trust' do
+        cidr = Otto::Security::Config.new.tap do |c|
+          c.add_trusted_proxy('203.0.113.50')
+          c.ip_privacy_config.disable!
+        end
+        env = hostile_env
+        expect(Otto.logger).to receive(:warn).with(/prior pass with no proxy trust configured/)
+        stacked(unconfigured, cidr).call(env)
+
+        # The peer DID match the CIDR, but the inner instance can no longer
+        # prove that, so it denies rather than grant on a rewritten address.
+        expect(env['otto.via_trusted_proxy']).to be(false)
+        expect(env).not_to have_key('HTTP_X_FORWARDED_HOST')
+        expect(Rack::Request.new(env).host).to eq('origin.example')
+      end
+
+      it 'records depth-mode trust after an outer pass that configured no trust' do
+        depth = Otto::Security::Config.new.tap do |c|
+          c.trusted_proxy_depth = 1
+          c.ip_privacy_config.disable!
+        end
+        env = hostile_env
+        stacked(unconfigured, depth).call(env)
+
+        expect(env['otto.via_trusted_proxy']).to be(true)
+        expect(env['HTTP_X_FORWARDED_HOST']).to eq('attacker.example')
+      end
+
+      it 'does nothing extra when the inner instance configures no trust either' do
+        env = hostile_env
+        stacked(unconfigured, unconfigured).call(env)
+
+        expect(env).not_to have_key('otto.via_trusted_proxy')
+        expect(env['HTTP_X_FORWARDED_HOST']).to eq('attacker.example')
+      end
+    end
   end
 end

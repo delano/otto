@@ -93,7 +93,10 @@ behind a proxy without configuring Otto's trust controls.
 Use `trusted_proxies: :none` when clients connect directly to the application
 and no reverse proxy should influence request authority. This explicit assertion
 is different from omitting `trusted_proxies`. The String spelling `'none'` (any
-case) is accepted too, for YAML- or environment-driven configuration.
+case) is accepted too, for YAML- or environment-driven configuration. The
+sentinel is only valid as the whole option: a list that contains it, such as
+`trusted_proxies: ['none']`, is rejected at configuration time rather than
+installed as a proxy entry.
 
 You can also make the assertion after construction, but before the first
 request:

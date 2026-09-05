@@ -61,7 +61,10 @@ class Otto
         if Otto::Security::Config.trust_no_proxies_option?(opts[:trusted_proxies])
           @security_config.trust_no_proxies!
         elsif opts[:trusted_proxies]
-          Array(opts[:trusted_proxies]).each { |proxy| add_trusted_proxy(proxy) }
+          # Pass the list whole so add_trusted_proxy validates every entry
+          # before registering any (a mixed list containing 'none' is rejected
+          # without installing the rest).
+          add_trusted_proxy(Array(opts[:trusted_proxies])) unless Array(opts[:trusted_proxies]).empty?
         end
 
         # Set count-based trusted-proxy depth if provided (mutually exclusive

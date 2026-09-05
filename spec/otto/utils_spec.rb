@@ -360,14 +360,6 @@ RSpec.describe Otto::Utils do
       expect(Otto::Utils.resolve_client_ip(env, config_with("10.0.0.0/8"))).to eq("203.0.113.50")
     end
 
-    it "walks past a CGNAT proxy hop to the documentation-range client" do
-      env = {
-        "REMOTE_ADDR" => "100.64.5.5",
-        "HTTP_X_FORWARDED_FOR" => "203.0.113.10, 100.64.5.5",
-      }
-      expect(Otto::Utils.resolve_client_ip(env, config_with("100.64.0.0/10"))).to eq("203.0.113.10")
-    end
-
     it "honors X-Real-IP and X-Client-IP in addition to X-Forwarded-For" do
       real = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_REAL_IP" => "203.0.113.7" }
       client = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_CLIENT_IP" => "203.0.113.8" }

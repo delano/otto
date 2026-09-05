@@ -67,6 +67,19 @@ class Otto
         grant trust, not both.
       MSG
 
+      # Error raised when the trust-nobody sentinel arrives as a proxy ENTRY
+      # (`trusted_proxies: ['none']`, as a YAML/JSON list naturally yields, or
+      # `add_trusted_proxy('none')`) instead of as the whole option. Inside a
+      # list it would otherwise register a legacy string-prefix matcher that
+      # matches nothing: peers would be untrusted, but trust_no_proxies? would
+      # stay false and the config would stake a forwarding-family claim, so the
+      # explicit assertion would be silently replaced by a lookalike.
+      TRUST_NO_PROXIES_ENTRY_MESSAGE = <<~MSG.gsub(/\s+/, ' ').strip.freeze
+        trusted_proxies entry :none is the trust-nobody assertion, not a proxy
+        address. Pass trusted_proxies: :none as the whole option (not inside a
+        list) or call trust_no_proxies! instead.
+      MSG
+
       # Sentinel accepted wherever a trusted_proxies list is accepted, meaning
       # "the operator asserts that NO proxy is trusted". See #trust_no_proxies!.
       TRUST_NO_PROXIES = :none
@@ -347,6 +360,13 @@ class Otto
         # Same pattern for header-then-proxies; proxies-then-header is caught
         # in #trusted_proxy_header=.
         raise ArgumentError, FORWARDED_HEADER_CIDR_CONFLICT_MESSAGE unless default_trusted_proxy_header?
+
+        # The trust-nobody sentinel is an option value, never an entry; validate
+        # the whole list before registering anything so a bad list leaves the
+        # config untouched.
+        Array(proxy).each do |entry|
+          raise ArgumentError, TRUST_NO_PROXIES_ENTRY_MESSAGE if self.class.trust_no_proxies_option?(entry)
+        end
 
         case proxy
         when String, Regexp

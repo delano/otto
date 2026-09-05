@@ -435,6 +435,45 @@ RSpec.describe Otto::Security::Config do
       expect(otto.security_config.trusted_proxies).to be_empty
     end
 
+    it "refuses the sentinel as a list ENTRY (trusted_proxies: ['none']) instead of installing a prefix matcher" do
+      # A YAML/JSON list naturally yields ['none']; registering it as a legacy
+      # string-prefix matcher would leave trust_no_proxies? false and stake a
+      # forwarding-family claim, silently replacing the assertion.
+      expect { config.add_trusted_proxy(['none']) }.to raise_error(ArgumentError, /not inside a list/)
+      expect { config.add_trusted_proxy('None') }.to raise_error(ArgumentError, /trust_no_proxies!/)
+      expect { config.add_trusted_proxy(:none) }.to raise_error(ArgumentError, /trust_no_proxies!/)
+      # A mixed list is rejected before any entry is registered.
+      expect { config.add_trusted_proxy(['10.0.0.0/8', 'none']) }.to raise_error(ArgumentError, /not inside a list/)
+
+      expect(config.trusted_proxies).to be_empty
+      expect(config.trusted_proxies_configured?).to be false
+      expect(config.trust_no_proxies?).to be false
+      expect(config.forwarding_family_dependent?).to be false
+    end
+
+    it 'refuses a list-shaped sentinel through Otto.new and the security configurator' do
+      expect { Otto.new(nil, trusted_proxies: ['none']) }.to raise_error(ArgumentError, /not inside a list/)
+
+      otto = Otto.new(nil)
+      expect { otto.security.configure(trusted_proxies: ['none']) }.to raise_error(ArgumentError, /not inside a list/)
+      expect(otto.security_config.trusted_proxies).to be_empty
+      expect(otto.security_config.trust_no_proxies?).to be false
+    end
+
+    it 'rejects a mixed list without installing the valid entries first (configurator and Otto.new)' do
+      # Both wiring paths hand the list to add_trusted_proxy whole; iterating
+      # it entry by entry would leave '10.0.0.0/8' registered (and the config
+      # forwarding-family dependent) before 'none' raised.
+      otto = Otto.new(nil)
+      expect { otto.security.configure(trusted_proxies: ['10.0.0.0/8', 'none']) }
+        .to raise_error(ArgumentError, /not inside a list/)
+      expect(otto.security_config.trusted_proxies).to be_empty
+      expect(otto.security_config.trusted_proxies_configured?).to be false
+      expect(otto.security_config.forwarding_family_dependent?).to be false
+
+      expect { Otto.new(nil, trusted_proxies: ['10.0.0.0/8', 'none']) }.to raise_error(ArgumentError, /not inside a list/)
+    end
+
     it 'is reachable through the security configurator' do
       otto = Otto.new(nil)
       otto.security.configure(trusted_proxies: :none)

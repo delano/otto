@@ -1,268 +1,136 @@
 # Model Context Protocol (MCP)
 
-`Otto::MCP` adds a single JSON-RPC 2.0 HTTP endpoint (default `POST /_mcp`) to an
-Otto app, so a CLI or an AI client can list and invoke the resources and tools
-your routes file declares. The module is loaded but inert until you enable it.
+`Otto::MCP` adds one JSON-RPC 2.0 HTTP endpoint to an Otto application. An MCP
+client can use that endpoint to initialize a connection, list registered
+resources and tools, read resources, and call tools. The default endpoint is
+`POST /_mcp`.
 
-The endpoint is unauthenticated unless you configure bearer tokens. Read
-[Authentication](#authentication) before exposing it beyond localhost.
+MCP is opt-in. It can invoke the handlers that you register, so require bearer
+tokens before exposing the endpoint outside a trusted local environment.
 
-## Enable MCP
+## Before you start
 
-Two entry points. Both normalize through `Otto::MCP::Options.normalize`, so the
-same options, spellings, and defaults apply — they differ only in strictness.
-See [Options](#options).
-
-At construction:
+MCP validation and rate limiting are enabled by default. Add their optional
+dependencies to the application's `Gemfile` before enabling MCP:
 
 ```ruby
-require 'otto'
-
-otto = Otto.new('routes',
-                mcp_enabled: true,
-                auth_tokens: ['s3cret'],
-                requests_per_minute: 120)
-
-run otto
+# Gemfile
+gem 'json_schemer', '~> 2.0'
+gem 'rack-attack', '~> 6.7'
 ```
 
-After construction, before the app is frozen or serves its first request:
-
-```ruby
-otto = Otto.new('routes')
-otto.enable_mcp!(http_endpoint: '/api/mcp', auth_tokens: ['s3cret'])
-otto.mcp_enabled? # => true
-```
-
-Before Otto 2.9.0 the constructor silently discarded everything but the
-endpoint, and `enable_mcp!(auth_tokens: ...)` raised `NoMethodError` (#258). If
-you worked around either bug, remove the workaround.
-
-MCP can be enabled once per `Otto` instance. Calling `enable_mcp!` a second
-time, or enabling via the constructor and then calling `enable_mcp!`, raises
-`ArgumentError` naming the existing endpoint. The endpoint cannot be moved or
-reconfigured after the fact, so pass every MCP option in the one call.
-
-## Options
-
-Both entry points accept the same spellings: each canonical key and its
-`mcp_`-prefixed variant. The prefix exists so the constructor can pick MCP
-settings out of an options hash that also configures the rest of Otto; it is
-accepted by `enable_mcp!` too, so one hash can feed either entry point. The
-bare generic names `endpoint:`, `validation:`, and `rate_limiting:` are **not**
-MCP options: `rate_limiting:` is Otto's own general rate-limiting option and
-carries a Hash, and the other two were documented before Otto 2.9.0 but never
-read. Neither are `http:` and `stdio:`, which the pre-2.9.0 `enable_mcp!`
-documentation advertised but which were never read either.
-
-Keys may be Strings or Symbols: `enable_mcp!('auth_tokens' => ['s3cret'])`
-configures authentication exactly like `auth_tokens:`, and
-`Otto.new(routes, 'mcp_enabled' => true, 'auth_tokens' => [...])` enables MCP
-exactly like `mcp_enabled: true`. A String key and its Symbol twin are two
-spellings of one option, so supplying both with different values raises
-`ArgumentError` like any other conflicting pair. This applies to the MCP
-options and the `mcp_enabled` / `mcp_http` / `mcp_stdio` gating keys only; the
-rest of Otto's constructor options are read as Symbols.
-
-`enable_mcp!` configures MCP and nothing else, so it is **strict**: any key it
-does not recognize raises `ArgumentError` listing the ones it does. A typo such
-as `enable_mcp!(auth_token: 'x')` (singular) used to be dropped in silence —
-which is exactly how an endpoint ends up unauthenticated — and now fails at
-boot.
-
-`Otto.new` forwards its *entire* options hash, most of which configures other
-subsystems, so the constructor scope ignores keys it does not recognize. An
-unrecognized `mcp_`-prefixed key still raises, since such a key can only have
-been meant for MCP.
-
-| Canonical key | Accepted spellings | Type | Default | Effect |
-| --- | --- | --- | --- | --- |
-| `http_endpoint` | `http_endpoint`, `mcp_endpoint` | String path starting with `/` | `'/_mcp'` | Path the `POST` MCP route is mounted at. |
-| `auth_tokens` | `auth_tokens`, `mcp_auth_tokens` | Array of String (a bare String is wrapped) | `[]` | Accepted bearer tokens. Empty means no authentication middleware is mounted. |
-| `enable_validation` | `enable_validation`, `mcp_validation` | Boolean | `true` | Mounts JSON schema validation of MCP requests, last in the MCP middleware order. |
-| `enable_rate_limiting` | `enable_rate_limiting`, `mcp_rate_limiting` | Boolean | `true` | Mounts the MCP rate-limit middleware first. |
-| `requests_per_minute` | `requests_per_minute`, `mcp_requests_per_minute` | positive Integer | `60` | Per-IP limit on all requests to the MCP endpoint. |
-| `tools_per_minute` | `tools_per_minute`, `tool_calls_per_minute`, `mcp_tool_calls_per_minute` | positive Integer | `20` | Per-IP limit on `tools/call` requests. |
-| `allow_unauthenticated` | `allow_unauthenticated`, `mcp_allow_unauthenticated` | Boolean | `false` | Acknowledges an intentionally token-less endpoint and silences the boot warning. Does not itself change access. |
-
-Supplying two spellings of the same option with different values raises
-`ArgumentError`; identical values are accepted.
-
-Three further keys gate whether MCP is enabled rather than configuring it. They
-are read by `Otto.new` **only**; `enable_mcp!` always enables the HTTP endpoint,
-so it cannot honour them and raises `ArgumentError` (naming them as
-constructor-only) rather than accepting, say, `mcp_http: false` and mounting the
-endpoint anyway:
-
-| Key | Effect |
-| --- | --- |
-| `mcp_enabled: true` | Creates the MCP server and enables the HTTP endpoint. |
-| `mcp_http: false` | Creates the MCP server but does **not** enable the HTTP endpoint (no route, no middleware). Defaults to enabled. |
-| `mcp_stdio: true` | Creates the MCP server. Otto ships no stdio transport, so this does nothing on its own — and because `mcp_http` defaults to true, it also enables the HTTP endpoint. Pair it with `mcp_http: false` if that is not what you want. |
-
-Wrong types fail loud: a non-`String` token, a non-Integer or non-positive
-per-minute limit, an endpoint that is not a `/`-prefixed String, or a
-non-boolean flag each raise `ArgumentError` at boot. That includes the gating
-keys: `mcp_enabled`, `mcp_http` and `mcp_stdio` must each be exactly `true` or
-`false`. Otto disables the endpoint only on `mcp_http == false`, so a String
-such as `mcp_http: ENV.fetch('MCP_HTTP', 'false')` (truthy) or a `nil` from an
-unset `ENV['MCP_HTTP']` would otherwise mount the endpoint you meant to
-disable; both raise instead.
-
-## Authentication
-
-Pass `auth_tokens:` to require a bearer token. Otto then mounts
-`Otto::MCP::Auth::TokenMiddleware`, which guards every path beginning with the
-configured endpoint. A request may present its token either way:
-
-```
-Authorization: Bearer s3cret
-X-MCP-Token: s3cret
-```
-
-`Authorization: Bearer` is checked first. Tokens are compared in constant time
-against the whole configured set, so neither match position nor membership leaks
-via timing.
-
-A missing, malformed, or unknown token gets a JSON-RPC error envelope:
-
-```json
-{"jsonrpc":"2.0","id":null,"error":{"code":-32000,"message":"Unauthorized","data":"Valid token required"}}
-```
-
-with HTTP status `401`.
-
-`auth_tokens` that is *supplied* but resolves to no usable token raises
-`ArgumentError`. `auth_tokens: ENV['MCP_TOKEN']` with the variable unset is
-`nil`, which would otherwise mount no auth middleware at all and serve the
-endpoint to anyone; an empty or whitespace-only token is rejected for the same
-reason, since no client could present it. To serve MCP without authentication
-on purpose, omit `auth_tokens` entirely and pass `allow_unauthenticated: true`.
-
-The middleware **fails closed**: if it is mounted but the authenticator is
-missing from the security config, it returns `401` rather than passing the
-request through (#258). It is only mounted when `auth_tokens` is non-empty, so
-an empty token list means the endpoint is open, not that it is closed.
-
-### The unauthenticated warning
-
-Enabling the HTTP endpoint with no tokens logs, unconditionally (not gated on
-`Otto.debug`):
-
-```
-[MCP] HTTP endpoint /_mcp is enabled without authentication: any caller can list
-and invoke MCP tools and resources. Pass auth_tokens: ['<token>'] to require a
-bearer token, or allow_unauthenticated: true to acknowledge this intentionally.
-```
-
-This is the intended posture for a localhost-only development endpoint. To keep
-that posture and silence the warning, say so explicitly:
-
-```ruby
-otto.enable_mcp!(allow_unauthenticated: true)
-```
-
-`allow_unauthenticated: true` only suppresses the warning. It does not relax or
-tighten any check, and it is ignored when tokens are configured.
-
-## Rate limiting and validation
-
-With `enable_rate_limiting` (the default), Otto publishes `requests_per_minute`
-and `tools_per_minute` into the security config's rate-limiting configuration,
-where the MCP rate-limit middleware reads them. Configured values are now
-honoured; before the #258 fix the hardcoded 60/20 defaults always won.
-
-Both limits are per client IP over a 60-second window. `tools_per_minute`
-applies to `POST` requests whose JSON-RPC `method` is `tools/call`, and is
-additional to `requests_per_minute`. Throttled MCP requests receive a JSON-RPC
-formatted error rather than a bare Rack 429 body.
-
-The configured `http_endpoint` is published to the same rate-limiting
-configuration as `mcp_http_endpoint`, so the `Rack::Attack` throttles match a
-custom endpoint even though `Rack::Attack` runs outside Otto's middleware stack,
-before Otto sets `env['otto.mcp_http_endpoint']`. Before this fix a server on
-`/api/mcp` was never throttled. If you call
-`Otto::MCP::RateLimiter.configure_rack_attack!` yourself, pass
-`mcp_http_endpoint:` explicitly.
-
-The throttles compare the endpoint against `PATH_INFO`, exactly as the router
-does, and ignore `SCRIPT_NAME`. That matters when the host app mounts Otto
-under a prefix: `Rack::Attack` must see the same `SCRIPT_NAME` / `PATH_INFO`
-split as Otto, so put `use Rack::Attack` inside the same `map` block.
+Mount `Rack::Attack` in the Rack application. Without it, the configured MCP
+rate limits are not enforced.
 
 ```ruby
 # config.ru
-map '/api' do
-  use Rack::Attack  # sees SCRIPT_NAME=/api, PATH_INFO=/_mcp, like Otto does
-  run otto          # MCP on /_mcp, reached as POST /api/_mcp
+use Rack::Attack
+run otto
+```
+
+If a dependency is missing, enabling its corresponding feature raises
+`Otto::OptionalDependencyError`. You may disable validation or rate limiting
+with `enable_validation: false` or `enable_rate_limiting: false`, but doing so
+removes that protection.
+
+Configure MCP during boot, before Otto serves its first request. See
+[configuration freezing](configuration_freezing.md) for the lifecycle rule.
+
+## Enable a protected endpoint
+
+Use `mcp_enabled: true` when constructing the application. Use
+`ENV.fetch('MCP_TOKEN')` without a default so a missing deployment secret stops
+boot instead of creating an open endpoint.
+
+```ruby
+# config.ru
+require 'otto'
+require_relative 'app'
+
+otto = Otto.new('routes',
+  mcp_enabled: true,
+  mcp_auth_tokens: [ENV.fetch('MCP_TOKEN')],
+  mcp_requests_per_minute: 120,
+  mcp_tool_calls_per_minute: 30,
+)
+
+use Rack::Attack
+run otto
+```
+
+The endpoint is `POST /_mcp` unless `mcp_endpoint:` (or `http_endpoint:`) sets
+another slash-prefixed path. `mcp_enabled?` returns `true` after MCP has been
+enabled.
+
+For multi-step boot configuration, call `enable_mcp!` instead:
+
+```ruby
+otto = Otto.new('routes')
+otto.enable_mcp!(
+  http_endpoint: '/api/mcp',
+  auth_tokens: [ENV.fetch('MCP_TOKEN')],
+)
+```
+
+Enable MCP only once per `Otto` instance. A second call raises `ArgumentError`;
+provide all MCP settings in the first call.
+
+## Register resources and tools
+
+Declare resources and tools in the normal Otto routes file. The initial verb
+and path are required by the route-file grammar, but they do not create HTTP
+routes for these declarations. Otto registers the MCP definition that follows
+them. The single MCP HTTP endpoint remains the only transport route.
+
+```text
+# routes
+GET  /mcp/users        MCP users AppMCP.users
+POST /mcp/create-user  TOOL create_user AppMCP.create_user
+```
+
+`MCP` registers a resource. Its resource URI is `users`: Otto removes one
+leading slash from the declaration. The handler must be a zero-argument class
+method. Otto returns its value as text with the `text/plain` MIME type.
+
+`TOOL` registers a tool. Its handler is a class method that receives
+`arguments` and the Rack `env`:
+
+```ruby
+# app.rb
+require 'json'
+
+class AppMCP
+  def self.users
+    JSON.generate(users: [{ id: 1, name: 'Ada' }])
+  end
+
+  def self.create_user(arguments, _env)
+    "Created user: #{arguments.fetch('name')}"
+  end
 end
 ```
 
-A `use Rack::Attack` placed above the `map` sees `PATH_INFO=/api/_mcp` and
-cannot know Otto's mount prefix, so it never matches the `/_mcp` endpoint and
-the MCP request goes unthrottled. Before this fix even the inner placement
-failed: the throttles compared `Rack::Request#path`, which prepends
-`SCRIPT_NAME`, so `/api/_mcp` never equalled `/_mcp`. The general `requests`
-throttle skipped internal `/_` paths the same way and counted the mounted
-`/api/_mcp` instead.
+A resource declaration currently supplies its name, description, and MIME type
+automatically: the resource URI determines the name, descriptions are generated
+from the URI or tool name, and resources use `text/plain`. Tool declarations
+currently advertise an empty input schema. A tool still receives the
+`params.arguments` object supplied by the client, so validate its fields in the
+handler before using them.
 
-`Rack::Attack` configuration is process-global and keyed by throttle name, so
-each configured endpoint gets its own pair of throttles, named
-`mcp_requests:<endpoint>` and `mcp_tool_calls:<endpoint>`, with its own limits
-and its own counters. Two Otto apps with MCP on `/a` and `/b` in one process
-are throttled independently; before this fix configuring `/b` replaced the
-`/a` throttles and `/a` stopped being rate limited. Every endpoint configured
-in the process is listed by `Otto::MCP::RateLimiter.registered_endpoints`, and
-the JSON-RPC 429 body and `[MCP]` log prefix apply to all of them. When
-`configure_rack_attack!` is called with no `mcp_http_endpoint:` the throttles
-keep the bare names `mcp_requests` and `mcp_tool_calls` and resolve the
-endpoint per request from `env['otto.mcp_http_endpoint']`, falling back to
-`/_mcp`.
+## Call the endpoint
 
-**Known limitation:** the throttles are keyed by endpoint path only, not by
-Otto instance. Two Otto apps in one process that mount MCP on the *same* path
-(say two apps behind a host or tenant dispatcher, both on `/_mcp`) share one
-throttle definition and one set of counters: the app configured last sets the
-limits for both, and a client IP's requests to either app count against the
-same window. Give each app a distinct `http_endpoint` if they need independent
-limits or counters.
+Every request must be a JSON-RPC 2.0 `POST` with
+`Content-Type: application/json`. A request needs `jsonrpc`, `id`, and
+`method`; `params`, when present, must be an object.
 
-Every MCP guard (token authentication, schema validation, the per-endpoint
-throttles and the JSON-RPC 429 responder) applies only to requests the router
-would dispatch to the MCP endpoint: the request path is compared to the
-endpoint exactly, after the router's own path normalization, so a trailing
-slash is ignored. Sibling paths that merely share the prefix, such as `/admin`
-beside an endpoint at `/a`, or every route beside an endpoint at `/`, are
-neither counted, throttled, nor challenged for a token. Before this fix the
-guards matched by prefix, so exhausting the `/a` throttle made `/admin` return
-the MCP 429 body. An endpoint configured with a trailing slash (`/a/`) is served
-at both `/a` and `/a/`.
+Pass a configured token in either header. `Authorization` is checked first.
 
-Note that the JSON-RPC 429 body only applies when Otto's *general* rate
-limiting is off. Both rate limiters assign `Rack::Attack.throttled_responder`,
-and the general one is registered last, so when you enable both, throttled MCP
-requests get the general (plain-text or generic-JSON) 429 body instead.
+```text
+Authorization: Bearer <token>
+X-MCP-Token: <token>
+```
 
-With `enable_validation` (the default), incoming MCP requests are schema
-validated after authentication and rate limiting — the expensive check runs
-last, on requests that already proved themselves.
-
-Set either to `false` to skip the corresponding middleware entirely.
-
-### Middleware order
-
-The three MCP middlewares execute in this order, outermost first:
-
-1. **Rate limiting** — sheds excess load before anything else spends work.
-2. **Token authentication** — rejects anonymous callers before bodies are parsed.
-3. **Schema validation** — the expensive check, on requests that already passed
-   the two above.
-
-So an unauthenticated request with a malformed JSON-RPC body gets `401`, not a
-validation error. Before Otto 2.9.0 the order was exactly inverted and the
-validator ran first (#258).
-
-## Try it
+Initialize the connection:
 
 ```sh
 curl -sS -X POST http://localhost:9292/_mcp \
@@ -271,30 +139,144 @@ curl -sS -X POST http://localhost:9292/_mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
 ```
 
-Drop the `Authorization` header against a token-protected endpoint and the same
-request returns `401` with the `Unauthorized` envelope above.
+Replace `s3cret` in these requests with a configured token. A successful
+response has the same `id` and a `result` containing the protocol version,
+supported capabilities, and server information.
 
-`examples/mcp_demo/` is a runnable version of this setup.
+After registering the preceding routes, list the available resources and tools:
 
-## Error cases
+```sh
+curl -sS -X POST http://localhost:9292/_mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer s3cret' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"resources/list","params":{}}'
 
-| Situation | Result |
+curl -sS -X POST http://localhost:9292/_mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer s3cret' \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{}}'
+```
+
+Read the `users` resource or call the `create_user` tool:
+
+```sh
+curl -sS -X POST http://localhost:9292/_mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer s3cret' \
+  -d '{"jsonrpc":"2.0","id":4,"method":"resources/read","params":{"uri":"users"}}'
+
+curl -sS -X POST http://localhost:9292/_mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer s3cret' \
+  -d '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"create_user","arguments":{"name":"Ada"}}}'
+```
+
+## Authentication
+
+`auth_tokens:` accepts a string or an array of strings. The endpoint accepts a
+request when the token matches any configured token. Missing, malformed, or
+unknown credentials return HTTP `401` and this JSON-RPC error:
+
+```json
+{"jsonrpc":"2.0","id":null,"error":{"code":-32000,"message":"Unauthorized","data":"Valid token required"}}
+```
+
+Supplying `nil`, a blank string, or an otherwise empty token value raises
+`ArgumentError`. An explicit empty array means no token authentication is
+mounted, so do not use it as a way to disable access.
+
+For a deliberate localhost-only endpoint, omit `auth_tokens:` and acknowledge
+that choice explicitly:
+
+```ruby
+otto.enable_mcp!(allow_unauthenticated: true)
+```
+
+This option only suppresses Otto's unauthenticated-endpoint warning; it does
+not add or remove authentication. An open endpoint lets any caller list and
+invoke every registered MCP resource and tool.
+
+## Configuration reference
+
+Both enablement forms accept the canonical option names below and the listed
+`mcp_` aliases. Keys may be Symbols or Strings. Providing two spellings of one
+option with different values raises `ArgumentError`.
+
+| Option | Alias | Default | Effect |
+| --- | --- | --- | --- |
+| `http_endpoint` | `mcp_endpoint` | `'/_mcp'` | Slash-prefixed endpoint path. |
+| `auth_tokens` | `mcp_auth_tokens` | `[]` | String or array of bearer tokens. |
+| `enable_validation` | `mcp_validation` | `true` | Validates the JSON-RPC request envelope. |
+| `enable_rate_limiting` | `mcp_rate_limiting` | `true` | Enables MCP rate-limit configuration. |
+| `requests_per_minute` | `mcp_requests_per_minute` | `60` | Per-client-IP limit for all MCP endpoint requests. |
+| `tools_per_minute` | `tool_calls_per_minute`, `mcp_tool_calls_per_minute` | `20` | Additional per-client-IP limit for `tools/call`. |
+| `allow_unauthenticated` | `mcp_allow_unauthenticated` | `false` | Acknowledges an intentionally open endpoint. |
+
+Limits must be positive integers. Endpoint paths must be strings beginning with
+`/`; tokens must be non-blank strings; and all flags must be exactly `true` or
+`false`. Invalid values fail at boot with `ArgumentError`.
+
+`mcp_enabled`, `mcp_http`, and `mcp_stdio` are constructor-only gating options:
+
+| Constructor option | Effect |
 | --- | --- |
-| Unknown key passed to `enable_mcp!`, e.g. `auth_token: 'x'` | `ArgumentError` listing the unknown key and every recognized MCP option. This scope is strict. |
-| Unknown `mcp_`-prefixed key passed to `Otto.new`, e.g. `mcp_tokens:` | Same `ArgumentError`. Non-`mcp_` keys are ignored there, since the constructor forwards its whole options hash. |
-| Bare `endpoint:`, `validation:`, `rate_limiting:`, `http:`, or `stdio:` passed to `enable_mcp!` | `ArgumentError`; they are not MCP options. Use `http_endpoint`, `enable_validation`, `enable_rate_limiting`. `http:` and `stdio:` appeared in the pre-2.9.0 `enable_mcp!` docs but were never read; there is no `enable_mcp!` replacement, since it always enables the HTTP endpoint. Passed to `Otto.new` all five are ignored by MCP like any other non-MCP key. |
-| `mcp_enabled:`, `mcp_http:`, or `mcp_stdio:` passed to `enable_mcp!` | `ArgumentError` explaining that they are constructor-only gating options; pass them to `Otto.new`. Before this fix `enable_mcp!(mcp_http: false)` was accepted and still mounted the endpoint. |
-| String-keyed options, e.g. `enable_mcp!('auth_tokens' => ['s3cret'])` | Accepted and applied. Before this fix String keys passed validation but were then ignored, so `'auth_tokens'` normalized to no tokens and the endpoint was served unauthenticated. |
-| String-keyed gating keys, e.g. `Otto.new(routes, 'mcp_enabled' => true)` | Enables MCP. Before this fix the constructor read the gating keys as Symbols only, so a String-keyed `'mcp_enabled'` enabled nothing while the `'auth_tokens'` beside it was accepted. |
-| Two MCP apps with different endpoints in one process | Each endpoint keeps its own `Rack::Attack` throttles and counters. Before this fix the second app's configuration replaced the first app's throttles and the first endpoint was no longer rate limited. |
-| Sibling path sharing the endpoint prefix, e.g. `/admin` beside MCP on `/a` | Not an MCP request: not throttled, not challenged for a token, not schema-validated. Guards match the endpoint exactly, as the router does. |
-| Two MCP apps with the **same** endpoint in one process, e.g. both on `/_mcp` behind a host dispatcher | Known limitation: they share one throttle definition (the last configured limits win) and one set of per-client-IP counters. Use distinct endpoint paths per app. |
-| Non-boolean gating value, e.g. `mcp_http: ENV.fetch('MCP_HTTP', 'false')` or `mcp_http: nil` | `ArgumentError` naming the key. Otto disables the endpoint only on `mcp_http == false`; the String `'false'` is truthy and `nil` is not `false`, so either would have mounted the endpoint you meant to disable. |
-| Two spellings of one option with different values, e.g. `http_endpoint: '/a', mcp_endpoint: '/b'` | `ArgumentError` naming the canonical option and the conflicting spellings. Identical values are accepted. |
-| `auth_tokens:` supplied but empty, e.g. `ENV['MCP_TOKEN']` unset, `''`, `['']` | `ArgumentError`. Omit the key and pass `allow_unauthenticated: true` for a deliberately open endpoint. |
-| `enable_mcp!` when MCP is already enabled, including after `Otto.new(mcp_enabled: true)` | `ArgumentError` naming the existing endpoint. A second enable used to add a second route and leave the first endpoint unauthenticated. |
-| `enable_mcp!` after the instance is frozen | Raises; configure MCP during boot. See [configuration freezing](configuration_freezing.md). |
-| `POST` to the endpoint when MCP is not enabled | `404` with `{"error":"MCP not enabled"}`. |
+| `mcp_enabled: true` | Creates the MCP server and enables its HTTP endpoint. |
+| `mcp_http: false` | Does not register the HTTP endpoint or its middleware. It is useful only with another MCP gate such as `mcp_enabled: true`. |
+| `mcp_stdio: true` | Creates the MCP server, but Otto does not provide an stdio transport. Because HTTP is enabled by default, also set `mcp_http: false` to avoid enabling HTTP. |
 
-The unknown-key rejection is deliberate: a typo in an MCP option used to be
-dropped in silence, which is exactly how an endpoint ends up unauthenticated.
+`enable_mcp!` always enables HTTP and rejects these gating options. It is strict:
+unknown keys, including common near-misses such as `auth_token:`, raise
+`ArgumentError`. The `Otto.new` constructor ignores unknown non-MCP options but
+rejects unknown `mcp_`-prefixed options.
+
+## Rate limiting and validation
+
+Rate limits use a rolling 60-second period. `tools_per_minute` is additional to
+`requests_per_minute`, not a replacement. The guards run in this order:
+
+1. Rate limiting
+2. Token authentication
+3. JSON-schema validation
+
+Therefore, a malformed request without a valid token receives `401` instead of
+a validation response. Set either feature to `false` only when you accept the
+resulting exposure.
+
+MCP guards match the configured endpoint exactly, using Otto's normalized path.
+A sibling such as `/admin` beside an endpoint at `/a` is not challenged,
+validated, or counted. A configured trailing slash is accepted with or without
+the trailing slash.
+
+When Otto is mounted under a Rack path prefix, mount `Rack::Attack` inside the
+same `map` block so it receives the same `PATH_INFO` that Otto routes:
+
+```ruby
+# config.ru
+map '/api' do
+  use Rack::Attack
+  run otto # An endpoint at /_mcp is reached at POST /api/_mcp.
+end
+```
+
+`Rack::Attack` configuration is process-global. Separate Otto applications in
+the same process get independent MCP counters when their endpoint paths differ.
+Applications that share the same endpoint path also share its throttle
+configuration and counters; use distinct endpoint paths when isolation matters.
+
+If general Otto rate limiting is also enabled, its `Rack::Attack` responder
+replaces MCP's JSON-RPC-specific `429` response. Do not rely on the MCP error
+body in that combined configuration.
+
+## Errors and limits
+
+| Situation | HTTP status and JSON-RPC code |
+| --- | --- |
+| Missing or invalid bearer token | `401`, `-32000` (`Unauthorized`) |
+| Invalid JSON, request envelope, HTTP method, or content type | `400`, `-32700` or `-32600` |
+| Unknown protocol method or invalid method parameters | `400`, `-32601` or `-32602` |
+| Unknown resource or tool | `404`, `-32001` or `-32002` |
+| Resource or tool handler raises | `500`, `-32603`; details are logged, not returned to the client |
+| MCP rate limit exceeded | `429`, `-32000` unless general Otto rate limiting overrides the response body |
+
+Otto currently provides HTTP transport only. It does not implement an stdio
+transport, resource subscriptions, or resource-list change notifications.

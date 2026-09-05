@@ -7,6 +7,171 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.10.0:
+
+2.10.0 — 2026-09-04
+===================
+
+Added
+-----
+
+- ``APIKeyStrategy`` now accepts a block or ``resolver:`` callable instead of a
+  static ``api_keys:`` list, enabling database-, repository-, or cache-backed
+  key lookup. The resolved account becomes the authenticated user.
+
+- ``APIKeyStrategy.digest(key)`` returns a full SHA-256 hex digest for stores
+  that look up generated API keys by digest. See
+  ``docs/guides/authentication.md`` for the resolver contract and credential
+  storage guidance.
+
+- Directly exposed applications can now set ``trusted_proxies: :none`` or call
+  ``trust_no_proxies!`` to distrust every peer. Otto then ignores forwarded
+  client IPs and strips forwarded host, scheme, and port metadata. Leaving proxy
+  trust unconfigured continues to preserve forwarded metadata. Applications
+  behind a reverse proxy, including one on loopback, must explicitly trust it.
+  The sentinel is only valid as the whole option; a list containing it, such
+  as ``['none']``, is rejected at configuration time. See
+  ``docs/guides/forwarded-authority.md`` for configuration guidance. (#259)
+
+Changed
+-------
+
+- MCP options now accept String or Symbol keys consistently and fail at boot
+  for unknown, conflicting, or invalid values. Constructor gating options must
+  be exactly ``true`` or ``false``; nil or blank token values are rejected.
+  Before upgrading, check option names against the `MCP guide
+  <docs/guides/mcp.md>`__. (#258)
+
+- ``enable_mcp!`` now rejects constructor-only gating options and repeated
+  enablement. Pass all MCP settings in one ``Otto.new`` or ``enable_mcp!`` call.
+  (#258)
+
+- MCP ``Rack::Attack`` throttle names are now endpoint-qualified, such as
+  ``mcp_requests:/_mcp`` and ``mcp_tool_calls:/_mcp``. Update integrations that
+  inspect throttle names directly. (#258)
+
+- Otto applications in one process that resolve proxied requests must now use
+  the same forwarded-header family; incompatible configurations fail during
+  configuration. CIDR-based proxy trust supports only ``X-Forwarded-*`` headers; use
+  depth-based trust for ``Forwarded`` or both families. See
+  ``docs/guides/forwarded-authority.md`` for configuration guidance. (#252)
+
+- Literal routes now consistently take precedence over static files at the same
+  path, regardless of which static files were requested earlier. Static files
+  continue to take precedence over dynamic routes. (#260)
+
+- MaxMind-backed database paths now require ``maxmind-db ~> 1.2``. Before
+  upgrading, declare that range or provide a compatible reader object. See the
+  `geo-country <docs/guides/geo-country.md>`__ and
+  `enrichment <docs/guides/enrichment.md>`__ guides. (#255)
+
+Removed
+-------
+
+- Removed ``add_static_path`` and the ``routes_static`` cache interface. Static
+  files are discovered directly from the configured ``public`` directory and
+  no longer need registration. (#260)
+
+- Removed the unused ``rack-parser`` and ``rexml`` runtime dependencies.
+  Applications using either gem directly must now declare it themselves.
+  (#255)
+
+Fixed
+-----
+
+- MCP middleware now executes rate limiting, authentication, and schema
+  validation in that order. Configured endpoints with a trailing slash are also
+  routable. (#258)
+
+- Repeated MCP rate-limit configuration no longer produces duplicate throttle
+  log entries. (#258)
+
+- MCP JSON-RPC errors now consistently use HTTP 400 for protocol errors, 404
+  for unknown resources or tools, and 500 for handler or server failures.
+  Unknown tools no longer return 500, failing resource handlers no longer
+  appear missing, and handler exception details are logged instead of returned
+  to clients. (#257)
+
+- ``StrategyResult#has_role?`` and ``#has_permission?`` now derive their answer
+  from ``#roles`` and ``#permissions``, so the predicates agree with the
+  accessors for object-backed users exposing ``#roles`` and for ``Set`` or
+  other non-Array collections. A user model defining its own ``#has_role?`` or
+  ``#has_permission?`` is still consulted first.
+
+- MCP rate-limited requests now emit one ``rack.attack`` log entry instead of
+  two. (#255)
+
+Security
+--------
+
+- ``APIKeyStrategy`` now requires exactly one key source and rejects empty
+  static key lists at construction. Invalid presented credentials terminate a
+  multi-strategy authentication chain. Static keys are compared in constant
+  time as fixed-width SHA-256 digests, so configured key lengths are not
+  observable through timing. Blank credentials, empty or whitespace-only, are
+  rejected before any key source is consulted. (#256)
+
+- Successful authentication results no longer expose the raw API key in
+  strategy-generated fields. Static-list callers should replace
+  ``user[:api_key]`` with ``user[:api_key_fingerprint]``. (#256)
+
+- ``APIKeyStrategy`` now reads only the configured header by default. Applications
+  that still accept query or form parameters must opt in with ``param_name:``;
+  see ``docs/guides/authentication.md`` for configuration guidance. (#256)
+
+- Fixed MCP bearer-token authentication being silently omitted when configured
+  through ``Otto.new`` or with String-keyed options. Deployments exposing MCP
+  beyond a trusted local environment should upgrade and verify their
+  ``auth_tokens`` configuration. Intentionally open endpoints now warn unless
+  acknowledged with ``allow_unauthenticated: true``. See the `MCP guide
+  <docs/guides/mcp.md>`__. (#258)
+
+- MCP authentication now fails closed when its authenticator is unavailable.
+  Authentication, validation, and rate limiting also apply only to the exact
+  routed MCP endpoint. (#258)
+
+- MCP rate limiting now honors configured limits and protects custom endpoints,
+  Rack-mounted applications, and distinct MCP endpoints in the same process.
+  Mount ``Rack::Attack`` inside the same ``map`` block as Otto, and use distinct
+  endpoint paths when applications require isolated counters. (#258)
+
+- Static-file serving now rejects symlinks that resolve outside the configured
+  public directory, preventing files outside that root from being served on
+  first access or after another file has populated the directory cache.
+  Symlinks that resolve within the public directory, including a symlinked
+  public root, remain supported. (#257)
+
+- When proxy trust is configured, forwarded host, scheme, and port metadata
+  from untrusted peers is now stripped before it can affect Rack's request
+  authority. Requests from trusted peers retain this metadata; see
+  ``docs/guides/forwarded-authority.md`` for deployment guidance. (#252)
+
+- ``IPPrivacyMiddleware`` enforces its own proxy trust posture even when an
+  outer instance already resolved ``otto.client_ip``. ``trusted_proxies: :none``
+  always strips forwarded authority; a CIDR configuration that can no longer
+  match the connecting peer treats it as untrusted and logs a warning. (#259)
+
+- ``env['otto.peer_relayed']`` records whether a request carried any relay
+  marker header, evaluated before forwarded carriers may be deleted, so
+  ``Otto::CaddyTLS::LocalhostGuard`` still refuses a relayed loopback call once
+  the carriers are stripped. The relay markers cover every carrier the scrub
+  deletes, including ``X-Forwarded-Host`` and the other authority headers, not
+  only the client-IP carriers. (#259)
+
+- MCP now stops configuration with ``Otto::OptionalDependencyError`` rather
+  than starting without enabled schema validation or rate limiting. Before
+  upgrading, add ``json_schemer ~> 2.0`` and ``rack-attack ~> 6.7`` for the
+  default protections, or explicitly set ``enable_validation: false`` or
+  ``enable_rate_limiting: false`` only when that protection is not required.
+  See the `MCP guide <docs/guides/mcp.md>`__. (#255)
+
+Documentation
+-------------
+
+- Added the `MCP guide <docs/guides/mcp.md>`__ covering secure enablement,
+  supported options, authentication, validation, rate limiting, mounted
+  applications, and error behavior. (#258)
+
 .. _changelog-2.9.0:
 
 2.9.0 — 2026-08-18

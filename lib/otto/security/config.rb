@@ -596,6 +596,28 @@ class Otto
         true
       end
 
+      # Set the MCP authenticator used by Otto::MCP::Auth::TokenMiddleware.
+      #
+      # Validated eagerly (must be nil or respond to #authenticate) so a
+      # mis-wired authenticator fails at configuration time rather than by
+      # letting unauthenticated MCP requests through at request time. The
+      # middleware fails closed when this is nil, so clearing it disables the
+      # endpoint rather than opening it.
+      #
+      # @param auth [#authenticate, nil]
+      # @raise [FrozenError] if configuration is frozen
+      # @raise [ArgumentError] if auth does not respond to #authenticate
+      def mcp_auth=(auth)
+        ensure_not_frozen!
+
+        unless auth.nil? || auth.respond_to?(:authenticate)
+          raise ArgumentError,
+                "MCP auth must respond to #authenticate (or be nil), got #{auth.class}"
+        end
+
+        @mcp_auth = auth
+      end
+
       # Set the server-side secret used to sign (HMAC) CSRF tokens. Set this to
       # a stable value (e.g. ENV['OTTO_CSRF_SECRET']) in multi-process or
       # multi-host deployments so tokens stay valid across workers and restarts.

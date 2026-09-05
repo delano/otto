@@ -1,0 +1,378 @@
+# spec/otto/mcp/server_http_auth_spec.rb
+#
+# frozen_string_literal: true
+
+require 'spec_helper'
+
+# Integration coverage for issue #258: the Otto constructor used to drop every
+# MCP option except the endpoint, so `Otto.new(nil, mcp_enabled: true,
+# auth_tokens: [...])` silently served an unauthenticated MCP endpoint. These
+# examples drive real requests through otto.call for BOTH the constructor path
+# and the explicit #enable_mcp! path.
+RSpec.describe Otto::MCP::Server do
+  # Building an Otto with MCP rate limiting re-registers the process-global
+  # Rack::Attack throttles; restore them so other specs see their own limits.
+  include_context 'with rack attack isolation'
+
+  # HTTP endpoint authentication, end to end.
+  let(:token) { 'super-secret-token' }
+
+  def mcp_request(otto, endpoint: '/_mcp', method_name: 'tools/list', headers: {}, id: 1)
+    body = JSON.generate({ jsonrpc: '2.0', id: id, method: method_name, params: {} })
+    env  = Rack::MockRequest.env_for(
+      endpoint,
+      method: 'POST',
+      input: body,
+      'CONTENT_TYPE' => 'application/json'
+    )
+    headers.each { |k, v| env[k] = v }
+
+    status, _resp_headers, resp_body = otto.call(env)
+    [status, JSON.parse(resp_body.to_a.join)]
+  end
+
+  def constructor_otto(**opts)
+    otto = Otto.new(nil, { mcp_enabled: true }.merge(opts))
+    Otto.unfreeze_for_testing(otto)
+    otto
+  end
+
+  def explicit_otto(**opts)
+    otto = create_minimal_otto
+    otto.enable_mcp!(**opts)
+    otto
+  end
+
+  {
+    'constructor path (Otto.new(mcp_enabled: true))' => :constructor_otto,
+    'explicit path (#enable_mcp!)' => :explicit_otto,
+  }.each do |description, builder|
+    describe description do
+      let(:otto) { send(builder, auth_tokens: [token]) }
+
+      it 'wires a TokenAuth into the security config' do
+        expect(otto.security_config.mcp_auth).to be_a(Otto::MCP::Auth::TokenAuth)
+      end
+
+      it 'mounts the token middleware' do
+        expect(otto.middleware_stack).to include(Otto::MCP::Auth::TokenMiddleware)
+      end
+
+      it 'rejects a request with no token' do
+        status, body = mcp_request(otto)
+
+        expect(status).to eq(401)
+        expect(body.dig('error', 'message')).to eq('Unauthorized')
+      end
+
+      it 'rejects an invalid bearer token' do
+        status, body = mcp_request(otto, headers: { 'HTTP_AUTHORIZATION' => 'Bearer wrong-token' })
+
+        expect(status).to eq(401)
+        expect(body.dig('error', 'code')).to eq(-32_000)
+      end
+
+      it 'rejects a malformed Authorization header' do
+        status, = mcp_request(otto, headers: { 'HTTP_AUTHORIZATION' => token })
+
+        expect(status).to eq(401)
+      end
+
+      it 'accepts a valid bearer token and answers tools/list' do
+        status, body = mcp_request(otto, headers: { 'HTTP_AUTHORIZATION' => "Bearer #{token}" })
+
+        expect(status).to eq(200)
+        expect(body).to include('jsonrpc' => '2.0', 'id' => 1)
+        expect(body['result']).to include('tools')
+        expect(body).not_to have_key('error')
+      end
+
+      it 'accepts a valid X-MCP-Token header and answers initialize' do
+        status, body = mcp_request(
+          otto,
+          method_name: 'initialize',
+          id: 7,
+          headers: { 'HTTP_X_MCP_TOKEN' => token }
+        )
+
+        expect(status).to eq(200)
+        expect(body['id']).to eq(7)
+        expect(body.dig('result', 'serverInfo', 'name')).to eq('Otto MCP Server')
+      end
+
+      it 'rejects an invalid X-MCP-Token header' do
+        status, = mcp_request(otto, headers: { 'HTTP_X_MCP_TOKEN' => 'nope' })
+
+        expect(status).to eq(401)
+      end
+    end
+  end
+
+  describe 'path equivalence between the two entry points' do
+    let(:from_constructor) { constructor_otto(auth_tokens: [token]) }
+    let(:from_explicit) { explicit_otto(auth_tokens: [token]) }
+
+    it 'builds the same middleware stack' do
+      classes = ->(otto) { otto.middleware_stack.grep(Class) }
+
+      expect(classes.call(from_constructor)).to eq(classes.call(from_explicit))
+    end
+
+    it 'configures the same endpoint' do
+      endpoint = ->(otto) { otto.mcp_server.instance_variable_get(:@http_endpoint) }
+
+      expect(endpoint.call(from_constructor)).to eq(endpoint.call(from_explicit))
+    end
+
+    it 'answers identically to the same authenticated request' do
+      headers = { 'HTTP_AUTHORIZATION' => "Bearer #{token}" }
+
+      expect(mcp_request(from_constructor, headers: headers))
+        .to eq(mcp_request(from_explicit, headers: headers))
+    end
+  end
+
+  # The gating keys used to be read as raw Symbols before normalization, so
+  # Otto.new(nil, "mcp_enabled" => true, "auth_tokens" => [...]) enabled
+  # nothing at all while the docs promised String keys work everywhere.
+  describe 'String-keyed constructor options' do
+    let(:otto) do
+      otto = Otto.new(nil, 'mcp_enabled' => true, 'auth_tokens' => [token])
+      Otto.unfreeze_for_testing(otto)
+      otto
+    end
+
+    it 'enables MCP' do
+      expect(otto.mcp_enabled?).to be true
+    end
+
+    it 'requires the token' do
+      expect(mcp_request(otto).first).to eq(401)
+      expect(mcp_request(otto, headers: { 'HTTP_AUTHORIZATION' => "Bearer #{token}" }).first).to eq(200)
+    end
+
+    it 'honours a String-keyed "mcp_http" => false' do
+      otto = Otto.new(nil, 'mcp_enabled' => true, 'mcp_http' => false)
+
+      expect(otto).not_to be_mcp_enabled
+      expect(otto.middleware_stack).not_to include(Otto::MCP::Auth::TokenMiddleware)
+      expect(otto.call(Rack::MockRequest.env_for('/_mcp', method: 'POST')).first).to eq(404)
+    end
+  end
+
+  # The constructor disables the endpoint only on `mcp_http == false`. The
+  # String "false" that ENV.fetch('MCP_HTTP', 'false') or a YAML config
+  # yields is truthy, so it used to MOUNT the endpoint the operator meant to
+  # disable. Non-boolean gating values now fail at boot instead.
+  describe 'non-boolean gating values' do
+    it 'raises for mcp_http: "false" instead of mounting the endpoint' do
+      expect { Otto.new(nil, mcp_enabled: true, mcp_http: 'false') }
+        .to raise_error(ArgumentError, 'MCP mcp_http must be true or false, got "false"')
+    end
+
+    it 'raises for mcp_http: nil (an unset ENV variable) instead of mounting the endpoint' do
+      expect { Otto.new(nil, mcp_enabled: true, mcp_http: nil) }
+        .to raise_error(ArgumentError, 'MCP mcp_http must be true or false, got nil')
+    end
+
+    it 'raises for a String mcp_enabled and mcp_stdio' do
+      expect { Otto.new(nil, mcp_enabled: 'true') }
+        .to raise_error(ArgumentError, 'MCP mcp_enabled must be true or false, got "true"')
+      expect { Otto.new(nil, mcp_stdio: 1) }
+        .to raise_error(ArgumentError, 'MCP mcp_stdio must be true or false, got 1')
+    end
+  end
+
+  describe 'custom endpoint' do
+    it 'honors mcp_endpoint: from the constructor and still requires auth' do
+      otto = constructor_otto(mcp_endpoint: '/api/mcp', auth_tokens: [token])
+
+      expect(mcp_request(otto, endpoint: '/api/mcp').first).to eq(401)
+      expect(mcp_request(otto, endpoint: '/api/mcp',
+                               headers: { 'HTTP_AUTHORIZATION' => "Bearer #{token}" }).first).to eq(200)
+    end
+
+    it 'honors http_endpoint: from #enable_mcp! and still requires auth' do
+      otto = explicit_otto(http_endpoint: '/api/mcp', auth_tokens: [token])
+
+      expect(mcp_request(otto, endpoint: '/api/mcp').first).to eq(401)
+      expect(mcp_request(otto, endpoint: '/api/mcp',
+                               headers: { 'HTTP_AUTHORIZATION' => "Bearer #{token}" }).first).to eq(200)
+    end
+
+    # The route is dispatched by exact literal match, so the token guard must
+    # not challenge /admin merely because it shares the prefix of /a.
+    it 'does not require auth on a sibling path sharing the endpoint prefix' do
+      otto = constructor_otto(mcp_endpoint: '/a', auth_tokens: [token])
+      env  = Rack::MockRequest.env_for('/admin', method: 'POST', input: '{}', 'CONTENT_TYPE' => 'application/json')
+
+      expect(otto.call(env).first).not_to eq(401)
+      expect(mcp_request(otto, endpoint: '/a').first).to eq(401)
+    end
+
+    # A trailing slash on the endpoint used to register a literal key the
+    # router (which strips it from PATH_INFO before lookup) could never match.
+    it 'serves an endpoint configured with a trailing slash' do
+      otto = constructor_otto(mcp_endpoint: '/a/', auth_tokens: [token])
+
+      expect(mcp_request(otto, endpoint: '/a').first).to eq(401)
+      expect(mcp_request(otto, endpoint: '/a/', headers: { 'HTTP_AUTHORIZATION' => "Bearer #{token}" }).first).to eq(200)
+    end
+  end
+
+  describe 'enabling twice' do
+    # Server#enable! appends a route, an endpoint-setting proc and the MCP
+    # middleware to the Otto instance without removing the previous set, so a
+    # second call with a different endpoint would leave the first endpoint
+    # routed but unguarded: the auth middleware only matches the newest
+    # endpoint. The server refuses a second call instead.
+    let(:otto) { explicit_otto(http_endpoint: '/old', auth_tokens: [token]) }
+    let(:mcp_handler) { 'Otto::MCP::InternalHandler.handle_request' }
+
+    def enable_again
+      otto.enable_mcp!(http_endpoint: '/new', auth_tokens: [token])
+    end
+
+    it 'raises, naming the existing endpoint and the remedy' do
+      expect { enable_again }.to raise_error(
+        ArgumentError,
+        %r{already enabled on /old; pass all MCP options in a single Otto\.new or enable_mcp! call}
+      )
+    end
+
+    it 'raises for #enable_mcp! after the constructor enabled it' do
+      otto = constructor_otto(mcp_endpoint: '/old', auth_tokens: [token])
+
+      expect { otto.enable_mcp!(http_endpoint: '/new', auth_tokens: [token]) }
+        .to raise_error(ArgumentError, %r{already enabled on /old})
+    end
+
+    it 'keeps the original endpoint authenticated' do
+      expect { enable_again }.to raise_error(ArgumentError)
+
+      expect(mcp_request(otto, endpoint: '/old').first).to eq(401)
+      expect(mcp_request(otto, endpoint: '/old',
+                               headers: { 'HTTP_AUTHORIZATION' => "Bearer #{token}" }).first).to eq(200)
+    end
+
+    it 'adds no second route' do
+      expect { enable_again }.to raise_error(ArgumentError)
+
+      mcp_routes = otto.routes[:POST].select { |route| route.definition == mcp_handler }
+      expect(mcp_routes.map(&:path)).to eq(['/old'])
+      expect(otto.routes_literal[:POST].keys).to eq(['/old'])
+
+      env = Rack::MockRequest.env_for('/new', method: 'POST', input: '{}', 'CONTENT_TYPE' => 'application/json')
+      expect(otto.call(env).first).to eq(404)
+    end
+
+    it 'mounts no second auth middleware or endpoint proc' do
+      expect { enable_again }.to raise_error(ArgumentError)
+
+      expect(otto.middleware.count(Otto::MCP::Auth::TokenMiddleware)).to eq(1)
+      expect(otto.middleware.middleware_list.count { |m| m.is_a?(Proc) }).to eq(1)
+    end
+  end
+
+  describe 'without configured tokens' do
+    let(:otto) { constructor_otto(allow_unauthenticated: true) }
+
+    it 'leaves mcp_auth unset' do
+      expect(otto.security_config.mcp_auth).to be_nil
+    end
+
+    it 'does not mount the token middleware' do
+      expect(otto.middleware_stack).not_to include(Otto::MCP::Auth::TokenMiddleware)
+    end
+
+    it 'serves the endpoint to anyone' do
+      status, body = mcp_request(otto)
+
+      expect(status).to eq(200)
+      expect(body['result']).to include('tools')
+    end
+  end
+
+  describe 'rate limit passthrough' do
+    it 'publishes constructor limits to the security config' do
+      otto = constructor_otto(auth_tokens: [token], requests_per_minute: 5, tools_per_minute: 2)
+
+      expect(otto.security_config.rate_limiting_config)
+        .to include(mcp_requests_per_minute: 5, tool_calls_per_minute: 2)
+    end
+
+    it 'publishes #enable_mcp! limits to the security config' do
+      otto = explicit_otto(auth_tokens: [token], requests_per_minute: 5, tools_per_minute: 2)
+
+      expect(otto.security_config.rate_limiting_config)
+        .to include(mcp_requests_per_minute: 5, tool_calls_per_minute: 2)
+    end
+
+    it 'accepts the mcp_-prefixed spellings' do
+      otto = constructor_otto(mcp_requests_per_minute: 11, tool_calls_per_minute: 3)
+
+      expect(otto.security_config.rate_limiting_config)
+        .to include(mcp_requests_per_minute: 11, tool_calls_per_minute: 3)
+    end
+
+    it 'falls back to the documented defaults' do
+      otto = constructor_otto(auth_tokens: [token])
+
+      expect(otto.security_config.rate_limiting_config)
+        .to include(mcp_requests_per_minute: 60, tool_calls_per_minute: 20)
+    end
+
+    it 'does not touch rate limiting config when disabled' do
+      otto = constructor_otto(auth_tokens: [token], mcp_rate_limiting: false, requests_per_minute: 5)
+
+      expect(otto.security_config.rate_limiting_config).not_to include(mcp_requests_per_minute: 5)
+      expect(otto.middleware_stack).not_to include(Otto::MCP::RateLimitMiddleware)
+    end
+  end
+
+  describe 'unauthenticated warning' do
+    let(:default_warning) { format(Otto::MCP::Server::UNAUTHENTICATED_WARNING, '/_mcp') }
+
+    before { allow(Otto.logger).to receive(:warn) }
+
+    it 'warns once when no tokens are configured' do
+      constructor_otto
+
+      expect(Otto.logger).to have_received(:warn).with(default_warning).once
+    end
+
+    it 'names the configured endpoint' do
+      constructor_otto(mcp_endpoint: '/api/mcp')
+
+      expect(Otto.logger).to have_received(:warn)
+        .with(format(Otto::MCP::Server::UNAUTHENTICATED_WARNING, '/api/mcp')).once
+    end
+
+    it 'warns on the explicit path too' do
+      explicit_otto
+
+      expect(Otto.logger).to have_received(:warn).with(default_warning).once
+    end
+
+    it 'stays silent when auth tokens are configured' do
+      constructor_otto(auth_tokens: [token])
+
+      expect(Otto.logger).not_to have_received(:warn).with(default_warning)
+    end
+
+    it 'stays silent when the exposure is acknowledged' do
+      constructor_otto(allow_unauthenticated: true)
+
+      expect(Otto.logger).not_to have_received(:warn).with(default_warning)
+    end
+
+    it 'explains both remedies' do
+      expect(default_warning).to include(
+        '/_mcp',
+        'without authentication',
+        "auth_tokens: ['<token>']",
+        'allow_unauthenticated: true'
+      )
+    end
+  end
+end

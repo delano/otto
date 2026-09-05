@@ -8,6 +8,7 @@ require_relative 'route_parser'
 require_relative 'auth/token'
 require_relative 'schema_validation'
 require_relative 'rate_limiting'
+require_relative 'options'
 require_relative '../security/constant_resolver'
 
 class Otto
@@ -16,30 +17,75 @@ class Otto
     class Server
       attr_reader :protocol, :otto_instance
 
+      # Normalize raw options into the canonical MCP option hash.
+      #
+      # @param opts [Hash] raw options
+      # @param scope [Symbol] :explicit (strict, for #enable_mcp!) or
+      #   :constructor (ignores non-MCP keys, for Otto.new)
+      # @see Otto::MCP::Options.normalize
+      def self.normalize_options(opts = {}, scope = :explicit)
+        Otto::MCP::Options.normalize(opts, scope)
+      end
+
       def initialize(otto_instance)
         @otto_instance = otto_instance
         @protocol      = Protocol.new(otto_instance)
         @enabled       = false
       end
 
+      # Warning emitted when the MCP HTTP endpoint is exposed with no token
+      # authentication. Unconditional (not gated on Otto.debug): an
+      # unauthenticated MCP endpoint lets any caller invoke every registered
+      # tool, so it must be visible in normal boot output.
+      UNAUTHENTICATED_WARNING = <<~MSG.gsub(/\s+/, ' ').strip.freeze
+        [MCP] HTTP endpoint %s is enabled without authentication:
+        any caller can list and invoke MCP tools and resources.
+        Pass auth_tokens: ['<token>'] to require a bearer token, or
+        allow_unauthenticated: true to acknowledge this intentionally.
+      MSG
+
+      # Enable the MCP server.
+      #
+      # Enabling is one-shot. Each call appends a route, an endpoint-setting
+      # proc and the MCP middleware to the Otto instance without removing the
+      # previous set, so a second call with a different endpoint would leave
+      # the first endpoint routed but guarded by nothing (the auth middleware
+      # only matches the newest endpoint). Rather than try to unwind that,
+      # a second call raises.
+      #
+      # @param options [Hash] canonical or aliased options; normalized via
+      #   {.normalize_options}, so both the canonical keys (:http_endpoint,
+      #   :auth_tokens, ...) and their mcp_-prefixed spellings
+      #   (:mcp_endpoint, :mcp_auth_tokens, ...) are accepted.
+      # @raise [ArgumentError] if the server is already enabled
       def enable!(options = {})
-        enable_validation = options.fetch(:enable_validation, true) != false
-        enable_rate_limiting = options.fetch(:enable_rate_limiting, true) != false
+        if @enabled
+          raise ArgumentError,
+                "MCP server is already enabled on #{@http_endpoint}; pass all MCP options " \
+                'in a single Otto.new or enable_mcp! call'
+        end
 
-        Validator.ensure_available! if enable_validation
-        Otto::Security::RateLimiting.ensure_available! if enable_rate_limiting
+        options = self.class.normalize_options(options)
 
-        @enabled              = true
-        @http_endpoint        = options.fetch(:http_endpoint, '/_mcp')
-        @auth_tokens          = options[:auth_tokens] || []
-        @enable_validation    = enable_validation
-        @enable_rate_limiting = enable_rate_limiting
+        Validator.ensure_available! if options[:enable_validation]
+        Otto::Security::RateLimiting.ensure_available! if options[:enable_rate_limiting]
+
+        @enabled               = true
+        @http_endpoint         = options[:http_endpoint]
+        @auth_tokens           = options[:auth_tokens]
+        @enable_validation     = options[:enable_validation]
+        @enable_rate_limiting  = options[:enable_rate_limiting]
+        @allow_unauthenticated = options[:allow_unauthenticated]
+
+        apply_rate_limits(options)
 
         # Configure middleware
         configure_middleware(options)
 
         # Add MCP endpoint route to Otto
         add_mcp_endpoint_route
+
+        warn_if_unauthenticated!
 
         Otto.logger.info "[MCP] Server enabled with HTTP endpoint: #{@http_endpoint}" if Otto.debug
       end
@@ -59,42 +105,82 @@ class Otto
 
       private
 
+      # Publish the per-minute limits under the keys RateLimitMiddleware /
+      # RateLimiter.configure_rack_attack! already read, via Otto's sanctioned
+      # rate-limiting configuration entry point. Before this, the values passed
+      # to enable! were dead and the hardcoded 60/20 always won.
+      #
+      # The endpoint travels with them. Rack::Attack is mounted by the host app
+      # OUTSIDE Otto and runs before any of Otto's middleware, so the
+      # env['otto.mcp_http_endpoint'] set by add_mcp_endpoint_route is not yet
+      # present when the throttles are evaluated; without this, a custom
+      # endpoint was compared against the '/_mcp' fallback and never throttled.
+      def apply_rate_limits(options)
+        return unless @enable_rate_limiting
+
+        @otto_instance.configure_rate_limiting(
+          mcp_http_endpoint: @http_endpoint,
+          mcp_requests_per_minute: options[:requests_per_minute],
+          tool_calls_per_minute: options[:tools_per_minute]
+        )
+      end
+
+      def warn_if_unauthenticated!
+        return if @auth_tokens.any? || @allow_unauthenticated
+
+        Otto.logger.warn format(UNAUTHENTICATED_WARNING, @http_endpoint)
+      end
+
       def configure_middleware(_options)
-        # Configure middleware in security-optimal order using explicit positioning:
-        # 1. Rate limiting (reject excessive requests early) - position: :first
-        # 2. Authentication (validate credentials before parsing) - default append
-        # 3. Validation (expensive JSON schema validation last) - position: :last
+        # Target EXECUTION order (outermost first, i.e. what a request meets in
+        # turn), security-optimal:
+        #   1. Rate limiting  — shed excessive load before spending any work
+        #   2. Authentication — reject anonymous callers before parsing bodies
+        #   3. Validation     — expensive JSON schema check only on requests
+        #                       that already proved themselves
+        #
+        # MiddlewareStack stores entries in the REVERSE of execution order
+        # (#wrap folds with reduce, so a later array entry is a further-out
+        # wrapper). Registration therefore runs innermost-first: validation is
+        # pinned :innermost, then auth is appended, then rate limiting. The
+        # previous code read the positions as execution order and produced the
+        # exact inverse — validation ran ahead of auth, so unauthenticated
+        # callers reached the schema validator.
 
         middleware = @otto_instance.instance_variable_get(:@middleware)
 
-        # Configure rate limiting first (explicit position for clarity)
+        # Innermost (last to execute): schema validation, closest to the app.
+        if @enable_validation
+          middleware.add_with_position(
+            Otto::MCP::SchemaValidationMiddleware,
+            position: :innermost
+          )
+          Otto.logger.debug '[MCP] Schema validation enabled (executes last)' if Otto.debug
+        end
+
+        # Middle: authentication, outside validation and inside rate limiting.
+        if @auth_tokens.any?
+          @auth = Otto::MCP::Auth::TokenAuth.new(@auth_tokens)
+          @otto_instance.security_config.mcp_auth = @auth
+          # Pass security_config explicitly: TokenMiddleware is not in
+          # MiddlewareStack#middleware_needs_config?, so #wrap would build it
+          # with a nil config and — now that the middleware fails closed —
+          # reject every request, valid token included.
+          @otto_instance.use Otto::MCP::Auth::TokenMiddleware, @otto_instance.security_config
+          Otto.logger.debug '[MCP] Token authentication enabled (executes after rate limiting)' if Otto.debug
+        end
+
+        # Outermost of the three (first to execute): rate limiting.
         if @enable_rate_limiting
           middleware.add_with_position(
             Otto::MCP::RateLimitMiddleware,
             @otto_instance.security_config,
-            position: :first
+            position: :last
           )
-          Otto.logger.debug '[MCP] Rate limiting enabled (position: first)' if Otto.debug
+          Otto.logger.debug '[MCP] Rate limiting enabled (executes first)' if Otto.debug
         end
 
-        # Configure authentication second (default append order)
-        if @auth_tokens.any?
-          @auth = Otto::MCP::Auth::TokenAuth.new(@auth_tokens)
-          @otto_instance.security_config.mcp_auth = @auth
-          @otto_instance.use Otto::MCP::Auth::TokenMiddleware
-          Otto.logger.debug '[MCP] Token authentication enabled' if Otto.debug
-        end
-
-        # Configure validation last (explicit position for clarity)
-        return unless @enable_validation
-
-        middleware.add_with_position(
-          Otto::MCP::SchemaValidationMiddleware,
-          position: :last
-        )
-        Otto.logger.debug '[MCP] Schema validation enabled (position: last)' if Otto.debug
-
-        # Validate middleware order (should pass with explicit positioning)
+        # Validate execution order (should pass with the positioning above).
         warnings = middleware.validate_mcp_middleware_order
         warnings.each { |warning| Otto.logger.warn warning }
       end
@@ -108,13 +194,20 @@ class Otto
         @otto_instance.routes[:POST] ||= []
         @otto_instance.routes[:POST] << mcp_route
 
-        @otto_instance.routes_literal[:POST]               ||= {}
-        @otto_instance.routes_literal[:POST][@http_endpoint] = mcp_route
+        # Keyed by the normalized path, as the router keys every literal route
+        # and normalizes PATH_INFO before the lookup: a configured trailing
+        # slash ('/a/') or the root ('/') otherwise registers a key the lookup
+        # can never hit, while Otto::MCP.endpoint_path? still claims the path.
+        @otto_instance.routes_literal[:POST] ||= {}
+        @otto_instance.routes_literal[:POST][Otto::Utils.normalize_path(@http_endpoint)] = mcp_route
 
-        # Ensure env carries endpoint for middlewares
+        # Ensure env carries endpoint for middlewares. Close over a local copy:
+        # the proc must keep announcing the endpoint it was registered for even
+        # if the ivar is ever reassigned.
+        endpoint = @http_endpoint
         @otto_instance.use proc { |app|
           lambda { |env|
-            env['otto.mcp_http_endpoint'] = @http_endpoint
+            env['otto.mcp_http_endpoint'] = endpoint
             app.call(env)
           }
         }

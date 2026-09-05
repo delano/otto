@@ -100,20 +100,25 @@ class Otto
       def configure_mcp(opts)
         @mcp_server = nil
 
-        # Enable MCP if requested in options
-        return unless opts[:mcp_enabled] || opts[:mcp_http] || opts[:mcp_stdio]
+        # Enable MCP if requested in options. The gating keys are read through
+        # the MCP option normalizer so that "mcp_enabled" => true enables MCP
+        # exactly like mcp_enabled: true, matching the String-or-Symbol
+        # contract every other MCP option already honours (#258). The
+        # normalizer also raises unless each value is exactly true or false:
+        # the `== false` check below would otherwise mount the endpoint for a
+        # String "false" from ENV.fetch or YAML, or for nil from an unset ENV.
+        gating = Otto::MCP::Options.gating_options(opts)
+        return unless gating[:mcp_enabled] || gating[:mcp_http] || gating[:mcp_stdio]
 
         @mcp_server = Otto::MCP::Server.new(self)
 
-        mcp_options = {}
-        mcp_options[:http_endpoint] = opts[:mcp_endpoint] if opts[:mcp_endpoint]
-        %i[enable_validation enable_rate_limiting].each do |option|
-          mcp_options[option] = opts[option] if opts.key?(option)
-        end
+        return if gating[:mcp_http] == false # Default to true unless explicitly disabled
 
-        return unless opts[:mcp_http] != false # Default to true unless explicitly disabled
-
-        @mcp_server.enable!(mcp_options)
+        # Forward the whole options hash under the :constructor scope, which
+        # picks out the MCP vocabulary (auth_tokens, rate limits, ...) and
+        # ignores the rest of Otto's options. Previously only the endpoint
+        # survived, silently starting an unauthenticated MCP endpoint (#258).
+        @mcp_server.enable!(Otto::MCP::Server.normalize_options(opts, :constructor))
       end
 
       # Validate and freeze the lambda handler registry supplied at construction
@@ -298,16 +303,6 @@ class Otto
         # Deep freeze route structures (prevent modification of nested hashes/arrays)
         deep_freeze_value(@routes) if @routes
         deep_freeze_value(@routes_literal) if @routes_literal
-        # @routes_static is intentionally NOT deep-frozen: its :GET entry is a
-        # Concurrent::Map that lazy static-file discovery writes into at
-        # request time (Core::Router#handle_request, Core::FileSafety#add_static_path),
-        # after this method has already run. Deep-freezing it would turn the
-        # first request for any as-yet-uncached static file into a
-        # FrozenError / 500 in production (issue #185). The outer hash is
-        # still shallow-frozen so its verb-key structure (currently just
-        # :GET) can't be altered post-freeze, while the Concurrent::Map value
-        # stays writable.
-        @routes_static.freeze if @routes_static && !@routes_static.frozen?
         deep_freeze_value(@route_definitions) if @route_definitions
         deep_freeze_value(@routes_by_definition) if @routes_by_definition
 

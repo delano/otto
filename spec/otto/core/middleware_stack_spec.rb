@@ -488,6 +488,88 @@ RSpec.describe Otto::Core::MiddlewareStack do
     end
   end
 
+  describe '#validate_mcp_middleware_order' do
+    let(:rate_limit) { Otto::MCP::RateLimitMiddleware }
+    let(:auth) { Otto::MCP::Auth::TokenMiddleware }
+    let(:validation) { Otto::MCP::SchemaValidationMiddleware }
+
+    let(:rate_limit_before_auth) do
+      '[MCP Middleware] RateLimitMiddleware should run before TokenMiddleware'
+    end
+
+    # Registration order is the reverse of execution order, so the correct
+    # stack is registered innermost-first.
+    it 'is silent when rate limiting, auth and validation execute in that order' do
+      stack.add(validation)
+      stack.add(auth)
+      stack.add(rate_limit)
+
+      expect(stack.execution_order).to eq([rate_limit, auth, validation])
+      expect(stack.validate_mcp_middleware_order).to be_empty
+    end
+
+    it 'warns about every inverted pair' do
+      stack.add(rate_limit)
+      stack.add(auth)
+      stack.add(validation)
+
+      expect(stack.validate_mcp_middleware_order).to contain_exactly(
+        rate_limit_before_auth,
+        '[MCP Middleware] RateLimitMiddleware should run before SchemaValidationMiddleware',
+        '[MCP Middleware] TokenMiddleware should run before SchemaValidationMiddleware'
+      )
+    end
+
+    it 'is silent with fewer than two MCP middlewares' do
+      stack.add(Class.new)
+      stack.add(auth)
+      stack.add(Class.new)
+
+      expect(stack.validate_mcp_middleware_order).to be_empty
+    end
+
+    it 'ignores non-MCP middleware interleaved in a correct stack' do
+      stack.add(validation)
+      stack.add(Class.new)
+      stack.add(auth)
+      stack.add(Class.new)
+      stack.add(rate_limit)
+
+      expect(stack.validate_mcp_middleware_order).to be_empty
+    end
+
+    # #add dedups on (class, args, options), so distinct args keep both
+    # registrations. Checking only the FIRST occurrence of each class would
+    # pass this stack: the earliest rate limiter does run before auth.
+    it 'warns when a later registration of the outer middleware executes after the inner one' do
+      stack.add(rate_limit, 'inner')
+      stack.add(auth)
+      stack.add(rate_limit, 'outer')
+
+      expect(stack.execution_order).to eq([rate_limit, auth, rate_limit])
+      expect(stack.validate_mcp_middleware_order).to eq([rate_limit_before_auth])
+    end
+
+    it 'warns when an earlier registration of the inner middleware executes before the outer one' do
+      stack.add(auth, 'inner')
+      stack.add(rate_limit)
+      stack.add_with_position(auth, 'outer', position: :outermost)
+
+      expect(stack.execution_order).to eq([auth, rate_limit, auth])
+      expect(stack.validate_mcp_middleware_order).to eq([rate_limit_before_auth])
+    end
+
+    it 'stays silent when every outer occurrence precedes every inner one' do
+      stack.add(auth, 'inner')
+      stack.add(auth, 'outer')
+      stack.add(rate_limit, 'inner')
+      stack.add(rate_limit, 'outer')
+
+      expect(stack.execution_order).to eq([rate_limit, rate_limit, auth, auth])
+      expect(stack.validate_mcp_middleware_order).to be_empty
+    end
+  end
+
   describe '#execution_order' do
     let(:first_mw) { Class.new }
     let(:second_mw) { Class.new }

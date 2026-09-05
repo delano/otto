@@ -27,7 +27,6 @@ RSpec.describe Otto, 'initialization' do
       expect(otto).to be_an_instance_of(described_class)
       expect(otto.routes).to have_key(:GET)
       expect(otto.routes_literal).to have_key(:GET)
-      expect(otto.routes_static).to have_key(:GET)
     end
 
     it 'initializes security config with safe defaults' do

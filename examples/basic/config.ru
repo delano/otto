@@ -20,7 +20,6 @@ if Otto.env?(:dev)
     use Rack::CommonLogger
     use Rack::Reloader, 0
     app.option[:public] = public_path
-    app.add_static_path '/favicon.ico'
     run app
   end
 

@@ -76,7 +76,7 @@ class Otto
            end
   @logger = Logger.new($stdout, Logger::INFO)
 
-  attr_reader :routes, :routes_literal, :routes_static, :route_definitions,
+  attr_reader :routes, :routes_literal, :route_definitions,
               :routes_by_definition, :option,
               :static_route, :security_config, :locale_config, :auth_config,
               :route_handler_factory, :mcp_server, :caddy_tls_server, :security, :middleware,
@@ -180,16 +180,6 @@ class Otto
   private
 
   def initialize_core_state
-    # The GET cache is a Concurrent::Map, not a plain Hash: lazy static-file
-    # discovery (Core::Router#handle_request, Core::FileSafety#add_static_path)
-    # writes into it at request time, after freeze_configuration! has already
-    # deep-frozen the rest of the routing state. Deep-freezing this cache too
-    # would turn every as-yet-uncached static file request into a 500
-    # (FrozenError) in production (issue #185), so it is intentionally excluded
-    # from deep_freeze_value in Configuration#freeze_configuration! and kept as
-    # a structure that is both mutable post-freeze and safe under concurrent
-    # request threads.
-    @routes_static     = { GET: Concurrent::Map.new }
     @routes            = { GET: [] }
     @routes_literal    = { GET: {} }
     @route_definitions = {}

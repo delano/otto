@@ -173,9 +173,9 @@ RSpec.describe Otto, 'file safety checks' do
     end
   end
 
-  # The static route cache keys on the *directory* of an approved file, so a
-  # cache hit used to skip safe_file? entirely and serve any sibling -- an
-  # escaping symlink dropped next to an already-served asset returned 200.
+  # Static dispatch must validate every candidate before serving it. An
+  # escaping symlink dropped next to an already-served asset must not inherit
+  # approval from the prior request.
   describe 'static dispatch containment (issue #257)' do
     let(:public_dir) { Dir.mktmpdir('otto_public') }
     let(:outside_dir) { Dir.mktmpdir('otto_outside') }
@@ -199,9 +199,8 @@ RSpec.describe Otto, 'file safety checks' do
       expect(body.to_enum(:each).to_a.join).to eq('ok')
     end
 
-    it 'does not serve an escaping symlink through a warm base-path cache' do
+    it 'does not serve an escaping symlink after serving a sibling file' do
       expect(app.call(Rack::MockRequest.env_for('/assets/ok.txt'))[0]).to eq(200)
-      expect(app.routes_static[:GET].key?('/assets')).to be true
 
       File.symlink(outside_dir, File.join(public_dir, 'assets', 'esc'))
       status, _headers, body = app.call(Rack::MockRequest.env_for('/assets/esc/secret.txt'))
@@ -210,27 +209,13 @@ RSpec.describe Otto, 'file safety checks' do
       expect(body.to_enum(:each).to_a.join).not_to include('SECRET')
     end
 
-    it 'does not serve an escaping symlink on a cold cache' do
+    it 'does not serve an escaping symlink on the first request' do
       File.symlink(File.join(outside_dir, 'secret.txt'), File.join(public_dir, 'link.txt'))
 
       status, _headers, body = app.call(Rack::MockRequest.env_for('/link.txt'))
 
       expect(status).to eq(404)
       expect(body.to_enum(:each).to_a.join).not_to include('SECRET')
-    end
-
-    # The cache used to key on File.split(path_info).first, which preserves
-    # '.' segments: '/assets/./././ok.txt' variants minted a distinct key per
-    # request, an attacker-driven leak in the Concurrent::Map.
-    it 'keeps the static cache key space bounded under dot-segment variants' do
-      expect(app.call(Rack::MockRequest.env_for('/assets/ok.txt'))[0]).to eq(200)
-
-      25.times do |i|
-        path = "/assets/#{'./' * (i + 1)}ok.txt"
-        expect(app.call(Rack::MockRequest.env_for(path))[0]).to eq(200)
-      end
-
-      expect(app.routes_static[:GET].keys).to contain_exactly('/assets')
     end
 
     it 'serves through a canonical Rack::Files root when the public root is a symlink' do

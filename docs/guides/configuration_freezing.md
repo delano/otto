@@ -82,7 +82,7 @@ These supported mutation paths reject changes after the freeze boundary:
 
 ```ruby
 # Security configuration
-otto.disable_csrf_protection!
+otto.security_config.disable_csrf_protection!
 otto.add_trusted_proxy('192.0.2.10')
 otto.add_rate_limit_rule('uploads', limit: 5, period: 60)
 

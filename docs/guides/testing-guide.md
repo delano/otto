@@ -46,7 +46,12 @@ module OttoAppSpecHelpers
   def rack_env(path = '/', method: 'GET', headers: {}, params: {})
     env = Rack::MockRequest.env_for(path, method: method, params: params)
     headers.each do |name, value|
-      env["HTTP_#{name.upcase.tr('-', '_')}"] = value
+      rack_name = name.upcase.tr('-', '_')
+      # Rack keeps Content-Type and Content-Length unprefixed; everything else
+      # is HTTP_-prefixed. Without this, a JSON request never reaches Otto's
+      # JSON parser.
+      key = %w[CONTENT_TYPE CONTENT_LENGTH].include?(rack_name) ? rack_name : "HTTP_#{rack_name}"
+      env[key] = value
     end
     env
   end

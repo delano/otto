@@ -117,6 +117,18 @@ non-empty value:
 - `X-Real-IP`
 - `X-Client-IP`
 - `Forwarded`
+- `X-Forwarded-Host`
+- `X-Forwarded-Proto`
+- `X-Forwarded-Scheme`
+- `X-Forwarded-SSL`
+- `X-Forwarded-Port`
+
+The list is the full set (`Otto::Utils::RELAY_MARKER_HEADERS`): every forwarding
+carrier Otto knows, including the authority headers, not only the client-IP
+carriers. A front server that adds any of them to the permission request, even
+one that only records the scheme or port, turns the call into a relayed request
+and the guard returns `401`. Configure the permission endpoint so the request
+reaches Otto without forwarding headers.
 
 The guard is path-scoped. Other application routes pass through it unchanged,
 and path normalization is shared with the router so encoded or trailing-slash

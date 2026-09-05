@@ -23,7 +23,7 @@ the smallest complete configuration that uses it safely.
 | Privacy and network identity | IP privacy profiles, privacy-safe client signals, country resolution, ASN lookup, and anonymizer classification | [Privacy](guides/privacy.md), [geo-country](guides/geo-country.md), and [enrichment](guides/enrichment.md) |
 | Internationalization | Locale configuration and request locale resolution | `guides/locales.md` |
 | Operations | Structured logging, safe error reporting, static files, and testing Otto applications | `guides/operations.md` |
-| Integrations | Model Context Protocol (MCP) endpoints and Caddy on-demand TLS permission checks | [Caddy TLS](guides/caddy-tls.md); `integrations/mcp.md` |
+| Integrations | Model Context Protocol (MCP) endpoints and Caddy on-demand TLS permission checks | [MCP](guides/mcp.md) and [Caddy TLS](guides/caddy-tls.md) |
 
 ## Start here today
 
@@ -40,6 +40,8 @@ the smallest complete configuration that uses it safely.
   fallback, and the privacy model.
 - [ASN and anonymizer enrichment](guides/enrichment.md) — opt-in network signals
   and their database contracts.
+- [MCP guide](guides/mcp.md) — enable the JSON-RPC endpoint, require bearer
+  tokens, and tune rate limits.
 - [Caddy TLS integration](guides/caddy-tls.md) — deploy the loopback-only
   permission endpoint.
 - [Migration guides](migrating/) — version-specific behavior changes.
@@ -121,7 +123,7 @@ and explicitly track them before treating them as published documentation.
 | `ADVANCED_ROUTES.txt` | Replace with `guides/routing.md` and `reference/route-syntax.md` | Route grammar and target kinds are a public contract; the current quick reference is incomplete for modern handler types and security-gating validation. |
 | `ip_privacy.md`, `structured_logging.md`, `configuration_freezing.md` | Reconcile against current behavior, then fold into privacy, operations, and lifecycle guides | They describe durable concepts, but must be verified before being promoted as canonical documentation. |
 | `reverse-proxy-network-services.md` | Extract `guides/caddy-tls.md`; retain its decision as [ADR-003](adr/adr-003-caddy-tls-route-based-integration.md) | Operators need a concise deployment guide; implementation rationale should remain separately discoverable. |
-| `MCP_IMPLEMENTATION.md` | Extract `integrations/mcp.md`; retain implementation notes under `maintainers/` | The protocol user and the maintainer have different questions. |
+| `MCP_IMPLEMENTATION.md` | Done: published as [guides/mcp.md](guides/mcp.md); implementation notes belong under `maintainers/` | The protocol user and the maintainer have different questions. |
 | `multi-strategy-authentication-design.md`, `route-auth-wrapper-resolution.md` | Retain the accepted decisions as [ADR-002](adr/adr-002-multi-strategy-authentication-and-authorization.md) and [ADR-001](adr/adr-001-route-authentication-at-handler-boundary.md) | They explain durable architecture choices rather than the current application contract. |
 | Dated architecture, hardening, enhancement, and streaming files | Move to `maintainers/investigations/`; keep only active proposals in the main tree | Dates and working notes are valuable history but should not compete with supported guides. |
 | `testing-guide.md` | Reconcile with current test support, then publish as `guides/operations.md` or `guides/testing.md` | Testing is an application task, not an implementation design. |

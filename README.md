@@ -446,7 +446,7 @@ Otto includes comprehensive examples demonstrating different features:
 - **[Advanced Routes](examples/advanced_routes/)** - Response types, CSRF exemption, logic classes, and namespaced routing
 - **[Authentication Strategies](examples/authentication_strategies/)** - Token, API key, and role-based authentication
 - **[Security Features](examples/security_features/)** - CSRF protection, input validation, file uploads, and security headers
-- **[MCP Demo](examples/mcp_demo/)** - JSON-RPC 2.0 endpoints for CLI automation and integrations
+- **[MCP Demo](examples/mcp_demo/)** - JSON-RPC 2.0 endpoints for CLI automation and integrations (see the [MCP guide](docs/guides/mcp.md))
 - **[Caddy on-demand TLS](examples/caddy_tls_demo/)** - Reverse-proxy permission endpoint via `Otto::CaddyTLS`
 
 ### Standalone Tutorials

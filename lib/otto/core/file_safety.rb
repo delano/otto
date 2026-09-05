@@ -91,24 +91,6 @@ class Otto
           (File.owned?(real_path) || File.grpowned?(real_path))
       end
 
-      def add_static_path(path)
-        static_file = resolve_static_file(path)
-        return if static_file.nil?
-
-        base_path = static_cache_key(static_file)
-        Otto.logger.debug "new static route: #{base_path} (#{path})" if Otto.debug
-        routes_static[:GET][base_path] = base_path
-      end
-
-      # Bounded cache key for routes_static[:GET]: the canonical directory of
-      # a validated file, rooted at '/' ('/assets', or '/' for files directly
-      # in the public root). Keying on the request path instead let '.'
-      # segments mint unbounded distinct keys (issue #257).
-      def static_cache_key(static_file)
-        dir = File.dirname(static_file.relative)
-        dir == '.' ? '/' : "/#{dir}"
-      end
-
       private
 
       # Canonical public root, or nil when it is missing/not a directory.

@@ -140,31 +140,12 @@ class Otto
         # for them. Literal lookup keeps '' — it already keys root that way.
         dispatch_path = path_info_clean.empty? ? '/' : path_info_clean
 
-        # Static dispatch is gated on the SAME containment check every time,
-        # including cache hits (issue #257). routes_static caches the base
-        # path (the *directory* of an approved file), so a cache hit alone
-        # authorized every sibling of an already-served file -- a symlink
-        # dropped next to it escaped the public root. The cache now only
-        # decides ordering versus literal routes, never safety.
         static_candidate = !static_route.nil? && http_verb == :GET
-        # The cache is keyed on the CANONICAL directory of an approved file
-        # (see #static_cache_key), not on File.split of the request path: the
-        # latter preserved '.' segments, so '/a/./././x.txt' variants minted
-        # unbounded distinct keys in the Concurrent::Map. Lookups use the
-        # lexical dirname; odd paths simply miss and take the cold branch.
-        lookup_key       = File.dirname(dispatch_path)
-        static_file      = if static_candidate && routes_static[:GET].key?(lookup_key)
-                             resolve_static_file(dispatch_path)
-                           end
 
-        if static_file
-          Otto.structured_log(:debug, 'Route matched',
-            Otto::LoggingHelpers.request_context(env).merge(
-              type: 'static_cached',
-              base_path: lookup_key
-            ))
-          serve_static_file(env, static_file)
-        elsif literal_routes.has_key?(path_info_clean)
+        # Dispatch precedence is fixed: literal routes, then static files, then
+        # dynamic routes. Static-file requests always pass through containment
+        # validation before they are served (issues #257 and #260).
+        if literal_routes.has_key?(path_info_clean)
           route = literal_routes[path_info_clean]
           Otto.structured_log(:debug, 'Route matched',
             Otto::LoggingHelpers.request_context(env).merge(
@@ -178,13 +159,8 @@ class Otto
           end
           route.call(env)
         elsif static_candidate && (static_file = resolve_static_file(dispatch_path))
-          cache_key = static_cache_key(static_file)
           Otto.structured_log(:debug, 'Route matched',
-            Otto::LoggingHelpers.request_context(env).merge(
-              type: 'static_new',
-              base_path: cache_key
-            ))
-          routes_static[:GET][cache_key] = cache_key
+            Otto::LoggingHelpers.request_context(env).merge(type: 'static'))
           serve_static_file(env, static_file)
         else
           match_dynamic_route(env, dispatch_path, http_verb, literal_routes)

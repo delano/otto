@@ -1,22 +1,30 @@
 Changed
 -------
 
-- MCP rate limiting no longer registers a second ``rack.attack`` log
-  subscriber on top of the general one, so throttled requests are logged once.
-  (#255)
-- Supported optional dependency ranges are now enforced during configuration:
-  ``json_schemer ~> 2.0``, ``rack-attack ~> 6.7``, and ``maxmind-db ~> 1.2``.
-  (#255)
+- MaxMind-backed database paths now require ``maxmind-db ~> 1.2``. Before
+  upgrading, declare that range or provide a compatible reader object. See the
+  `geo-country <docs/guides/geo-country.md>`__ and
+  `enrichment <docs/guides/enrichment.md>`__ guides. (#255)
+
+Fixed
+-----
+
+- MCP rate-limited requests now emit one ``rack.attack`` log entry instead of
+  two. (#255)
 
 Removed
 -------
 
-- Removed the unused ``rack-parser`` and ``rexml`` runtime dependencies. (#255)
+- Removed the unused ``rack-parser`` and ``rexml`` runtime dependencies.
+  Applications using either gem directly must now declare it themselves.
+  (#255)
 
 Security
 --------
 
-- MCP schema validation and rate limiting now fail closed when their optional
-  dependencies are unavailable. Set ``enable_validation: false`` or
+- MCP now stops configuration with ``Otto::OptionalDependencyError`` rather
+  than starting without enabled schema validation or rate limiting. Before
+  upgrading, add ``json_schemer ~> 2.0`` and ``rack-attack ~> 6.7`` for the
+  default protections, or explicitly set ``enable_validation: false`` or
   ``enable_rate_limiting: false`` only when that protection is not required.
-  (#255)
+  See the `MCP guide <docs/guides/mcp.md>`__. (#255)

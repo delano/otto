@@ -96,7 +96,10 @@ class Otto
         # Enable MCP if requested in options. The gating keys are read through
         # the MCP option normalizer so that "mcp_enabled" => true enables MCP
         # exactly like mcp_enabled: true, matching the String-or-Symbol
-        # contract every other MCP option already honours (#258).
+        # contract every other MCP option already honours (#258). The
+        # normalizer also raises unless each value is exactly true or false:
+        # the `== false` check below would otherwise mount the endpoint for a
+        # String "false" from ENV.fetch or YAML, or for nil from an unset ENV.
         gating = Otto::MCP::Options.gating_options(opts)
         return unless gating[:mcp_enabled] || gating[:mcp_http] || gating[:mcp_stdio]
 

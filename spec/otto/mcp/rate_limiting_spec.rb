@@ -220,6 +220,101 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
         expect(Otto::MCP::RateLimiter.mcp_request?(bare_request('/x'))).to be false
       end
     end
+
+    # The router dispatches the MCP route by exact (normalized) literal match,
+    # but the throttles and the responder classified by prefix. With MCP on
+    # /a, ordinary /admin traffic was counted against 'mcp_requests:/a' and,
+    # once that counter was exhausted, answered with an MCP JSON-RPC 429 even
+    # though /admin can never reach the MCP handler. With MCP on / that was
+    # every route in the app.
+    describe 'exact endpoint matching' do
+      let(:match_data) { { limit: 1, period: 60, epoch_time: Time.now.to_i } }
+
+      def bare_request(path, env = {})
+        Rack::Attack::Request.new(
+          Rack::MockRequest.env_for(path, method: 'POST', 'REMOTE_ADDR' => '203.0.113.9').merge(env)
+        )
+      end
+
+      def tools_call_request(path)
+        bare_request(path, 'rack.input' => StringIO.new(JSON.generate({ jsonrpc: '2.0', id: 1, method: 'tools/call' })))
+      end
+
+      it 'does not count a sibling path against the endpoint throttle' do
+        Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/a')
+        throttle = Rack::Attack.throttles['mcp_requests:/a']
+
+        expect(throttle.block.call(bare_request('/a'))).to eq('203.0.113.9')
+        expect(throttle.block.call(bare_request('/admin'))).to be_nil
+        expect(throttle.block.call(bare_request('/a/b'))).to be_nil
+        expect(throttle.block.call(bare_request('/ab'))).to be_nil
+      end
+
+      it 'does not count a sibling path against the tool-call throttle' do
+        Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/a')
+        throttle = Rack::Attack.throttles['mcp_tool_calls:/a']
+
+        expect(throttle.block.call(tools_call_request('/a'))).to eq('203.0.113.9')
+        expect(throttle.block.call(tools_call_request('/admin'))).to be_nil
+      end
+
+      it 'does not claim every route when the endpoint is the root' do
+        Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/')
+        throttle = Rack::Attack.throttles['mcp_requests:/']
+
+        expect(throttle.block.call(bare_request('/'))).to eq('203.0.113.9')
+        expect(throttle.block.call(bare_request('/anything'))).to be_nil
+        expect(throttle.block.call(bare_request('/_mcp'))).to be_nil
+      end
+
+      # The router strips one trailing slash before its literal lookup, so
+      # /a/ dispatches to an endpoint at /a and must be throttled like it.
+      it 'normalizes a trailing slash the way the router does' do
+        Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/a')
+        throttle = Rack::Attack.throttles['mcp_requests:/a']
+
+        expect(throttle.block.call(bare_request('/a/'))).to eq('203.0.113.9')
+      end
+
+      it 'classifies only the exact endpoint as an MCP request' do
+        Otto::MCP::RateLimiter.register_endpoint('/a')
+
+        expect(Otto::MCP::RateLimiter.mcp_request?(bare_request('/a'))).to be true
+        expect(Otto::MCP::RateLimiter.mcp_request?(bare_request('/a/'))).to be true
+        expect(Otto::MCP::RateLimiter.mcp_request?(bare_request('/admin'))).to be false
+        expect(Otto::MCP::RateLimiter.mcp_request?(bare_request('/a/b'))).to be false
+      end
+
+      it 'classifies nothing but the root as MCP when the endpoint is the root' do
+        Otto::MCP::RateLimiter.register_endpoint('/')
+
+        expect(Otto::MCP::RateLimiter.mcp_request?(bare_request('/'))).to be true
+        expect(Otto::MCP::RateLimiter.mcp_request?(bare_request('/anything'))).to be false
+      end
+
+      it 'answers a sibling path with the general 429, not the JSON-RPC one' do
+        Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/a')
+
+        request = bare_request('/admin', 'rack.attack.match_data' => match_data)
+        status, _headers, body = Rack::Attack.throttled_responder.call(request)
+
+        # No route definition and no Accept header: the general responder
+        # answers text/plain, never a JSON-RPC envelope.
+        expect(status).to eq(429)
+        expect(body.join).to include('Rate limit exceeded')
+        expect(body.join).not_to include('jsonrpc')
+      end
+
+      it 'still answers the endpoint itself with the JSON-RPC 429' do
+        Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/a')
+
+        request = bare_request('/a', 'rack.attack.match_data' => match_data)
+        status, _headers, body = Rack::Attack.throttled_responder.call(request)
+
+        expect(status).to eq(429)
+        expect(JSON.parse(body.join)).to include('jsonrpc' => '2.0')
+      end
+    end
   end
 
   describe 'Otto::MCP::RateLimitMiddleware' do

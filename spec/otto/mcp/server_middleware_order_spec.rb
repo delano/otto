@@ -208,4 +208,71 @@ RSpec.describe Otto::MCP::Server do
       expect(post(app, tools_list, headers: headers, path: '/_mcp').first).not_to eq(429)
     end
   end
+
+  # The router dispatches the MCP route by exact literal match, but every MCP
+  # guard classified requests by path prefix. With MCP on /a, ordinary /admin
+  # traffic was counted against 'mcp_requests:/a' — so an attacker could
+  # exhaust that counter and have /admin answered with an MCP JSON-RPC 429 —
+  # and was challenged for an MCP token. With MCP on / that was every route.
+  describe 'sibling paths sharing the endpoint prefix' do
+    before do
+      Otto::Security::RateLimiting.ensure_available!
+      Rack::Attack.cache.store = RackAttackTestStore.new
+    end
+
+    let(:headers) { { 'HTTP_AUTHORIZATION' => "Bearer #{token}" } }
+    let(:tools_list) { JSON.generate({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }) }
+
+    it 'does not count /admin against an endpoint at /a' do
+      app = Rack::Attack.new(build_otto(mcp_endpoint: '/a', requests_per_minute: 1))
+
+      2.times { expect(post(app, tools_list, path: '/admin').first).not_to eq(429) }
+
+      # The counter for /a is untouched by the /admin traffic.
+      expect(post(app, tools_list, headers: headers, path: '/a').first).to eq(200)
+      expect(post(app, tools_list, headers: headers, path: '/a').first).to eq(429)
+    end
+
+    it 'does not answer /admin with the MCP 429 once /a is exhausted' do
+      app = Rack::Attack.new(build_otto(mcp_endpoint: '/a', requests_per_minute: 1))
+
+      post(app, tools_list, headers: headers, path: '/a')
+      expect(post(app, tools_list, headers: headers, path: '/a').first).to eq(429)
+
+      status, body = post(app, tools_list, path: '/admin')
+
+      expect(status).not_to eq(429)
+      expect(body).not_to include('jsonrpc')
+    end
+
+    it 'does not challenge /admin for an MCP token' do
+      otto = build_otto(mcp_endpoint: '/a')
+
+      expect(post(otto, tools_list, path: '/admin').first).not_to eq(401)
+      expect(post(otto, tools_list, path: '/a').first).to eq(401)
+    end
+
+    it 'does not validate the body posted to /admin' do
+      otto = build_otto(mcp_endpoint: '/a')
+
+      expect(post(otto, invalid_body, headers: headers, path: '/admin').first).not_to eq(400)
+      expect(post(otto, invalid_body, headers: headers, path: '/a').first).to eq(400)
+    end
+
+    it 'does not claim every route when the endpoint is the root' do
+      app = Rack::Attack.new(build_otto(mcp_endpoint: '/', requests_per_minute: 1))
+
+      2.times do
+        status, body = post(app, invalid_body, path: '/anything')
+
+        expect(status).not_to eq(401)
+        expect(status).not_to eq(400)
+        expect(status).not_to eq(429)
+        expect(body).not_to include('jsonrpc')
+      end
+
+      expect(post(app, tools_list, headers: headers, path: '/').first).to eq(200)
+      expect(post(app, tools_list, headers: headers, path: '/').first).to eq(429)
+    end
+  end
 end

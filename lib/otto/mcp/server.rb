@@ -194,8 +194,12 @@ class Otto
         @otto_instance.routes[:POST] ||= []
         @otto_instance.routes[:POST] << mcp_route
 
-        @otto_instance.routes_literal[:POST]               ||= {}
-        @otto_instance.routes_literal[:POST][@http_endpoint] = mcp_route
+        # Keyed by the normalized path, as the router keys every literal route
+        # and normalizes PATH_INFO before the lookup: a configured trailing
+        # slash ('/a/') or the root ('/') otherwise registers a key the lookup
+        # can never hit, while Otto::MCP.endpoint_path? still claims the path.
+        @otto_instance.routes_literal[:POST] ||= {}
+        @otto_instance.routes_literal[:POST][Otto::Utils.normalize_path(@http_endpoint)] = mcp_route
 
         # Ensure env carries endpoint for middlewares. Close over a local copy:
         # the proc must keep announcing the endpoint it was registered for even

@@ -5,6 +5,8 @@
 require 'json'
 require 'rack/utils'
 
+require_relative '../endpoint'
+
 class Otto
   module MCP
     module Auth
@@ -65,10 +67,12 @@ class Otto
 
         private
 
+        # Exact endpoint only, normalized as the router normalizes it. A prefix
+        # match would answer 401 for sibling paths (/admin beside /a) that the
+        # MCP handler never receives.
         def mcp_endpoint?(env)
           endpoint = env['otto.mcp_http_endpoint'] || '/_mcp'
-          path     = env['PATH_INFO'].to_s
-          path.start_with?(endpoint)
+          Otto::MCP.endpoint_path?(env['PATH_INFO'], endpoint)
         end
 
         def unauthorized_response

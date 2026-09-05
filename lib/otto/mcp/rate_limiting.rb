@@ -5,6 +5,7 @@
 require 'json'
 
 require_relative '../security/rate_limiting'
+require_relative 'endpoint'
 
 class Otto
   module MCP
@@ -19,6 +20,12 @@ class Otto
     # every endpoint configured in the process is remembered in
     # {.registered_endpoints} so the (single, global) throttled responder and
     # log subscriber recognise all of them, not just the most recent.
+    #
+    # Known limitation: throttles are keyed by endpoint path, not by Otto
+    # instance. Two apps in one process that mount MCP on the SAME path (for
+    # example both on /_mcp behind a host or tenant dispatcher) share one
+    # throttle definition, so the limits configured last apply to both, and
+    # one set of per-client-IP counters. Use distinct endpoint paths per app.
     class RateLimiter < Otto::Security::RateLimiting
       DEFAULT_HTTP_ENDPOINT = '/_mcp'
 
@@ -51,8 +58,10 @@ class Otto
 
       def self.configure_rack_attack!(config = {})
         # Start with base configuration from general rate limiting. The base
-        # class wires this subclass's response and logging hooks into
-        # Rack::Attack without registering duplicate callbacks.
+        # configure_rack_attack! assigns the single Rack::Attack
+        # throttled_responder (dispatching to .throttled_response, overridden
+        # below) and calls .configure_logging (also overridden below), so this
+        # class registers no responder or subscriber of its own after super.
         super
 
         register_endpoint(config[:mcp_http_endpoint])
@@ -82,7 +91,9 @@ class Otto
       # global (the last configuration wins) and so cannot capture a single
       # endpoint the way a per-endpoint throttle can. Consults the registry at
       # call time, then the env key, then the default when nothing is
-      # configured at all.
+      # configured at all. A request matches only the exact endpoint path the
+      # router would dispatch to the MCP handler (see Otto::MCP.endpoint_path?),
+      # never a sibling that merely shares the prefix.
       #
       # @param request [Rack::Attack::Request, #path, #env]
       # @return [Boolean]
@@ -92,7 +103,7 @@ class Otto
         candidates << env_endpoint if env_endpoint
         candidates << DEFAULT_HTTP_ENDPOINT if candidates.empty?
 
-        candidates.any? { |endpoint| request.path.start_with?(endpoint) }
+        candidates.any? { |endpoint| Otto::MCP.endpoint_path?(request.path, endpoint) }
       end
 
       # Name of the Rack::Attack throttle for +rule+ on +endpoint+.
@@ -114,13 +125,16 @@ class Otto
         # this configuration hash is gone.
         configured_endpoint = config[:mcp_http_endpoint]
 
-        # MCP endpoint requests - 60 per minute by default
+        # MCP endpoint requests - 60 per minute by default. Only the exact
+        # endpoint path counts: the router dispatches the MCP route by literal
+        # match, so a prefix match here would let /admin traffic exhaust (and be
+        # refused by) the counter for an endpoint at /a.
         mcp_requests_limit = config[:mcp_requests_per_minute] || 60
 
         Rack::Attack.throttle(throttle_name('mcp_requests', configured_endpoint),
                               limit: mcp_requests_limit, period: 60) do |request|
           endpoint = mcp_endpoint_for(configured_endpoint, request.env)
-          request.ip if request.path.start_with?(endpoint)
+          request.ip if Otto::MCP.endpoint_path?(request.path, endpoint)
         end
 
         # Tool calls are more expensive - 20 per minute by default
@@ -129,7 +143,7 @@ class Otto
         Rack::Attack.throttle(throttle_name('mcp_tool_calls', configured_endpoint),
                               limit: tool_calls_limit, period: 60) do |request|
           endpoint = mcp_endpoint_for(configured_endpoint, request.env)
-          if request.path.start_with?(endpoint) && request.post?
+          if Otto::MCP.endpoint_path?(request.path, endpoint) && request.post?
             begin
               body = request.body.read
               data = JSON.parse(body)

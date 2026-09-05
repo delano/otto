@@ -50,6 +50,30 @@ RSpec.describe Otto::MCP::Auth::TokenMiddleware do
 
       expect(described_class.new(app, security_config).call(env).first).to eq(401)
     end
+
+    # The router dispatches the endpoint by exact literal match; a prefix match
+    # here answered 401 for /admin beside an endpoint at /a, and for every
+    # route beside an endpoint at /.
+    it 'passes through a sibling path that merely shares the endpoint prefix' do
+      middleware = described_class.new(app, security_config)
+
+      expect(middleware.call('PATH_INFO' => '/admin', 'otto.mcp_http_endpoint' => '/a').first).to eq(200)
+      expect(middleware.call('PATH_INFO' => '/a/b', 'otto.mcp_http_endpoint' => '/a').first).to eq(200)
+      expect(middleware.call('PATH_INFO' => '/a', 'otto.mcp_http_endpoint' => '/a').first).to eq(401)
+    end
+
+    it 'guards only the root when the endpoint is the root' do
+      middleware = described_class.new(app, security_config)
+
+      expect(middleware.call('PATH_INFO' => '/anything', 'otto.mcp_http_endpoint' => '/').first).to eq(200)
+      expect(middleware.call('PATH_INFO' => '/', 'otto.mcp_http_endpoint' => '/').first).to eq(401)
+    end
+
+    it 'guards the trailing-slash form the router dispatches to the endpoint' do
+      middleware = described_class.new(app, security_config)
+
+      expect(middleware.call('PATH_INFO' => '/a/', 'otto.mcp_http_endpoint' => '/a').first).to eq(401)
+    end
   end
 
   describe 'Otto::Security::Config#mcp_auth= (the authenticator this middleware reads)' do

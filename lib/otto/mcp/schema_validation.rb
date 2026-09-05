@@ -5,6 +5,7 @@
 require 'json'
 
 require_relative '../optional_dependency'
+require_relative 'endpoint'
 
 class Otto
   module MCP
@@ -106,10 +107,11 @@ class Otto
 
       private
 
+      # Exact endpoint only, normalized as the router normalizes it (see
+      # Otto::MCP.endpoint_path?); sibling paths are never parsed or rejected.
       def mcp_endpoint?(env)
         endpoint = env['otto.mcp_http_endpoint'] || '/_mcp'
-        path     = env['PATH_INFO'].to_s
-        path.start_with?(endpoint)
+        Otto::MCP.endpoint_path?(env['PATH_INFO'], endpoint)
       end
 
       def validation_error_response(id, message)

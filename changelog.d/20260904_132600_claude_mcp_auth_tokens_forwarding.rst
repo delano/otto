@@ -37,6 +37,20 @@ Security
   MCP. Previously the gating keys were read as Symbols only, so a String-keyed
   ``"mcp_enabled"`` silently enabled nothing while the String-keyed
   ``"auth_tokens"`` beside it was documented as accepted. (#258)
+- The ``mcp_enabled``, ``mcp_http`` and ``mcp_stdio`` gating keys must be
+  exactly ``true`` or ``false``; any other value raises ``ArgumentError`` at
+  boot. ``Otto.new`` disables the HTTP endpoint only on ``mcp_http == false``,
+  so a String such as ``mcp_http: ENV.fetch("MCP_HTTP", "false")`` (truthy)
+  or ``nil`` from an unset ``ENV["MCP_HTTP"]`` mounted the endpoint the
+  operator meant to disable. (#258)
+- MCP guards match the endpoint exactly instead of by prefix. The throttles,
+  the JSON-RPC 429 responder, ``TokenMiddleware`` and the schema validation
+  middleware all used ``start_with?``, while the router dispatches the endpoint
+  by exact path, so with MCP on ``/a`` ordinary ``/admin`` traffic was counted
+  against the ``mcp_requests:/a`` throttle, answered with the MCP 429 body once
+  that counter was exhausted, and challenged for a bearer token; an endpoint of
+  ``/`` claimed every route. ``Otto::MCP.endpoint_path?`` now applies the
+  router's path normalization to both sides and compares for equality. (#258)
 - ``Otto::MCP::Server#enable!`` raises ``ArgumentError`` when the server is
   already enabled. A second call appended a new route and middleware without
   removing the first set, so ``enable!(http_endpoint: '/new')`` after
@@ -61,6 +75,10 @@ Fixed
 - ``Otto::MCP::RateLimiter.configure_mcp_logging`` subscribes to
   ``rack.attack`` once per process instead of once per configured MCP app, so
   a throttle event is logged once rather than once per app. (#258)
+- An MCP ``http_endpoint`` configured with a trailing slash (``/a/``) is now
+  served. The literal route key was the raw endpoint while the router strips a
+  trailing slash from every request path, so neither ``/a`` nor ``/a/`` ever
+  matched. (#258)
 - ``Otto#enable_mcp!(auth_tokens: [...])`` no longer raises ``NoMethodError``;
   ``Otto::Security::Config`` accepts the MCP authenticator. (#258)
 - MCP ``requests_per_minute`` and ``tools_per_minute`` are now applied. The

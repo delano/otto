@@ -390,6 +390,17 @@ RSpec.describe Otto, 'rate limiting features' do
       expect(logged).to all(start_with('[MCP]'))
     end
 
+    # The subscriber classifies by the exact endpoint the router dispatches,
+    # not by prefix: /admin beside an endpoint at /a is an [Otto] event.
+    it 'logs the [Otto] prefix for a sibling path sharing an endpoint prefix' do
+      Otto::MCP::RateLimiter.register_endpoint('/a')
+      Otto::MCP::RateLimiter.configure_logging
+
+      publish_throttle('REMOTE_ADDR' => '198.51.100.42', 'PATH_INFO' => '/admin')
+
+      expect(logged.last).to start_with('[Otto]')
+    end
+
     it 'masks the IP on the MCP subscriber for non-MCP paths' do
       Otto::MCP::RateLimiter.configure_logging
 

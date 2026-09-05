@@ -102,7 +102,12 @@ endpoint anyway:
 
 Wrong types fail loud: a non-`String` token, a non-Integer or non-positive
 per-minute limit, an endpoint that is not a `/`-prefixed String, or a
-non-boolean flag each raise `ArgumentError` at boot.
+non-boolean flag each raise `ArgumentError` at boot. That includes the gating
+keys: `mcp_enabled`, `mcp_http` and `mcp_stdio` must each be exactly `true` or
+`false`. Otto disables the endpoint only on `mcp_http == false`, so a String
+such as `mcp_http: ENV.fetch('MCP_HTTP', 'false')` (truthy) or a `nil` from an
+unset `ENV['MCP_HTTP']` would otherwise mount the endpoint you meant to
+disable; both raise instead.
 
 ## Authentication
 
@@ -193,6 +198,25 @@ keep the bare names `mcp_requests` and `mcp_tool_calls` and resolve the
 endpoint per request from `env['otto.mcp_http_endpoint']`, falling back to
 `/_mcp`.
 
+**Known limitation:** the throttles are keyed by endpoint path only, not by
+Otto instance. Two Otto apps in one process that mount MCP on the *same* path
+(say two apps behind a host or tenant dispatcher, both on `/_mcp`) share one
+throttle definition and one set of counters: the app configured last sets the
+limits for both, and a client IP's requests to either app count against the
+same window. Give each app a distinct `http_endpoint` if they need independent
+limits or counters.
+
+Every MCP guard (token authentication, schema validation, the per-endpoint
+throttles and the JSON-RPC 429 responder) applies only to requests the router
+would dispatch to the MCP endpoint: the request path is compared to the
+endpoint exactly, after the router's own path normalization, so a trailing
+slash is ignored. Sibling paths that merely share the prefix, such as `/admin`
+beside an endpoint at `/a`, or every route beside an endpoint at `/`, are
+neither counted, throttled, nor challenged for a token. Before this fix the
+guards matched by prefix, so exhausting the `/a` throttle made `/admin` return
+the MCP 429 body. An endpoint configured with a trailing slash (`/a/`) is served
+at both `/a` and `/a/`.
+
 Note that the JSON-RPC 429 body only applies when Otto's *general* rate
 limiting is off. Both rate limiters assign `Rack::Attack.throttled_responder`,
 and the general one is registered last, so when you enable both, throttled MCP
@@ -242,6 +266,9 @@ request returns `401` with the `Unauthorized` envelope above.
 | String-keyed options, e.g. `enable_mcp!('auth_tokens' => ['s3cret'])` | Accepted and applied. Before this fix String keys passed validation but were then ignored, so `'auth_tokens'` normalized to no tokens and the endpoint was served unauthenticated. |
 | String-keyed gating keys, e.g. `Otto.new(routes, 'mcp_enabled' => true)` | Enables MCP. Before this fix the constructor read the gating keys as Symbols only, so a String-keyed `'mcp_enabled'` enabled nothing while the `'auth_tokens'` beside it was accepted. |
 | Two MCP apps with different endpoints in one process | Each endpoint keeps its own `Rack::Attack` throttles and counters. Before this fix the second app's configuration replaced the first app's throttles and the first endpoint was no longer rate limited. |
+| Sibling path sharing the endpoint prefix, e.g. `/admin` beside MCP on `/a` | Not an MCP request: not throttled, not challenged for a token, not schema-validated. Guards match the endpoint exactly, as the router does. |
+| Two MCP apps with the **same** endpoint in one process, e.g. both on `/_mcp` behind a host dispatcher | Known limitation: they share one throttle definition (the last configured limits win) and one set of per-client-IP counters. Use distinct endpoint paths per app. |
+| Non-boolean gating value, e.g. `mcp_http: ENV.fetch('MCP_HTTP', 'false')` or `mcp_http: nil` | `ArgumentError` naming the key. Otto disables the endpoint only on `mcp_http == false`; the String `'false'` is truthy and `nil` is not `false`, so either would have mounted the endpoint you meant to disable. |
 | Two spellings of one option with different values, e.g. `http_endpoint: '/a', mcp_endpoint: '/b'` | `ArgumentError` naming the canonical option and the conflicting spellings. Identical values are accepted. |
 | `auth_tokens:` supplied but empty, e.g. `ENV['MCP_TOKEN']` unset, `''`, `['']` | `ArgumentError`. Omit the key and pass `allow_unauthenticated: true` for a deliberately open endpoint. |
 | `enable_mcp!` when MCP is already enabled, including after `Otto.new(mcp_enabled: true)` | `ArgumentError` naming the existing endpoint. A second enable used to add a second route and leave the first endpoint unauthenticated. |

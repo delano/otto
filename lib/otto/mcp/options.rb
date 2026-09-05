@@ -34,10 +34,13 @@ class Otto
     #
     # The +mcp_+-prefixed gating keys (+mcp_enabled+, +mcp_http+, +mcp_stdio+)
     # decide *whether* MCP is enabled and are read by the constructor itself
-    # (Otto::Core::Configuration#configure_mcp). The +:constructor+ scope
-    # tolerates them; the +:explicit+ scope rejects them, because
-    # +enable_mcp!(mcp_http: false)+ would otherwise be accepted and still
-    # mount the endpoint.
+    # (Otto::Core::Configuration#configure_mcp) through {.gating_options}. The
+    # +:constructor+ scope tolerates them; the +:explicit+ scope rejects them,
+    # because +enable_mcp!(mcp_http: false)+ would otherwise be accepted and
+    # still mount the endpoint. Their values must be exactly +true+ or
+    # +false+: the constructor disables the endpoint on +mcp_http == false+,
+    # so a String +"false"+ (from +ENV.fetch+ or YAML) or +nil+ (from an
+    # unset +ENV[...]+) would otherwise mount it.
     #
     # Keys may be Strings or Symbols; they are symbolized before anything is
     # read, so +"auth_tokens" => [...]+ configures authentication exactly like
@@ -131,11 +134,23 @@ class Otto
       # +Otto.new(nil, "mcp_enabled" => true)+ silently did nothing while the
       # String-keyed +"auth_tokens"+ beside it was documented as accepted.
       #
-      # @param opts [Hash] raw constructor options
-      # @return [Hash{Symbol=>Object}] the gating keys present in +opts+
-      # @raise [ArgumentError] when a String key and its Symbol twin disagree
+      # Every gating value present must be exactly +true+ or +false+.
+      # #configure_mcp disables the HTTP endpoint only on +mcp_http == false+,
+      # so +mcp_http: ENV.fetch('MCP_HTTP', 'false')+ (a String, truthy) or
+      # +mcp_http: ENV['MCP_HTTP']+ with the variable unset (+nil+, not
+      # +false+) would each mount the endpoint the caller meant to disable.
+      # An explicit +nil+ is rejected rather than treated as absent for that
+      # reason, matching the other boolean options and +auth_tokens: nil+.
+      #
+      # @param opts [Hash, nil] raw constructor options
+      # @return [Hash{Symbol=>Boolean}] the gating keys present in +opts+
+      # @raise [ArgumentError] when a String key and its Symbol twin disagree,
+      #   or when a gating value is anything but +true+ or +false+ (including
+      #   the Strings +"true"+ / +"false"+, Integers and +nil+)
       def self.gating_options(opts)
-        symbolize_keys(opts.to_h).slice(*GATING_KEYS)
+        gating = symbolize_keys(opts.to_h).slice(*GATING_KEYS)
+        gating.each { |key, value| coerce_boolean!(key, value) }
+        gating
       end
 
       # Symbolize option keys once, so String-keyed options configure the

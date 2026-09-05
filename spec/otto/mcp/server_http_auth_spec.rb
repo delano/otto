@@ -160,6 +160,29 @@ RSpec.describe Otto::MCP::Server do
     end
   end
 
+  # The constructor disables the endpoint only on `mcp_http == false`. The
+  # String "false" that ENV.fetch('MCP_HTTP', 'false') or a YAML config
+  # yields is truthy, so it used to MOUNT the endpoint the operator meant to
+  # disable. Non-boolean gating values now fail at boot instead.
+  describe 'non-boolean gating values' do
+    it 'raises for mcp_http: "false" instead of mounting the endpoint' do
+      expect { Otto.new(nil, mcp_enabled: true, mcp_http: 'false') }
+        .to raise_error(ArgumentError, 'MCP mcp_http must be true or false, got "false"')
+    end
+
+    it 'raises for mcp_http: nil (an unset ENV variable) instead of mounting the endpoint' do
+      expect { Otto.new(nil, mcp_enabled: true, mcp_http: nil) }
+        .to raise_error(ArgumentError, 'MCP mcp_http must be true or false, got nil')
+    end
+
+    it 'raises for a String mcp_enabled and mcp_stdio' do
+      expect { Otto.new(nil, mcp_enabled: 'true') }
+        .to raise_error(ArgumentError, 'MCP mcp_enabled must be true or false, got "true"')
+      expect { Otto.new(nil, mcp_stdio: 1) }
+        .to raise_error(ArgumentError, 'MCP mcp_stdio must be true or false, got 1')
+    end
+  end
+
   describe 'custom endpoint' do
     it 'honors mcp_endpoint: from the constructor and still requires auth' do
       otto = constructor_otto(mcp_endpoint: '/api/mcp', auth_tokens: [token])
@@ -175,6 +198,25 @@ RSpec.describe Otto::MCP::Server do
       expect(mcp_request(otto, endpoint: '/api/mcp').first).to eq(401)
       expect(mcp_request(otto, endpoint: '/api/mcp',
                                headers: { 'HTTP_AUTHORIZATION' => "Bearer #{token}" }).first).to eq(200)
+    end
+
+    # The route is dispatched by exact literal match, so the token guard must
+    # not challenge /admin merely because it shares the prefix of /a.
+    it 'does not require auth on a sibling path sharing the endpoint prefix' do
+      otto = constructor_otto(mcp_endpoint: '/a', auth_tokens: [token])
+      env  = Rack::MockRequest.env_for('/admin', method: 'POST', input: '{}', 'CONTENT_TYPE' => 'application/json')
+
+      expect(otto.call(env).first).not_to eq(401)
+      expect(mcp_request(otto, endpoint: '/a').first).to eq(401)
+    end
+
+    # A trailing slash on the endpoint used to register a literal key the
+    # router (which strips it from PATH_INFO before lookup) could never match.
+    it 'serves an endpoint configured with a trailing slash' do
+      otto = constructor_otto(mcp_endpoint: '/a/', auth_tokens: [token])
+
+      expect(mcp_request(otto, endpoint: '/a').first).to eq(401)
+      expect(mcp_request(otto, endpoint: '/a/', headers: { 'HTTP_AUTHORIZATION' => "Bearer #{token}" }).first).to eq(200)
     end
   end
 

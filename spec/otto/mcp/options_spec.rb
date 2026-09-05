@@ -166,6 +166,42 @@ RSpec.describe Otto::MCP::Options do
       expect { described_class.gating_options('mcp_enabled' => true, mcp_enabled: false) }
         .to raise_error(ArgumentError, /Conflicting MCP options for mcp_enabled/)
     end
+
+    # #configure_mcp disables the endpoint only on `mcp_http == false`, so a
+    # truthy non-boolean such as the String "false" from ENV.fetch or YAML,
+    # or nil from an unset ENV variable, would mount the endpoint the caller
+    # meant to disable. Every gating value must be exactly true or false.
+    describe 'value validation' do
+      non_booleans = ['false', 'true', 0, 1, nil, :off, [], {}].freeze
+
+      %i[mcp_enabled mcp_http mcp_stdio].each do |key|
+        it "accepts true and false for #{key}" do
+          expect(described_class.gating_options(key => true)).to eq(key => true)
+          expect(described_class.gating_options(key => false)).to eq(key => false)
+        end
+
+        non_booleans.each do |value|
+          it "rejects #{key}: #{value.inspect}" do
+            expect { described_class.gating_options(key => value) }
+              .to raise_error(ArgumentError, "MCP #{key} must be true or false, got #{value.inspect}")
+          end
+        end
+
+        it "rejects a String-keyed \"#{key}\" => \"false\"" do
+          expect { described_class.gating_options(key.to_s => 'false') }
+            .to raise_error(ArgumentError, "MCP #{key} must be true or false, got \"false\"")
+        end
+      end
+
+      it 'rejects an explicit nil rather than treating the key as absent' do
+        expect { described_class.gating_options(mcp_enabled: true, mcp_http: nil) }
+          .to raise_error(ArgumentError, /MCP mcp_http must be true or false, got nil/)
+      end
+
+      it 'does not validate non-gating keys' do
+        expect(described_class.gating_options(auth_tokens: 'false', public: nil)).to eq({})
+      end
+    end
   end
 
   # The scopes differ only in strictness. :explicit is what #enable_mcp!

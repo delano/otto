@@ -6,20 +6,20 @@ response contract. The exact route grammar is in the [route syntax reference](..
 
 ## Choose a handler style
 
-| Use this when | Route target | Handler receives |
+| Use this when | Route target | Invocation |
 | --- | --- | --- |
-| You need direct Rack request/response access and a small controller-style method | `App#index` or `App#show` | `req`, `res` |
-| You want a constrained, testable application operation | `App::Operation` | authentication result, merged params, locale |
-| You need a small pre-registered endpoint function | `&name` | `req`, `res`, extra params |
+| You need a class method with direct Rack access | `App.index` | `App.index(req, res)` |
+| You need an object with direct Rack access | `App#show` | `App.new(req, res).show` |
+| You want a constrained, testable application operation | `App::Operation` | `App::Operation.new(strategy_result, params, locale)` |
+| You need a small pre-registered endpoint function | `&name` | `call(req, res, captured_path_params)` |
 
 ## Controller-style handlers
 
 Routes can call a class method or instantiate a class for an instance method:
 
 ```text
-GET /                         App#index
+GET /                         App.index
 GET /products/:id             App#show
-GET /robots.txt               App.robots
 ```
 
 ```ruby
@@ -101,7 +101,8 @@ GET /health &health_check
 ```
 
 The registry is normalized and frozen during configuration. A lambda must
-accept three positional arguments: request, response, and extra parameters.
+accept three positional arguments: request, response, and captured path
+parameters. Query and form parameters remain available through `req.params`.
 The route name is an exact registry key; it is not evaluated as Ruby code.
 
 ## Response selection
@@ -119,6 +120,18 @@ GET  /data          Data#show response=auto
 `response=default` is the default. Keep response selection in the route file
 so the HTTP contract is visible beside the endpoint.
 
+| Response type | Handler contract |
+| --- | --- |
+| `default` | Mutate `res` directly. The handler's return value is ignored. |
+| `json` | Return a Hash for direct JSON serialization. `nil` becomes `{ "success": true }`; another value is wrapped as `data`. A Logic class may instead provide `response_data`. |
+| `view` | Return a value rendered with `to_s`, or provide `view.render` on a Logic object. |
+| `redirect` | Return a path String, or provide `redirect_path` on a Logic object. The fallback path is `/`. |
+| `auto` | A Hash becomes JSON, a path-like String becomes a redirect, and a Logic object with `view` uses the view handler; other results use default behavior. |
+
+An unknown response name currently falls back to `default`. Treat response
+names as a fixed set; a typo otherwise changes the route to direct-response
+behavior.
+
 ## Route parameters
 
 Named path segments are available in request parameters:
@@ -130,7 +143,10 @@ GET /products/:id  Products::Show
 A handler can read `req.params[:id]` or a Logic class can read `params[:id]`.
 Request query and body parameters are merged according to the handler's request
 contract. JSON bodies are parsed for Logic-class parameters when the content
-type is JSON and the body is a JSON object.
+type is JSON and the body is a JSON object. A valid non-object JSON body is
+ignored. Malformed JSON is logged and the Logic class still runs with its other
+parameters; perform application validation when malformed JSON must return a
+client error.
 
 ## Security options in routes
 
@@ -153,7 +169,10 @@ Construct and configure the Otto instance before the first request:
 
 ```ruby
 otto = Otto.new('routes')
-otto.add_auth_strategy('session', SessionStrategy.new)
+otto.add_auth_strategy(
+  'session',
+  Otto::Security::Authentication::Strategies::SessionStrategy.new
+)
 otto.register_request_helpers(MyApp::RequestHelpers)
 # Add middleware and other boot-time options here.
 ```

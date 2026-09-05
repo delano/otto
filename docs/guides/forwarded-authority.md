@@ -29,6 +29,13 @@ Rack may also use forwarded host, scheme, and port values.
 | Proxy addresses cannot be enumerated, but the hop count is fixed | `trusted_proxy_depth: N` | Otto trusts the carriers on every request. The application origin must accept traffic only from the proxy tier. |
 | Another layer owns the trust decision | Leave proxy trust unconfigured | Otto leaves the carriers unchanged and makes no trust assertion. |
 
+> [!WARNING]
+> These settings control forwarded authority only. They do not validate the
+> ordinary `Host` header. After forwarded carriers are stripped, Rack falls back
+> to `Host`, which a direct client can still choose. If redirects, generated
+> links, WebAuthn, OAuth, or cookie policy require a canonical host, enforce a
+> host allowlist in the front server or application.
+
 For a directly exposed application:
 
 ```ruby
@@ -149,10 +156,17 @@ header itself, so nothing is lost.
 
 ## Choose the forwarding family for depth mode
 
-`Rack::Request.forwarded_priority` is a process-wide setting that determines
-which forwarding family Rack reads: `X-Forwarded-*`, RFC 7239 `Forwarded`, or
-both. Otto pins it to the family selected by `trusted_proxy_header` so Otto and
-Rack interpret the same request metadata.
+`Rack::Request.forwarded_priority` is a process-wide setting that selects the
+main forwarding family Rack reads: `X-Forwarded-*`, RFC 7239 `Forwarded`, or
+both. Otto pins it to the family selected by `trusted_proxy_header` so client-IP
+resolution and Rack's main forwarded host, port, and scheme parsing agree.
+
+This is not a complete sanitizer for requests from a trusted peer. Rack checks
+some compatibility carriers independently, notably `X-Forwarded-SSL`. Otto
+keeps forwarded carriers from trusted peers because it cannot distinguish
+values created by the proxy from values the proxy passed through. Configure the
+trusted proxy to remove client-supplied forwarding headers before setting its
+own authoritative values.
 
 The pin governs host, port, and the `X-Forwarded-Proto` / `proto=` scheme
 lookup. It does not govern `X-Forwarded-SSL`: Rack (3.2.x) honors

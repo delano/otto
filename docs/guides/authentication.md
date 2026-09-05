@@ -42,9 +42,10 @@ A presented-but-invalid key is a terminal failure, so it aborts the strategy
 chain instead of falling through to a later strategy in a multi-strategy `OR`
 route.
 
-The strategy reads the `X-API-Key` header only. The query/form parameter path is
-opt-in via `param_name:`, because a key placed in a URL is captured by access
-logs, proxies, and browser history:
+By default, the strategy reads only the `X-API-Key` header. Use `header_name:`
+to select a different header. The query/form parameter path is opt-in via
+`param_name:`, because a key placed in a URL is captured by access logs,
+proxies, and browser history:
 
 ```ruby
 Otto::Security::Authentication::Strategies::APIKeyStrategy.new(
@@ -116,12 +117,13 @@ The rules are the same in every form:
 
 The strategy cannot make a black-box lookup constant-time. Store SHA-256
 digests rather than raw keys and look up by `APIKeyStrategy.digest(key)`, as
-in the example above. The digest step is constant-time by construction, the
-lookup that follows is an exact match on a fixed-width value, and a database
-dump of high-entropy keys (generate them with `SecureRandom`, 32 bytes or
-more) does not expose usable credentials. Unsalted SHA-256 is not a password
-hash, so do not accept user-chosen keys. `APIKeyStrategy.digest(key)` returns
-the full hex digest; the fingerprint in the result is its first 12 characters.
+in the example above. This produces a fixed-width lookup value and keeps raw
+keys out of storage, but it does not make the application's database or cache
+lookup constant-time. A database dump of high-entropy keys (generate them with
+`SecureRandom`, 32 bytes or more) does not expose usable credentials through a
+practical brute-force search. Unsalted SHA-256 is not a password hash, so do
+not accept user-chosen keys. `APIKeyStrategy.digest(key)` returns the full hex
+digest; the fingerprint in the result is its first 12 characters.
 
 ### What `APIKeyStrategy` does not provide
 
@@ -230,12 +232,46 @@ GET /admin     Admin::Dashboard auth=session role=admin
 GET /edit      Editorial#edit auth=session role=admin,editor
 ```
 
-Multiple roles use OR logic. The authenticated result can expose roles through,
-in precedence order:
+`role=` checks the successful strategy result; it does not read
+`env['rack.session']` independently. The built-in `SessionStrategy` returns a
+user containing only `id` and `user_id`, so it is sufficient for authentication
+but not for these role checks. If the application uses role-protected session
+routes, register a role-aware application strategy instead of the built-in
+strategy shown earlier:
 
-1. `result.user_roles`
-2. `result.user[:roles]` or `result.user['roles']`
-3. `result.metadata[:user_roles]`
+```ruby
+class RoleAwareSessionStrategy < Otto::Security::Authentication::AuthStrategy
+  def authenticate(env, _requirement)
+    session = env['rack.session']
+    return failure('No session available') unless session
+
+    user_id = session['user_id']
+    return failure('Not authenticated') unless user_id
+
+    success(
+      user: {
+        id: user_id,
+        roles: Array(session['user_roles']).map(&:to_s),
+      },
+      session: session,
+      auth_method: 'session'
+    )
+  end
+end
+
+otto.add_auth_strategy('session', RoleAwareSessionStrategy.new)
+```
+
+Multiple route roles use OR logic. The role check reads, in precedence order:
+
+1. `result.user_roles`, if the result exposes it
+2. `result.user[:roles]` or `result.user['roles']` for a Hash-backed user
+3. `result.user.roles`, falling back to `result.user.role`, for an object-backed user
+4. `result.metadata[:user_roles]`
+
+Use strings for result-level, Hash-backed, or metadata roles so they match the
+string values parsed from the route. Object-backed `#roles` and `#role` values
+are normalized to strings.
 
 Missing authentication returns `401`. A valid authenticated subject without one
 of the required roles returns `403`. `response=json` makes these route errors
@@ -294,7 +330,9 @@ result.strategy_name
 ```
 
 Application code should read the result created by Otto rather than constructing
-its own `StrategyResult`. The result is immutable.
+its own `StrategyResult`. The `Data` record does not allow member reassignment,
+but contained `session`, `user`, and `metadata` objects are not deep-frozen;
+their mutability remains the application's responsibility.
 
 ## Failure and response behavior
 
@@ -335,5 +373,5 @@ store.
 - [Route syntax](../reference/route-syntax.md) — `auth=`, `role=`, and route
   parsing rules.
 - [Routing guide](routing.md) — choosing controller, Logic, and lambda handlers.
-- Configuration freezing (`Otto::Core::Freezable`) — boot-time mutation
+- [Configuration freezing](configuration_freezing.md) — boot-time mutation
   boundary and multi-step setup.

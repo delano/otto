@@ -12,15 +12,21 @@ With the default `:masked` profile:
 
 - public IP addresses are masked by the configured octet precision (one octet
   by default: `203.0.113.9` becomes `203.0.113.0`);
-- private and localhost addresses remain unmasked for development by default;
-- public user agents have version details anonymized;
-- public referers have query parameters removed;
-- the original public values are not retained in the Rack environment;
-- country resolution is country-level only and returns an unknown sentinel when
-  no configured source answers.
+- requests from private and loopback addresses are exempt from the privacy
+  fingerprint by default, so their IP, user agent, and referer remain unchanged;
+- for requests that are masked, user-agent version details are anonymized and
+  referer query parameters are removed;
+- original public values are not retained in the Rack environment; and
+- country resolution is country-level only and returns `**` when enabled but no
+  configured source answers.
 
-Downstream code should read `req.ip`, `req.masked_ip`, and the privacy environment
-keys rather than recovering a raw address from forwarded headers.
+Downstream code should read `req.ip`, `req.masked_ip`, and the documented privacy
+environment keys rather than re-resolving an address from forwarded headers.
+
+These profiles are technical data-minimization controls, not a compliance
+certification. Whether a deployment meets GDPR, CCPA, or another legal regime
+also depends on its purposes, notices, retention, access controls, vendors, and
+jurisdiction.
 
 ## Profiles
 
@@ -75,13 +81,14 @@ Common values are also available in the Rack environment:
 
 | Value | Environment key | Contract |
 | --- | --- | --- |
-| Canonical client IP | `otto.client_ip` | Privacy-applied client IP used downstream. |
-| Masked IP | `otto.privacy.masked_ip` | Present for a public address when masking applies. |
-| Rotating IP hash | `otto.privacy.hashed_ip` | Privacy-safe correlation value using Otto's rotating key. |
-| Stable correlation hash | `otto.privacy.correlation_hash` | Present only when `correlation_secret:` is configured and the privacy pipeline produces it. |
-| Country | `otto.privacy.geo_country` | ISO 3166-1 alpha-2 code or `'**'`; `nil` when privacy is disabled. |
-| ASN | `otto.privacy.asn` | `nil` when off, `'**'` when enabled but unresolved, or a value such as `'AS15169'`. |
-| Anonymizer | `otto.privacy.anonymizer` | `nil` when off, `'**'` when no database answers, or a classification label. |
+| Canonical client IP | `otto.client_ip` | Masked IP when masking applies; resolved full IP under `:audit` or for an exempt private/loopback request. |
+| Precise CIDR verdict | `otto.ip_match` | Callable that checks the resolved full IP against CIDRs and returns only `true` or `false`. |
+| Masked IP | `otto.privacy.masked_ip` | Set when the request runs through the privacy fingerprint; absent for exempt or `:audit` requests. |
+| Rotating IP hash | `otto.privacy.hashed_ip` | Correlation value computed with Otto's rotating key; absent for exempt or `:audit` requests. |
+| Stable correlation hash | `otto.privacy.correlation_hash` | HMAC value when `correlation_secret:` is configured; otherwise `nil`. |
+| Country | `otto.privacy.geo_country` | ISO 3166-1 alpha-2 code, `**` when enabled but unresolved, or `nil` when geo/privacy is disabled. |
+| ASN | `otto.privacy.asn` | `nil` when off, `**` when enabled but unresolved, or a value such as `AS15169`. |
+| Anonymizer | `otto.privacy.anonymizer` | `nil` when off, `**` when no database answers, or a classification label. |
 
 `req.hashed_ip` is designed for short-lived correlation using a rotating key.
 For long-lived correlation, explicitly configure a stable secret and protect
@@ -92,12 +99,11 @@ correlation hash.
 
 These signals have different trust and precision models:
 
-- [Geo-country resolution](../geo-country.md) documents trusted provider
-  headers, CIDR trusted-proxy requirements, masked MMDB lookup, and the unknown
-  sentinel.
-- [ASN and anonymizer enrichment](../enrichment.md) documents the opt-in
-  database contracts. ASN uses a masked address; anonymizer classification
-  deliberately uses the unmasked address internally and emits only a label.
+- [Geo-country resolution](geo-country.md) documents trusted provider headers,
+  CIDR trusted-proxy requirements, masked MMDB lookup, and the unknown sentinel.
+- [ASN and anonymizer enrichment](enrichment.md) documents the opt-in database
+  contracts. ASN uses a masked address; anonymizer classification deliberately
+  uses the unmasked address internally and emits only a label.
 
 Enable optional signals explicitly:
 
@@ -139,10 +145,14 @@ that `Rack::Request#host` reads. See
 `trusted_proxies: :none` assertion for directly exposed applications.
 
 For precise access control without exposing the address to application code,
-configure or call the verdict-only `env['otto.ip_match']` capability. It matches
+call the automatically installed `env['otto.ip_match']` capability. It matches
 the resolved full client IP against application CIDRs and returns only
 `true`/`false`; it fails closed when no client IP resolves. Do not log or persist
-the closure's captured address.
+the closure.
+
+```ruby
+allowed = req.env.fetch('otto.ip_match').call(['192.0.2.0/24', '2001:db8::/32'])
+```
 
 ## Middleware placement
 

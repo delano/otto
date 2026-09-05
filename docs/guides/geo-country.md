@@ -1,183 +1,168 @@
 # Geo-country resolution
 
-Otto resolves a country-level ISO 3166-1 alpha-2 code for each request and
-exposes it as `req.geo_country` / `env['otto.privacy.geo_country']`. Resolution
-is country-only by design — that is the privacy posture; there is no city or
-region lookup. (Two opt-in, database-only companion signals — ASN and
-anonymizer classification — are covered in [enrichment](enrichment.md).)
+Otto exposes a country-level ISO 3166-1 alpha-2 code as `req.geo_country` and
+`env['otto.privacy.geo_country']`. It does not expose city or region data. For a
+request that enters the privacy fingerprint, enabled but unresolved geo returns
+`**`. The value is `nil` when IP privacy or geo resolution is disabled, or when
+a private/loopback request is exempt from the fingerprint.
+
+For the surrounding privacy profiles and environment-key contracts, see
+[Privacy-preserving request data](privacy.md). ASN and anonymizer signals are
+covered separately in [ASN and anonymizer enrichment](enrichment.md).
 
 ## Resolution order
 
-`Otto::Privacy::GeoResolver.resolve` returns the first hit from:
+For requests handled by Otto, the first valid result wins:
 
-1. **Application-configured header** (`geo_header:`) — e.g. `X-Client-Country`.
-2. **Known provider headers** — Cloudflare (`CF-IPCountry`), AWS CloudFront,
-   Fastly, Akamai Edgescape, Azure Front Door, **Vercel**
-   (`X-Vercel-IP-Country`), and a few semi-standard names
-   (`X-Geo-Country`, `X-Country-Code`, `Country-Code`).
-3. **Custom resolver** (`GeoResolver.custom_resolver`) — your own callable.
-   Unlike the other geo settings, this is **class-level** (see
-   [Configuration](#configuration)).
-4. **Local MMDB database** (`geo_db_path:` / `geo_db_reader:`) — a MaxMind-DB
-   country database.
-5. **`'**'`** — the unknown sentinel, when nothing else matches.
+1. the application-configured `geo_header`;
+2. built-in provider headers for Cloudflare, AWS CloudFront, Fastly, Akamai,
+   Azure Front Door, Vercel, and several semi-standard country headers;
+3. the process-wide `Otto::Privacy::GeoResolver.custom_resolver` callable;
+4. a local MMDB reader configured with `geo_db_path` or `geo_db_reader`;
+5. `**` when no source resolves a country.
 
-Steps 1 and 2 are **only consulted when geo headers can be trusted** (see
-[Header trust](#header-trust-and-spoofing) below).
+Header sources are consulted only when the request arrived through a configured
+CIDR trusted proxy. See [Trust geo headers](#trust-geo-headers).
 
-Resolution is **honest**: Otto does not guess from a hardcoded IP-range table.
-When no header, custom resolver, or database resolves a country, the result is
-`'**'`.
+The middleware gives custom resolvers a copy of the Rack environment with the
+client address masked or removed. The local database lookup also masks the IP
+again before calling its reader. A custom resolver called directly outside the
+middleware does not receive that additional environment protection.
 
-### Privacy: masked IP and masked env
+## Configure a trusted header or local database
 
-The database lookup in step 4 runs on the request's **masked** IP
-(e.g. `203.0.113.0`), never the real address. `check_geo_database` masks the IP
-internally with the config's `octet_precision` before the lookup, so even a
-direct `GeoResolver.resolve` caller passing a real IP does not expose it to the
-database. Country-level MMDB networks are almost always ≥ /24, so the default
-/24-masked value (`octet_precision: 1`) resolves to the same country.
-
-In the middleware path Otto additionally hands `resolve` a **masked env view**:
-`REMOTE_ADDR`, `X-Forwarded-For`, `X-Real-IP`, `X-Client-IP`, and the RFC 7239
-`Forwarded` header are masked. So a `custom_resolver` cannot read the raw client
-IP out of `env` either — use the `ip` argument (already masked), not `env`.
-
-> **`octet_precision: 2`** masks two octets (a /16). That is coarser than most
-> country networks, so it can reduce database hit rate for the small share of
-> countries whose ranges are finer than /16 — those requests fall through to
-> `'**'`. Header and custom-resolver sources are unaffected (they ignore the
-> IP). Keep the default precision if you rely on the MMDB fallback.
-
-## Configuration
-
-All geo configuration is **boot-time only** (set once during single-threaded
-initialization, before serving requests), matching `custom_resolver`'s
-contract. `geo_header`, `geo_db_path`, and `geo_db_reader` are stored on the
-instance's `Otto::Privacy::Config`, so separate Otto instances hold independent
-geo configuration.
-
-> **`custom_resolver` is the exception — it is class-level, not per-instance.**
-> `GeoResolver.custom_resolver=` sets a singleton on the `GeoResolver` class, so
-> it is **shared across every Otto instance in the process** (last write wins).
-> If you run multiple Otto instances that need different resolver strategies,
-> the custom resolver cannot distinguish them — branch inside a single resolver
-> on `env`, or use per-instance `geo_db_reader` instead.
+All configuration is boot-time only and must be complete before the first
+request:
 
 ```ruby
 otto.configure_ip_privacy(
-  geo:           true,                                # default; false disables geo entirely
-  geo_header:    'X-Client-Country',                 # trusted app header (optional)
-  geo_db_path:   'data/geo-whois-asn-country.mmdb',  # local MMDB fallback (optional)
-  # geo_db_reader: MaxMind::DB.new(path),            # or bring your own reader (optional)
+  geo: true,                              # default
+  geo_header: 'X-Client-Country',         # optional trusted header
+  geo_db_path: 'data/user-country.mmdb'   # optional local fallback
 )
 ```
 
-- **`geo: false`** short-circuits everything: no header reads, and any loaded
-  database is unloaded from memory (`req.geo_country` becomes `nil`).
-- **`geo_header:`** accepts either the HTTP header name (`X-Client-Country`) or
-  the Rack CGI env key (`HTTP_X_CLIENT_COUNTRY`), in any case, and is
-  canonicalized to the env-key form. Pass `''` to clear.
-- **`geo_db_path:`** is loaded once at boot in `MODE_MEMORY`. An unreadable
-  path, a corrupt/non-MMDB file, or a missing `maxmind-db` gem raises
-  `ArgumentError` **at configuration time**, not per-request. Pass `''` to
-  unload.
-- **`geo_db_reader:`** injects any object responding to `#get(ip)` (a
-  preconfigured `MaxMind::DB` reader or a test double), keeping the reader and
-  data-source choice independent of Otto. It **overrides** `geo_db_path` when
-  both are given in the same call; supplying `geo_db_path` alone in a later call
-  clears a prior reader override.
+- `geo: false` disables all country resolution and releases the loaded reader.
+- `geo_header:` accepts an HTTP header name such as `X-Client-Country` or its
+  Rack key, `HTTP_X_CLIENT_COUNTRY`. A blank string clears the setting.
+- `geo_db_path:` opens the database in memory during configuration. A blank
+  string clears the path. An unreadable or invalid file raises `ArgumentError`;
+  a missing or incompatible `maxmind-db` gem raises
+  `Otto::OptionalDependencyError`.
+- `geo_db_reader:` accepts an object responding to `#get(ip)`. It wins over a
+  path supplied in the same call and lets applications use another MMDB reader
+  or a test double.
 
-Each keyword follows a `nil` = "leave unchanged" contract; pass `''` to a header
-or path to clear it. Any geo-affecting change triggers the boot-time database
-(re)load, so a bad `geo_db_path` fails at the `configure_ip_privacy` call.
+Omitting a keyword leaves its current value unchanged. Supplying a new path
+without a reader clears an earlier reader override.
 
-## The database: gem and datafile
+`Otto::Privacy::GeoResolver.custom_resolver` is different from the options
+above: it is shared by every Otto instance in the process. Set it once during
+single-threaded initialization. For per-application behavior, prefer
+`geo_db_reader:`.
 
-The reader and the data file are independent — the MMDB format is the interop
-point.
+## Install the MMDB reader
 
-### Reader gem (`maxmind-db`)
+The [`maxmind-db`](https://rubygems.org/gems/maxmind-db) gem is optional. Otto
+accepts versions 1.2 or newer within the 1.x series. Add it to the application:
 
-The [`maxmind-db`](https://rubygems.org/gems/maxmind-db) gem (official MaxMind
-reader, Apache-2.0, pure Ruby, zero runtime deps) is an **optional**
-dependency. Otto supports version 1.2.0 or newer in the 1.x series and only
-loads it when a database path is configured. A missing or incompatible gem
-raises `Otto::OptionalDependencyError` at configuration time. Add it to your
-app when you use the database fallback:
+```sh
+bundle add maxmind-db --version '~> 1.2'
+```
+
+Applications that manage `Gemfile` entries manually can instead add
+`gem 'maxmind-db', '~> 1.2'` and run `bundle install`.
+
+## Download a current country database
+
+Otto does not bundle country data. The current
+[`user-country`](https://github.com/sapics/ip-location-db/tree/main/user-country/)
+dataset from `sapics/ip-location-db` is an IPv4-and-IPv6 country MMDB updated
+daily. Upstream recommends it for general end-user country lookup and publishes
+it under PDDL 1.0. Review the upstream methodology and license for the version
+you deploy.
+
+The older `geo-whois-asn-country.mmdb` asset is no longer published. Use the
+current release asset and checksum URLs:
+
+```sh
+mkdir -p data
+curl -fL --retry 3 \
+  -o data/user-country.mmdb \
+  https://github.com/sapics/ip-location-db/releases/download/latest/user-country.mmdb
+curl -fL --retry 3 \
+  -o data/user-country.mmdb.sha256 \
+  https://github.com/sapics/ip-location-db/releases/download/checksum/user-country.mmdb.sha256
+```
+
+Verify the download from the directory containing both files:
+
+```sh
+(cd data && shasum -a 256 -c user-country.mmdb.sha256)      # macOS/BSD
+# or
+(cd data && sha256sum --check user-country.mmdb.sha256)     # GNU/Linux
+```
+
+Inspect a lookup before configuring Otto:
+
+```sh
+bundle exec ruby -rmaxmind/db -e \
+  "p MaxMind::DB.new('data/user-country.mmdb', mode: MaxMind::DB::MODE_MEMORY).get('8.8.8.8')"
+```
+
+The result should be a hash containing a two-letter `country_code`. Otto also
+accepts GeoLite2-style nested `country.iso_code` records and a bare string in
+the `country` field. Other MMDB datasets can therefore work, but their licenses,
+update requirements, schemas, and accuracy remain the operator's responsibility.
+
+Refresh the data on an operational schedule and verify the checksum before
+replacing the active file. Because Otto opens the file at boot, restart the
+application after replacement.
+
+## Understand masking and accuracy
+
+Database and custom-resolver lookups in the middleware receive a masked address.
+For IPv4, the default `octet_precision: 1` keeps a `/24`; `octet_precision: 2`
+keeps a `/16`. For IPv6, those settings keep `/48` and `/32`, respectively.
+Masking can therefore reduce lookup accuracy when a database has more-specific
+country ranges, especially for IPv6 and the coarser precision setting. Such a
+miss falls through to `**`.
+
+Header results do not depend on the masked address. Keep the default precision
+and test representative IPv4 and IPv6 ranges if the MMDB fallback is important
+to the application.
+
+## Trust geo headers
+
+Country headers are client-spoofable unless Otto can verify the connecting
+proxy. Configure the CDN or reverse proxy addresses as trusted CIDRs:
 
 ```ruby
-# Gemfile
-gem 'maxmind-db', '~> 1.2'
+otto = Otto.new(
+  'routes',
+  trusted_proxies: ['10.0.0.0/8', '192.0.2.0/24']
+)
 ```
 
-### Data file (`geo-whois-asn-country`)
+Otto ignores configured and built-in geo headers when:
 
-The recommended data file is
-[`geo-whois-asn-country`](https://github.com/sapics/ip-location-db) from
-sapics/ip-location-db: **PDDL v1.0 (public domain, no attribution required)**,
-rebuilt daily, shipped as MMDB. Otto vendors no database — country data goes
-stale, and a public-domain file you refresh on your own schedule keeps
-licensing and freshness in your control.
+- proxy trust is not configured;
+- `trusted_proxies: :none` is configured;
+- the connecting peer does not match a configured trusted proxy; or
+- count-based `trusted_proxy_depth` mode is used.
 
-Download it (IPv4+IPv6) into a path of your choosing:
+A configured `geo_header` and `trusted_proxy_depth` are rejected together at
+configuration time. In depth-mode deployments, use `geo_db_path` or
+`geo_db_reader` instead. For the broader forwarded-header boundary, see
+[Forwarded host authority](forwarded-authority.md).
 
-```bash
-mkdir -p data
-curl -fsSL -o data/geo-whois-asn-country.mmdb \
-  https://github.com/sapics/ip-location-db/releases/download/latest/geo-whois-asn-country.mmdb
-```
-
-Refresh it on your own schedule (e.g. a daily cron job running the same curl).
-Any MMDB country database works — GeoLite2-Country, DB-IP Country Lite,
-iplocate, etc. — since `GeoResolver` tolerates the record shapes country
-databases actually use: nested `country.iso_code` (GeoLite2-Country style), a
-flat `country_code` string, and a bare-string `country`.
-
-> **Note on GeoLite2:** its EULA requires a MaxMind account/license key and
-> obliges consumers to refresh within 30 days of each release. A PDDL dataset
-> avoids both obligations.
-
-## Header trust and spoofing
-
-Every geo header is trivially client-spoofable unless the request actually
-arrived through the CDN that sets it. Otto trusts geo headers — both the
-configured `geo_header` and the provider headers — **only** for a request that
-demonstrably arrived via a configured **CIDR trusted proxy**
-(`env['otto.via_trusted_proxy']` with `trusted_proxies` configured). A spoofed
-header on a direct connection is ignored, and resolution falls through to the
-custom resolver / database.
-
-Origins Otto cannot verify are **not** trusted:
-
-- **No trusted-proxy configuration.** A direct internet client could otherwise
-  pick its own country by sending `CF-IPCountry` / `X-Client-Country`, so with
-  no `trusted_proxies` configured, header steps are skipped and resolution falls
-  to the resolver / database (`'**'` if neither is set).
-- **Count-based `trusted_proxy_depth` mode.** The header-setting hop cannot be
-  verified as a geo-CDN, so depth mode does not enable header trust. This
-  conflict fails loud: configuring a `geo_header` together with a
-  `trusted_proxy_depth` raises `ArgumentError` at configuration time (in
-  either order) instead of silently ignoring the header per-request.
-  Database-backed geo remains fully supported under depth. The built-in
-  provider headers stay legal (there is nothing to configure, so nothing
-  can raise) but are equally inert — header trust requires CIDR-verified
-  proxies — so only an explicitly configured `geo_header` is rejected, and
-  depth deployments that want geo should set `geo_db_path`.
-
-**Migration:** to keep header-based geo, configure `trusted_proxies` (CIDR
-matchers) so Otto can verify the proxy origin. Depth-mode and header-only
-deployments should set `geo_db_path` for a local database instead; otherwise
-resolution returns `'**'`.
-
-## Acceptance behavior summary
+## Behavior summary
 
 | Scenario | Result |
 | --- | --- |
-| Configured `geo_header` present and trusted | wins over provider headers |
-| Request not via a verified CIDR trusted proxy | geo headers skipped |
-| No `trusted_proxies` configured | geo headers skipped (not trusted) |
-| Database lookup | uses the masked IP only |
-| `geo: false` | `nil`, no database in memory |
-| Bad `geo_db_path` | raises at boot, not per-request |
-| Nothing matches | `'**'` |
+| Trusted configured header contains a valid code | Wins over provider headers |
+| Geo headers are not trusted | Headers are skipped; resolver/database fallback continues |
+| Local database lookup | Receives only the masked IP |
+| `geo: false`, IP privacy disabled, or privacy-exempt request | `nil` |
+| Enabled, but nothing resolves | `**` |
+| Invalid path or database | Configuration fails at boot |

@@ -13,9 +13,14 @@ Added
 Security
 --------
 
-- Proxy trust is now enforced when privacy middleware runs in both a shared Rack
-  stack and an Otto application. The application applies its own trust posture
-  before retaining forwarded authority metadata. (#259)
+- ``IPPrivacyMiddleware`` enforces its own proxy trust posture even when an
+  outer instance already resolved ``otto.client_ip``. ``trusted_proxies: :none``
+  always strips forwarded authority; a CIDR configuration that can no longer
+  match the connecting peer treats it as untrusted and logs a warning. (#259)
 
-- Caddy on-demand TLS authorization now rejects relayed loopback requests even
-  when untrusted forwarded authority metadata is stripped first. (#259)
+- ``env['otto.peer_relayed']`` records whether a request carried any relay
+  marker header, evaluated before forwarded carriers may be deleted, so
+  ``Otto::CaddyTLS::LocalhostGuard`` still refuses a relayed loopback call once
+  the carriers are stripped. The relay markers cover every carrier the scrub
+  deletes, including ``X-Forwarded-Host`` and the other authority headers, not
+  only the client-IP carriers. (#259)

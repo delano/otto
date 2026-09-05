@@ -19,9 +19,47 @@ class Otto
       HTTP_X_CLIENT_IP
     ].freeze
 
+    # Forwarding metadata Rack::Request reads without consulting Otto's proxy
+    # trust verdict: host (#host/#authority), scheme (#scheme/#ssl?), and port
+    # (#port), from both the X-Forwarded-* family and RFC 7239 Forwarded
+    # (host=, proto=, and the port inside for=). IPPrivacyMiddleware deletes
+    # every one of these for a peer that failed configured proxy trust.
+    FORWARDED_AUTHORITY_HEADERS = %w[
+      HTTP_FORWARDED
+      HTTP_X_FORWARDED_HOST
+      HTTP_X_FORWARDED_PROTO
+      HTTP_X_FORWARDED_SCHEME
+      HTTP_X_FORWARDED_SSL
+      HTTP_X_FORWARDED_PORT
+    ].freeze
+
+    # Headers whose presence means the request was RELAYED by a proxy rather
+    # than issued directly by the peer: every forwarding carrier Otto knows —
+    # the forwarded-for family, RFC 7239 Forwarded, and the authority (host /
+    # scheme / port) carriers. The set must cover everything IPPrivacyMiddleware
+    # may DELETE on the untrusted-peer path: a carrier that is scrubbed but not
+    # counted here would let a relayed request look direct afterwards. Shared
+    # by IPPrivacyMiddleware (which records the verdict as
+    # env['otto.peer_relayed'] BEFORE the scrub) and
+    # Otto::CaddyTLS::LocalhostGuard, so the record and the guard's own
+    # fallback scan cannot drift.
+    RELAY_MARKER_HEADERS = (FORWARDED_FOR_HEADERS + FORWARDED_AUTHORITY_HEADERS).uniq.freeze
+
     # Special-use IPv4/IPv6 ranges that IPAddr's #private?/#loopback?/#link_local?
     # predicates do not cover but that should still be treated as non-public
     # (e.g. when picking the real client out of a forwarded chain).
+    #
+    # The documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24,
+    # 2001:db8::/32 and the newer 3fff::/20) are deliberately NOT listed here.
+    # The predicate answers "could this be the real client", and non-public
+    # entries are skipped as proxy hops. Those ranges are not globally routable,
+    # but they are the universal convention for an example public client in tests
+    # and docs, including this repo's own specs and guides, so treating them as
+    # non-public would make the resolver skip the example client and silently
+    # invalidate those examples. There is no security gain either: an attacker who
+    # can inject into a chain injects a routable address, and a documentation
+    # address in a real chain means a misconfigured hop, which is better surfaced
+    # than skipped.
     SPECIAL_USE_RANGES = [
       IPAddr.new('0.0.0.0/8'),   # "this" network / unspecified (IPv4)
       IPAddr.new('224.0.0.0/4'), # IPv4 multicast
@@ -387,6 +425,18 @@ class Otto
         range = range.native
         range.family == client.family && range.include?(client)
       end
+    end
+
+    # Whether any relay marker header is present on the request.
+    #
+    # Call this only from code that runs BEFORE forwarding carriers may be
+    # deleted (IPPrivacyMiddleware's untrusted-peer scrub); downstream code
+    # should prefer the recorded env['otto.peer_relayed'] boolean.
+    #
+    # @param env [Hash] Rack environment
+    # @return [Boolean]
+    def relayed_request?(env)
+      RELAY_MARKER_HEADERS.any? { |header| !env[header].to_s.strip.empty? }
     end
 
     # Whether an address is on the loopback interface.

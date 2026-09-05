@@ -354,6 +354,144 @@ RSpec.describe Otto::Security::Config do
     end
   end
 
+  describe '#trust_no_proxies! (explicit trust-nobody assertion, otto#259)' do
+    it 'is off by default' do
+      expect(config.trust_no_proxies?).to be false
+    end
+
+    it 'makes proxy trust configured without configuring any matcher' do
+      config.trust_no_proxies!
+
+      expect(config.trust_no_proxies?).to be true
+      expect(config.proxy_trust_configured?).to be true
+      expect(config.trusted_proxies_configured?).to be false
+      expect(config.trusted_proxy_depth_mode?).to be false
+    end
+
+    it 'trusts no peer, loopback included' do
+      config.trust_no_proxies!
+
+      expect(config.trusted_proxy?('127.0.0.1')).to be false
+      expect(config.trusted_proxy?('10.0.0.1')).to be false
+    end
+
+    it 'ignores forwarded chains when resolving the client IP' do
+      config.trust_no_proxies!
+      env = { 'REMOTE_ADDR' => '203.0.113.50', 'HTTP_X_FORWARDED_FOR' => '198.51.100.9' }
+
+      expect(Otto::Utils.resolve_client_ip(env, config)).to eq('203.0.113.50')
+    end
+
+    it 'stakes no claim on the process-global forwarding family' do
+      config.trust_no_proxies!
+      config.commit_rack_forwarding_family!
+
+      expect(config.forwarding_family_dependent?).to be false
+      expect(described_class.rack_forwarding_family).to be_nil
+    end
+
+    it 'rejects combining it with trusted proxies (either order)' do
+      config.trust_no_proxies!
+      expect { config.add_trusted_proxy('10.0.0.0/8') }
+        .to raise_error(ArgumentError, /trust no proxy/)
+
+      other = described_class.new
+      other.add_trusted_proxy('10.0.0.0/8')
+      expect { other.trust_no_proxies! }.to raise_error(ArgumentError, /trust no proxy/)
+    end
+
+    it 'rejects combining it with a depth >= 1 (either order)' do
+      config.trust_no_proxies!
+      expect { config.trusted_proxy_depth = 2 }.to raise_error(ArgumentError, /trust no proxy/)
+
+      other = described_class.new
+      other.trusted_proxy_depth = 2
+      expect { other.trust_no_proxies! }.to raise_error(ArgumentError, /trust no proxy/)
+    end
+
+    it 'still allows a depth of 0/nil (depth mode off)' do
+      config.trust_no_proxies!
+
+      expect { config.trusted_proxy_depth = 0 }.not_to raise_error
+      expect(config.proxy_trust_configured?).to be true
+    end
+
+    it 'is reachable through Otto.new via trusted_proxies: :none' do
+      otto = Otto.new(nil, trusted_proxies: :none)
+
+      expect(otto.security_config.trust_no_proxies?).to be true
+    end
+
+    it "accepts the String spelling 'none' (YAML/ENV-driven config), any case" do
+      expect(described_class.trust_no_proxies_option?(:none)).to be true
+      expect(described_class.trust_no_proxies_option?('none')).to be true
+      expect(described_class.trust_no_proxies_option?('None')).to be true
+      expect(described_class.trust_no_proxies_option?('10.0.0.0/8')).to be false
+      expect(described_class.trust_no_proxies_option?(nil)).to be false
+
+      otto = Otto.new(nil, trusted_proxies: 'none')
+
+      expect(otto.security_config.trust_no_proxies?).to be true
+      expect(otto.security_config.trusted_proxies).to be_empty
+    end
+
+    it "refuses the sentinel as a list ENTRY (trusted_proxies: ['none']) instead of installing a prefix matcher" do
+      # A YAML/JSON list naturally yields ['none']; registering it as a legacy
+      # string-prefix matcher would leave trust_no_proxies? false and stake a
+      # forwarding-family claim, silently replacing the assertion.
+      expect { config.add_trusted_proxy(['none']) }.to raise_error(ArgumentError, /not inside a list/)
+      expect { config.add_trusted_proxy('None') }.to raise_error(ArgumentError, /trust_no_proxies!/)
+      expect { config.add_trusted_proxy(:none) }.to raise_error(ArgumentError, /trust_no_proxies!/)
+      # A mixed list is rejected before any entry is registered.
+      expect { config.add_trusted_proxy(['10.0.0.0/8', 'none']) }.to raise_error(ArgumentError, /not inside a list/)
+
+      expect(config.trusted_proxies).to be_empty
+      expect(config.trusted_proxies_configured?).to be false
+      expect(config.trust_no_proxies?).to be false
+      expect(config.forwarding_family_dependent?).to be false
+    end
+
+    it 'refuses a list-shaped sentinel through Otto.new and the security configurator' do
+      expect { Otto.new(nil, trusted_proxies: ['none']) }.to raise_error(ArgumentError, /not inside a list/)
+
+      otto = Otto.new(nil)
+      expect { otto.security.configure(trusted_proxies: ['none']) }.to raise_error(ArgumentError, /not inside a list/)
+      expect(otto.security_config.trusted_proxies).to be_empty
+      expect(otto.security_config.trust_no_proxies?).to be false
+    end
+
+    it 'rejects a mixed list without installing the valid entries first (configurator and Otto.new)' do
+      # Both wiring paths hand the list to add_trusted_proxy whole; iterating
+      # it entry by entry would leave '10.0.0.0/8' registered (and the config
+      # forwarding-family dependent) before 'none' raised.
+      otto = Otto.new(nil)
+      expect { otto.security.configure(trusted_proxies: ['10.0.0.0/8', 'none']) }
+        .to raise_error(ArgumentError, /not inside a list/)
+      expect(otto.security_config.trusted_proxies).to be_empty
+      expect(otto.security_config.trusted_proxies_configured?).to be false
+      expect(otto.security_config.forwarding_family_dependent?).to be false
+
+      expect { Otto.new(nil, trusted_proxies: ['10.0.0.0/8', 'none']) }.to raise_error(ArgumentError, /not inside a list/)
+    end
+
+    it 'is reachable through the security configurator' do
+      otto = Otto.new(nil)
+      otto.security.configure(trusted_proxies: :none)
+
+      expect(otto.security_config.trust_no_proxies?).to be true
+    end
+
+    it 'is reachable on the Otto instance and refuses after freeze' do
+      otto = Otto.new(nil)
+      otto.trust_no_proxies!
+      expect(otto.security_config.trust_no_proxies?).to be true
+
+      frozen = Otto.new(nil)
+      frozen.freeze_configuration!
+      expect { frozen.trust_no_proxies! }.to raise_error(FrozenError)
+    end
+  end
+
   describe 'trusted_proxy_depth (count-based proxy mode)' do
     it 'defaults to nil (depth mode off)' do
       expect(config.trusted_proxy_depth).to be_nil

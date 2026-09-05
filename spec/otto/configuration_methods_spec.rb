@@ -189,15 +189,15 @@ RSpec.describe Otto, 'Configuration Methods' do
     it 'adds trusted proxies when provided as array' do
       proxies = ['127.0.0.1', '10.0.0.0/8', '192.168.1.0/24']
 
-      proxies.each do |proxy|
-        expect(app).to receive(:add_trusted_proxy).with(proxy)
-      end
+      # The list is handed over whole so every entry is validated before any
+      # is registered (a list containing the :none sentinel is rejected outright).
+      expect(app).to receive(:add_trusted_proxy).with(proxies)
 
       app.send(:configure_security, { trusted_proxies: proxies })
     end
 
     it 'adds trusted proxy when provided as single value' do
-      expect(app).to receive(:add_trusted_proxy).with('127.0.0.1')
+      expect(app).to receive(:add_trusted_proxy).with(['127.0.0.1'])
 
       app.send(:configure_security, { trusted_proxies: '127.0.0.1' })
     end
@@ -225,7 +225,7 @@ RSpec.describe Otto, 'Configuration Methods' do
       expect(app).to receive(:enable_csrf_protection!)
       expect(app).to receive(:enable_request_validation!)
       expect(app).to receive(:enable_rate_limiting!).with({})
-      expect(app).to receive(:add_trusted_proxy).with('127.0.0.1')
+      expect(app).to receive(:add_trusted_proxy).with(['127.0.0.1'])
       expect(app).to receive(:set_security_headers).with({ 'X-Test' => 'value' })
 
       app.send(:configure_security, {

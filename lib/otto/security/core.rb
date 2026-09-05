@@ -77,6 +77,23 @@ class Otto
         @security_config.add_trusted_proxy(proxy)
       end
 
+      # Assert that NO proxy is trusted: every peer gets
+      # env['otto.via_trusted_proxy'] = false, forwarded client-IP chains are
+      # ignored, and forwarded host/scheme/port carriers are stripped so
+      # Rack::Request#host resolves only from the Host header.
+      #
+      # Equivalent to passing `trusted_proxies: :none` to Otto.new. Distinct
+      # from configuring nothing, which asserts nothing (tri-state, #228).
+      #
+      # @raise [ArgumentError] if trusted proxies or a depth >= 1 are configured
+      # @return [void]
+      # @example
+      #   otto.trust_no_proxies!
+      def trust_no_proxies!
+        ensure_not_frozen!
+        @security_config.trust_no_proxies!
+      end
+
       # Set custom security headers that will be added to all responses.
       # These merge with the default security headers.
       #

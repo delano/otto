@@ -100,13 +100,16 @@ class Otto
     # Type: Boolean when present; the key may be ABSENT.
     # Set by: IPPrivacyMiddleware, evaluated on the original peer BEFORE
     #   REMOTE_ADDR is masked — but ONLY when proxy trust is configured
-    #   (Security::Config#proxy_trust_configured?: CIDR matchers or a depth).
+    #   (Security::Config#proxy_trust_configured?: CIDR matchers, a depth, or
+    #   the explicit trust-nobody assertion `trusted_proxies: :none`).
     #   True when the peer matches a configured trusted_proxies CIDR (filter
     #   mode), or unconditionally when count-based depth mode is active
     #   (trusted_proxy_depth >= 1) — the modes are mutually exclusive, and
     #   configuring a depth is the operator's assertion that the connecting
     #   peer is their proxy tier (#226). False means trust IS configured and
-    #   this peer failed it — an authoritative deny. When no proxy trust is
+    #   this peer failed it — an authoritative deny; it is also false for
+    #   EVERY peer (loopback included) when the operator asserted
+    #   `trusted_proxies: :none` (#259). When no proxy trust is
     #   configured the key is NOT written, so consumers can distinguish
     #   "denied" from "unconfigured" and apply legacy heuristics only in the
     #   latter case.
@@ -128,6 +131,21 @@ class Otto
     #   peer, not the resolved client IP: forwarded headers must play no part
     #   in a localhost trust decision.
     PEER_LOOPBACK = 'otto.peer_loopback'
+
+    # Whether the request arrived relayed by a proxy (any relay marker header
+    # present).
+    # Type: Boolean
+    # Set by: IPPrivacyMiddleware (every request), evaluated on the ORIGINAL
+    #   headers BEFORE the untrusted-peer scrub may DELETE those carriers
+    #   (Otto::Utils::RELAY_MARKER_HEADERS cover the forwarded-for family, RFC
+    #   7239 Forwarded, and the X-Forwarded-Host/Proto/Scheme/SSL/Port
+    #   authority carriers — everything the scrub removes). A boolean, so it
+    #   carries no identifying data.
+    # Used by: Otto::CaddyTLS::LocalhostGuard#relayed? — without this record a
+    #   request relayed over loopback by a proxy emitting only RFC 7239
+    #   `Forwarded` or only `X-Forwarded-Host` would look like a direct local
+    #   call after the scrub, and a deny would become an allow.
+    PEER_RELAYED = 'otto.peer_relayed'
 
     # =========================================================================
     # LOCALIZATION (I18N)

@@ -133,6 +133,11 @@ CIDR-based trust lets Otto verify the proxy peer. Count-based
 trustworthy. A configured `geo_header` combined with depth mode is rejected at
 configuration time; use a local database in depth-mode deployments instead.
 
+The same trust decision also gates the forwarded host, scheme, and port headers
+that `Rack::Request#host` reads. See
+[Forwarded host authority](forwarded-authority.md), including the explicit
+`trusted_proxies: :none` assertion for directly exposed applications.
+
 For precise access control without exposing the address to application code,
 configure or call the verdict-only `env['otto.ip_match']` capability. It matches
 the resolved full client IP against application CIDRs and returns only
@@ -159,6 +164,10 @@ Pass `otto.security_config` as shown. The outer instance resolves `otto.client_i
 first and the inner one then short-circuits, so an outer instance constructed
 without the configuration would silently apply defaults instead of the
 application's profile, precision, correlation secret, and enrichment settings.
+Proxy trust is the exception: the inner instance re-applies its own trust
+posture even after an outer pass, and a CIDR configuration that can no longer
+see the connecting peer fails closed. See
+[Forwarded host authority](forwarded-authority.md#place-the-middleware-before-other-request-consumers).
 
 ## Operational rules
 

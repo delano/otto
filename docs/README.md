@@ -18,7 +18,7 @@ the smallest complete configuration that uses it safely.
 | Application model | Plain-text routes; class, instance, Logic-class, and registered lambda handlers; response selection | [Routing](guides/routing.md) and [route syntax](reference/route-syntax.md) |
 | Request lifecycle | Rack integration, middleware ordering, helper registration, lifecycle hooks, and boot-time configuration | `guides/application-lifecycle.md` |
 | Authentication and authorization | Named authentication strategies, ordered multi-strategy fallback, terminal failures, route roles, and resource-level authorization | [Authentication](guides/authentication.md) |
-| Security | CSRF enforcement, request validation, rate limiting, security headers, CSP, error handling, and trusted proxies | `guides/security.md` |
+| Security | CSRF enforcement, request validation, rate limiting, security headers, CSP, error handling, and trusted proxies | `guides/security.md`; [forwarded host authority](guides/forwarded-authority.md) |
 | Runtime and dependencies | Ruby compatibility tiers, upstream security-maintenance limits, dependency-range guarantees, and consumer lockfile auditing | [Runtime and dependency security policy](reference/runtime-and-dependency-security.md) |
 | Privacy and network identity | IP privacy profiles, privacy-safe client signals, country resolution, ASN lookup, and anonymizer classification | [Privacy](guides/privacy.md), [geo-country](guides/geo-country.md), and [enrichment](guides/enrichment.md) |
 | Internationalization | Locale configuration and request locale resolution | `guides/locales.md` |
@@ -40,6 +40,9 @@ the smallest complete configuration that uses it safely.
   fallback, and the privacy model.
 - [ASN and anonymizer enrichment](guides/enrichment.md) — opt-in network signals
   and their database contracts.
+- [Forwarded host authority](guides/forwarded-authority.md) — trust-gated
+  handling of `X-Forwarded-Host` and `Forwarded`, and the process-global Rack
+  forwarding family.
 - [MCP guide](guides/mcp.md) — enable the JSON-RPC endpoint, require bearer
   tokens, and tune rate limits.
 - [Caddy TLS integration](guides/caddy-tls.md) — deploy the loopback-only

@@ -35,13 +35,17 @@ class Otto
       # @param rate_limiting [Boolean, Hash] Enable rate limiting
       #   - `true`: Enable with default settings
       #   - `Hash`: Provide custom rate limiting rules
-      # @param trusted_proxies [String, Array<String>] IP addresses or CIDR ranges to trust
+      # @param trusted_proxies [String, Array<String>, Symbol] IP addresses or
+      #   CIDR ranges to trust, or :none to assert that no proxy is trusted
       # @param trusted_proxy_depth [Integer, nil] Count-based proxy depth ("trust
       #   the last N hops") for non-enumerable proxy tiers; mutually exclusive
       #   with trusted_proxies (validated at configuration freeze)
       # @param trusted_proxy_header [String, nil] Forwarded header depth mode
       #   counts hops from: 'X-Forwarded-For' (default), 'Forwarded' (RFC 7239),
-      #   or 'Both'. Only consulted in depth mode.
+      #   or 'Both'. Otto reads it only in depth mode, but setting it always
+      #   pins Rack::Request.forwarded_priority (process-global) to that family
+      #   and claims the family for this process; see
+      #   Otto::Security::Config.apply_rack_forwarding_family!.
       # @param security_headers [Hash] Custom security headers to merge with defaults
       # @param hsts [Boolean] Enable HTTP Strict Transport Security
       # @param csp [Boolean, String] Enable Content Security Policy
@@ -76,7 +80,14 @@ class Otto
         enable_request_validation! if request_validation
         enable_rate_limiting!(rate_limiting.is_a?(Hash) ? rate_limiting : {}) if rate_limiting
 
-        Array(trusted_proxies).each { |proxy| add_trusted_proxy(proxy) }
+        if Otto::Security::Config.trust_no_proxies_option?(trusted_proxies)
+          trust_no_proxies!
+        else
+          # Pass the list whole so add_trusted_proxy validates every entry
+          # before registering any; a mixed list like ['10.0.0.0/8', 'none']
+          # must not leave the first half installed.
+          add_trusted_proxy(Array(trusted_proxies)) unless Array(trusted_proxies).empty?
+        end
         self.trusted_proxy_depth = trusted_proxy_depth unless trusted_proxy_depth.nil?
         self.trusted_proxy_header = trusted_proxy_header unless trusted_proxy_header.nil?
         # Proxy trust configured here (after Otto.new) commits the app to its
@@ -141,6 +152,17 @@ class Otto
         @security_config.add_trusted_proxy(proxy)
       end
 
+      # Assert that NO proxy is trusted (equivalent to `trusted_proxies:
+      # :none`). Makes env['otto.via_trusted_proxy'] false for every peer, so
+      # forwarded client-IP and host/scheme/port carriers are ignored and
+      # stripped. See Otto::Security::Config#trust_no_proxies!.
+      #
+      # @raise [ArgumentError] if trusted proxies or a depth >= 1 are configured
+      # @return [void]
+      def trust_no_proxies!
+        @security_config.trust_no_proxies!
+      end
+
       # Set count-based trusted-proxy depth ("trust the last N hops") for
       # non-enumerable proxy tiers (Fly, cloud load balancers, dynamic reverse
       # proxies). Mutually exclusive with trusted_proxies; the conflict is
@@ -152,9 +174,13 @@ class Otto
       end
 
       # Select which forwarded header depth mode counts hops from:
-      # 'X-Forwarded-For' (default), 'Forwarded' (RFC 7239), or 'Both'. Only
-      # consulted when depth mode is active. Mirrors OneTimeSecret's
-      # site.network.trusted_proxy.header.
+      # 'X-Forwarded-For' (default), 'Forwarded' (RFC 7239), or 'Both'. Otto
+      # reads the value only when depth mode is active, but setting it always
+      # pins Rack::Request.forwarded_priority (process-global) to that family
+      # and claims the family for this process, even under
+      # `trusted_proxies: :none`; see
+      # Otto::Security::Config.apply_rack_forwarding_family!. Mirrors
+      # OneTimeSecret's site.network.trusted_proxy.header.
       #
       # @param header [String] one of Otto::Security::Config::TRUSTED_PROXY_HEADERS
       def trusted_proxy_header=(header)

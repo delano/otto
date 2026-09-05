@@ -56,6 +56,46 @@ class Otto
         (geo_db_path or geo_db_reader).
       MSG
 
+      # Error raised when the explicit "trust no proxy" assertion
+      # (#trust_no_proxies!, `trusted_proxies: :none`) is combined with an
+      # actual trust grant (enumerated CIDRs or a depth >= 1). The two say
+      # opposite things about the same peer, so the combination is refused at
+      # configuration time rather than silently resolved in one direction.
+      TRUST_NO_PROXIES_CONFLICT_MESSAGE = <<~MSG.gsub(/\s+/, ' ').strip.freeze
+        Cannot combine trusted_proxies: :none (trust no proxy) with
+        trusted_proxies CIDRs or trusted_proxy_depth >= 1. Assert :none OR
+        grant trust, not both.
+      MSG
+
+      # Error raised when the trust-nobody sentinel arrives as a proxy ENTRY
+      # (`trusted_proxies: ['none']`, as a YAML/JSON list naturally yields, or
+      # `add_trusted_proxy('none')`) instead of as the whole option. Inside a
+      # list it would otherwise register a legacy string-prefix matcher that
+      # matches nothing: peers would be untrusted, but trust_no_proxies? would
+      # stay false and the config would stake a forwarding-family claim, so the
+      # explicit assertion would be silently replaced by a lookalike.
+      TRUST_NO_PROXIES_ENTRY_MESSAGE = <<~MSG.gsub(/\s+/, ' ').strip.freeze
+        trusted_proxies entry :none is the trust-nobody assertion, not a proxy
+        address. Pass trusted_proxies: :none as the whole option (not inside a
+        list) or call trust_no_proxies! instead.
+      MSG
+
+      # Sentinel accepted wherever a trusted_proxies list is accepted, meaning
+      # "the operator asserts that NO proxy is trusted". See #trust_no_proxies!.
+      TRUST_NO_PROXIES = :none
+
+      # Whether a trusted_proxies option value is the trust-nobody sentinel.
+      # Accepts the symbol and the String spelling 'none' (case-insensitive),
+      # which is what YAML/ENV-driven configuration naturally produces; without
+      # this, 'none' would fall through to add_trusted_proxy and install a
+      # legacy string-prefix matcher, silently inverting the assertion.
+      #
+      # @param value [Object] raw trusted_proxies option
+      # @return [Boolean]
+      def self.trust_no_proxies_option?(value)
+        (value.is_a?(Symbol) || value.is_a?(String)) && value.to_s.casecmp?('none')
+      end
+
       # Forwarded-header sources depth mode (#trusted_proxy_depth) can count
       # hops from: X-Forwarded-For (default), the RFC 7239 Forwarded header, or
       # Both (Forwarded when present, else X-Forwarded-For). Mirrors
@@ -82,16 +122,19 @@ class Otto
         same forwarding family.
       MSG
       # Error raised when a non-default trusted_proxy_header is combined with
-      # CIDR filter mode. Otto's CIDR-walk resolves the client IP from
-      # X-Forwarded-For only, while trusted_proxy_header also pins Rack's
+      # CIDR filter mode. Otto's CIDR-walk resolves the client IP from the
+      # X-Forwarded-For family only (X-Forwarded-For, then X-Real-IP, then
+      # X-Client-IP — Otto::Utils::FORWARDED_FOR_HEADERS), never RFC 7239
+      # Forwarded, while trusted_proxy_header also pins Rack's
       # forwarding family; honoring 'Forwarded' or 'Both' there would make Rack
       # read a header Otto ignores, recreating the disagreement the pin exists
       # to close.
       FORWARDED_HEADER_CIDR_CONFLICT_MESSAGE = <<~MSG.gsub(/\s+/, ' ').strip.freeze
         Cannot configure trusted_proxy_header 'Forwarded' or 'Both' together
         with trusted_proxies (CIDR filter mode): CIDR-walk resolves client IPs
-        from X-Forwarded-For only. Use trusted_proxy_depth (count mode) to
-        read the RFC 7239 Forwarded header.
+        from the X-Forwarded-For family only (X-Forwarded-For, X-Real-IP,
+        X-Client-IP), never RFC 7239 Forwarded. Use trusted_proxy_depth (count
+        mode) to read the RFC 7239 Forwarded header.
       MSG
 
       # Eager so the first two concurrent Otto.new calls cannot race on
@@ -231,6 +274,7 @@ class Otto
         @max_param_keys         = 64
         @trusted_proxies        = []
         @trusted_proxy_matchers = []
+        @trust_no_proxies       = false
         @trusted_proxy_depth    = nil
         @trusted_proxy_header   = DEFAULT_TRUSTED_PROXY_HEADER
         @require_secure_cookies = false
@@ -312,9 +356,17 @@ class Otto
         # conflict eagerly here (and in #trusted_proxy_depth=) so it surfaces at
         # configuration time, not only at freeze (which the test harness skips).
         raise ArgumentError, PROXY_MODE_CONFLICT_MESSAGE if trusted_proxy_depth_mode?
+        raise ArgumentError, TRUST_NO_PROXIES_CONFLICT_MESSAGE if @trust_no_proxies
         # Same pattern for header-then-proxies; proxies-then-header is caught
         # in #trusted_proxy_header=.
         raise ArgumentError, FORWARDED_HEADER_CIDR_CONFLICT_MESSAGE unless default_trusted_proxy_header?
+
+        # The trust-nobody sentinel is an option value, never an entry; validate
+        # the whole list before registering anything so a bad list leaves the
+        # config untouched.
+        Array(proxy).each do |entry|
+          raise ArgumentError, TRUST_NO_PROXIES_ENTRY_MESSAGE if self.class.trust_no_proxies_option?(entry)
+        end
 
         case proxy
         when String, Regexp
@@ -384,8 +436,56 @@ class Otto
       # (false) from "no proxy trust configured" (absent) and apply their own
       # legacy heuristics only in the latter case.
       #
-      # @return [Boolean] true when filter or depth mode is configured
+      # @return [Boolean] true when filter or depth mode is configured, or when
+      #   the operator explicitly asserted that no proxy is trusted
       def proxy_trust_configured?
+        trusted_proxies_configured? || trusted_proxy_depth_mode? || trust_no_proxies?
+      end
+
+      # Assert that NO proxy is trusted for this application.
+      #
+      # This is a positive operator assertion, not the absence of one: an app
+      # that never configures proxy trust leaves env['otto.via_trusted_proxy']
+      # ABSENT (the tri-state contract from #228) so downstream consumers may
+      # apply their own heuristics. After this call the key is written as
+      # `false` for EVERY peer — loopback included, since Otto has no
+      # loopback special case in either resolution mode — which means client
+      # IP resolution ignores X-Forwarded-For entirely (REMOTE_ADDR wins) and
+      # IPPrivacyMiddleware strips the forwarded host/scheme/port carriers, so
+      # Rack::Request#host resolves only from the Host header (#259).
+      #
+      # Mutually exclusive with any actual trust grant (trusted_proxies CIDRs
+      # or trusted_proxy_depth >= 1). It stakes no claim on the process-global
+      # Rack forwarding family: an app that trusts nobody reads no forwarded
+      # chain, so it cannot conflict with another app's explicit choice.
+      #
+      # @raise [FrozenError] if configuration is frozen
+      # @raise [ArgumentError] if trusted proxies or a depth >= 1 are configured
+      # @return [void]
+      #
+      # @example
+      #   config.trust_no_proxies!
+      def trust_no_proxies!
+        ensure_not_frozen!
+        raise ArgumentError, TRUST_NO_PROXIES_CONFLICT_MESSAGE if trusted_proxies_configured? || trusted_proxy_depth_mode?
+
+        @trust_no_proxies = true
+      end
+
+      # Whether the operator explicitly asserted that no proxy is trusted.
+      #
+      # @return [Boolean]
+      def trust_no_proxies?
+        @trust_no_proxies
+      end
+
+      # Whether this config's request handling DEPENDS on Rack's process-global
+      # forwarding family — i.e. it actually reads a forwarded chain. True for
+      # filter and depth mode; false for trust-nobody (reads nothing) and for
+      # unconfigured apps.
+      #
+      # @return [Boolean]
+      def forwarding_family_dependent?
         trusted_proxies_configured? || trusted_proxy_depth_mode?
       end
 
@@ -418,6 +518,7 @@ class Otto
 
         validate_trusted_proxy_depth!(depth)
         raise ArgumentError, PROXY_MODE_CONFLICT_MESSAGE if depth.to_i >= 1 && @trusted_proxies.any?
+        raise ArgumentError, TRUST_NO_PROXIES_CONFLICT_MESSAGE if depth.to_i >= 1 && @trust_no_proxies
         # Depth-then-geo assignment order is caught by configure_ip_privacy;
         # this catches geo-then-depth so both orders fail eagerly.
         raise ArgumentError, GEO_HEADER_DEPTH_CONFLICT_MESSAGE if depth.to_i >= 1 && @ip_privacy_config&.geo_header
@@ -475,7 +576,7 @@ class Otto
       def apply_default_rack_forwarding_family!
         ensure_not_frozen!
 
-        self.class.apply_rack_forwarding_family!(self, @trusted_proxy_header, claim: proxy_trust_configured?)
+        self.class.apply_rack_forwarding_family!(self, @trusted_proxy_header, claim: forwarding_family_dependent?)
       end
 
       # Commit this config's current family process-wide once it depends on
@@ -490,7 +591,7 @@ class Otto
       # @return [void]
       def commit_rack_forwarding_family!
         ensure_not_frozen!
-        return unless proxy_trust_configured?
+        return unless forwarding_family_dependent?
 
         self.class.apply_rack_forwarding_family!(self, @trusted_proxy_header)
       end
@@ -1044,6 +1145,8 @@ class Otto
         validate_trusted_proxy_header!(@trusted_proxy_header)
         validate_trusted_proxy_depth!(@trusted_proxy_depth)
         raise ArgumentError, FORWARDED_HEADER_CIDR_CONFLICT_MESSAGE if !default_trusted_proxy_header? && @trusted_proxies.any?
+
+        raise ArgumentError, TRUST_NO_PROXIES_CONFLICT_MESSAGE if @trust_no_proxies && (@trusted_proxies.any? || @trusted_proxy_depth.to_i >= 1)
 
         if @trusted_proxy_depth
           raise ArgumentError, PROXY_MODE_CONFLICT_MESSAGE if @trusted_proxy_depth >= 1 && @trusted_proxies.any?

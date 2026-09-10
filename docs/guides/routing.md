@@ -163,6 +163,32 @@ silently weakening the route. Do not use `csrf=exempt` as a general API switch;
 choose an independent request-authentication and replay-protection model for
 webhooks or other non-browser endpoints.
 
+## Fallback 404 and 500 responses
+
+A `GET /404` or `GET /500` route in the routes file handles misses and
+unhandled errors like any other route. Without one, Otto uses `not_found=` and
+`server_error=`, which accept either a Rack triple or a callable:
+
+```ruby
+otto.not_found = [404, { 'content-type' => 'application/json' }, ['{"error":"Not Found"}']]
+
+otto.server_error = lambda do |env, error|
+  [500, { 'content-type' => 'text/plain' }, ["Error #{env['otto.error_id']}"]]
+end
+```
+
+A callable is invoked on every request (`not_found` with `env`, `server_error`
+with `env` and the exception, or `env` alone for a one-argument callable) and
+must return a Rack triple. A static triple is copied per request before it is
+returned, so middleware that writes response headers in place (rack-session,
+Otto's CSRF middleware, anything calling `Rack::Utils.set_cookie_header!`)
+never mutates the configured object or leaks one client's `Set-Cookie` into
+another's response. Do not rely on mutating the configured triple after boot;
+assign a new value or use the callable form instead.
+
+For JSON clients, an unhandled error returns Otto's built-in JSON error body
+regardless of `server_error`; a `/500` route applies to every client.
+
 ## Configuration timing
 
 Construct and configure the Otto instance before the first request:

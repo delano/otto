@@ -69,6 +69,24 @@ Helper modules should avoid overriding these methods inherited from Rack::Reques
 
 No runtime validation is performed for performance reasons. Overriding these methods will cause undefined behavior.
 
+## Static File Registration
+
+Files under the `public:` directory are served without registration. Use
+`mount_static` to bind a URL prefix to a directory outside it, or to verify a
+required asset directory at boot:
+
+```ruby
+otto = Otto.new('routes.txt', public: 'public')
+otto.mount_static('/assets', root: 'build/assets')
+```
+
+- Roots are canonicalized at registration; a missing or unsafe root raises `ArgumentError`
+- Precedence is fixed: literal routes, then mounts (longest prefix first), then `public:`, then dynamic routes
+- Must be registered before first request (before configuration freezing)
+- `add_static_path` was removed in v2.10.0 and has no shim
+
+See `docs/guides/routing.md` for the full contract.
+
 ## Authentication Architecture
 
 Authentication is handled by `RouteAuthWrapper` at the handler level, NOT by middleware.

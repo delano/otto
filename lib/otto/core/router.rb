@@ -142,9 +142,12 @@ class Otto
 
         static_candidate = !static_route.nil? && http_verb == :GET
 
-        # Dispatch precedence is fixed: literal routes, then static files, then
-        # dynamic routes. Static-file requests always pass through containment
-        # validation before they are served (issues #257 and #260).
+        # Dispatch precedence is fixed: literal routes, then explicit static
+        # mounts (longest prefix first), then the implicit public directory,
+        # then dynamic routes. Every static-file request passes through
+        # containment validation before it is served (issues #257, #260 and
+        # #267). A mount or the public directory claims files, not paths: when
+        # the file is absent the request falls through to the next stage.
         if literal_routes.has_key?(path_info_clean)
           route = literal_routes[path_info_clean]
           Otto.structured_log(:debug, 'Route matched',
@@ -158,6 +161,13 @@ class Otto
             @route_matched_callbacks.each { |cb| cb.call(env, route.route_definition) }
           end
           route.call(env)
+        elsif http_verb == :GET && (mounted = resolve_mounted_file(dispatch_path))
+          mount, static_file = mounted
+          Otto.structured_log(:debug, 'Route matched',
+            Otto::LoggingHelpers.request_context(env).merge(
+              type: 'static_mount', prefix: mount.display_prefix
+            ))
+          serve_static_file(env, static_file, mount.files)
         elsif static_candidate && (static_file = resolve_static_file(dispatch_path))
           Otto.structured_log(:debug, 'Route matched',
             Otto::LoggingHelpers.request_context(env).merge(type: 'static'))
@@ -201,12 +211,16 @@ class Otto
       # Rack::Files could still redirect the open. Closing that requires an
       # O_NOFOLLOW-per-component or fd-based serve, i.e. replacing
       # Rack::Files. Accepted for now; see issue #257.
-      def serve_static_file(env, static_file)
+      #
+      # +files+ is the Rack::Files instance rooted at +static_file.root+: a
+      # mount's own frozen instance, or (by default) the public-directory one
+      # that #static_route_for keeps in step with the current root.
+      def serve_static_file(env, static_file, files = static_route_for(static_file.root))
         static_env = env.dup
         # Rack::Files unescapes PATH_INFO, so escape the canonical path to
         # survive the round trip (escape_path preserves '/').
         static_env['PATH_INFO'] = "/#{Rack::Utils.escape_path(static_file.relative)}"
-        static_route_for(static_file.root).call(static_env)
+        files.call(static_env)
       end
 
       # Rack::Files rooted at the root +static_file+ was validated against.

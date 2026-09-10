@@ -36,16 +36,32 @@ class Otto
       # callers never have to re-run realpath (one resolution per request).
       StaticFile = Struct.new(:root, :path, :relative)
 
-      # Resolve a request path to a canonical, contained, servable file.
+      # Resolve a request path to a canonical, contained, servable file under
+      # the implicit +public:+ directory.
       #
       # @param path [String, nil] request-relative path (may start with '/')
       # @return [StaticFile, nil] the validated file, or nil when unsafe
       def resolve_static_file(path)
         return nil if option[:public].nil? || option[:public].empty?
-        return nil if path.nil? || path.empty?
 
-        public_dir = canonical_public_dir
-        return nil if public_dir.nil?
+        resolve_file_under(canonical_public_dir, path)
+      end
+
+      # Resolve +path+ against an already-canonical +root+ and return it only
+      # when it is a contained, readable, owned regular file.
+      #
+      # Shared by the implicit public directory and explicit static mounts
+      # (Otto::Core::StaticMounts) so both apply one containment policy.
+      # +root+ must be a File.realpath result: containment compares canonical
+      # strings on a separator boundary, so a non-canonical root would never
+      # match the canonicalized candidate.
+      #
+      # @param root [String, nil] canonical directory
+      # @param path [String, nil] root-relative path (may start with '/')
+      # @return [StaticFile, nil] the validated file, or nil when unsafe
+      def resolve_file_under(root, path)
+        return nil if root.nil? || root.empty?
+        return nil if path.nil? || path.empty?
 
         # A NUL byte in a request path is never legitimate; it is a truncation
         # attack on downstream C string handling. Reject it rather than
@@ -57,18 +73,18 @@ class Otto
 
         # Join, then canonicalize: realpath resolves '..', '.' AND every
         # symlink component, so the containment check below cannot be fooled
-        # by a link that points outside the public directory.
-        candidate = File.join(public_dir, clean_path)
+        # by a link that points outside the root.
+        candidate = File.join(root, clean_path)
         real_path = safe_realpath(candidate)
         return nil if real_path.nil?
 
-        return nil unless contained?(real_path, public_dir)
+        return nil unless contained?(real_path, root)
 
         # Second gate: it must be a readable regular file we (or our group) own.
         return nil unless File.file?(real_path) && File.readable?(real_path)
         return nil unless File.owned?(real_path) || File.grpowned?(real_path)
 
-        StaticFile.new(public_dir, real_path, real_path.delete_prefix(public_dir + File::SEPARATOR))
+        StaticFile.new(root, real_path, real_path.delete_prefix(root + File::SEPARATOR))
       end
 
       def safe_file?(path)

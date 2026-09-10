@@ -4,6 +4,7 @@
 
 require_relative 'core/router'
 require_relative 'core/file_safety'
+require_relative 'core/static_mounts'
 require_relative 'core/configuration'
 require_relative 'core/error_handler'
 require_relative 'core/uri_generator'

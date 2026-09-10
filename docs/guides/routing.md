@@ -163,6 +163,88 @@ silently weakening the route. Do not use `csrf=exempt` as a general API switch;
 choose an independent request-authentication and replay-protection model for
 webhooks or other non-browser endpoints.
 
+## Static files
+
+Otto serves static files in two ways. Both apply the same safety policy: the
+requested path is joined to a canonical root, resolved with `File.realpath`
+(which follows every `..`, `.`, and symlink component), and served only when
+the result is still inside that root and is a regular, readable file owned by
+the process user or group. Anything else, including a symlink that points
+outside the root, is treated as not found.
+
+### Implicit public directory
+
+Passing `public:` serves every file under that directory at its relative path.
+Nothing needs registering; a file added after boot is served on the next
+request, and a symlinked public directory that is repointed by a deploy is
+re-resolved on every request.
+
+```ruby
+otto = Otto.new('routes', public: File.expand_path('public', __dir__))
+# public/css/site.css is served at GET /css/site.css
+```
+
+### Explicit static mounts
+
+`mount_static` binds one URL prefix to one directory. Use it when the files do
+not live under a single public directory, when a URL prefix should map to a
+different directory name, or when a required asset directory must be verified
+at boot.
+
+```ruby
+otto = Otto.new('routes')
+otto.mount_static('/assets', root: 'public/assets')
+otto.mount_static('/vendor', root: File.join(Gem.loaded_specs['some-ui-kit'].full_gem_path, 'dist'))
+otto.mount_static('/', root: 'public/root-files') # favicon.ico, robots.txt
+```
+
+- The prefix must start with `/`. A trailing slash is ignored, and `/`
+  mounts the root at the top level. Empty, `.`, and `..` segments are
+  rejected.
+- The root is expanded and canonicalized once, at registration. A root that
+  is missing, unreadable, not a directory, not owned by the process user or
+  group, or a symlink that cannot be resolved raises `ArgumentError`, so a
+  misconfigured application does not boot. Because the root is fixed at
+  registration, a deploy that repoints a symlinked root takes effect at the
+  next restart.
+- A mount authorizes only files inside its own root. It never exposes the
+  root's parent or siblings, and it does not widen the implicit public
+  directory. Registering the same prefix twice on one instance raises
+  `ArgumentError`; different Otto instances are fully independent.
+- Requests are matched on the decoded, trailing-slash-stripped path, the same
+  normalization every other dispatch stage uses. Only `GET` is served, the
+  prefix itself is not (mounts serve files, not directory listings), and a
+  request for a file the root does not contain falls through to the next
+  dispatch stage.
+- `mount_static` must be called before the first request. After configuration
+  freezing it raises `FrozenError`, and `otto.static_mounts` is a frozen,
+  read-only table.
+
+### Dispatch precedence
+
+Precedence is fixed and does not depend on request history:
+
+1. literal routes, such as `GET /assets/app.css Assets#show`;
+2. explicit static mounts, consulted longest prefix first; when the longest
+   matching mount does not contain the file, shorter matching mounts are tried
+   in turn;
+3. the implicit `public:` directory;
+4. dynamic routes, such as `GET /assets/:name Assets#show`.
+
+So a literal route at a mounted path always wins, a mounted file always beats
+a file at the same URL in the public directory, and a dynamic route only sees
+requests that no static source could serve.
+
+### Migrating from `add_static_path`
+
+`add_static_path` was removed in v2.10.0. It only populated a request-time
+cache; it never registered or restricted anything. Callers that used it to
+"register" files under the public directory can delete the call, because the
+public directory is served without registration. Callers that used it to reach
+files outside the public directory should replace it with `mount_static` and
+an explicit root. There is no compatibility shim: calling the removed method
+raises `NoMethodError` at boot.
+
 ## Configuration timing
 
 Construct and configure the Otto instance before the first request:

@@ -55,6 +55,7 @@ require_relative 'otto/logging_helpers'
 class Otto
   include Otto::Core::Router
   include Otto::Core::FileSafety
+  include Otto::Core::StaticMounts
   include Otto::Core::Configuration
   include Otto::Core::ErrorHandler
   include Otto::Core::UriGenerator
@@ -238,6 +239,10 @@ class Otto
     # so reverse lookups (Otto#uri) consult this index instead of the
     # single-route @route_definitions entry (issue #190).
     @routes_by_definition = {}
+    # Explicit static mounts (Core::StaticMounts#mount_static). Always a
+    # frozen snapshot, replaced wholesale on registration; dispatch reads it
+    # without locking.
+    @static_mounts     = [].freeze
     @security_config   = Otto::Security::Config.new
     @middleware        = Otto::Core::MiddlewareStack.new
     # Initialize @auth_config first so it can be shared with the configurator

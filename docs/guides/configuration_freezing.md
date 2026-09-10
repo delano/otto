@@ -51,15 +51,17 @@ otto.add_auth_strategy('other', MyApp::OtherStrategy.new)
 - the middleware stack;
 - authentication configuration and instance options;
 - dynamic and literal route tables;
-- route definitions and reverse-route indexes.
+- route definitions and reverse-route indexes;
+- the explicit static mount table (`mount_static`).
 
 Hashes and arrays inside those structures are recursively frozen. Configuration
 objects that implement `deep_freeze!` can prepare memoized values before they
 are frozen.
 
-The static-file route structure is an intentional exception. Its outer hash is
-frozen, but the `routes_static[:GET]` `Concurrent::Map` remains writable because
-Otto caches newly discovered static paths during requests.
+Static-file dispatch keeps no mutable routing state. Files under the implicit
+`public:` directory are resolved on each request against the current canonical
+root, and explicit mounts are an immutable snapshot from the moment they are
+registered; `mount_static` raises `FrozenError` after the freeze boundary.
 
 ## Scope and current limitations
 
@@ -73,7 +75,8 @@ some state that is not included in `freeze_configuration!`:
   available. A configured static triple is never returned by reference:
   Otto copies it per request, so header writes by cookie middleware do not
   reach the configured object even though it is not frozen;
-- the inner static-file cache remains mutable by design.
+- the `Rack::Files` instance for the implicit `public:` directory is rebuilt
+  when that directory is repointed between requests.
 
 Application code should not mutate those objects directly after boot. Do not
 state or depend on a guarantee that every object reachable from an Otto instance
@@ -88,6 +91,9 @@ These supported mutation paths reject changes after the freeze boundary:
 otto.security_config.disable_csrf_protection!
 otto.add_trusted_proxy('192.0.2.10')
 otto.add_rate_limit_rule('uploads', limit: 5, period: 60)
+
+# Static mounts
+otto.mount_static('/assets', root: 'public/assets')
 
 # Middleware and authentication
 otto.use MyApp::OtherMiddleware
@@ -147,3 +153,5 @@ first requests therefore do not run the freeze operation concurrently.
   freezing behavior.
 - [Configuration-freezing specs](../../spec/otto/configuration_freezing_spec.rb).
 - [Static-file freezing specs](../../spec/otto/static_file_freezing_spec.rb).
+- [Static mount specs](../../spec/otto/core/static_mounts_spec.rb) — registration
+  after the freeze boundary and serving from a frozen mount table.

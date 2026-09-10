@@ -308,11 +308,14 @@ class Otto
         deep_freeze_value(@routes_literal) if @routes_literal
         deep_freeze_value(@route_definitions) if @route_definitions
         deep_freeze_value(@routes_by_definition) if @routes_by_definition
+        # Explicit static mounts are already immutable snapshots; freezing the
+        # array here records that fact and makes any in-place mutation raise.
+        deep_freeze_value(@static_mounts) if @static_mounts
 
         @configuration_frozen = true
 
         duration = Otto::Utils.now_in_μs - start_time
-        frozen_objects = %w[security_config locale_config middleware auth_config option routes]
+        frozen_objects = %w[security_config locale_config middleware auth_config option routes static_mounts]
         Otto.structured_log(:info, 'Freezing completed',
           {
                   duration: duration,

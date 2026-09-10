@@ -71,8 +71,8 @@ class Otto
         # Content negotiation for built-in error response
         return json_error_response(error_id) if wants_json_response?(env)
 
-        # Fallback to built-in error response
-        @server_error || secure_error_response(error_id)
+        # Fallback to the configured server_error response, else the built-in one
+        server_error_response(env, error, error_id)
       end
 
       # Register an error handler for expected business logic errors
@@ -266,6 +266,44 @@ class Otto
 
           [status, headers, [body]]
         end
+      end
+
+      # Build the fallback 500 response for an unhandled error.
+      #
+      # A configured +server_error+ callable is invoked per request with
+      # +env+ and the original +error+, trimmed to the positional parameters
+      # it declares; +env+ carries +otto.error_id+ so the response can
+      # reference the logged error. A configured static triple is copied per
+      # request (see {Otto::Static.copy_response}) so header writes by cookie
+      # middleware cannot accumulate on the shared object. A callable that
+      # raises is logged and replaced by the built-in secure response,
+      # mirroring how a failing custom +/500+ route is handled.
+      #
+      # @param env [Hash] Rack environment
+      # @param error [Exception] the unhandled error
+      # @param error_id [String] correlation id already logged for +error+
+      # @return [Array] a fresh Rack triple
+      def server_error_response(env, error, error_id)
+        fallback = @server_error
+        return secure_error_response(error_id) if fallback.nil?
+
+        env['otto.error_id'] = error_id
+        resolve_fallback_response(:server_error, fallback, env, error)
+      rescue StandardError => e
+        fallback_error_id = SecureRandom.hex(8)
+        base_context = Otto::LoggingHelpers.request_context(env)
+
+        Otto.structured_log(:error, 'Error in server_error fallback',
+          base_context.merge(
+            error: e.message,
+            error_class: e.class.name,
+            error_id: fallback_error_id,
+            original_error_id: error_id
+          ))
+        Otto::LoggingHelpers.log_backtrace(e,
+          base_context.merge(error_id: fallback_error_id, original_error_id: error_id))
+
+        secure_error_response(error_id)
       end
 
       def secure_error_response(error_id)

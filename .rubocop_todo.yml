@@ -859,6 +859,7 @@ RSpec/SpecFilePathFormat:
     - 'spec/otto/enhanced_routing_spec.rb'
     - 'spec/otto/error_handler_registration_spec.rb'
     - 'spec/otto/error_handling_spec.rb'
+    - 'spec/otto/fallback_response_isolation_spec.rb'
     - 'spec/otto/file_safety_spec.rb'
     - 'spec/otto/locale_config_spec.rb'
     - 'spec/otto/mcp/rate_limiting_spec.rb'

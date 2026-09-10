@@ -69,6 +69,10 @@ class Otto
 
   LIB_HOME = __dir__ unless defined?(Otto::LIB_HOME)
 
+  # Parameter types (from Proc#parameters / Method#parameters) that consume
+  # one positional argument each. See {#fallback_call_args}.
+  POSITIONAL_PARAMETER_TYPES = %i[req opt].freeze
+
   @debug = case ENV.fetch('OTTO_DEBUG', nil)
            in 'true' | '1' | 'yes' | 'on'
              true
@@ -81,8 +85,54 @@ class Otto
               :routes_by_definition, :option,
               :static_route, :security_config, :locale_config, :auth_config,
               :route_handler_factory, :mcp_server, :caddy_tls_server, :security, :middleware,
-              :error_handlers, :request_class, :response_class
-  attr_accessor :not_found, :server_error
+              :error_handlers, :request_class, :response_class,
+              :not_found, :server_error
+
+  # Configure the response returned when no route (and no +/404+ route) matches.
+  #
+  # Accepts either a Rack triple +[status, headers, body]+ (the body must
+  # respond to +each+, or +call+ for a streaming body) or anything that
+  # responds to +call(env)+ and returns one. A static triple is never handed
+  # back to the Rack stack by reference: Otto returns a per-request copy whose
+  # headers (and Array-valued header entries, and Array body) are fresh
+  # containers, so cookie middleware such as rack-session or Otto's own CSRF
+  # middleware cannot accumulate +Set-Cookie+ values on the configured object
+  # and replay them to later clients. Prefer the callable form when the
+  # response should vary per request.
+  #
+  # @param response [Array, #call, nil] a Rack triple, a callable, or nil to
+  #   restore the built-in {Otto::Static.not_found} response
+  # @raise [ArgumentError] when +response+ is neither a Rack triple nor callable
+  #
+  # @example Static triple (copied per request)
+  #   otto.not_found = [404, { 'content-type' => 'application/json' }, ['{"error":"Not Found"}']]
+  #
+  # @example Callable, built fresh on every miss
+  #   otto.not_found = ->(env) { [404, { 'content-type' => 'text/plain' }, ["No #{env['PATH_INFO']}"]] }
+  def not_found=(response)
+    @not_found = validate_fallback_response!(:not_found, response)
+  end
+
+  # Configure the response returned for an unhandled error when no +/500+
+  # route is configured and the client does not prefer JSON.
+  #
+  # Accepts either a Rack triple or anything that responds to +call(env, error)+
+  # and returns one; a callable declaring a single positional parameter (or
+  # none) receives only what it declares. +env['otto.error_id']+ carries the
+  # logged correlation id. As with {#not_found=}, a static triple is copied
+  # per request so header writes by cookie middleware never touch the
+  # configured object. A callable that raises is logged and replaced by the
+  # built-in secure error response.
+  #
+  # @param response [Array, #call, nil] a Rack triple, a callable, or nil to
+  #   restore the built-in secure error response
+  # @raise [ArgumentError] when +response+ is neither a Rack triple nor callable
+  #
+  # @example Callable receiving the error
+  #   otto.server_error = ->(env, error) { [500, { 'content-type' => 'text/plain' }, ['Oops']] }
+  def server_error=(response)
+    @server_error = validate_fallback_response!(:server_error, response)
+  end
 
   def initialize(path = nil, opts = {})
     constructed = false
@@ -305,6 +355,70 @@ class Otto
       end
     end
   end
+
+  # Validate a value assigned to {#not_found=} or {#server_error=}.
+  #
+  # @param name [Symbol] the setting name, for the error message
+  # @param response [Object] the assigned value
+  # @return [Array, #call, nil] the value, when acceptable
+  # @raise [ArgumentError] otherwise
+  def validate_fallback_response!(name, response)
+    return response if response.nil? || response.respond_to?(:call)
+    return response if rack_triple?(response)
+
+    raise ArgumentError,
+      "#{name} must be a Rack triple [status, headers, body] or respond to #call, got #{response.inspect}"
+  end
+
+  # A Rack triple: an Integer-like status, Hash-like headers, and a body that
+  # responds to +each+ (or +call+, for a streaming body).
+  def rack_triple?(response)
+    return false unless response.is_a?(Array) && response.length == 3
+
+    status, headers, body = response
+    status.respond_to?(:to_int) && headers.respond_to?(:each_pair) &&
+      (body.respond_to?(:each) || body.respond_to?(:call))
+  end
+
+  # Resolve a configured fallback into a fresh Rack triple for one request.
+  #
+  # A callable is invoked with as many of +args+ as it accepts (see
+  # {#fallback_call_args}); a static triple is used as-is. Either way the
+  # result is copied (see {Otto::Static.copy_response}) so the Rack stack
+  # never receives a container shared with the configuration or with another
+  # request.
+  #
+  # @param name [Symbol] the setting name, for the error message
+  # @param fallback [Array, #call] the configured value
+  # @param args [Array] positional arguments offered to a callable fallback
+  # @return [Array] a new Rack triple
+  # @raise [TypeError] when a callable returns something other than a Rack triple
+  def resolve_fallback_response(name, fallback, *args)
+    response = fallback.respond_to?(:call) ? fallback.call(*fallback_call_args(fallback, args)) : fallback
+    unless rack_triple?(response)
+      raise TypeError,
+        "#{name} callable must return a Rack triple [status, headers, body], got #{response.inspect}"
+    end
+
+    Otto::Static.copy_response(response)
+  end
+
+  # Trim +args+ to the positional parameters +callable+ declares, so a lambda
+  # or Method that takes fewer (or optional) parameters is never handed an
+  # argument it would reject. A splat parameter receives everything. Arity
+  # alone cannot express this: +->(env = nil) {}+ has arity -1, the same as
+  # +proc { |*a| }+, yet accepts at most one argument.
+  #
+  # @param callable [#call]
+  # @param args [Array] the arguments on offer, in order
+  # @return [Array] the leading subset of +args+ the callable accepts
+  def fallback_call_args(callable, args)
+    params = callable.respond_to?(:parameters) ? callable.parameters : callable.method(:call).parameters
+    return args if params.any? { |type, _name| type == :rest }
+
+    args.first(params.count { |type, _name| POSITIONAL_PARAMETER_TYPES.include?(type) })
+  end
+  private :validate_fallback_response!, :rack_triple?, :resolve_fallback_response, :fallback_call_args
 
   # Class methods for Otto framework providing singleton access and configuration
   module ClassMethods

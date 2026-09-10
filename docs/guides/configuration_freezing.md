@@ -71,7 +71,10 @@ some state that is not included in `freeze_configuration!`:
 
 - `error_handlers` remains a mutable Hash, although
   `register_error_handler` rejects calls after freezing;
-- the `not_found` and `server_error` fallback response writers remain available;
+- the `not_found` and `server_error` fallback response writers remain
+  available. A configured static triple is never returned by reference:
+  Otto copies it per request, so header writes by cookie middleware do not
+  reach the configured object even though it is not frozen;
 - the `Rack::Files` instance for the implicit `public:` directory is rebuilt
   when that directory is repointed between requests.
 

@@ -301,8 +301,27 @@ class Otto
             Otto::LoggingHelpers.request_context(env).merge(
               fallback_to: 'default_not_found'
             ))
-          @not_found || Otto::Static.not_found
+          not_found_response(env)
         end
+      end
+
+      # Build the response for a request that matched no route and has no
+      # +/404+ route configured.
+      #
+      # A configured +not_found+ callable is invoked with +env+ on every miss.
+      # A configured static triple is copied per request (see
+      # {Otto::Static.copy_response}) so header writes by cookie middleware
+      # cannot accumulate on, or leak between requests through, the shared
+      # object. With nothing configured the built-in {Otto::Static.not_found}
+      # response is used.
+      #
+      # @param env [Hash] Rack environment
+      # @return [Array] a fresh Rack triple
+      def not_found_response(env)
+        fallback = @not_found
+        return Otto::Static.not_found if fallback.nil?
+
+        resolve_fallback_response(:not_found, fallback, env)
       end
 
       def build_route_params(route, values)

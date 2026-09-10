@@ -92,6 +92,27 @@ RSpec.describe Otto do
       expect { otto.public_send(:"#{writer}=", ['404', {}, []]) }.to raise_error(ArgumentError)
     end
 
+    it 'rejects a triple whose body is a bare String' do
+      expect { otto.public_send(:"#{writer}=", [404, {}, 'Not Found']) }
+        .to raise_error(ArgumentError, /#{writer} must be a Rack triple/)
+    end
+
+    it 'rejects a triple whose body is nil' do
+      expect { otto.public_send(:"#{writer}=", [404, {}, nil]) }.to raise_error(ArgumentError)
+    end
+
+    it 'accepts a body that responds to #each without being an Array' do
+      body = Class.new { def each = yield('chunk') }.new
+      otto.public_send(:"#{writer}=", [404, {}, body])
+      expect(otto.public_send(reader)[2]).to equal(body)
+    end
+
+    it 'accepts a streaming body that responds to #call' do
+      body = ->(stream) { stream.write('chunk') }
+      otto.public_send(:"#{writer}=", [404, {}, body])
+      expect(otto.public_send(reader)[2]).to equal(body)
+    end
+
     it 'leaves the previous value in place when rejecting' do
       otto.public_send(:"#{writer}=", not_found_triple)
       expect { otto.public_send(:"#{writer}=", 42) }.to raise_error(ArgumentError)
@@ -305,6 +326,36 @@ RSpec.describe Otto do
       expect(response[0]).to eq(500)
       expect(described_class.logger).to have_received(:error).with(/not_found callable must return a Rack triple/)
     end
+
+    it 'turns a callable returning a triple with a String body into a 500' do
+      otto.not_found = ->(_env) { [404, {}, 'Not Found'] }
+
+      expect(miss(otto)[0]).to eq(500)
+      expect(described_class.logger).to have_received(:error).with(/not_found callable must return a Rack triple/)
+    end
+
+    it 'passes env to a lambda whose only parameter is optional' do
+      otto.not_found = ->(env = nil) { [404, {}, [env['PATH_INFO']]] }
+
+      expect(miss(otto, '/opt')[2]).to eq(['/opt'])
+    end
+
+    it 'passes nothing to a lambda that declares no parameters' do
+      otto.not_found = -> { [404, {}, ['bare']] }
+
+      expect(miss(otto)[2]).to eq(['bare'])
+    end
+
+    it 'passes only env to a lambda that declares more parameters than are available' do
+      received = :unset
+      otto.not_found = lambda do |env, extra = :default|
+        received = extra
+        [404, {}, [env['PATH_INFO']]]
+      end
+
+      expect(miss(otto, '/two')[2]).to eq(['/two'])
+      expect(received).to eq(:default)
+    end
   end
 
   describe 'not_found precedence' do
@@ -438,6 +489,43 @@ RSpec.describe Otto do
         expect(boom(otto)[2].join).to match(/\A[a-f0-9]{16}\z/)
       end
 
+      it 'receives only env when its single parameter is optional' do
+        otto.server_error = ->(env = nil) { [500, {}, [env['otto.error_id']]] }
+
+        expect(boom(otto)[2].join).to match(/\A[a-f0-9]{16}\z/)
+        expect(described_class.logger).not_to have_received(:error).with(/Error in server_error fallback/)
+      end
+
+      it 'receives env and the error when the error parameter is optional' do
+        otto.server_error = ->(_env, error = nil) { [500, {}, [error.message]] }
+
+        expect(boom(otto)[2]).to eq(['kaboom'])
+      end
+
+      it 'receives nothing when it declares no parameters' do
+        otto.server_error = -> { [500, {}, ['bare']] }
+
+        expect(boom(otto)[2]).to eq(['bare'])
+      end
+
+      it 'accepts an object whose #call takes env and an optional error' do
+        handler = Class.new do
+          def call(env, error = nil) = [500, {}, ["#{error.class} #{env['otto.error_id']}"]]
+        end.new
+        otto.server_error = handler
+
+        expect(boom(otto)[2].join).to match(/\ARuntimeError [a-f0-9]{16}\z/)
+      end
+
+      it 'accepts a Method object with a required and a splat parameter' do
+        handler = Class.new do
+          def call(env, *rest) = [500, {}, [env['PATH_INFO'], rest.length.to_s]]
+        end.new
+        otto.server_error = handler.method(:call)
+
+        expect(boom(otto)[2]).to eq(['/boom', '1'])
+      end
+
       it 'accepts an object whose #call takes env and error' do
         handler = Class.new do
           def call(_env, error) = [503, { 'content-type' => 'text/plain' }, [error.message]]
@@ -491,6 +579,16 @@ RSpec.describe Otto do
 
         response = boom(otto)
         expect(response[0]).to eq(500)
+        expect(response[2].join).to match(/An error occurred|Server error/)
+        expect(described_class.logger).to have_received(:error).with(/server_error callable must return a Rack triple/)
+      end
+
+      it 'falls back to the built-in secure response when it returns a triple with a String body' do
+        otto.server_error = ->(_env, _error) { [500, {}, 'broken'] }
+
+        response = boom(otto)
+        expect(response[0]).to eq(500)
+        expect(response[2]).not_to eq('broken')
         expect(response[2].join).to match(/An error occurred|Server error/)
         expect(described_class.logger).to have_received(:error).with(/server_error callable must return a Rack triple/)
       end

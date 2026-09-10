@@ -177,14 +177,18 @@ otto.server_error = lambda do |env, error|
 end
 ```
 
-A callable is invoked on every request (`not_found` with `env`, `server_error`
-with `env` and the exception, or `env` alone for a one-argument callable) and
-must return a Rack triple. A static triple is copied per request before it is
-returned, so middleware that writes response headers in place (rack-session,
-Otto's CSRF middleware, anything calling `Rack::Utils.set_cookie_header!`)
-never mutates the configured object or leaks one client's `Set-Cookie` into
-another's response. Do not rely on mutating the configured triple after boot;
-assign a new value or use the callable form instead.
+A callable is invoked on every request with `env` (`not_found`) or `env` and
+the exception (`server_error`), trimmed to the positional parameters it
+declares, so `->(env) { ... }` and `->(env = nil) { ... }` both work for
+`server_error`. It must return a Rack triple: an Integer status, Hash-like
+headers, and a body that responds to `each` (a bare String is rejected, at
+assignment time for a static triple). A static triple is copied per request
+before it is returned, so middleware that writes response headers in place
+(rack-session, Otto's CSRF middleware, anything calling
+`Rack::Utils.set_cookie_header!`) never mutates the configured object or
+leaks one client's `Set-Cookie` into another's response. Do not rely on
+mutating the configured triple after boot; assign a new value or use the
+callable form instead.
 
 For JSON clients, an unhandled error returns Otto's built-in JSON error body
 regardless of `server_error`; a `/500` route applies to every client.

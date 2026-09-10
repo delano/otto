@@ -271,13 +271,13 @@ class Otto
       # Build the fallback 500 response for an unhandled error.
       #
       # A configured +server_error+ callable is invoked per request with
-      # +env+ (and the original +error+ when its arity allows); +env+ carries
-      # +otto.error_id+ so the response can reference the logged error. A
-      # configured static triple is copied per request (see
-      # {Otto::Static.copy_response}) so header writes by cookie middleware
-      # cannot accumulate on the shared object. A callable that raises is
-      # logged and replaced by the built-in secure response, mirroring how a
-      # failing custom +/500+ route is handled.
+      # +env+ and the original +error+, trimmed to the positional parameters
+      # it declares; +env+ carries +otto.error_id+ so the response can
+      # reference the logged error. A configured static triple is copied per
+      # request (see {Otto::Static.copy_response}) so header writes by cookie
+      # middleware cannot accumulate on the shared object. A callable that
+      # raises is logged and replaced by the built-in secure response,
+      # mirroring how a failing custom +/500+ route is handled.
       #
       # @param env [Hash] Rack environment
       # @param error [Exception] the unhandled error
@@ -288,7 +288,7 @@ class Otto
         return secure_error_response(error_id) if fallback.nil?
 
         env['otto.error_id'] = error_id
-        resolve_fallback_response(:server_error, fallback, *server_error_callable_args(fallback, env, error))
+        resolve_fallback_response(:server_error, fallback, env, error)
       rescue StandardError => e
         fallback_error_id = SecureRandom.hex(8)
         base_context = Otto::LoggingHelpers.request_context(env)
@@ -304,17 +304,6 @@ class Otto
           base_context.merge(error_id: fallback_error_id, original_error_id: error_id))
 
         secure_error_response(error_id)
-      end
-
-      # Arguments for a +server_error+ callable: +(env, error)+, or just
-      # +(env)+ when the callable declares a single parameter (a lambda or
-      # Method with arity 1 would raise on the two-argument form). A static
-      # triple takes no arguments.
-      def server_error_callable_args(fallback, env, error)
-        return [] unless fallback.respond_to?(:call)
-
-        arity = fallback.respond_to?(:arity) ? fallback.arity : fallback.method(:call).arity
-        arity == 1 ? [env] : [env, error]
       end
 
       def secure_error_response(error_id)

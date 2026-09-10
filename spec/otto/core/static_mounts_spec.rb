@@ -101,7 +101,9 @@ RSpec.describe Otto::Core::StaticMounts do
       app.mount_static('/assets', root: assets_dir)
 
       _status, headers, _body = get(app, '/assets/js/app.js')
-      expect(headers['content-type']).to eq('text/javascript')
+      # Rack::Mime has reported .js as both application/javascript and
+      # text/javascript across releases; either is a JavaScript type.
+      expect(headers['content-type']).to match(%r{\A(text|application)/javascript})
     end
   end
 
@@ -133,6 +135,18 @@ RSpec.describe Otto::Core::StaticMounts do
 
     it 'falls through when the file is missing' do
       expect(get(app, '/assets/missing.css')).to include(404)
+    end
+
+    it 'treats a leading slash on the relative path as root-relative' do
+      # Dispatch always hands resolve_file_under a leading-slash path. Ruby's
+      # File.join keeps every component (unlike Python's os.path.join), so the
+      # root is never discarded; pin that so the join is not "fixed" later.
+      mount = app.static_mounts.first
+      resolved = app.resolve_file_under(mount.root, '/js/app.js')
+
+      expect(resolved).to have_attributes(root: mount.root, relative: 'js/app.js')
+      expect(app.resolve_file_under(mount.root, '//js/app.js')).to have_attributes(relative: 'js/app.js')
+      expect(app.resolve_file_under(mount.root, '/../secret.txt')).to be_nil
     end
   end
 

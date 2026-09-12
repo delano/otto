@@ -7,6 +7,38 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.11.0:
+
+2.11.0 — 2026-09-12
+===================
+
+Added
+-----
+
+- ``Otto#mount_static(prefix, root:)`` serves an explicit directory at a URL
+  prefix. See ``docs/guides/routing.md`` for configuration, dispatch
+  precedence, and migration from ``add_static_path``. (#267)
+
+- ``Otto#not_found=`` and ``Otto#server_error=`` now accept callables for
+  per-request fallback responses. A server-error callable can receive the
+  exception; see ``docs/guides/routing.md`` for the callback contract. (#272)
+
+Security
+--------
+
+- Static Rack triples configured with ``Otto#not_found=`` or
+  ``Otto#server_error=`` are now copied for each request, preventing in-place
+  header changes, including ``Set-Cookie``, from being shared between fallback
+  responses. (#272)
+
+Documentation
+-------------
+
+- Documented static-file dispatch precedence and migration from the removed
+  ``add_static_path`` API in ``docs/guides/routing.md``. Corrected stale
+  ``routes_static`` cache guidance in ``docs/guides/configuration_freezing.md``.
+  (#267)
+
 .. _changelog-2.10.0:
 
 2.10.0 — 2026-09-04

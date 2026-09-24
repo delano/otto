@@ -13,6 +13,7 @@ RSpec.describe 'configured Referrer-Policy responses' do
         'GET /html ReferrerPolicySpecApp.html',
         'GET /override ReferrerPolicySpecApp.override',
         'GET /protected ReferrerPolicySpecApp.html auth=session',
+        'GET /boom ReferrerPolicySpecApp.boom',
       ])
   end
   let(:options) { {} }
@@ -33,6 +34,10 @@ RSpec.describe 'configured Referrer-Policy responses' do
         res['content-type'] = 'text/html'
         res['referrer-policy'] = 'same-origin'
         res.write('<h1>Explicit policy</h1>')
+      end
+
+      def self.boom(_req, _res)
+        raise 'boom'
       end
     end)
     File.write(File.join(public_dir, 'app.css'), 'body { color: black; }')
@@ -72,6 +77,20 @@ RSpec.describe 'configured Referrer-Policy responses' do
       status, headers, _body = get('/protected')
 
       expect(status).to eq(302)
+      expect(headers['referrer-policy']).to eq(expected_policy)
+    end
+
+    it 'applies the policy to the built-in unmatched-route response' do
+      status, headers, _body = get('/missing')
+
+      expect(status).to eq(404)
+      expect(headers['referrer-policy']).to eq(expected_policy)
+    end
+
+    it 'applies the policy to the built-in unhandled-error response' do
+      status, headers, _body = get('/boom')
+
+      expect(status).to eq(500)
       expect(headers['referrer-policy']).to eq(expected_policy)
     end
   end
@@ -137,6 +156,60 @@ RSpec.describe 'configured Referrer-Policy responses' do
       headers = Otto::Security::Config.new.security_headers
       expect { headers.store('Referrer-Policy', 'send-everything') }
         .to raise_error(ArgumentError, /Invalid referrer_policy/)
+    end
+
+    it 'leaves the entire collection unchanged when a later merged hash is invalid' do
+      headers = Otto::Security::Config.new.security_headers
+      original = headers.dup
+
+      expect do
+        headers.merge!(
+          { 'x-first' => 'staged', 'Referrer-Policy' => 'origin' },
+          { 'x-second' => 'staged', 'referrer-policy' => 'send-everything' }
+        )
+      end.to raise_error(ArgumentError, /Invalid referrer_policy/)
+
+      expect(headers).to eq(original)
+    end
+
+    it 'leaves the entire collection unchanged when an update block raises' do
+      headers = Otto::Security::Config.new.security_headers
+      original = headers.dup
+
+      expect do
+        headers.update(
+          { 'x-content-type-options' => 'first' },
+          { 'x-xss-protection' => 'second' }
+        ) do |header, _old_value, new_value|
+          raise 'block failed' if header == 'x-xss-protection'
+
+          new_value
+        end
+      end.to raise_error(RuntimeError, 'block failed')
+
+      expect(headers).to eq(original)
+    end
+
+    it 'merges multiple hashes in order and yields canonical keys and staged values' do
+      headers = Otto::Security::Config.new.security_headers
+      yielded = []
+
+      result = headers.merge!(
+        { 'x-custom' => 'one' },
+        { 'x-custom' => 'two', 'Referrer-Policy' => 'origin' }
+      ) do |header, old_value, new_value|
+        yielded << [header, old_value, new_value]
+        header == 'x-custom' ? "#{old_value},#{new_value}" : new_value
+      end
+
+      expect(result).to equal(headers)
+      expect(headers['x-custom']).to eq('one,two')
+      expect(headers['referrer-policy']).to eq('origin')
+      expect(headers).not_to have_key('Referrer-Policy')
+      expect(yielded).to include(
+        %w[x-custom one two],
+        %w[referrer-policy strict-origin-when-cross-origin origin]
+      )
     end
 
     it 'rejects an unknown policy through the generic security_headers option' do

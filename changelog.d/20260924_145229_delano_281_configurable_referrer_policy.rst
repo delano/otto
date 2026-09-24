@@ -3,10 +3,12 @@
 .. Uncomment the section that is right (remove the leading dots).
 .. For top level release notes, leave all the headers commented out.
 ..
-.. Added
-.. -----
-..
-.. - A bullet item for the Added category.
+Added
+-----
+
+- Referrer Policy can now be configured once with ``referrer_policy`` while
+  preserving explicit response-level values. Invalid policy tokens fail during
+  configuration. (#281)
 ..
 .. Changed
 .. -------
@@ -23,13 +25,10 @@
 ..
 .. - A bullet item for the Removed category.
 ..
-Fixed
------
-
-- Referrer Policy can now be configured once with ``referrer_policy`` for
-  routed pages, static files, and authentication responses. Explicit
-  response-level values are preserved, and invalid policy tokens fail during
-  configuration. (#281)
+.. Fixed
+.. -----
+..
+.. - A bullet item for the Fixed category.
 ..
 .. Security
 .. --------

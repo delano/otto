@@ -72,14 +72,21 @@ class Otto
         alias store []=
 
         def merge!(*other_hashes)
+          raise FrozenError, "can't modify frozen #{self.class}" if frozen?
+
+          replacement = dup
           other_hashes.each do |other_hash|
-            other_hash.each_pair do |header, value|
+            converted = Hash.try_convert(other_hash)
+            raise TypeError, "no implicit conversion of #{other_hash.class} into Hash" unless converted
+
+            converted.each_pair do |header, value|
               key = referrer_policy_header?(header) ? REFERRER_POLICY_HEADER : header
-              value = yield(key, self[key], value) if block_given? && key?(key)
-              self[key] = value
+              value = yield(key, replacement[key], value) if block_given? && replacement.key?(key)
+              replacement[key] = value
             end
           end
-          self
+
+          super(replacement, &nil)
         end
         alias update merge!
 

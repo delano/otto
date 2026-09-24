@@ -172,15 +172,34 @@ RSpec.describe Otto do
   describe 'static not_found triple' do
     before { otto.not_found = not_found_triple }
 
-    it 'returns an equal but distinct triple on every miss' do
+    it 'returns a distinct triple with the configured response on every miss' do
       first  = miss(otto)
       second = miss(otto)
 
-      expect(first).to eq(not_found_triple)
+      expect(first.values_at(0, 2)).to eq(not_found_triple.values_at(0, 2))
+      expect(first[1]).to include(static_headers)
       expect(first).not_to equal(not_found_triple)
       expect(first[1]).not_to equal(static_headers)
       expect(first[1]).not_to equal(second[1])
       expect(first[2]).not_to equal(not_found_triple[2])
+    end
+
+    it 'fills missing configured security headers without replacing explicit values' do
+      otto.security_config.referrer_policy = 'no-referrer'
+      otto.security_config.security_headers['permissions-policy'] = 'geolocation=()'
+      otto.not_found = [
+        404,
+        { 'content-type' => 'application/problem+json', 'referrer-policy' => 'same-origin' },
+        ['missing'],
+      ]
+
+      headers = miss(otto)[1]
+      expect(headers).to include(
+        'content-type' => 'application/problem+json',
+        'referrer-policy' => 'same-origin',
+        'permissions-policy' => 'geolocation=()',
+        'x-content-type-options' => 'nosniff'
+      )
     end
 
     it 'does not expose the configured headers to in-place writes' do
@@ -310,6 +329,22 @@ RSpec.describe Otto do
       expect(shared[1]).not_to have_key('set-cookie')
     end
 
+    it 'fills missing configured security headers without replacing explicit values' do
+      otto.security_config.referrer_policy = 'no-referrer'
+      otto.security_config.security_headers['permissions-policy'] = 'geolocation=()'
+      otto.not_found = lambda do |_env|
+        [404, { 'content-type' => 'application/problem+json', 'x-content-type-options' => 'explicit' }, ['missing']]
+      end
+
+      headers = miss(otto)[1]
+      expect(headers).to include(
+        'content-type' => 'application/problem+json',
+        'referrer-policy' => 'no-referrer',
+        'permissions-policy' => 'geolocation=()',
+        'x-content-type-options' => 'explicit'
+      )
+    end
+
     it 'turns a raising callable into a 500 through the error handler' do
       otto.not_found = ->(_env) { raise 'boom' }
 
@@ -425,14 +460,33 @@ RSpec.describe Otto do
     context 'with a static triple' do
       before { otto.server_error = server_error_triple }
 
-      it 'returns an equal but distinct triple on every error' do
+      it 'returns a distinct triple with the configured response on every error' do
         first  = boom(otto)
         second = boom(otto)
 
-        expect(first).to eq(server_error_triple)
+        expect(first.values_at(0, 2)).to eq(server_error_triple.values_at(0, 2))
+        expect(first[1]).to include(static_headers)
         expect(first).not_to equal(server_error_triple)
         expect(first[1]).not_to equal(static_headers)
         expect(first[1]).not_to equal(second[1])
+      end
+
+      it 'fills missing configured security headers without replacing explicit values' do
+        otto.security_config.referrer_policy = 'no-referrer'
+        otto.security_config.security_headers['permissions-policy'] = 'geolocation=()'
+        otto.server_error = [
+          500,
+          { 'content-type' => 'application/problem+json', 'referrer-policy' => 'same-origin' },
+          ['failed'],
+        ]
+
+        headers = boom(otto)[1]
+        expect(headers).to include(
+          'content-type' => 'application/problem+json',
+          'referrer-policy' => 'same-origin',
+          'permissions-policy' => 'geolocation=()',
+          'x-content-type-options' => 'nosniff'
+        )
       end
 
       it 'returns exactly one Set-Cookie per error through cookie middleware' do
@@ -562,6 +616,22 @@ RSpec.describe Otto do
         expect(cookies_in(boom(app, cookie: 'a'))).to eq(['sid=a'])
         expect(cookies_in(boom(app, cookie: 'b'))).to eq(['sid=b'])
         expect(shared[1]).to eq({})
+      end
+
+      it 'fills missing configured security headers without replacing explicit values' do
+        otto.security_config.referrer_policy = 'no-referrer'
+        otto.security_config.security_headers['permissions-policy'] = 'geolocation=()'
+        otto.server_error = lambda do |_env, _error|
+          [500, { 'content-type' => 'application/problem+json', 'x-content-type-options' => 'explicit' }, ['failed']]
+        end
+
+        headers = boom(otto)[1]
+        expect(headers).to include(
+          'content-type' => 'application/problem+json',
+          'referrer-policy' => 'no-referrer',
+          'permissions-policy' => 'geolocation=()',
+          'x-content-type-options' => 'explicit'
+        )
       end
 
       it 'falls back to the built-in secure response and logs when it raises' do

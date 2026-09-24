@@ -386,7 +386,8 @@ class Otto
   # {#fallback_call_args}); a static triple is used as-is. Either way the
   # result is copied (see {Otto::Static.copy_response}) so the Rack stack
   # never receives a container shared with the configuration or with another
-  # request.
+  # request. Configured security headers then fill any fields the fallback did
+  # not set explicitly.
   #
   # @param name [Symbol] the setting name, for the error message
   # @param fallback [Array, #call] the configured value
@@ -400,7 +401,11 @@ class Otto
         "#{name} callable must return a Rack triple [status, headers, body], got #{response.inspect}"
     end
 
-    Otto::Static.copy_response(response)
+    copied = Otto::Static.copy_response(response)
+    @security_config.security_headers.each_pair do |header, value|
+      copied[1][header] = value unless copied[1].key?(header)
+    end
+    copied
   end
 
   # Trim +args+ to the positional parameters +callable+ declares, so a lambda

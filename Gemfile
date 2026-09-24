@@ -19,7 +19,7 @@ end
 group :development, :test, optional: true do
   # Keep gems that need to be in both environments
   gem 'json_schemer', '~> 2.0'
-  gem 'maxmind-db', '~> 1.2' # Optional geo DB reader; exercised by geo specs
+  gem 'maxmind-db', '~> 1.5' # Optional geo DB reader; exercised by geo specs
   gem 'rack-attack', '~> 6.7'
   gem 'reek', '~> 6.5'
 end
@@ -29,7 +29,7 @@ group :development do
   gem 'debug'
   gem 'rackup' # Used to boot examples/ apps; not needed by specs
   gem 'rake', '~> 13.4', require: false # Provides `rake release` for release-gem.yml
-  gem 'rubocop', '~> 1.90.0', require: false
+  gem 'rubocop', '~> 1.91.0', require: false
   gem 'rubocop-performance', require: false
   gem 'rubocop-rspec', require: false
   gem 'rubocop-thread_safety', require: false

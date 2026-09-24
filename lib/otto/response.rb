@@ -91,8 +91,11 @@ class Otto
       # Prevent MIME type sniffing
       headers['x-content-type-options'] = 'nosniff'
 
-      # Add referrer policy
-      headers['referrer-policy'] = 'strict-origin-when-cross-origin'
+      # Add the configured referrer policy without replacing an explicit
+      # response-level value.
+      configured_policy = request && request.env['otto.security_config']&.referrer_policy
+      policy = self['referrer-policy'] || configured_policy || Otto::Security::Config::DEFAULT_REFERRER_POLICY
+      headers['referrer-policy'] ||= policy
 
       # Add frame options
       headers['x-frame-options'] = 'DENY'

@@ -30,6 +30,70 @@ class Otto
     class Config
       include Otto::Core::Freezable
 
+      # The W3C Referrer Policy recommendation defines the HTTP field grammar
+      # as `"Referrer-Policy:" 1#policy-token`; its `policy-token` alternatives
+      # are enumerated below:
+      # https://www.w3.org/TR/referrer-policy/#referrer-policy-header-dfn
+      REFERRER_POLICIES = %w[
+        no-referrer
+        no-referrer-when-downgrade
+        strict-origin
+        strict-origin-when-cross-origin
+        same-origin
+        origin
+        origin-when-cross-origin
+        unsafe-url
+      ].freeze
+      DEFAULT_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+
+      # Hash-compatible storage that keeps the generic security-header API and
+      # the dedicated referrer_policy setting on one validated code path.
+      # Existing callers may continue to use #merge! or #[]= on
+      # Config#security_headers; Referrer-Policy is canonicalized to Rack 3's
+      # lowercase form and validated before it enters the collection.
+      class SecurityHeaders < Hash
+        REFERRER_POLICY_HEADER = 'referrer-policy'
+
+        def initialize(referrer_policy_validator)
+          @referrer_policy_validator = referrer_policy_validator
+          super()
+        end
+
+        def []=(header, value)
+          if referrer_policy_header?(header)
+            super(REFERRER_POLICY_HEADER, @referrer_policy_validator.call(value))
+          else
+            super
+          end
+        end
+        alias store []=
+
+        def merge!(*other_hashes)
+          other_hashes.each do |other_hash|
+            other_hash.each_pair do |header, value|
+              key = referrer_policy_header?(header) ? REFERRER_POLICY_HEADER : header
+              value = yield(key, self[key], value) if block_given? && key?(key)
+              self[key] = value
+            end
+          end
+          self
+        end
+        alias update merge!
+
+        def replace(other_hash)
+          replacement = self.class.new(@referrer_policy_validator)
+          replacement.merge!(other_hash)
+          clear
+          merge!(replacement)
+        end
+
+        private
+
+        def referrer_policy_header?(header)
+          header.to_s.casecmp?(REFERRER_POLICY_HEADER)
+        end
+      end
+
       # Error raised when the two mutually-exclusive trusted-proxy resolution
       # modes are configured together: CIDR-walk (enumerated #trusted_proxies)
       # and count-based depth (#trusted_proxy_depth >= 1).
@@ -278,7 +342,8 @@ class Otto
         @trusted_proxy_depth    = nil
         @trusted_proxy_header   = DEFAULT_TRUSTED_PROXY_HEADER
         @require_secure_cookies = false
-        @security_headers       = default_security_headers
+        @security_headers       = SecurityHeaders.new(method(:validate_referrer_policy!))
+        @security_headers.merge!(default_security_headers)
         @input_validation       = true
         @csp_nonce_enabled      = false
         @debug_csp              = false
@@ -1023,6 +1088,24 @@ class Otto
         @security_headers['x-frame-options'] = option
       end
 
+      # The Referrer-Policy value applied to Otto-generated responses.
+      #
+      # @return [String] one of {REFERRER_POLICIES}
+      def referrer_policy
+        @security_headers['referrer-policy']
+      end
+
+      # Configure the Referrer-Policy value applied to Otto responses.
+      #
+      # @param policy [String] one W3C Referrer Policy HTTP policy token
+      # @return [String] the configured policy
+      # @raise [ArgumentError] when +policy+ is not a recognized token
+      # @raise [FrozenError] if configuration is frozen
+      def referrer_policy=(policy)
+        ensure_not_frozen!
+        @security_headers['referrer-policy'] = policy
+      end
+
       # Set custom security headers
       #
       # @param headers [Hash] Hash of header name => value pairs
@@ -1049,6 +1132,7 @@ class Otto
       def deep_freeze!
         # Ensure custom_rules is initialized (should already be done in constructor)
         @rate_limiting_config[:custom_rules] ||= {}
+        validate_referrer_policy!(@security_headers['referrer-policy'])
         validate_trusted_proxy_config!
         validate_csrf_secret_config!
         super
@@ -1265,8 +1349,15 @@ class Otto
         {
           'x-content-type-options' => 'nosniff',
           'x-xss-protection' => '1; mode=block',
-          'referrer-policy' => 'strict-origin-when-cross-origin',
+          'referrer-policy' => DEFAULT_REFERRER_POLICY,
         }
+      end
+
+      def validate_referrer_policy!(policy)
+        return policy if policy.is_a?(String) && REFERRER_POLICIES.include?(policy)
+
+        raise ArgumentError,
+          "Invalid referrer_policy #{policy.inspect}; expected one of: #{REFERRER_POLICIES.join(', ')}"
       end
 
       # Perform constant-time string comparison to prevent timing attacks

@@ -195,6 +195,13 @@ class Otto
         @security_config.security_headers.merge!(headers)
       end
 
+      # Set the Referrer-Policy value added to Otto responses.
+      #
+      # @param policy [String] one W3C Referrer Policy HTTP token
+      def referrer_policy=(policy)
+        @security_config.referrer_policy = policy
+      end
+
       # Enable HTTP Strict Transport Security (HSTS) header.
       # WARNING: This can make your domain inaccessible if HTTPS is not properly
       # configured. Only enable this when you're certain HTTPS is working correctly.

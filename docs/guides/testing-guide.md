@@ -369,8 +369,8 @@ Otto's default route responses include:
 - `x-xss-protection: 1; mode=block`
 - `referrer-policy: strict-origin-when-cross-origin`
 
-Configure a different W3C policy token once when constructing the application;
-Otto applies it to routed responses, static files, and authentication failures:
+Configure exactly one W3C policy token when constructing the application; Otto
+applies it to routed responses, static files, and authentication failures:
 
 ```ruby
 otto = Otto.new('routes.txt', referrer_policy: 'no-referrer')
@@ -380,7 +380,8 @@ The same setting is available as
 `otto.security_config.referrer_policy = 'no-referrer'` and
 `otto.security.referrer_policy = 'no-referrer'` during boot, before the first
 request freezes configuration. An unknown policy token raises `ArgumentError`
-at configuration time. Existing applications that pass `referrer-policy`
+at configuration time. Comma-separated policy fallback lists are not accepted.
+Existing applications that pass `referrer-policy`
 through `security_headers` remain supported and receive the same validation.
 A route handler that explicitly sets `res['referrer-policy']` keeps its
 response-specific value.

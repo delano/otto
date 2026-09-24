@@ -124,9 +124,115 @@ RSpec.describe 'configured Referrer-Policy responses' do
         .to raise_error(ArgumentError, /Invalid referrer_policy/)
     end
 
+    it 'validates inherited store, merge!, update, and replace writers' do
+      invalid_header = { 'Referrer-Policy' => 'send-everything' }
+
+      %i[merge! update replace].each do |method|
+        headers = Otto::Security::Config.new.security_headers
+        expect { headers.public_send(method, invalid_header) }
+          .to raise_error(ArgumentError, /Invalid referrer_policy/)
+        expect(headers['referrer-policy']).to eq('strict-origin-when-cross-origin')
+      end
+
+      headers = Otto::Security::Config.new.security_headers
+      expect { headers.store('Referrer-Policy', 'send-everything') }
+        .to raise_error(ArgumentError, /Invalid referrer_policy/)
+    end
+
     it 'rejects an unknown policy through the generic security_headers option' do
       expect { Otto.new(nil, security_headers: { 'Referrer-Policy' => 'send-everything' }) }
         .to raise_error(ArgumentError, /Invalid referrer_policy/)
+    end
+
+    it 'rejects a comma-separated fallback list for the single-token setting' do
+      expect { Otto.new(nil, referrer_policy: 'no-referrer, unsafe-url') }
+        .to raise_error(ArgumentError, /Invalid referrer_policy/)
+    end
+
+    it 'validates transform_values! atomically' do
+      headers = Otto::Security::Config.new.security_headers
+
+      expect { headers.transform_values! { 'send-everything' } }
+        .to raise_error(ArgumentError, /Invalid referrer_policy/)
+      expect(headers['referrer-policy']).to eq('strict-origin-when-cross-origin')
+      expect(headers['x-content-type-options']).to eq('nosniff')
+    end
+
+    it 'canonicalizes case-only transform_keys! changes' do
+      headers = Otto::Security::Config.new.security_headers
+
+      headers.transform_keys! do |header|
+        header == 'referrer-policy' ? 'Referrer-Policy' : header
+      end
+
+      expect(headers).to include('referrer-policy' => 'strict-origin-when-cross-origin')
+      expect(headers).not_to have_key('Referrer-Policy')
+    end
+
+    it 'rejects transform_keys! attempts to rename the dedicated setting' do
+      headers = Otto::Security::Config.new.security_headers
+
+      expect do
+        headers.transform_keys! do |header|
+          header == 'referrer-policy' ? 'x-renamed-policy' : header
+        end
+      end.to raise_error(ArgumentError, /referrer-policy cannot be removed/)
+
+      expect(headers).to include('referrer-policy' => 'strict-origin-when-cross-origin')
+      expect(headers).not_to have_key('x-renamed-policy')
+    end
+
+    it 'prevents inherited filtering mutators from removing the setting' do
+      removers = {
+        delete_if: ->(header, _value) { header == 'referrer-policy' },
+          reject!: ->(header, _value) { header == 'referrer-policy' },
+          keep_if: ->(header, _value) { header != 'referrer-policy' },
+          select!: ->(header, _value) { header != 'referrer-policy' },
+          filter!: ->(header, _value) { header != 'referrer-policy' },
+      }
+
+      removers.each do |method, predicate|
+        headers = Otto::Security::Config.new.security_headers
+        expect { headers.public_send(method, &predicate) }
+          .to raise_error(ArgumentError, /referrer-policy cannot be removed/)
+        expect(headers['referrer-policy']).to eq('strict-origin-when-cross-origin')
+      end
+    end
+
+    it 'preserves the setting across clear, shift, and replace' do
+      headers = Otto::Security::Config.new.security_headers
+
+      headers.clear
+      expect(headers).to eq('referrer-policy' => 'strict-origin-when-cross-origin')
+      expect(headers.shift).to be_nil
+
+      headers.replace('x-custom' => 'value')
+      expect(headers).to eq(
+        'x-custom' => 'value',
+        'referrer-policy' => 'strict-origin-when-cross-origin'
+      )
+      expect { headers.delete('Referrer-Policy') }
+        .to raise_error(ArgumentError, /referrer-policy cannot be removed/)
+    end
+
+    it 'copies and freezes the configured token against in-place mutation' do
+      config = Otto::Security::Config.new
+      policy = +'no-referrer'
+
+      config.referrer_policy = policy
+      policy.replace('send-everything')
+
+      expect(config.referrer_policy).to eq('no-referrer')
+      expect { config.security_headers['referrer-policy'].replace('send-everything') }
+        .to raise_error(FrozenError)
+    end
+
+    it 'rejects identity comparison that would make canonical key lookups diverge' do
+      headers = Otto::Security::Config.new.security_headers
+
+      expect { headers.compare_by_identity }
+        .to raise_error(ArgumentError, /cannot use identity comparison/)
+      expect(headers['referrer-policy']).to eq('strict-origin-when-cross-origin')
     end
 
     it 'accepts every W3C HTTP policy token' do

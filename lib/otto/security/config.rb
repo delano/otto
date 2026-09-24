@@ -30,9 +30,8 @@ class Otto
     class Config
       include Otto::Core::Freezable
 
-      # The W3C Referrer Policy recommendation defines the HTTP field grammar
-      # as `"Referrer-Policy:" 1#policy-token`; its `policy-token` alternatives
-      # are enumerated below:
+      # Otto accepts exactly one W3C Referrer Policy token for its
+      # referrer_policy setting. The supported tokens are enumerated below:
       # https://www.w3.org/TR/referrer-policy/#referrer-policy-header-dfn
       REFERRER_POLICIES = %w[
         no-referrer
@@ -48,11 +47,14 @@ class Otto
 
       # Hash-compatible storage that keeps the generic security-header API and
       # the dedicated referrer_policy setting on one validated code path.
-      # Existing callers may continue to use #merge! or #[]= on
-      # Config#security_headers; Referrer-Policy is canonicalized to Rack 3's
-      # lowercase form and validated before it enters the collection.
+      # Existing callers may continue to mutate Config#security_headers like a
+      # Hash. Every destructive Hash operation keeps the required
+      # Referrer-Policy entry canonical, validates any replacement before
+      # committing it, and prevents removal of the dedicated setting.
       class SecurityHeaders < Hash
         REFERRER_POLICY_HEADER = 'referrer-policy'
+        REFERRER_POLICY_REMOVAL_MESSAGE =
+          'referrer-policy cannot be removed; assign a valid referrer_policy token instead'
 
         def initialize(referrer_policy_validator)
           @referrer_policy_validator = referrer_policy_validator
@@ -61,7 +63,8 @@ class Otto
 
         def []=(header, value)
           if referrer_policy_header?(header)
-            super(REFERRER_POLICY_HEADER, @referrer_policy_validator.call(value))
+            validated = @referrer_policy_validator.call(value).dup.freeze
+            super(REFERRER_POLICY_HEADER, validated)
           else
             super
           end
@@ -83,14 +86,125 @@ class Otto
         def replace(other_hash)
           replacement = self.class.new(@referrer_policy_validator)
           replacement.merge!(other_hash)
-          clear
-          merge!(replacement)
+          replacement[REFERRER_POLICY_HEADER] = self[REFERRER_POLICY_HEADER] unless replacement.key?(
+            REFERRER_POLICY_HEADER
+          )
+          super(replacement)
+        end
+
+        # Clearing custom security headers must not remove Otto's required,
+        # dedicated referrer_policy setting.
+        def clear
+          policy = self[REFERRER_POLICY_HEADER]
+          super
+          self[REFERRER_POLICY_HEADER] = policy
+          self
+        end
+
+        def delete(header, &)
+          raise ArgumentError, REFERRER_POLICY_REMOVAL_MESSAGE if referrer_policy_header?(header)
+
+          super
+        end
+
+        def delete_if(&block)
+          return enum_for(__method__) unless block
+
+          filter_entries!(remove_when: true, return_nil_when_unchanged: false, &block)
+        end
+
+        def reject!(&block)
+          return enum_for(__method__) unless block
+
+          filter_entries!(remove_when: true, return_nil_when_unchanged: true, &block)
+        end
+
+        def keep_if(&block)
+          return enum_for(__method__) unless block
+
+          filter_entries!(remove_when: false, return_nil_when_unchanged: false, &block)
+        end
+
+        def select!(&block)
+          return enum_for(__method__) unless block
+
+          filter_entries!(remove_when: false, return_nil_when_unchanged: true, &block)
+        end
+        alias filter! select!
+
+        # Remove the first non-Referrer-Policy entry, keeping the dedicated
+        # setting even when it is the only entry left.
+        def shift
+          raise FrozenError, "can't modify frozen #{self.class}" if frozen?
+
+          header = each_key.find { |key| !referrer_policy_header?(key) }
+          return nil unless header
+
+          [header, delete(header)]
+        end
+
+        def transform_values!
+          return enum_for(__method__) unless block_given?
+
+          replacement = self.class.new(@referrer_policy_validator)
+          each_pair { |header, value| replacement[header] = yield(value) }
+          replace(replacement)
+        end
+
+        # Hash#transform_keys! accepts an optional key-mapping Hash, a block,
+        # or both (the mapping wins for keys it contains). Referrer-Policy may
+        # change case but cannot be renamed to a different field.
+        def transform_keys!(*args, &block)
+          if args.empty? && !block
+            return enum_for(__method__, *args)
+          elsif args.length > 1
+            raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..1)"
+          end
+
+          mapping = args.first
+          replacement = self.class.new(@referrer_policy_validator)
+          each_pair do |header, value|
+            transformed = transformed_header(header, mapping, block)
+            raise ArgumentError, REFERRER_POLICY_REMOVAL_MESSAGE if referrer_policy_header?(header) &&
+                                                                    !referrer_policy_header?(transformed)
+
+            replacement[transformed] = value
+          end
+          replace(replacement)
+        end
+
+        # Identity comparison would make normal String lookups miss the
+        # canonical Referrer-Policy key and create apparent duplicates.
+        def compare_by_identity
+          raise ArgumentError, 'security_headers cannot use identity comparison'
         end
 
         private
 
         def referrer_policy_header?(header)
           header.to_s.casecmp?(REFERRER_POLICY_HEADER)
+        end
+
+        def filter_entries!(remove_when:, return_nil_when_unchanged:)
+          replacement = self.class.new(@referrer_policy_validator)
+          each_pair do |header, value|
+            selected = yield(header, value)
+            keep = remove_when ? !selected : selected
+            raise ArgumentError, REFERRER_POLICY_REMOVAL_MESSAGE if referrer_policy_header?(header) && !keep
+
+            replacement[header] = value if keep
+          end
+
+          return nil if return_nil_when_unchanged && replacement == self
+
+          replace(replacement)
+        end
+
+        def transformed_header(header, mapping, block)
+          return mapping[header] if mapping&.key?(header)
+          return block.call(header) if block
+
+          header
         end
       end
 

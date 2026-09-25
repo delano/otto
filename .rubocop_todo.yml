@@ -412,10 +412,10 @@ Metrics/ModuleLength:
   Exclude:
     - 'lib/otto/design_system.rb'
 
-# Offense count: 4
+# Offense count: 6
 # Configuration parameters: CountKeywordArgs, MaxOptionalParameters.
 Metrics/ParameterLists:
-  Max: 11
+  Max: 7
 
 # Offense count: 46
 # Configuration parameters: AllowedMethods, AllowedPatterns.

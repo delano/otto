@@ -167,13 +167,16 @@ RSpec.describe Otto::Security::TrustedProxyConfig do
   describe 'Otto::Security::Config integration' do
     let(:config) { Otto::Security::Config.new }
 
-    it 'exposes the object and delegates the public trusted-proxy API to it' do
+    it 'delegates the public trusted-proxy API and reports the mode' do
       config.trusted_proxy_depth = 2
 
-      expect(config.trusted_proxy_config).to be_a(described_class)
-      expect(config.trusted_proxy_config.mode).to eq(:depth)
+      expect(config.trusted_proxy_mode).to eq(:depth)
       expect(config.trusted_proxy_depth).to eq(2)
       expect(config).to be_trusted_proxy_depth_mode
+    end
+
+    it 'does not expose the object, whose setters would skip Config checks' do
+      expect(config).not_to respond_to(:trusted_proxy_config)
     end
 
     it 'keeps the message constants reachable on Config' do

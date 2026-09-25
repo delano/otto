@@ -389,7 +389,7 @@ class Otto
                   :require_secure_cookies,
                   :security_headers,
                   :csp_nonce_enabled, :debug_csp, :mcp_auth, :csp_nonce_key,
-                  :ip_privacy_config, :trusted_proxy_config,
+                  :ip_privacy_config,
                   :csp_report_uri, :csp_report_to_url, :csp_violation_callback,
                   :csp_directive_overrides, :csp_request_extras_enabled
 
@@ -459,6 +459,16 @@ class Otto
       # @return [Boolean] true if CSRF protection is enabled
       def csrf_enabled?
         @csrf_protection
+      end
+
+      # The active trusted-proxy mode: :filter, :depth, :none, or nil when
+      # proxy trust is unconfigured. The TrustedProxyConfig behind it is not
+      # exposed, because its setters would skip the Rack forwarding-family pin
+      # and the geo_header check this class adds.
+      #
+      # @return [Symbol, nil]
+      def trusted_proxy_mode
+        @trusted_proxy_config.mode
       end
 
       # Proxy entries registered with #add_trusted_proxy, in order.

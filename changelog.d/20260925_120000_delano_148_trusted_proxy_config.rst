@@ -13,10 +13,11 @@ Changed
 
 - Trusted-proxy settings now live in ``Otto::Security::TrustedProxyConfig``,
   which owns the rules keeping filter, depth, and trust-nobody modes mutually
-  exclusive. ``Otto::Security::Config`` delegates to it, and it is readable
-  through ``Config#trusted_proxy_config`` (``#mode`` returns ``:filter``,
-  ``:depth``, ``:none``, or nil). The public trusted-proxy methods and
-  constants on ``Config`` are unchanged; behavior is unchanged. (#148)
+  exclusive. ``Otto::Security::Config`` delegates to it and keeps it
+  private, so every change still passes Config's cross-object checks. New
+  ``Config#trusted_proxy_mode`` returns ``:filter``, ``:depth``, ``:none``, or
+  nil. The public trusted-proxy methods and constants on ``Config`` are
+  unchanged; behavior is unchanged. (#148)
 
 - ``Security::Configurator#configure`` takes ``**options`` resolved against
   ``CONFIGURE_DEFAULTS``, so adding a security option no longer grows its

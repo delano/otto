@@ -543,7 +543,7 @@ RSpec.describe Otto::Security::Config do
       it 'does not enable depth mode for a non-integer value (integer-strict)' do
         # An ivar bypass simulates a value that never passed the setter; the
         # mode predicate must not treat a stringy "1" as depth mode.
-        config.trusted_proxy_config.instance_variable_set(:@depth, '1')
+        config.instance_variable_get(:@trusted_proxy_config).instance_variable_set(:@depth, '1')
         expect(config.trusted_proxy_depth_mode?).to be false
       end
     end
@@ -579,14 +579,14 @@ RSpec.describe Otto::Security::Config do
       end
 
       it 'backstops a non-integer depth set via a direct ivar path' do
-        config.trusted_proxy_config.instance_variable_set(:@depth, '2') # bypass the eager setter
+        config.instance_variable_get(:@trusted_proxy_config).instance_variable_set(:@depth, '2') # bypass the eager setter
         expect { config.deep_freeze! }
           .to raise_error(ArgumentError, /must be an Integer/)
       end
 
       it 'backstops a mode conflict introduced by a direct ivar path' do
         config.add_trusted_proxy('10.0.0.0/8')
-        config.trusted_proxy_config.instance_variable_set(:@depth, 1) # bypass the eager setter
+        config.instance_variable_get(:@trusted_proxy_config).instance_variable_set(:@depth, 1) # bypass the eager setter
         expect { config.deep_freeze! }
           .to raise_error(ArgumentError, /Cannot configure both/)
       end
@@ -675,7 +675,7 @@ RSpec.describe Otto::Security::Config do
 
     it 'does not register a config that fails freeze-time validation' do
       config.add_trusted_proxy('10.0.0.0/8')
-      config.trusted_proxy_config.instance_variable_set(:@depth, 1) # bypass the eager setter
+      config.instance_variable_get(:@trusted_proxy_config).instance_variable_set(:@depth, 1) # bypass the eager setter
 
       expect { config.deep_freeze! }.to raise_error(ArgumentError, /Cannot configure both/)
       expect(described_class.rack_forwarding_family).to be_nil
@@ -743,7 +743,7 @@ RSpec.describe Otto::Security::Config do
     end
 
     it 'backstops an invalid header set via a direct ivar path at freeze' do
-      config.trusted_proxy_config.instance_variable_set(:@header, 'bogus') # bypass the eager setter
+      config.instance_variable_get(:@trusted_proxy_config).instance_variable_set(:@header, 'bogus') # bypass the eager setter
       expect { config.deep_freeze! }
         .to raise_error(ArgumentError, /must be one of/)
     end

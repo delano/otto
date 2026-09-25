@@ -28,10 +28,11 @@ class Otto
     #
     # Rules that involve other objects stay with Otto::Security::Config: the
     # ip_privacy geo_header vs depth conflict, and pinning Rack's
-    # process-global forwarding family. Mutate through Config's setters
-    # (add_trusted_proxy, trusted_proxy_depth=, trusted_proxy_header=,
-    # trust_no_proxies!), which add those checks; #check_depth! and
-    # #check_header! let Config run them before anything is stored.
+    # process-global forwarding family. Config keeps this object private and
+    # routes every change through its own setters (add_trusted_proxy,
+    # trusted_proxy_depth=, trusted_proxy_header=, trust_no_proxies!), which
+    # add those checks; #check_depth! and #check_header! let Config run them
+    # before anything is stored.
     class TrustedProxyConfig
       include Otto::Core::Freezable
 

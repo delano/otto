@@ -130,6 +130,29 @@ RSpec.describe Otto::Security::Configurator do
       expect(security_config.trusted_proxy_header).to eq('X-Forwarded-For')
     end
 
+    it 'accepts no options at all' do
+      expect { configurator.configure }.not_to raise_error
+      expect(security_config.proxy_trust_configured?).to be false
+    end
+
+    it 'rejects an unrecognized option as a keyword parameter list does' do
+      expect { configurator.configure(csrf: true) }
+        .to raise_error(ArgumentError, 'unknown keyword: :csrf')
+      expect { configurator.configure(csrf: true, hst: true) }
+        .to raise_error(ArgumentError, 'unknown keywords: :csrf, :hst')
+    end
+
+    it 'rejects a String spelling of a known option' do
+      expect { configurator.configure('csrf_protection' => true) }
+        .to raise_error(ArgumentError, 'unknown keyword: "csrf_protection"')
+      expect(security_config.csrf_enabled?).to be false
+    end
+
+    it 'rejects an unrecognized option before applying any other' do
+      expect { configurator.configure(csrf_protection: true, csrf: true) }.to raise_error(ArgumentError)
+      expect(security_config.csrf_enabled?).to be false
+    end
+
     it 'configures only specified options' do
       configurator.configure(csrf_protection: true)
 

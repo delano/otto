@@ -23,34 +23,60 @@ class Otto
         @auth_config = auth_config || { auth_strategies: {}, default_auth_strategy: 'noauth' }
       end
 
+      # Options accepted by #configure, with their defaults. A new security
+      # knob is a new entry here, not another keyword parameter.
+      CONFIGURE_DEFAULTS = {
+             csrf_protection: false,
+          request_validation: false,
+               rate_limiting: false,
+             trusted_proxies: [].freeze,
+         trusted_proxy_depth: nil,
+        trusted_proxy_header: nil,
+            security_headers: {}.freeze,
+                        hsts: false,
+                         csp: false,
+            frame_protection: false,
+              authentication: false,
+      }.freeze
+
+      # The options #configure resolved: CONFIGURE_DEFAULTS overlaid with the
+      # caller's, read through accessors so a misspelled read in #configure
+      # raises instead of returning nil.
+      ConfigureOptions = Data.define(*CONFIGURE_DEFAULTS.keys)
+
       # Unified security configuration method with sensible defaults
       #
       # Provides a comprehensive, one-stop configuration method for Otto's security features.
       # This method allows configuring multiple security aspects in a single call, with flexible options.
+      # Every option is optional; see CONFIGURE_DEFAULTS.
       #
-      # @param csrf_protection [Boolean, Hash] Enable CSRF protection
+      # @param options [Hash] security options
+      # @option options [Boolean, Hash] :csrf_protection Enable CSRF protection
       #   - `true`: Enable with default settings
       #   - `Hash`: Provide custom CSRF configuration
-      # @param request_validation [Boolean] Enable input validation and sanitization
-      # @param rate_limiting [Boolean, Hash] Enable rate limiting
+      # @option options [Boolean] :request_validation Enable input validation and sanitization
+      # @option options [Boolean, Hash] :rate_limiting Enable rate limiting
       #   - `true`: Enable with default settings
       #   - `Hash`: Provide custom rate limiting rules
-      # @param trusted_proxies [String, Array<String>, Symbol] IP addresses or
-      #   CIDR ranges to trust, or :none to assert that no proxy is trusted
-      # @param trusted_proxy_depth [Integer, nil] Count-based proxy depth ("trust
-      #   the last N hops") for non-enumerable proxy tiers; mutually exclusive
-      #   with trusted_proxies (validated at configuration freeze)
-      # @param trusted_proxy_header [String, nil] Forwarded header depth mode
-      #   counts hops from: 'X-Forwarded-For' (default), 'Forwarded' (RFC 7239),
-      #   or 'Both'. Otto reads it only in depth mode, but setting it always
-      #   pins Rack::Request.forwarded_priority (process-global) to that family
-      #   and claims the family for this process; see
+      # @option options [String, Array<String>, Symbol] :trusted_proxies IP
+      #   addresses or CIDR ranges to trust, or :none to assert that no proxy
+      #   is trusted
+      # @option options [Integer, nil] :trusted_proxy_depth Count-based proxy
+      #   depth ("trust the last N hops") for non-enumerable proxy tiers;
+      #   mutually exclusive with trusted_proxies
+      # @option options [String, nil] :trusted_proxy_header Forwarded header
+      #   depth mode counts hops from: 'X-Forwarded-For' (default), 'Forwarded'
+      #   (RFC 7239), or 'Both'. Otto reads it only in depth mode, but setting
+      #   it always pins Rack::Request.forwarded_priority (process-global) to
+      #   that family and claims the family for this process; see
       #   Otto::Security::Config.apply_rack_forwarding_family!.
-      # @param security_headers [Hash] Custom security headers to merge with defaults
-      # @param hsts [Boolean] Enable HTTP Strict Transport Security
-      # @param csp [Boolean, String] Enable Content Security Policy
-      # @param frame_protection [Boolean, String] Enable frame protection
-      # @param authentication [Boolean] Enable authentication
+      # @option options [Hash] :security_headers Custom security headers to merge with defaults
+      # @option options [Boolean] :hsts Enable HTTP Strict Transport Security
+      # @option options [Boolean, String] :csp Enable Content Security Policy
+      # @option options [Boolean, String] :frame_protection Enable frame protection
+      # @option options [Boolean] :authentication Accepted for compatibility;
+      #   authentication is configured through strategies (#add_auth_strategy)
+      # @raise [ArgumentError] for an unrecognized option
       #
       # @example Configure multiple security features in one call
       #   otto.security.configure(
@@ -63,41 +89,31 @@ class Otto
       #     csp: "default-src 'self'",
       #     frame_protection: 'SAMEORIGIN'
       #   )
-      def configure(
-        csrf_protection: false,
-        request_validation: false,
-        rate_limiting: false,
-        trusted_proxies: [],
-        trusted_proxy_depth: nil,
-        trusted_proxy_header: nil,
-        security_headers: {},
-        hsts: false,
-        csp: false,
-        frame_protection: false,
-        authentication: false
-      )
-        enable_csrf_protection! if csrf_protection
-        enable_request_validation! if request_validation
-        enable_rate_limiting!(rate_limiting.is_a?(Hash) ? rate_limiting : {}) if rate_limiting
+      def configure(**options)
+        opts = resolve_configure_options(options)
 
-        if Otto::Security::Config.trust_no_proxies_option?(trusted_proxies)
+        enable_csrf_protection! if opts.csrf_protection
+        enable_request_validation! if opts.request_validation
+        enable_rate_limiting!(opts.rate_limiting.is_a?(Hash) ? opts.rate_limiting : {}) if opts.rate_limiting
+
+        if Otto::Security::Config.trust_no_proxies_option?(opts.trusted_proxies)
           trust_no_proxies!
         else
           # Pass the list whole so add_trusted_proxy validates every entry
           # before registering any; a mixed list like ['10.0.0.0/8', 'none']
           # must not leave the first half installed.
-          add_trusted_proxy(Array(trusted_proxies)) unless Array(trusted_proxies).empty?
+          add_trusted_proxy(Array(opts.trusted_proxies)) unless Array(opts.trusted_proxies).empty?
         end
-        self.trusted_proxy_depth = trusted_proxy_depth unless trusted_proxy_depth.nil?
-        self.trusted_proxy_header = trusted_proxy_header unless trusted_proxy_header.nil?
+        self.trusted_proxy_depth = opts.trusted_proxy_depth unless opts.trusted_proxy_depth.nil?
+        self.trusted_proxy_header = opts.trusted_proxy_header unless opts.trusted_proxy_header.nil?
         # Proxy trust configured here (after Otto.new) commits the app to its
         # forwarding family now rather than at freeze.
         @security_config.commit_rack_forwarding_family!
-        self.security_headers = security_headers unless security_headers.empty?
+        self.security_headers = opts.security_headers unless opts.security_headers.empty?
 
-        enable_hsts! if hsts
-        enable_csp! if csp
-        enable_frame_protection! if frame_protection
+        enable_hsts! if opts.hsts
+        enable_csp! if opts.csp
+        enable_frame_protection! if opts.frame_protection
       end
 
       # Enable CSRF protection for POST, PUT, DELETE, and PATCH requests.
@@ -333,6 +349,18 @@ class Otto
       end
 
       private
+
+      # Overlay the caller's options on CONFIGURE_DEFAULTS. An unrecognized
+      # key raises the ArgumentError a keyword parameter list raises, checked
+      # here because Data.new would also accept a String spelling of a member.
+      def resolve_configure_options(options)
+        unknown = options.keys - CONFIGURE_DEFAULTS.keys
+        unless unknown.empty?
+          raise ArgumentError, "unknown keyword#{'s' if unknown.size > 1}: #{unknown.map(&:inspect).join(', ')}"
+        end
+
+        ConfigureOptions.new(**CONFIGURE_DEFAULTS, **options)
+      end
 
       def middleware_enabled?(middleware_class)
         @middleware_stack.includes?(middleware_class)

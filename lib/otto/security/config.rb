@@ -5,10 +5,10 @@
 require 'securerandom'
 require 'digest'
 require 'openssl'
-require 'ipaddr'
 require 'rack/request'
 require_relative '../core/freezable'
 require_relative 'csp/policy'
+require_relative 'trusted_proxy_config'
 
 class Otto
   module Security
@@ -215,14 +215,15 @@ class Otto
         end
       end
 
-      # Error raised when the two mutually-exclusive trusted-proxy resolution
-      # modes are configured together: CIDR-walk (enumerated #trusted_proxies)
-      # and count-based depth (#trusted_proxy_depth >= 1).
-      PROXY_MODE_CONFLICT_MESSAGE = <<~MSG.gsub(/\s+/, ' ').strip.freeze
-        Cannot configure both trusted_proxies (CIDR filter mode) and
-        trusted_proxy_depth >= 1 (count mode). Enumerate proxy CIDRs OR set a
-        hop count, not both.
-      MSG
+      # Trusted-proxy error messages and values, owned by TrustedProxyConfig
+      # and aliased here because callers have always referenced them on Config.
+      PROXY_MODE_CONFLICT_MESSAGE            = TrustedProxyConfig::PROXY_MODE_CONFLICT_MESSAGE
+      TRUST_NO_PROXIES_CONFLICT_MESSAGE      = TrustedProxyConfig::TRUST_NO_PROXIES_CONFLICT_MESSAGE
+      TRUST_NO_PROXIES_ENTRY_MESSAGE         = TrustedProxyConfig::TRUST_NO_PROXIES_ENTRY_MESSAGE
+      FORWARDED_HEADER_CIDR_CONFLICT_MESSAGE = TrustedProxyConfig::FORWARDED_HEADER_CIDR_CONFLICT_MESSAGE
+      TRUST_NO_PROXIES                       = TrustedProxyConfig::TRUST_NO_PROXIES
+      TRUSTED_PROXY_HEADERS                  = TrustedProxyConfig::HEADERS
+      DEFAULT_TRUSTED_PROXY_HEADER           = TrustedProxyConfig::DEFAULT_HEADER
 
       # Error raised when an app-configured trusted geo header (ip_privacy
       # geo_header) is combined with count-based depth mode. Geo headers are
@@ -241,52 +242,15 @@ class Otto
         (geo_db_path or geo_db_reader).
       MSG
 
-      # Error raised when the explicit "trust no proxy" assertion
-      # (#trust_no_proxies!, `trusted_proxies: :none`) is combined with an
-      # actual trust grant (enumerated CIDRs or a depth >= 1). The two say
-      # opposite things about the same peer, so the combination is refused at
-      # configuration time rather than silently resolved in one direction.
-      TRUST_NO_PROXIES_CONFLICT_MESSAGE = <<~MSG.gsub(/\s+/, ' ').strip.freeze
-        Cannot combine trusted_proxies: :none (trust no proxy) with
-        trusted_proxies CIDRs or trusted_proxy_depth >= 1. Assert :none OR
-        grant trust, not both.
-      MSG
-
-      # Error raised when the trust-nobody sentinel arrives as a proxy ENTRY
-      # (`trusted_proxies: ['none']`, as a YAML/JSON list naturally yields, or
-      # `add_trusted_proxy('none')`) instead of as the whole option. Inside a
-      # list it would otherwise register a legacy string-prefix matcher that
-      # matches nothing: peers would be untrusted, but trust_no_proxies? would
-      # stay false and the config would stake a forwarding-family claim, so the
-      # explicit assertion would be silently replaced by a lookalike.
-      TRUST_NO_PROXIES_ENTRY_MESSAGE = <<~MSG.gsub(/\s+/, ' ').strip.freeze
-        trusted_proxies entry :none is the trust-nobody assertion, not a proxy
-        address. Pass trusted_proxies: :none as the whole option (not inside a
-        list) or call trust_no_proxies! instead.
-      MSG
-
-      # Sentinel accepted wherever a trusted_proxies list is accepted, meaning
-      # "the operator asserts that NO proxy is trusted". See #trust_no_proxies!.
-      TRUST_NO_PROXIES = :none
-
-      # Whether a trusted_proxies option value is the trust-nobody sentinel.
-      # Accepts the symbol and the String spelling 'none' (case-insensitive),
-      # which is what YAML/ENV-driven configuration naturally produces; without
-      # this, 'none' would fall through to add_trusted_proxy and install a
-      # legacy string-prefix matcher, silently inverting the assertion.
+      # Whether a trusted_proxies option value is the trust-nobody sentinel
+      # (:none, or 'none' in any case). See
+      # TrustedProxyConfig.trust_no_proxies_option?.
       #
       # @param value [Object] raw trusted_proxies option
       # @return [Boolean]
       def self.trust_no_proxies_option?(value)
-        (value.is_a?(Symbol) || value.is_a?(String)) && value.to_s.casecmp?('none')
+        TrustedProxyConfig.trust_no_proxies_option?(value)
       end
-
-      # Forwarded-header sources depth mode (#trusted_proxy_depth) can count
-      # hops from: X-Forwarded-For (default), the RFC 7239 Forwarded header, or
-      # Both (Forwarded when present, else X-Forwarded-For). Mirrors
-      # OneTimeSecret's site.network.trusted_proxy.header. Only consulted in
-      # depth mode; CIDR-walk is unaffected.
-      TRUSTED_PROXY_HEADERS = %w[X-Forwarded-For Forwarded Both].freeze
 
       # Rack uses one process-global priority for forwarded host, port, scheme,
       # and IP resolution. Keep it aligned with Otto's configured forwarding
@@ -298,28 +262,12 @@ class Otto
         'Forwarded' => [:forwarded].freeze,
         'Both' => %i[forwarded x_forwarded].freeze,
       }.freeze
-      DEFAULT_TRUSTED_PROXY_HEADER = 'X-Forwarded-For'
       FORWARDING_FAMILY_CONFLICT_MESSAGE = <<~MSG.gsub(/\s+/, ' ').strip.freeze
         Cannot use forwarding family %s (trusted_proxy_header) because another
         Otto application in this process already uses %s. Rack's forwarded
         host, port, scheme, and IP policy is process-global, so every Otto
         application in one process that resolves proxied requests must use the
         same forwarding family.
-      MSG
-      # Error raised when a non-default trusted_proxy_header is combined with
-      # CIDR filter mode. Otto's CIDR-walk resolves the client IP from the
-      # X-Forwarded-For family only (X-Forwarded-For, then X-Real-IP, then
-      # X-Client-IP — Otto::Utils::FORWARDED_FOR_HEADERS), never RFC 7239
-      # Forwarded, while trusted_proxy_header also pins Rack's
-      # forwarding family; honoring 'Forwarded' or 'Both' there would make Rack
-      # read a header Otto ignores, recreating the disagreement the pin exists
-      # to close.
-      FORWARDED_HEADER_CIDR_CONFLICT_MESSAGE = <<~MSG.gsub(/\s+/, ' ').strip.freeze
-        Cannot configure trusted_proxy_header 'Forwarded' or 'Both' together
-        with trusted_proxies (CIDR filter mode): CIDR-walk resolves client IPs
-        from the X-Forwarded-For family only (X-Forwarded-For, X-Real-IP,
-        X-Client-IP), never RFC 7239 Forwarded. Use trusted_proxy_depth (count
-        mode) to read the RFC 7239 Forwarded header.
       MSG
 
       # Eager so the first two concurrent Otto.new calls cannot race on
@@ -438,10 +386,10 @@ class Otto
                     :max_param_keys
 
       attr_reader :csrf_protection,  :csrf_header_key,
-                  :trusted_proxies, :require_secure_cookies,
+                  :require_secure_cookies,
                   :security_headers,
                   :csp_nonce_enabled, :debug_csp, :mcp_auth, :csp_nonce_key,
-                  :ip_privacy_config, :trusted_proxy_depth, :trusted_proxy_header,
+                  :ip_privacy_config,
                   :csp_report_uri, :csp_report_to_url, :csp_violation_callback,
                   :csp_directive_overrides, :csp_request_extras_enabled
 
@@ -457,11 +405,7 @@ class Otto
         @max_request_size       = 10 * 1024 * 1024 # 10MB
         @max_param_depth        = 32
         @max_param_keys         = 64
-        @trusted_proxies        = []
-        @trusted_proxy_matchers = []
-        @trust_no_proxies       = false
-        @trusted_proxy_depth    = nil
-        @trusted_proxy_header   = DEFAULT_TRUSTED_PROXY_HEADER
+        @trusted_proxy_config   = TrustedProxyConfig.new
         @require_secure_cookies = false
         @security_headers       = SecurityHeaders.new(method(:validate_referrer_policy!))
         @security_headers.merge!(default_security_headers)
@@ -517,14 +461,52 @@ class Otto
         @csrf_protection
       end
 
+      # The active trusted-proxy mode: :filter, :depth, :none, or nil when
+      # proxy trust is unconfigured. The TrustedProxyConfig behind it is not
+      # exposed, because its setters would skip the Rack forwarding-family pin
+      # and the geo_header check this class adds.
+      #
+      # @return [Symbol, nil]
+      def trusted_proxy_mode
+        @trusted_proxy_config.mode
+      end
+
+      # Proxy entries registered with #add_trusted_proxy, in order.
+      #
+      # @return [Array<String, Regexp>]
+      def trusted_proxies
+        @trusted_proxy_config.proxies
+      end
+
+      # Count-based trusted-proxy depth, or nil. See #trusted_proxy_depth=.
+      #
+      # @return [Integer, nil]
+      def trusted_proxy_depth
+        @trusted_proxy_config.depth
+      end
+
+      # Forwarded header family depth mode counts hops from. See
+      # #trusted_proxy_header=.
+      #
+      # @return [String] one of TRUSTED_PROXY_HEADERS
+      def trusted_proxy_header
+        @trusted_proxy_config.header
+      end
+
       # Add a trusted proxy server for accurate client IP detection
       #
       # Only requests from trusted proxies will have their X-Forwarded-For
       # and similar headers honored for IP detection. This prevents IP spoofing
       # from untrusted sources.
       #
-      # @param proxy [String, Array] IP address, CIDR range, or array of addresses
-      # @raise [ArgumentError] if proxy is not a String or Array
+      # Mutually exclusive with count-based depth, with the trust-nobody
+      # assertion, and with a trusted_proxy_header other than X-Forwarded-For;
+      # each conflict raises here rather than only at freeze (which the test
+      # harness skips). A list is validated whole before any entry is
+      # registered. See TrustedProxyConfig#add.
+      #
+      # @param proxy [String, Regexp, Array] IP address, CIDR range, Regexp, or array of these
+      # @raise [ArgumentError] if proxy is not a String, Regexp, or Array, or on a conflict
       # @raise [FrozenError] if configuration is frozen
       # @return [void]
       #
@@ -538,67 +520,21 @@ class Otto
       #   config.add_trusted_proxy(['10.0.0.1', '172.16.0.0/12'])
       def add_trusted_proxy(proxy)
         ensure_not_frozen!
-        # CIDR-walk and count-based depth are mutually exclusive. Catch the
-        # conflict eagerly here (and in #trusted_proxy_depth=) so it surfaces at
-        # configuration time, not only at freeze (which the test harness skips).
-        raise ArgumentError, PROXY_MODE_CONFLICT_MESSAGE if trusted_proxy_depth_mode?
-        raise ArgumentError, TRUST_NO_PROXIES_CONFLICT_MESSAGE if @trust_no_proxies
-        # Same pattern for header-then-proxies; proxies-then-header is caught
-        # in #trusted_proxy_header=.
-        raise ArgumentError, FORWARDED_HEADER_CIDR_CONFLICT_MESSAGE unless default_trusted_proxy_header?
 
-        # The trust-nobody sentinel is an option value, never an entry; validate
-        # the whole list before registering anything so a bad list leaves the
-        # config untouched.
-        Array(proxy).each do |entry|
-          raise ArgumentError, TRUST_NO_PROXIES_ENTRY_MESSAGE if self.class.trust_no_proxies_option?(entry)
-        end
-
-        case proxy
-        when String, Regexp
-          @trusted_proxies << proxy
-          @trusted_proxy_matchers << register_proxy_matcher(proxy)
-        when Array
-          proxy.each { |entry| @trusted_proxy_matchers << register_proxy_matcher(entry) }
-          @trusted_proxies.concat(proxy)
-        else
-          raise ArgumentError, 'Proxy must be a String, Regexp, or Array'
-        end
+        @trusted_proxy_config.add(proxy)
       end
 
       # Check if an IP address is from a trusted proxy
       #
-      # String entries that parse as an IP or CIDR range are matched with
-      # proper IPAddr containment (IPv4 and IPv6). Entries that are not valid
-      # IPs (e.g. a bare prefix like '172.16.') fall back to the legacy
-      # exact/prefix string match for backward compatibility. Regexp entries
-      # are matched against the raw IP string.
-      #
-      # Proxy entries are parsed once at registration (see #add_trusted_proxy)
-      # into @trusted_proxy_matchers, so this never re-parses per request.
+      # IP and CIDR entries match by IPAddr containment (IPv4 and IPv6, with
+      # IPv4-mapped addresses folded), Regexp entries match the raw string, and
+      # non-IP strings fall back to legacy prefix matching. Entries are parsed
+      # once at registration. See TrustedProxyConfig#trusted?.
       #
       # @param ip [String] IP address to check
       # @return [Boolean] true if the IP is from a trusted proxy
       def trusted_proxy?(ip)
-        return false if @trusted_proxy_matchers.empty? || ip.nil? || ip.empty?
-
-        # Fold IPv4-mapped IPv6 (::ffff:a.b.c.d) to plain IPv4 so a dual-stack
-        # peer presented in mapped form still matches an IPv4 proxy entry.
-        client = parse_ipaddr(ip)&.native
-
-        @trusted_proxy_matchers.any? do |entry, range|
-          if range
-            # Pre-parsed IP/CIDR entry -> proper containment
-            client && ip_in_range?(range, client)
-          elsif entry.is_a?(Regexp)
-            entry.match?(ip)
-          elsif entry.is_a?(String)
-            # Legacy non-IP entry (e.g. '172.16.') -> exact/prefix match
-            ip == entry || ip.start_with?(entry)
-          else
-            false
-          end
-        end
+        @trusted_proxy_config.trusted?(ip)
       end
 
       # Whether any trusted-proxy IP/CIDR/Regexp matchers are configured.
@@ -611,7 +547,7 @@ class Otto
       #
       # @return [Boolean] true when at least one trusted-proxy matcher exists
       def trusted_proxies_configured?
-        @trusted_proxy_matchers.any?
+        @trusted_proxy_config.filter?
       end
 
       # Whether ANY proxy-trust mode is configured — CIDR matchers (filter
@@ -625,7 +561,7 @@ class Otto
       # @return [Boolean] true when filter or depth mode is configured, or when
       #   the operator explicitly asserted that no proxy is trusted
       def proxy_trust_configured?
-        trusted_proxies_configured? || trusted_proxy_depth_mode? || trust_no_proxies?
+        @trusted_proxy_config.configured?
       end
 
       # Assert that NO proxy is trusted for this application.
@@ -653,16 +589,15 @@ class Otto
       #   config.trust_no_proxies!
       def trust_no_proxies!
         ensure_not_frozen!
-        raise ArgumentError, TRUST_NO_PROXIES_CONFLICT_MESSAGE if trusted_proxies_configured? || trusted_proxy_depth_mode?
 
-        @trust_no_proxies = true
+        @trusted_proxy_config.trust_none!
       end
 
       # Whether the operator explicitly asserted that no proxy is trusted.
       #
       # @return [Boolean]
       def trust_no_proxies?
-        @trust_no_proxies
+        @trusted_proxy_config.trust_none?
       end
 
       # Whether this config's request handling DEPENDS on Rack's process-global
@@ -672,7 +607,7 @@ class Otto
       #
       # @return [Boolean]
       def forwarding_family_dependent?
-        trusted_proxies_configured? || trusted_proxy_depth_mode?
+        @trusted_proxy_config.forwarding_family_dependent?
       end
 
       # Whether count-based ("trust the last N hops") proxy resolution is active.
@@ -685,7 +620,7 @@ class Otto
       #
       # @return [Boolean] true when trusted_proxy_depth is an Integer >= 1
       def trusted_proxy_depth_mode?
-        @trusted_proxy_depth.is_a?(Integer) && @trusted_proxy_depth >= 1
+        @trusted_proxy_config.depth?
       end
 
       # Set the count-based trusted-proxy depth ("trust the last N hops").
@@ -693,7 +628,8 @@ class Otto
       # Validates eagerly so a misconfiguration fails at assignment rather than
       # only at freeze (which the test harness skips): the value must be a
       # non-negative Integer or nil, and the mode is mutually exclusive with
-      # CIDR-walk (trusted_proxies). nil/0 disable depth mode.
+      # CIDR-walk (trusted_proxies), with the trust-nobody assertion, and with
+      # a trusted ip_privacy geo_header. nil/0 disable depth mode.
       #
       # @param depth [Integer, nil] number of trusted hops (nil/0 disables depth mode)
       # @raise [FrozenError] if configuration is frozen
@@ -702,14 +638,12 @@ class Otto
       def trusted_proxy_depth=(depth)
         ensure_not_frozen!
 
-        validate_trusted_proxy_depth!(depth)
-        raise ArgumentError, PROXY_MODE_CONFLICT_MESSAGE if depth.to_i >= 1 && @trusted_proxies.any?
-        raise ArgumentError, TRUST_NO_PROXIES_CONFLICT_MESSAGE if depth.to_i >= 1 && @trust_no_proxies
+        @trusted_proxy_config.check_depth!(depth)
         # Depth-then-geo assignment order is caught by configure_ip_privacy;
         # this catches geo-then-depth so both orders fail eagerly.
         raise ArgumentError, GEO_HEADER_DEPTH_CONFLICT_MESSAGE if depth.to_i >= 1 && @ip_privacy_config&.geo_header
 
-        @trusted_proxy_depth = depth
+        @trusted_proxy_config.depth = depth
       end
 
       # Select which forwarded header family Otto and Rack read from:
@@ -742,12 +676,9 @@ class Otto
       def trusted_proxy_header=(header)
         ensure_not_frozen!
 
-        canonical_header = canonicalize_trusted_proxy_header(header)
-        cidr_conflict = canonical_header != DEFAULT_TRUSTED_PROXY_HEADER && @trusted_proxies.any?
-        raise ArgumentError, FORWARDED_HEADER_CIDR_CONFLICT_MESSAGE if cidr_conflict
-
+        canonical_header = @trusted_proxy_config.check_header!(header)
         self.class.apply_rack_forwarding_family!(self, canonical_header)
-        @trusted_proxy_header = canonical_header
+        @trusted_proxy_config.header = canonical_header
       end
 
       # Align Rack's forwarding family with this config's current value. Used by
@@ -762,7 +693,7 @@ class Otto
       def apply_default_rack_forwarding_family!
         ensure_not_frozen!
 
-        self.class.apply_rack_forwarding_family!(self, @trusted_proxy_header, claim: forwarding_family_dependent?)
+        self.class.apply_rack_forwarding_family!(self, trusted_proxy_header, claim: forwarding_family_dependent?)
       end
 
       # Commit this config's current family process-wide once it depends on
@@ -779,14 +710,14 @@ class Otto
         ensure_not_frozen!
         return unless forwarding_family_dependent?
 
-        self.class.apply_rack_forwarding_family!(self, @trusted_proxy_header)
+        self.class.apply_rack_forwarding_family!(self, trusted_proxy_header)
       end
 
       # Whether trusted_proxy_header is the X-Forwarded-For default.
       #
       # @return [Boolean]
       def default_trusted_proxy_header?
-        @trusted_proxy_header == DEFAULT_TRUSTED_PROXY_HEADER
+        @trusted_proxy_config.default_header?
       end
 
       # Validate that a request size is within acceptable limits
@@ -1280,152 +1211,26 @@ class Otto
         raise FrozenError, 'Cannot modify frozen configuration' if frozen?
       end
 
-      # Validate a candidate trusted_proxy_depth value (type and range).
-      #
-      # Shared by the eager #trusted_proxy_depth= setter and the freeze-time
-      # backstop so an invalid value raises a clear ArgumentError instead of a
-      # downstream NoMethodError from #to_i coercion. nil disables depth mode.
-      #
-      # @param depth [Object] candidate value
-      # @raise [ArgumentError] if depth is non-nil and not a non-negative Integer
-      # @return [void]
-      def validate_trusted_proxy_depth!(depth)
-        return if depth.nil?
-
-        unless depth.is_a?(Integer)
-          raise ArgumentError,
-                "trusted_proxy_depth must be an Integer or nil, got #{depth.class}"
-        end
-
-        raise ArgumentError, "trusted_proxy_depth must be >= 0, got #{depth}" if depth.negative?
-      end
-
-      # Canonicalize a candidate trusted_proxy_header value: match it
-      # case-insensitively (ignoring surrounding whitespace) against the
-      # recognized set and return the canonical spelling. Liberal in the spelling
-      # it accepts (e.g. 'forwarded' => 'Forwarded') but fail-loud on a genuinely
-      # unrecognized value, so a typo is caught at config time rather than
-      # silently resolving the client IP from the wrong header.
-      #
-      # @param header [Object] candidate value
-      # @raise [ArgumentError] if header is not one of TRUSTED_PROXY_HEADERS
-      # @return [String] the canonical header value
-      def canonicalize_trusted_proxy_header(header)
-        candidate = header.to_s.strip
-        canonical = TRUSTED_PROXY_HEADERS.find { |allowed| allowed.casecmp?(candidate) }
-        return canonical if canonical
-
-        raise ArgumentError,
-              "trusted_proxy_header must be one of #{TRUSTED_PROXY_HEADERS.join(', ')}, got #{header.inspect}"
-      end
-
-      # Strictly validate a stored trusted_proxy_header value against the allowed
-      # set. The eager #trusted_proxy_header= setter already canonicalizes, so by
-      # freeze time the value is canonical; this freeze-time backstop catches a
-      # value smuggled in through a direct-ivar path that bypassed the setter,
-      # failing loud rather than silently mis-resolving the client IP at request
-      # time.
-      #
-      # @param header [Object] candidate value
-      # @raise [ArgumentError] if header is not one of TRUSTED_PROXY_HEADERS
-      # @return [void]
-      def validate_trusted_proxy_header!(header)
-        return if TRUSTED_PROXY_HEADERS.include?(header)
-
-        raise ArgumentError,
-              "trusted_proxy_header must be one of #{TRUSTED_PROXY_HEADERS.join(', ')}, got #{header.inspect}"
-      end
-
       # Validate trusted-proxy configuration coherence at freeze time.
       #
-      # The eager setters (#trusted_proxy_depth=, #add_trusted_proxy) already
-      # reject invalid types and the mutually-exclusive CIDR-walk vs depth
-      # combination at assignment. This re-checks at finalization as a backstop
-      # for a direct/ivar configuration path that bypassed the setters.
+      # TrustedProxyConfig#validate! re-checks its own rules (header value,
+      # depth type, mode exclusivity) as a backstop for state that bypassed the
+      # eager setters; the geo_header rule spans two sub-configs, so it is
+      # checked here.
       #
-      # @raise [ArgumentError] if depth is non-integer/negative, or if both
-      #   trusted_proxies and a depth >= 1 are configured
+      # @raise [ArgumentError] if any trusted-proxy rule is violated
       # @return [void]
       def validate_trusted_proxy_config!
-        validate_trusted_proxy_header!(@trusted_proxy_header)
-        validate_trusted_proxy_depth!(@trusted_proxy_depth)
-        raise ArgumentError, FORWARDED_HEADER_CIDR_CONFLICT_MESSAGE if !default_trusted_proxy_header? && @trusted_proxies.any?
+        @trusted_proxy_config.validate!
 
-        raise ArgumentError, TRUST_NO_PROXIES_CONFLICT_MESSAGE if @trust_no_proxies && (@trusted_proxies.any? || @trusted_proxy_depth.to_i >= 1)
-
-        if @trusted_proxy_depth
-          raise ArgumentError, PROXY_MODE_CONFLICT_MESSAGE if @trusted_proxy_depth >= 1 && @trusted_proxies.any?
-
-          # Backstop for the direct path (ip_privacy_config.geo_header=) that
-          # bypasses both eager checks; the setters cover the common orders.
-          raise ArgumentError, GEO_HEADER_DEPTH_CONFLICT_MESSAGE if @trusted_proxy_depth >= 1 && @ip_privacy_config&.geo_header
-        end
+        # Backstop for the direct path (ip_privacy_config.geo_header=) that
+        # bypasses both eager checks; the setters cover the common orders.
+        raise ArgumentError, GEO_HEADER_DEPTH_CONFLICT_MESSAGE if trusted_proxy_depth_mode? && @ip_privacy_config&.geo_header
 
         # Last, so a config that fails the checks above never registers as an
         # owner: late-configured proxy trust (after Otto.new) commits here at
         # the latest, so a process-wide family conflict still fails loud.
         commit_rack_forwarding_family!
-      end
-
-      # Parse a value into an IPAddr, returning nil for invalid / non-IP input.
-      #
-      # @param value [String] candidate IP or CIDR string
-      # @return [IPAddr, nil]
-      def parse_ipaddr(value)
-        IPAddr.new(value)
-      rescue IPAddr::InvalidAddressError, IPAddr::AddressFamilyError
-        nil
-      end
-
-      # Build a cached matcher tuple for a proxy entry at registration time.
-      #
-      # String entries are parsed to an IPAddr exactly once here; the result is
-      # reused for both the legacy-entry warning and per-request matching, so
-      # trusted_proxy? never re-parses. Non-IP strings and Regexp/other entries
-      # store a nil range and fall back to prefix/regexp matching.
-      #
-      # The parsed range is folded through IPAddr#native at registration, to
-      # match the fold trusted_proxy? applies to the client address. Without
-      # it a mapped-IPv6 proxy entry (::ffff:10.0.0.0/104) could never match,
-      # because ip_in_range?'s family check would reject the folded IPv4
-      # client — a proxy silently untrusted, which is what gates
-      # otto.via_trusted_proxy, secure?, and geo-header trust. #native returns
-      # self for entries that are not IPv4-mapped/compatible.
-      #
-      # @param entry [String, Regexp, Object] trusted proxy entry being added
-      # @return [Array(Object, IPAddr)] [raw_entry, parsed_range_or_nil]
-      def register_proxy_matcher(entry)
-        return [entry, nil] unless entry.is_a?(String)
-
-        range = parse_ipaddr(entry)&.native
-        warn_legacy_proxy_entry(entry) unless range
-        [entry, range]
-      end
-
-      # Warn that a string proxy entry is not a valid IP/CIDR and will use
-      # legacy string-prefix matching.
-      #
-      # @param entry [String] trusted proxy entry
-      # @return [void]
-      def warn_legacy_proxy_entry(entry)
-        Otto.logger.warn(
-          "[Otto::Security::Config] trusted proxy #{entry.inspect} is not a " \
-          'valid IP or CIDR; using legacy string-prefix matching. Prefer a ' \
-          "CIDR range (e.g. '172.16.0.0/12')."
-        )
-      end
-
-      # CIDR/host containment that is safe across address families.
-      #
-      # @param range [IPAddr] trusted proxy range or host
-      # @param client [IPAddr] client address
-      # @return [Boolean]
-      def ip_in_range?(range, client)
-        return false unless range.family == client.family
-
-        range.include?(client)
-      rescue IPAddr::InvalidAddressError
-        false
       end
 
       def extract_existing_session_id(request)

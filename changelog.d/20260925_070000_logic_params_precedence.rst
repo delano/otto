@@ -1,8 +1,13 @@
 Security
 --------
 
-- Logic class parameters now merge in a fixed order: path captures win over
-  the query string, the query string wins over a form body, and a form body
-  wins over a JSON body. Previously a JSON body key replaced the value the
-  router matched from the path. JSON bodies are no longer parsed on ``GET`` or
-  ``HEAD`` requests.
+- A JSON body can no longer replace a path capture, query parameter or form
+  field in Logic class parameters: it now merges below all of them. JSON
+  bodies are no longer parsed on ``GET`` or ``HEAD`` requests.
+
+Added
+-----
+
+- Logic classes can declare a ``route_params:`` keyword on ``initialize`` to
+  receive the router's path captures separately from caller-supplied
+  parameters.

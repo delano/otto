@@ -142,10 +142,25 @@ GET /products/:id  Products::Show
 
 A handler can read `req.params[:id]` or a Logic class can read `params[:id]`.
 Request query and body parameters are merged according to the handler's request
-contract. For Logic classes the sources are merged in a fixed order: a path
-capture wins over the query string, the query string wins over a form body, and
-a form body wins over a JSON body. A request body can never replace the value
-the router matched from the path.
+contract. Path captures are merged on top, so a caller cannot replace the value
+the router matched by repeating the key in the query string or body. Between
+the query string and a form body, Rack's own order applies (the form body
+wins). For Logic classes a JSON body sits below all of those.
+
+A Logic class that must not confuse a path value with a caller-supplied one
+can take the captures separately by declaring a `route_params:` keyword:
+
+```ruby
+class Receipts::Show
+  def initialize(strategy_result, params, locale, route_params: {})
+    @identifier = route_params[:identifier] # only ever the path value
+    @params = params
+  end
+end
+```
+
+The keyword is optional; the three-argument constructor keeps working. The same
+values remain in `params` for classes that do not declare it.
 
 JSON bodies are parsed for Logic-class parameters when the request method
 carries a body (never `GET` or `HEAD`), the content type is JSON, and the body

@@ -332,7 +332,7 @@ RSpec.describe Otto::RouteHandlers do
           expect(result_params['only_in_body']).to eq(1)
         end
 
-        it 'does not let a form body override path or query values' do
+        it 'does not let a form body override path values, keeping Rack order over query' do
           env['REQUEST_METHOD'] = 'POST'
           env['rack.input'] = StringIO.new('identifier=BBB&filter=from_form&only_in_form=1')
           env['CONTENT_TYPE'] = 'application/x-www-form-urlencoded'
@@ -342,8 +342,24 @@ RSpec.describe Otto::RouteHandlers do
 
           result_params = JSON.parse(body.first)['logic_result']['params']
           expect(result_params['identifier']).to eq('AAA')
-          expect(result_params['filter']).to eq('from_query')
+          expect(result_params['filter']).to eq('from_form')
           expect(result_params['only_in_form']).to eq('1')
+        end
+
+        it 'reads params through the request class rather than raw GET/POST' do
+          custom_request = Class.new(Otto::Request) do
+            def params
+              super.merge('from_request_class' => 'yes')
+            end
+          end
+          otto = Otto.new
+          allow(otto).to receive(:request_class).and_return(custom_request)
+          handler = Otto::RouteHandlers::LogicClassHandler.new(logic_definition, otto)
+
+          _, _, body = handler.call(env)
+
+          result_params = JSON.parse(body.first)['logic_result']['params']
+          expect(result_params['from_request_class']).to eq('yes')
         end
 
         it 'skips JSON parsing when body is empty' do
@@ -363,6 +379,85 @@ RSpec.describe Otto::RouteHandlers do
           handler.call(env)
 
           expect(logic_instance.params).to be_a(Hash)
+        end
+      end
+
+      context 'route_params keyword' do
+        let(:keyword_logic) do
+          Class.new do
+            attr_reader :params, :route_params
+
+            def initialize(_context, params, _locale, route_params: {})
+              @params = params
+              @route_params = route_params
+            end
+
+            def process
+              { params: @params, route_params: @route_params }
+            end
+          end
+        end
+
+        it 'passes path captures separately to a Logic class that declares the keyword' do
+          stub_const('TestLogic', keyword_logic)
+          env['REQUEST_METHOD'] = 'POST'
+          env['rack.input'] = StringIO.new(JSON.generate({ identifier: 'BBB' }))
+          env['CONTENT_TYPE'] = 'application/json'
+          env['QUERY_STRING'] = 'identifier=QQQ&filter=x'
+
+          _, _, body = handler.call(env, { 'identifier' => 'AAA' })
+
+          result = JSON.parse(body.first)
+          expect(result['route_params']).to eq({ 'identifier' => 'AAA' })
+          expect(result['params']['identifier']).to eq('AAA')
+          expect(result['params']['filter']).to eq('x')
+        end
+
+        it 'gives an empty hash for a literal route' do
+          stub_const('TestLogic', keyword_logic)
+
+          _, _, body = handler.call(env)
+
+          expect(JSON.parse(body.first)['route_params']).to eq({})
+        end
+
+        it 'allows symbol access to route_params' do
+          stub_const('TestLogic', Class.new(keyword_logic) do
+            def process
+              { sym: @route_params[:identifier], str: @route_params['identifier'] }
+            end
+          end)
+
+          _, _, body = handler.call(env, { 'identifier' => 'AAA' })
+
+          expect(JSON.parse(body.first)).to eq({ 'sym' => 'AAA', 'str' => 'AAA' })
+        end
+
+        it 'does not pass the keyword to the three-argument constructor' do
+          expect(TestLogic).to receive(:new).with(anything, anything, 'en').and_call_original
+
+          status, _, body = handler.call(env, { 'identifier' => 'AAA' })
+
+          expect(status).to eq(200)
+          expect(JSON.parse(body.first)['logic_result']['params']['identifier']).to eq('AAA')
+        end
+
+        it 'passes the keyword to a constructor that accepts arbitrary keywords' do
+          stub_const('TestLogic', Class.new do
+            attr_reader :opts
+
+            def initialize(_context, _params, _locale, **opts)
+              @opts = opts
+            end
+
+            def process
+              { keys: @opts.keys }
+            end
+          end)
+
+          _, _, body = handler.call(env, { 'identifier' => 'AAA' })
+
+          expect(JSON.parse(body.first)['keys']).to eq(['route_params'])
         end
       end
 

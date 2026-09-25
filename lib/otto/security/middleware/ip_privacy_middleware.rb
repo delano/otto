@@ -232,7 +232,8 @@ class Otto
             '[IPPrivacyMiddleware] otto.client_ip was set outside this ' \
             'middleware, so otto.ip_match could not be built from the ' \
             'unmasked address; installing a fail-closed check (every CIDR ' \
-            'test returns false). Let IPPrivacyMiddleware resolve the client IP.'
+            'test returns false). Let IPPrivacyMiddleware resolve the client IP; ' \
+            'test harnesses can build the env with Otto::Testing.env_for.'
           )
           env['otto.ip_match'] = ->(_cidrs) { false }
         end

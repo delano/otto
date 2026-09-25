@@ -1,0 +1,26 @@
+Added
+-----
+
+- ``require 'otto/testing'`` loads test support that works under any test
+  framework. ``Otto::Testing.reset!`` clears the process-global forwarding
+  family and restores ``Rack::Request.forwarded_priority`` between tests,
+  replacing ``Otto::Security::Config.reset_rack_forwarding_family_for_testing!``,
+  which raises unless RSpec is loaded and remains for existing callers.
+  ``Otto::Testing.env_for`` builds a Rack env by running
+  ``IPPrivacyMiddleware`` for a given client IP, so ``otto.client_ip`` and
+  ``otto.ip_match`` come from one resolution; ``resolve_client_ip!`` does the
+  same for an env that already carries proxy headers.
+
+Changed
+-------
+
+- The forwarding-family conflict error, the RSpec-only reset's error, and the
+  warning logged when ``otto.client_ip`` was set outside the middleware now
+  name the ``Otto::Testing`` helper that addresses each.
+
+AI Assistance
+-------------
+
+- Helper, specs, and guide updates written with AI assistance. The reset is
+  exercised from a subprocess without RSpec, and was also run under Tryouts
+  and Minitest.

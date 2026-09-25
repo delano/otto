@@ -85,10 +85,12 @@ class Otto
           @security_config.trusted_proxy_header = opts[:trusted_proxy_header]
         end
 
-        # Set custom security headers
-        return unless opts[:security_headers]
+        # Keep the generic security_headers option compatible while routing a
+        # Referrer-Policy entry through the same validated collection as the
+        # dedicated setting. When both are present, the dedicated option wins.
+        set_security_headers(opts[:security_headers]) if opts[:security_headers]
 
-        set_security_headers(opts[:security_headers])
+        @security_config.referrer_policy = opts[:referrer_policy] if opts.key?(:referrer_policy)
       end
 
       def configure_authentication(opts)

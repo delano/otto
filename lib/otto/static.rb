@@ -7,12 +7,12 @@ class Otto
   module Static
     extend self
 
-    def server_error
-      [500, security_headers.merge({ 'content-type' => 'text/plain' }), ['Server error']]
+    def server_error(security_config = nil)
+      [500, security_headers(security_config).merge({ 'content-type' => 'text/plain' }), ['Server error']]
     end
 
-    def not_found
-      [404, security_headers.merge({ 'content-type' => 'text/plain' }), ['Not Found']]
+    def not_found(security_config = nil)
+      [404, security_headers(security_config).merge({ 'content-type' => 'text/plain' }), ['Not Found']]
     end
 
     # Return a per-request copy of a Rack triple so callers can never hand a
@@ -53,12 +53,13 @@ class Otto
       copied
     end
 
-    def security_headers
+    def security_headers(security_config = nil)
       {
         'x-frame-options' => 'DENY',
         'x-content-type-options' => 'nosniff',
         'x-xss-protection' => '1; mode=block',
-        'referrer-policy' => 'strict-origin-when-cross-origin',
+        'referrer-policy' => security_config&.referrer_policy ||
+          Otto::Security::Config::DEFAULT_REFERRER_POLICY,
       }
     end
 

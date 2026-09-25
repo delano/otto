@@ -148,7 +148,7 @@ class Otto
         # Add security headers
         if otto_instance.respond_to?(:security_config) && otto_instance.security_config
           otto_instance.security_config.security_headers.each do |header, value|
-            res.headers[header] = value
+            res.headers[header] ||= value
           end
         end
 

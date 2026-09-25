@@ -220,7 +220,9 @@ class Otto
         # Rack::Files unescapes PATH_INFO, so escape the canonical path to
         # survive the round trip (escape_path preserves '/').
         static_env['PATH_INFO'] = "/#{Rack::Utils.escape_path(static_file.relative)}"
-        files.call(static_env)
+        status, headers, body = files.call(static_env)
+        headers['referrer-policy'] ||= @security_config.referrer_policy
+        [status, headers, body]
       end
 
       # Rack::Files rooted at the root +static_file+ was validated against.
@@ -319,7 +321,7 @@ class Otto
       # @return [Array] a fresh Rack triple
       def not_found_response(env)
         fallback = @not_found
-        return Otto::Static.not_found if fallback.nil?
+        return Otto::Static.not_found(@security_config) if fallback.nil?
 
         resolve_fallback_response(:not_found, fallback, env)
       end

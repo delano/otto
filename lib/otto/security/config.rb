@@ -30,6 +30,191 @@ class Otto
     class Config
       include Otto::Core::Freezable
 
+      # Otto accepts exactly one W3C Referrer Policy token for its
+      # referrer_policy setting. The supported tokens are enumerated below:
+      # https://www.w3.org/TR/referrer-policy/#referrer-policy-header-dfn
+      REFERRER_POLICIES = %w[
+        no-referrer
+        no-referrer-when-downgrade
+        strict-origin
+        strict-origin-when-cross-origin
+        same-origin
+        origin
+        origin-when-cross-origin
+        unsafe-url
+      ].freeze
+      DEFAULT_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+
+      # Hash-compatible storage that keeps the generic security-header API and
+      # the dedicated referrer_policy setting on one validated code path.
+      # Existing callers may continue to mutate Config#security_headers like a
+      # Hash. Every destructive Hash operation keeps the required
+      # Referrer-Policy entry canonical, validates any replacement before
+      # committing it, and prevents removal of the dedicated setting.
+      class SecurityHeaders < Hash
+        REFERRER_POLICY_HEADER = 'referrer-policy'
+        REFERRER_POLICY_REMOVAL_MESSAGE =
+          'referrer-policy cannot be removed; assign a valid referrer_policy token instead'
+
+        def initialize(referrer_policy_validator)
+          @referrer_policy_validator = referrer_policy_validator
+          super()
+        end
+
+        def []=(header, value)
+          if referrer_policy_header?(header)
+            validated = @referrer_policy_validator.call(value).dup.freeze
+            super(REFERRER_POLICY_HEADER, validated)
+          else
+            super
+          end
+        end
+        alias store []=
+
+        def merge!(*other_hashes)
+          raise FrozenError, "can't modify frozen #{self.class}" if frozen?
+
+          replacement = dup
+          other_hashes.each do |other_hash|
+            converted = Hash.try_convert(other_hash)
+            raise TypeError, "no implicit conversion of #{other_hash.class} into Hash" unless converted
+
+            converted.each_pair do |header, value|
+              key = referrer_policy_header?(header) ? REFERRER_POLICY_HEADER : header
+              value = yield(key, replacement[key], value) if block_given? && replacement.key?(key)
+              replacement[key] = value
+            end
+          end
+
+          super(replacement, &nil)
+        end
+        alias update merge!
+
+        def replace(other_hash)
+          replacement = self.class.new(@referrer_policy_validator)
+          replacement.merge!(other_hash)
+          replacement[REFERRER_POLICY_HEADER] = self[REFERRER_POLICY_HEADER] unless replacement.key?(
+            REFERRER_POLICY_HEADER
+          )
+          super(replacement)
+        end
+
+        # Clearing custom security headers must not remove Otto's required,
+        # dedicated referrer_policy setting.
+        def clear
+          policy = self[REFERRER_POLICY_HEADER]
+          super
+          self[REFERRER_POLICY_HEADER] = policy
+          self
+        end
+
+        def delete(header, &)
+          raise ArgumentError, REFERRER_POLICY_REMOVAL_MESSAGE if referrer_policy_header?(header)
+
+          super
+        end
+
+        def delete_if(&block)
+          return enum_for(__method__) unless block
+
+          filter_entries!(remove_when: true, return_nil_when_unchanged: false, &block)
+        end
+
+        def reject!(&block)
+          return enum_for(__method__) unless block
+
+          filter_entries!(remove_when: true, return_nil_when_unchanged: true, &block)
+        end
+
+        def keep_if(&block)
+          return enum_for(__method__) unless block
+
+          filter_entries!(remove_when: false, return_nil_when_unchanged: false, &block)
+        end
+
+        def select!(&block)
+          return enum_for(__method__) unless block
+
+          filter_entries!(remove_when: false, return_nil_when_unchanged: true, &block)
+        end
+        alias filter! select!
+
+        # Remove the first non-Referrer-Policy entry, keeping the dedicated
+        # setting even when it is the only entry left.
+        def shift
+          raise FrozenError, "can't modify frozen #{self.class}" if frozen?
+
+          header = each_key.find { |key| !referrer_policy_header?(key) }
+          return nil unless header
+
+          [header, delete(header)]
+        end
+
+        def transform_values!
+          return enum_for(__method__) unless block_given?
+
+          replacement = self.class.new(@referrer_policy_validator)
+          each_pair { |header, value| replacement[header] = yield(value) }
+          replace(replacement)
+        end
+
+        # Hash#transform_keys! accepts an optional key-mapping Hash, a block,
+        # or both (the mapping wins for keys it contains). Referrer-Policy may
+        # change case but cannot be renamed to a different field.
+        def transform_keys!(*args, &block)
+          if args.empty? && !block
+            return enum_for(__method__, *args)
+          elsif args.length > 1
+            raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..1)"
+          end
+
+          mapping = args.first
+          replacement = self.class.new(@referrer_policy_validator)
+          each_pair do |header, value|
+            transformed = transformed_header(header, mapping, block)
+            raise ArgumentError, REFERRER_POLICY_REMOVAL_MESSAGE if referrer_policy_header?(header) &&
+                                                                    !referrer_policy_header?(transformed)
+
+            replacement[transformed] = value
+          end
+          replace(replacement)
+        end
+
+        # Identity comparison would make normal String lookups miss the
+        # canonical Referrer-Policy key and create apparent duplicates.
+        def compare_by_identity
+          raise ArgumentError, 'security_headers cannot use identity comparison'
+        end
+
+        private
+
+        def referrer_policy_header?(header)
+          header.to_s.casecmp?(REFERRER_POLICY_HEADER)
+        end
+
+        def filter_entries!(remove_when:, return_nil_when_unchanged:)
+          replacement = self.class.new(@referrer_policy_validator)
+          each_pair do |header, value|
+            selected = yield(header, value)
+            keep = remove_when ? !selected : selected
+            raise ArgumentError, REFERRER_POLICY_REMOVAL_MESSAGE if referrer_policy_header?(header) && !keep
+
+            replacement[header] = value if keep
+          end
+
+          return nil if return_nil_when_unchanged && replacement == self
+
+          replace(replacement)
+        end
+
+        def transformed_header(header, mapping, block)
+          return mapping[header] if mapping&.key?(header)
+          return block.call(header) if block
+
+          header
+        end
+      end
+
       # Error raised when the two mutually-exclusive trusted-proxy resolution
       # modes are configured together: CIDR-walk (enumerated #trusted_proxies)
       # and count-based depth (#trusted_proxy_depth >= 1).
@@ -278,7 +463,8 @@ class Otto
         @trusted_proxy_depth    = nil
         @trusted_proxy_header   = DEFAULT_TRUSTED_PROXY_HEADER
         @require_secure_cookies = false
-        @security_headers       = default_security_headers
+        @security_headers       = SecurityHeaders.new(method(:validate_referrer_policy!))
+        @security_headers.merge!(default_security_headers)
         @input_validation       = true
         @csp_nonce_enabled      = false
         @debug_csp              = false
@@ -1023,6 +1209,24 @@ class Otto
         @security_headers['x-frame-options'] = option
       end
 
+      # The Referrer-Policy value applied to Otto-generated responses.
+      #
+      # @return [String] one of {REFERRER_POLICIES}
+      def referrer_policy
+        @security_headers['referrer-policy']
+      end
+
+      # Configure the Referrer-Policy value applied to Otto responses.
+      #
+      # @param policy [String] one W3C Referrer Policy HTTP policy token
+      # @return [String] the configured policy
+      # @raise [ArgumentError] when +policy+ is not a recognized token
+      # @raise [FrozenError] if configuration is frozen
+      def referrer_policy=(policy)
+        ensure_not_frozen!
+        @security_headers['referrer-policy'] = policy
+      end
+
       # Set custom security headers
       #
       # @param headers [Hash] Hash of header name => value pairs
@@ -1049,6 +1253,7 @@ class Otto
       def deep_freeze!
         # Ensure custom_rules is initialized (should already be done in constructor)
         @rate_limiting_config[:custom_rules] ||= {}
+        validate_referrer_policy!(@security_headers['referrer-policy'])
         validate_trusted_proxy_config!
         validate_csrf_secret_config!
         super
@@ -1265,8 +1470,15 @@ class Otto
         {
           'x-content-type-options' => 'nosniff',
           'x-xss-protection' => '1; mode=block',
-          'referrer-policy' => 'strict-origin-when-cross-origin',
+          'referrer-policy' => DEFAULT_REFERRER_POLICY,
         }
+      end
+
+      def validate_referrer_policy!(policy)
+        return policy if policy.is_a?(String) && REFERRER_POLICIES.include?(policy)
+
+        raise ArgumentError,
+          "Invalid referrer_policy #{policy.inspect}; expected one of: #{REFERRER_POLICIES.join(', ')}"
       end
 
       # Perform constant-time string comparison to prevent timing attacks

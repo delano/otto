@@ -207,8 +207,11 @@ class Otto
           @proxies << proxy
           @matchers << build_matcher(proxy)
         when Array
-          proxy.each { |entry| @matchers << build_matcher(entry) }
+          # Build every matcher before touching state, so a failure partway
+          # through cannot leave entries and matchers out of step.
+          matchers = proxy.map { |entry| build_matcher(entry) }
           @proxies.concat(proxy)
+          @matchers.concat(matchers)
         else
           raise ArgumentError, 'Proxy must be a String, Regexp, or Array'
         end

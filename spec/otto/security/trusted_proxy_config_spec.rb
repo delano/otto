@@ -97,6 +97,15 @@ RSpec.describe Otto::Security::TrustedProxyConfig do
       expect(tp).not_to be_filter
     end
 
+    it 'stores nothing when building a matcher fails partway through a list' do
+      # A legacy prefix entry logs a warning while its matcher is built.
+      allow(Otto.logger).to receive(:warn).and_raise('matcher failure')
+
+      expect { tp.add(['10.0.0.0/8', '172.16.']) }.to raise_error(RuntimeError, 'matcher failure')
+      expect(tp.proxies).to be_empty
+      expect(tp).not_to be_filter
+    end
+
     it 'rejects an unsupported type' do
       expect { tp.add(42) }.to raise_error(ArgumentError, 'Proxy must be a String, Regexp, or Array')
     end

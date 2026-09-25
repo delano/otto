@@ -100,20 +100,21 @@ class Otto
     # scrub invalid/undefined bytes, and strip a single trailing slash.
     #
     # This is the SINGLE SOURCE OF TRUTH shared by the router
-    # (Otto::Core::Router#handle_request, which compares the result against its
-    # literal-route table) and Otto::CaddyTLS::LocalhostGuard (which compares it
-    # against the guarded endpoint). The two MUST normalize identically: if a
-    # crafted path — a trailing slash, a percent-encoded byte, an invalid UTF-8
-    # byte — normalized differently in the guard than in the router, the router
-    # could dispatch a request the guard let through, bypassing the loopback
-    # check. One implementation makes that drift impossible.
+    # (Otto::Core::Router#handle_request, through #routing_path) and every guard
+    # that compares a request path or a configured path against what the router
+    # dispatches (Otto::CaddyTLS::LocalhostGuard, Otto::MCP.endpoint_path?).
+    # For a request, call #routing_path rather than passing PATH_INFO here
+    # yourself. Guard and router MUST normalize identically: if a crafted
+    # path — a trailing slash, a percent-encoded byte, an invalid UTF-8 byte —
+    # normalized differently in the guard than in the router, the router could
+    # dispatch a request the guard let through. One implementation makes that
+    # drift impossible.
     #
-    # Mirrors the empty-path handling and :replace scrubbing the router applies.
-    # Robust to invalid input: Rack::Utils.unescape raises ArgumentError on an
-    # already-invalid byte sequence (a raw \xFF in the path), so that is caught
-    # and the raw string is scrubbed instead — a percent-encoded invalid byte
-    # (%FF) decodes to the same invalid byte and is scrubbed identically, so the
-    # two crafted forms normalize alike. The method itself does not raise.
+    # Robust to invalid input. Rack::Utils.unescape raises ArgumentError on a
+    # malformed escape (%zz, a trailing %) and on an invalid byte in a
+    # UTF-8-tagged string (a raw \xFF); either way the raw string is kept.
+    # Invalid UTF-8 is scrubbed after that, so a raw \xFF and a percent-encoded
+    # %FF normalize alike. The method itself does not raise.
     #
     # @param raw_path [String, nil] a raw PATH_INFO or a configured endpoint
     # @return [String] normalized path suitable for exact literal comparison
@@ -129,6 +130,46 @@ class Otto
       decoded
         .encode('UTF-8', invalid: :replace, undef: :replace, replace: '')
         .gsub(%r{/$}, '')
+    end
+
+    # The path Otto's router matches for this request. Use it in any code that
+    # judges a request by its path before the router sees it: guards,
+    # throttles, session skips, audit filters.
+    #
+    # The router does not match raw PATH_INFO. It matches this value, and
+    # Otto::Core::Router#handle_request calls this method to get it, so a guard
+    # that reads routing_path sees the path the router dispatches on. A guard
+    # that reads anything else can see a different path, and when it matches
+    # less than the router does the difference is a bypass: GET /%63olonel is
+    # '/%63olonel' as raw PATH_INFO and '/colonel' to the router.
+    #
+    # By default the result is mount-relative. Rack::URLMap
+    # (`map '/api' { run otto }`) moves the mount prefix into SCRIPT_NAME and
+    # leaves the remainder in PATH_INFO, which is all the router sees; this is
+    # the form to compare against paths as written in a routes file.
+    #
+    # With +include_mount: true+ SCRIPT_NAME and PATH_INFO are joined and then
+    # normalized as one string, giving the request's full path. That is
+    # the form for middleware shared by several mounted apps and configured
+    # with external URLs: inside an app mounted at /api/v2, '/status' is the
+    # mount-relative path and '/api/v2/status' the mounted one, and matching
+    # the mount-relative form would also match every other app's /status.
+    #
+    # The value is normalize_path output, so root is '' (the router's literal
+    # table keys root the same way) and a configured path must go through
+    # normalize_path before an exact comparison. Never raises: a malformed
+    # escape such as %zz is kept as written.
+    #
+    # Not memoized: middleware may rewrite PATH_INFO or SCRIPT_NAME, and the
+    # router must see the value as it stands at dispatch.
+    #
+    # @param env [Hash] Rack environment
+    # @param include_mount [Boolean] prepend SCRIPT_NAME (the mount prefix)
+    # @return [String] normalized path
+    def routing_path(env, include_mount: false)
+      path = env['PATH_INFO']
+      path = "#{env['SCRIPT_NAME']}#{path}" if include_mount
+      normalize_path(path)
     end
 
     # Validate and normalize an IP address (IPv4 and IPv6).

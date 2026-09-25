@@ -108,6 +108,40 @@ RSpec.describe Otto, 'router path normalization (issue #187)' do
     end
   end
 
+  describe 'paths Rack::Utils.unescape rejects' do
+    # The router matches Otto::Utils.routing_path, which keeps a malformed
+    # escape as written and scrubs a raw invalid byte. It used to unescape
+    # PATH_INFO a second time on its own, and that call raised ArgumentError
+    # for both: every such request answered 500 and logged an unhandled error,
+    # while a guard in front of the router saw the normalized path.
+    def call_with_raw_path(target, path_info)
+      env = mock_rack_env(method: 'GET', path: '/')
+      env['PATH_INFO'] = path_info
+      target.call(env)
+    end
+
+    it 'answers 404 for an unrouted path instead of raising' do
+      response = call_with_raw_path(app, '/a%zz')
+
+      expect(response[0]).to eq(404)
+    end
+
+    it 'routes a dynamic segment with the escape kept as written' do
+      response = call_with_raw_path(app, '/show/a%zz')
+
+      expect(response[0]).to eq(200)
+      expect(response[2].join).to eq('Showing a%zz')
+    end
+
+    it 'routes a raw invalid byte exactly like its percent-encoded form' do
+      raw     = call_with_raw_path(app, "/show/abc\xFF")
+      encoded = call_with_raw_path(app, '/show/abc%FF')
+
+      expect(raw[0]).to eq(200)
+      expect(raw[2].join).to eq(encoded[2].join)
+    end
+  end
+
   describe 'the static-file branch matches against the normalized path' do
     # The other half of the fix: the static gate must receive the normalized
     # dispatch path, not the raw unescape-only path, so it shares the

@@ -265,6 +265,49 @@ files outside the public directory should replace it with `mount_static` and
 an explicit root. There is no compatibility shim: calling the removed method
 raises `NoMethodError` at boot.
 
+## Matching request paths before the router
+
+The router does not match raw `PATH_INFO`. It percent-decodes it, scrubs
+invalid UTF-8, and strips one trailing slash, so `GET /%63olonel/` reaches the
+`/colonel` route. Middleware that decides on a request by its path (an access
+guard, a throttle, a session skip) must compare the same value. Otherwise a
+request can match a route without matching the guard in front of it, which
+on an access guard is a bypass.
+
+`Otto::Utils.routing_path(env)` returns that value. The router gets its path
+from the same method, so the two cannot drift:
+
+```ruby
+class AdminGuard
+  ADMIN = Otto::Utils.normalize_path('/colonel')
+
+  def initialize(app)
+    @app = app
+  end
+
+  def call(env)
+    path = Otto::Utils.routing_path(env)
+    admin_path = path == ADMIN || path.start_with?("#{ADMIN}/")
+    return [404, {}, []] if admin_path && !allowed?(env) # allowed? is yours
+
+    @app.call(env)
+  end
+end
+```
+
+The result is mount-relative. When the app is mounted under a sub-path
+(`map '/api' { run otto }`), Rack moves the prefix into `SCRIPT_NAME` and the
+router sees only the rest. Compare that form against paths as written in the
+routes file. For middleware shared by several mounted apps and configured
+with external URLs, pass `include_mount: true` to get `SCRIPT_NAME` and
+`PATH_INFO` joined and normalized as one path: inside an app mounted at
+`/api/v2`, the router's `/status` is `/api/v2/status`, and matching the
+mount-relative form would also match every other app's `/status`.
+
+The value uses `normalize_path` conventions: root is `''`, and a configured
+path must go through `Otto::Utils.normalize_path` before an exact comparison.
+A malformed escape such as `%zz` is kept as written; the method never raises.
+
 ## Fallback 404 and 500 responses
 
 A `GET /404` or `GET /500` route in the routes file handles misses and

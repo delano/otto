@@ -105,22 +105,16 @@ class Otto
         # symlink-free root (issue #257). A missing root leaves @static_route
         # nil and the request falls through to normal routing (404), rather
         # than raising at construction.
-        @static_route    ||= build_static_route
-        path_info          = Rack::Utils.unescape(env['PATH_INFO'])
-        path_info          = '/' if path_info.to_s.empty?
+        @static_route ||= build_static_route
 
-        begin
-          # Shared with Otto::CaddyTLS::LocalhostGuard so the guard and the
-          # router cannot normalize a path differently (which would be a guard
-          # bypass). See Otto::Utils.normalize_path.
-          path_info_clean = Otto::Utils.normalize_path(env['PATH_INFO'])
-        rescue ArgumentError => e
-          # Log the error but don't expose details
-          Otto.logger.error '[Otto.handle_request] Path encoding error'
-          Otto.logger.debug "[Otto.handle_request] Error details: #{e.message}" if Otto.debug
-          # Set a default value or use the original path_info
-          path_info_clean = path_info
-        end
+        # The one path every dispatch stage matches. It comes from the public
+        # Otto::Utils.routing_path so that guards running before the router
+        # (Otto::CaddyTLS::LocalhostGuard, an application's own middleware)
+        # judge exactly this value rather than re-deriving it; a guard that
+        # normalized differently would be a bypass. It never raises: a
+        # malformed escape (%zz) is kept as written and routed like any other
+        # path.
+        path_info_clean = Otto::Utils.routing_path(env)
 
         http_verb      = env['REQUEST_METHOD'].upcase.to_sym
         literal_routes = routes_literal[http_verb] || {}
@@ -251,9 +245,9 @@ class Otto
       end
 
       # +dispatch_path+ is the normalized path from #handle_request (see the
-      # +dispatch_path+ comment there): +Otto::Utils.normalize_path+ output with
+      # +dispatch_path+ comment there): +Otto::Utils.routing_path+ output with
       # root's empty string mapped back to '/' so the anchored route regexes can
-      # match. It is deliberately NOT the raw +normalize_path+ value.
+      # match. It is deliberately NOT the raw +routing_path+ value.
       def match_dynamic_route(env, dispatch_path, http_verb, literal_routes)
         extra_params  = {}
         found_route   = nil

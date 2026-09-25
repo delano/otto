@@ -142,11 +142,16 @@ GET /products/:id  Products::Show
 
 A handler can read `req.params[:id]` or a Logic class can read `params[:id]`.
 Request query and body parameters are merged according to the handler's request
-contract. JSON bodies are parsed for Logic-class parameters when the content
-type is JSON and the body is a JSON object. A valid non-object JSON body is
-ignored. Malformed JSON is logged and the Logic class still runs with its other
-parameters; perform application validation when malformed JSON must return a
-client error.
+contract. For Logic classes the sources are merged in a fixed order: a path
+capture wins over the query string, the query string wins over a form body, and
+a form body wins over a JSON body. A request body can never replace the value
+the router matched from the path.
+
+JSON bodies are parsed for Logic-class parameters when the request method
+carries a body (never `GET` or `HEAD`), the content type is JSON, and the body
+is a JSON object. A valid non-object JSON body is ignored. Malformed JSON is
+logged and the Logic class still runs with its other parameters; perform
+application validation when malformed JSON must return a client error.
 
 ## Security options in routes
 

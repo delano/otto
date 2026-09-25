@@ -234,6 +234,7 @@ RSpec.describe Otto::RouteHandlers do
       context 'JSON request body parsing' do
         it 'merges valid JSON body into params' do
           json_body = { json_param: 'value', nested: { key: 'data' } }
+          env['REQUEST_METHOD'] = 'POST'
           env['rack.input'] = StringIO.new(JSON.generate(json_body))
           env['CONTENT_TYPE'] = 'application/json'
           env['QUERY_STRING'] = 'query_param=query_value'
@@ -252,6 +253,7 @@ RSpec.describe Otto::RouteHandlers do
         end
 
         it 'handles invalid JSON gracefully and logs error' do
+          env['REQUEST_METHOD'] = 'POST'
           env['rack.input'] = StringIO.new('{ invalid json }')
           env['CONTENT_TYPE'] = 'application/json'
 
@@ -285,6 +287,63 @@ RSpec.describe Otto::RouteHandlers do
           expect(result_params['extra_param']).to eq('extra_value')
           expect(result_params['query_param']).to eq('query_value')
           expect(result_params.keys).not_to include('some')
+        end
+
+        it 'ignores a JSON body on GET' do
+          env['rack.input'] = StringIO.new(JSON.generate({ identifier: 'from_body' }))
+          env['CONTENT_TYPE'] = 'application/json'
+          env['QUERY_STRING'] = 'identifier=from_query'
+
+          _, _, body = handler.call(env)
+
+          result_params = JSON.parse(body.first)['logic_result']['params']
+          expect(result_params['identifier']).to eq('from_query')
+        end
+
+        it 'ignores a JSON body on HEAD' do
+          env['REQUEST_METHOD'] = 'HEAD'
+          env['rack.input'] = StringIO.new(JSON.generate({ identifier: 'from_body' }))
+          env['CONTENT_TYPE'] = 'application/json'
+
+          logic_instance = nil
+          allow(TestLogic).to receive(:new) do |_context, params, _locale|
+            logic_instance = TestLogic.allocate
+            logic_instance.instance_variable_set(:@params, params)
+            logic_instance
+          end
+          allow_any_instance_of(TestLogic).to receive(:process).and_return({ result: 'ok' })
+
+          handler.call(env)
+
+          expect(logic_instance.params).not_to have_key('identifier')
+        end
+
+        it 'does not let the JSON body override path or query values' do
+          env['REQUEST_METHOD'] = 'POST'
+          env['rack.input'] = StringIO.new(JSON.generate({ identifier: 'BBB', filter: 'from_body', only_in_body: 1 }))
+          env['CONTENT_TYPE'] = 'application/json'
+          env['QUERY_STRING'] = 'identifier=QQQ&filter=from_query'
+
+          _, _, body = handler.call(env, { 'identifier' => 'AAA' })
+
+          result_params = JSON.parse(body.first)['logic_result']['params']
+          expect(result_params['identifier']).to eq('AAA')
+          expect(result_params['filter']).to eq('from_query')
+          expect(result_params['only_in_body']).to eq(1)
+        end
+
+        it 'does not let a form body override path or query values' do
+          env['REQUEST_METHOD'] = 'POST'
+          env['rack.input'] = StringIO.new('identifier=BBB&filter=from_form&only_in_form=1')
+          env['CONTENT_TYPE'] = 'application/x-www-form-urlencoded'
+          env['QUERY_STRING'] = 'identifier=QQQ&filter=from_query'
+
+          _, _, body = handler.call(env, { 'identifier' => 'AAA' })
+
+          result_params = JSON.parse(body.first)['logic_result']['params']
+          expect(result_params['identifier']).to eq('AAA')
+          expect(result_params['filter']).to eq('from_query')
+          expect(result_params['only_in_form']).to eq('1')
         end
 
         it 'skips JSON parsing when body is empty' do

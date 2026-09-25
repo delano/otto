@@ -260,7 +260,9 @@ Otto's parser. Send an `application/json` body through a real Otto instance or
 
 Current behavior to cover explicitly:
 
-- a JSON object is merged into the Logic parameters;
+- a JSON object is merged into the Logic parameters, below path captures and
+  the query string, which always win;
+- a JSON body on `GET` or `HEAD` is ignored;
 - a valid non-object JSON value is ignored;
 - malformed JSON is logged and the Logic class continues with other parameters;
 - non-JSON bodies are not parsed by the Logic handler.

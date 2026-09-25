@@ -10,7 +10,8 @@ class Otto
     #
     # Logic classes use a constrained signature: initialize(context, params, locale)
     # - context: The authentication strategy result (user info, session data)
-    # - params: Merged request parameters (URL params + body + extra_params)
+    # - params: Merged request parameters. Path captures win over the query
+    #   string, which wins over the form body, which wins over a JSON body.
     # - locale: The locale string from env['otto.locale']
     #
     # IMPORTANT: Logic classes do NOT receive the Rack request or env hash.
@@ -58,49 +59,74 @@ class Otto
       end
 
       # Extract logic parameters including JSON body parsing
+      #
+      # Precedence, highest first: path captures, query string, form body,
+      # JSON body. A key in the request body can never replace the value the
+      # router matched from the path, and a body cannot replace the query
+      # string either. JSON bodies are only read for methods that carry a
+      # body (never GET or HEAD).
+      #
       # @param req [Rack::Request] Request object
       # @param env [Hash] Rack environment
       # @return [Hash] Parameters for Logic class
       def extract_logic_params(req, env)
-        # req.params already has extra_params merged and indifferent_params applied
-        # by setup_request_response in BaseHandler
-        logic_params = req.params.dup
+        json_params = {}
+        json_params = parse_json_body(req, env) if json_body?(req)
 
-        # Handle JSON request bodies
-        if req.content_type&.include?('application/json') && req.body.size.positive?
-          logic_params = parse_json_body(req, env, logic_params)
-        end
+        path_params = @extra_params || {}
 
-        logic_params
+        # Lowest precedence first; each merge lets the later source win.
+        merged = json_params.merge(stringify_keys(req.POST))
+        merged = merged.merge(stringify_keys(req.GET))
+        merged = merged.merge(stringify_keys(path_params))
+
+        Otto::Static.indifferent_params(merged)
+      end
+
+      # Whether the request carries a JSON body worth parsing
+      # @param req [Rack::Request] Request object
+      # @return [Boolean]
+      def json_body?(req)
+        return false if req.get? || req.head?
+        return false unless req.content_type&.include?('application/json')
+
+        req.body&.size&.positive? || false
       end
 
       # Parse JSON request body with error handling
       # @param req [Rack::Request] Request object
       # @param env [Hash] Rack environment
-      # @param logic_params [Hash] Current parameters
-      # @return [Hash] Parameters with JSON merged (or original if parsing fails)
-      def parse_json_body(req, env, logic_params)
-        begin
-          req.body.rewind
-          json_data = JSON.parse(req.body.read)
-          logic_params = logic_params.merge(json_data) if json_data.is_a?(Hash)
-        rescue JSON::ParserError => e
-          # Base context pattern: create once, reuse for correlation
-          log_context = Otto::LoggingHelpers.request_context(env)
+      # @return [Hash] Parsed JSON object, or an empty hash when the body is
+      #   not a JSON object or fails to parse
+      def parse_json_body(req, env)
+        req.body.rewind
+        json_data = JSON.parse(req.body.read)
+        json_data.is_a?(Hash) ? json_data : {}
+      rescue JSON::ParserError => e
+        # Base context pattern: create once, reuse for correlation
+        log_context = Otto::LoggingHelpers.request_context(env)
 
-          Otto.structured_log(:error, 'JSON parsing error',
-            log_context.merge(
-              handler: handler_name,
-              error: e.message,
-              error_class: e.class.name,
-              duration: Otto::Utils.now_in_μs - @start_time
-            ))
+        Otto.structured_log(:error, 'JSON parsing error',
+          log_context.merge(
+            handler: handler_name,
+            error: e.message,
+            error_class: e.class.name,
+            duration: Otto::Utils.now_in_μs - @start_time
+          ))
 
-          Otto::LoggingHelpers.log_backtrace(e,
-            log_context.merge(handler: handler_name))
-        end
+        Otto::LoggingHelpers.log_backtrace(e,
+          log_context.merge(handler: handler_name))
 
-        logic_params
+        {}
+      end
+
+      # Normalize top-level keys to strings so sources merge on the same key
+      # @param hash [Hash, nil]
+      # @return [Hash]
+      def stringify_keys(hash)
+        return {} unless hash.is_a?(Hash)
+
+        hash.transform_keys(&:to_s)
       end
 
       # Format handler name for Logic routes

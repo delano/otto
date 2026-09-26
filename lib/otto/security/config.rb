@@ -1009,10 +1009,24 @@ class Otto
       # For the turnkey setup that also injects the receiving middleware, prefer
       # {Otto::Security::Core#enable_csp_reporting!} on the Otto instance.
       #
-      # @param uri [String, nil] path browsers POST reports to (matched against
-      #   `PATH_INFO`, e.g. `/_/csp-report`), or nil to disable reporting. A
-      #   value without a leading slash is coerced to an absolute path so it
-      #   matches the slash-prefixed `PATH_INFO` the middleware compares against.
+      # The value is a site-absolute path: the path from the site root that the
+      # browser POSTs to, including any prefix the app is mounted under. It is
+      # emitted verbatim in the `report-uri` directive, which browsers resolve
+      # against the site root, and the middleware compares it against the
+      # request's full path (`SCRIPT_NAME` + `PATH_INFO`), so one value is right
+      # for both. With Otto mounted by `map '/api' { run otto }`, configure
+      # `/api/csp-report`, not `/csp-report`. Unmounted, `SCRIPT_NAME` is empty
+      # and the full path is `PATH_INFO`.
+      #
+      # The comparison normalizes both sides with {Otto::Utils.normalize_path}
+      # (percent-decoding, one trailing slash stripped), so `/_/csp-report/`
+      # and a percent-encoded spelling of the path are also intercepted.
+      #
+      # @param uri [String, nil] site-absolute path browsers POST reports to
+      #   (e.g. `/_/csp-report`, or `/api/csp-report` when mounted at `/api`),
+      #   or nil to disable reporting. A value without a leading slash is
+      #   coerced to an absolute path, since browsers would otherwise resolve
+      #   it relative to the document URL.
       # @return [void]
       # @raise [FrozenError] if configuration is frozen
       def csp_report_uri=(uri)
@@ -1037,7 +1051,8 @@ class Otto
       # The value MUST be an ABSOLUTE URL (Reporting-Endpoints does not accept a
       # bare path). Point it at the same receiver as {#csp_report_uri=}: its path
       # component should equal the report URI so {Otto::Security::CSP::ReportMiddleware}
-      # (which matches on PATH_INFO) intercepts modern reports too.
+      # (which matches the full request path, mount prefix included) intercepts
+      # modern reports too.
       #
       # When nil/empty (the default), NO `report-to` directive or
       # `Reporting-Endpoints` header is emitted and policy output is
@@ -1391,13 +1406,14 @@ class Otto
         stripped.empty? ? nil : stripped
       end
 
-      # Normalize a configured report PATH: the local endpoint the receiver
-      # matches on `PATH_INFO`. Same strip/blank-to-nil handling as
-      # {#normalize_report_uri}, but a bare relative value is coerced to an
-      # absolute path — a value like `"csp-report"` would otherwise (a) never
-      # equal the slash-prefixed `PATH_INFO` the middleware compares against, and
-      # (b) be resolved by browsers relative to the document URL. An absolute URL
-      # (contains a scheme) is left untouched.
+      # Normalize a configured report PATH: the site-absolute endpoint the
+      # receiver matches against `SCRIPT_NAME` + `PATH_INFO`. Same
+      # strip/blank-to-nil handling as {#normalize_report_uri}, but a bare
+      # relative value is coerced to an absolute path — a value like
+      # `"csp-report"` would otherwise (a) never equal the slash-prefixed request
+      # path the middleware compares against, and (b) be resolved by browsers
+      # relative to the document URL. An absolute URL (contains a scheme) is left
+      # untouched.
       #
       # @param uri [String, nil]
       # @return [String, nil]

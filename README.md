@@ -278,6 +278,12 @@ middleware, so browsers can POST reports without a CSRF token — regardless of 
 order you enable security features in. A throwing callback can never break the
 receiver; it still answers `204`.
 
+The report path is the site-absolute path the browser POSTs to. When Otto is
+mounted under a sub-path (`map '/api' { run otto }`), include the prefix:
+`enable_csp_reporting!("/api/_/csp-report")`. The receiver matches it against
+`SCRIPT_NAME` + `PATH_INFO`, so the same value works in the header and in the
+receiver.
+
 Modern browsers (Chrome) have deprecated `report-uri` in favour of the Reporting
 API. Pass `endpoint_url:` — an **absolute** URL whose path is the report path —
 to also emit a `report-to` directive and a `Reporting-Endpoints` response header,

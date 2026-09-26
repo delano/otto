@@ -78,6 +78,63 @@ RSpec.describe Otto::Security::CSP::ReportMiddleware do
     end
   end
 
+  describe 'path matching' do
+    let(:body) { { 'csp-report' => { 'violated-directive' => 'script-src' } }.to_json }
+
+    it 'intercepts a trailing-slash spelling of the report path' do
+      status, = middleware.call(post_env(path: '/_/csp-report/', body: body))
+
+      expect(status).to eq(204)
+      expect(received.length).to eq(1)
+    end
+
+    it 'intercepts a percent-encoded spelling of the report path' do
+      status, = middleware.call(post_env(path: '/_/csp%2Dreport', body: body))
+
+      expect(status).to eq(204)
+      expect(received.length).to eq(1)
+    end
+
+    it 'intercepts the plain path when the configured value has a trailing slash' do
+      config.csp_report_uri = '/_/csp-report/'
+      status, = middleware.call(post_env(path: '/_/csp-report', body: body))
+
+      expect(status).to eq(204)
+    end
+
+    it 'does not intercept a path that only shares the report path as a prefix' do
+      %w[/_/csp-report-x /_/csp-report/x].each do |path|
+        status, = middleware.call(post_env(path: path, body: body))
+        expect(status).to eq(200)
+      end
+
+      expect(received).to be_empty
+    end
+
+    context 'when mounted under a sub-path' do
+      # Rack::URLMap (`map '/api'`) moves the prefix into SCRIPT_NAME.
+      def mounted_env(path)
+        post_env(path: path, body: body).merge('SCRIPT_NAME' => '/api')
+      end
+
+      it 'matches a site-absolute report URI against SCRIPT_NAME + PATH_INFO' do
+        config.csp_report_uri = '/api/_/csp-report'
+        status, = middleware.call(mounted_env('/_/csp-report'))
+
+        expect(status).to eq(204)
+        expect(received.length).to eq(1)
+      end
+
+      it 'does not match a mount-relative report URI, which browsers would POST outside the mount' do
+        status, = middleware.call(mounted_env('/_/csp-report'))
+
+        expect(status).to eq(200)
+        expect(downstream_called).to eq(['/_/csp-report'])
+        expect(received).to be_empty
+      end
+    end
+  end
+
   describe 'receiving reports' do
     it 'returns 204 with an empty body and never calls downstream' do
       body = { 'csp-report' => { 'violated-directive' => 'script-src' } }.to_json

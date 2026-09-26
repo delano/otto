@@ -146,6 +146,47 @@ RSpec.describe 'Otto CSP violation reporting (integration)' do
     end
   end
 
+  context 'when mounted under a sub-path with Rack::URLMap' do
+    # URLMap moves the mount prefix into SCRIPT_NAME, so inside Otto PATH_INFO
+    # is mount-relative. The report URI is what the browser POSTs to, so it is
+    # configured site-absolute, prefix included.
+    let(:otto) do
+      instance = Otto.new(routes_file.path)
+      instance.enable_csp!("default-src 'self'")
+      instance.enable_csp_reporting!('/api/_/csp-report') { |report| violations << report }
+      instance
+    end
+
+    let(:report_body) { { 'csp-report' => { 'violated-directive' => 'script-src' } }.to_json }
+
+    def app
+      Rack::URLMap.new('/api' => otto)
+    end
+
+    it 'emits the configured site-absolute report-uri' do
+      get '/api/'
+
+      expect(last_response.status).to eq(200)
+      expect(last_response['content-security-policy']).to include('report-uri /api/_/csp-report')
+    end
+
+    it 'receives a report POSTed to the emitted report-uri' do
+      post '/api/_/csp-report', report_body, 'CONTENT_TYPE' => 'application/csp-report'
+
+      expect(last_response.status).to eq(204)
+      expect(violations.map(&:violated_directive)).to eq(['script-src'])
+    end
+
+    it 'receives trailing-slash and percent-encoded spellings of the report-uri' do
+      ['/api/_/csp-report/', '/api/_/csp%2Dreport'].each do |path|
+        post path, report_body, 'CONTENT_TYPE' => 'application/csp-report'
+        expect(last_response.status).to eq(204), "#{path} answered #{last_response.status}"
+      end
+
+      expect(violations.length).to eq(2)
+    end
+  end
+
   context 'with a static policy and modern (Reporting API) reporting enabled' do
     let(:endpoint) { 'https://example.com/_/csp-report' }
     let(:otto) do

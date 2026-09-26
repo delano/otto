@@ -146,17 +146,25 @@ RSpec.describe 'IP precision capability and privacy profiles' do
       end
 
       it 'names the same knobs in every profile' do
-        key_sets = described_class::PROFILES.values.map { |presets| presets.keys.sort }.uniq
-        expect(key_sets).to eq([%i[disabled mask_private_ips]])
+        # profile= assigns only the keys a preset carries, so a knob missing
+        # from one profile would keep its previous value when that one applies.
+        key_sets = described_class::PROFILES.values.map { |presets| presets.keys.sort }
+        expect(key_sets.uniq.size).to eq(1)
       end
 
-      it 'reaches the same state for a profile whatever profile preceded it' do
-        fresh = described_class.new(profile: :audit)
-        described_class::PROFILES.each_key do |prior|
-          config = described_class.new(profile: prior)
-          config.profile = :audit
-          expect([config.disabled?, config.mask_private_ips])
-            .to eq([fresh.disabled?, fresh.mask_private_ips]), "after #{prior.inspect}"
+      it 'lands on exactly its preset, whether constructed or assigned after any profile' do
+        # Reads each knob through its public reader, as callers see it.
+        knob_state = ->(config, presets) { presets.keys.to_h { |knob| [knob, config.public_send(knob)] } }
+
+        described_class::PROFILES.each do |target, presets|
+          expect(knob_state.call(described_class.new(profile: target), presets))
+            .to eq(presets), "new(profile: #{target.inspect})"
+
+          described_class::PROFILES.each_key do |prior|
+            config = described_class.new(profile: prior)
+            config.profile = target
+            expect(knob_state.call(config, presets)).to eq(presets), "#{prior.inspect} -> #{target.inspect}"
+          end
         end
       end
 

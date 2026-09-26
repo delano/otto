@@ -51,8 +51,12 @@ class Otto
       # fingerprints). Precise ephemeral matching against the unmasked IP does
       # not require :audit — see EnvKeys::IP_MATCH, available in every profile.
       #
-      # Every profile names every knob a profile governs, so applying one
-      # yields the same state whatever profile preceded it.
+      # This table is the only list of knobs a profile governs: #profile=
+      # assigns whatever keys a preset carries, through each knob's writer so
+      # any check or normalization the writer does still runs. Every profile
+      # names the same keys, so applying one yields the same state whatever
+      # preceded it, and each key names a Config attribute with a writer and
+      # a public reader.
       PROFILES = {
         anonymous: { disabled: false, mask_private_ips: true }.freeze,
            masked: { disabled: false, mask_private_ips: false }.freeze,
@@ -399,18 +403,18 @@ class Otto
 
       # Apply a named privacy profile's presets to this config.
       #
-      # Sets every knob a profile governs (disabled and mask_private_ips; see
-      # {PROFILES}), so the result never depends on the profile applied before
-      # it: :anonymous -> :audit -> enable! lands on :masked, exactly as
+      # Assigns every knob the preset names (see {PROFILES}), so the result
+      # never depends on the profile applied before it: :anonymous -> :audit
+      # -> enable! lands on :masked, exactly as
       # Config.new(profile: :audit).enable! does. Other settings
       # (octet_precision, geo, correlation_secret, ...) are untouched.
       #
       # @param profile [Symbol, String] :anonymous, :masked, or :audit
       # @raise [ArgumentError] for an unknown profile name
       def profile=(profile)
-        presets = self.class.profile_presets(profile)
-        @disabled = presets.fetch(:disabled)
-        @mask_private_ips = presets.fetch(:mask_private_ips)
+        self.class.profile_presets(profile).each do |knob, value|
+          send(:"#{knob}=", value)
+        end
       end
 
       # The profile the current knob state corresponds to.
@@ -514,6 +518,10 @@ class Otto
       end
 
       private
+
+      # Profile-governed, so #profile= can assign it through a writer like the
+      # other knobs. Public callers use #disable! and #enable!.
+      attr_writer :disabled
 
       # Normalize a database-path option to a non-empty String or nil. Shared by
       # the geo, ASN and anonymizer paths — the rule is identical for all three.

@@ -5,6 +5,7 @@
 require 'json'
 
 require_relative '../optional_dependency'
+require_relative '../utils'
 
 class Otto
   module Security
@@ -31,12 +32,14 @@ class Otto
         default_requests_per_minute = config.fetch(:requests_per_minute, 100)
 
         # General request throttling. Internal paths (/_mcp, /_status, ...)
-        # are skipped by default. PATH_INFO, not Rack::Request#path: #path
-        # prepends SCRIPT_NAME, so with Otto mounted under `map '/api'` the
-        # internal /_mcp request read as /api/_mcp and was counted here while
-        # the MCP throttle, comparing the same way, never saw it at all.
+        # are skipped by default. The mount-relative routing path, not
+        # Rack::Request#path: #path prepends SCRIPT_NAME, so with Otto mounted
+        # under `map '/api'` the internal /_mcp request read as /api/_mcp and
+        # was counted here while the MCP throttle never saw it at all. And the
+        # routing path, not raw PATH_INFO, which counted /%5Fmcp while the
+        # router dispatched it as /_mcp.
         Rack::Attack.throttle('requests', limit: default_requests_per_minute, period: 60) do |request|
-          request.ip unless request.path_info.start_with?('/_')
+          request.ip unless Otto::Utils.routing_path(request.env).start_with?('/_')
         end
 
         # Apply custom rules if provided

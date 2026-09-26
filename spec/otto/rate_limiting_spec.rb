@@ -169,6 +169,20 @@ RSpec.describe Otto, 'rate limiting features' do
         expect(throttle.block.call(request)).to be_nil
       end
 
+      # The router dispatches /%5Fmcp as /_mcp, so the skip must see it that
+      # way too. Reading raw PATH_INFO counted the encoded spelling while
+      # skipping the plain one.
+      it 'skips an internal path whatever its spelling, as the router reads it' do
+        Otto::Security::RateLimiting.configure_rack_attack!({})
+        throttle = Rack::Attack.throttles['requests']
+
+        %w[/%5Fmcp /_mcp/ /%5F%73tatus].each do |path_info|
+          env = Rack::MockRequest.env_for('/', 'REMOTE_ADDR' => '203.0.113.9')
+          env['PATH_INFO'] = path_info
+          expect(throttle.block.call(Rack::Attack::Request.new(env))).to be_nil, path_info
+        end
+      end
+
       it 'configures custom rules' do
         config = {
           custom_rules: {

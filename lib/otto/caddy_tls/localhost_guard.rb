@@ -120,16 +120,16 @@ class Otto
         Otto::Utils.relayed_request?(env)
       end
 
-      # Whether this request is for the protected endpoint. Normalizes
-      # +PATH_INFO+ through the same +Otto::Utils.normalize_path+ the router
-      # uses for literal matching, so a percent-encoded, invalid-byte, or
-      # trailing-slash variant the router would still route cannot slip past the
-      # guard by normalizing differently here than at dispatch.
+      # Whether this request is for the protected endpoint. Compares the path
+      # the router itself dispatches on (+Otto::Utils.routing_path+), so a
+      # percent-encoded, invalid-byte, or trailing-slash variant the router
+      # would still route cannot slip past the guard by normalizing differently
+      # here than at dispatch.
       #
       # @param env [Hash] Rack environment
       # @return [Boolean]
       def targets_endpoint?(env)
-        normalize_path(env['PATH_INFO']) == @endpoint
+        Otto::Utils.routing_path(env) == @endpoint
       end
 
       # Router-equivalent path normalization. Delegates to the single shared

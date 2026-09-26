@@ -156,6 +156,78 @@ RSpec.describe Otto::Utils do
     it "never raises on hostile input" do
       expect { Otto::Utils.normalize_path("%%%\xFF//") }.not_to raise_error
     end
+
+    it "keeps a malformed escape as written" do
+      expect(Otto::Utils.normalize_path("/a%zz")).to eq("/a%zz")
+    end
+  end
+
+  describe "#routing_path" do
+    # The router dispatches on this value (spec/otto/utils_routing_path_spec.rb pins
+    # that end to end). These cases pin the value itself.
+    def env_for(path_info, script_name = nil)
+      env = { "PATH_INFO" => path_info }
+      env["SCRIPT_NAME"] = script_name unless script_name.nil?
+      env
+    end
+
+    it "decodes percent-encoding the way the router does" do
+      expect(Otto::Utils.routing_path(env_for("/%63olonel"))).to eq("/colonel")
+    end
+
+    it "strips a single trailing slash, including an encoded one" do
+      expect(Otto::Utils.routing_path(env_for("/colonel/"))).to eq("/colonel")
+      expect(Otto::Utils.routing_path(env_for("/colonel%2F"))).to eq("/colonel")
+    end
+
+    it "scrubs invalid bytes" do
+      expect(Otto::Utils.routing_path(env_for("/colonel%FF"))).to eq("/colonel")
+    end
+
+    it "is normalize_path applied to PATH_INFO" do
+      ["/", "", "/a/b/", "/a%2Fb", "/a+b", "/x%FF", "/a%zz"].each do |raw|
+        expect(Otto::Utils.routing_path(env_for(raw))).to eq(Otto::Utils.normalize_path(raw)), raw
+      end
+    end
+
+    it "returns '' for root, like normalize_path and the literal route table" do
+      expect(Otto::Utils.routing_path(env_for("/"))).to eq("")
+      expect(Otto::Utils.routing_path(env_for(""))).to eq("")
+    end
+
+    it "treats a missing PATH_INFO as root" do
+      expect(Otto::Utils.routing_path({})).to eq("")
+    end
+
+    it "keeps a malformed escape as written instead of raising" do
+      expect(Otto::Utils.routing_path(env_for("/a%zz"))).to eq("/a%zz")
+    end
+
+    context "when the app is mounted under a sub-path" do
+      it "is mount-relative by default, matching what the router sees" do
+        expect(Otto::Utils.routing_path(env_for("/status", "/api/v2"))).to eq("/status")
+      end
+
+      it "prepends SCRIPT_NAME with include_mount: true" do
+        expect(Otto::Utils.routing_path(env_for("/status", "/api/v2"), include_mount: true)).to eq("/api/v2/status")
+      end
+
+      it "normalizes the joined path, so a decoded PATH_INFO still carries its prefix" do
+        env = env_for("/%69nfo/", "/api/colonel")
+
+        expect(Otto::Utils.routing_path(env, include_mount: true)).to eq("/api/colonel/info")
+      end
+
+      it "gives the mount point itself without a trailing slash" do
+        expect(Otto::Utils.routing_path(env_for("", "/api"), include_mount: true)).to eq("/api")
+        expect(Otto::Utils.routing_path(env_for("/", "/api"), include_mount: true)).to eq("/api")
+      end
+
+      it "equals the mount-relative value when SCRIPT_NAME is empty or absent" do
+        expect(Otto::Utils.routing_path(env_for("/health", ""), include_mount: true)).to eq("/health")
+        expect(Otto::Utils.routing_path(env_for("/health"), include_mount: true)).to eq("/health")
+      end
+    end
   end
 
   describe "#normalize_ip" do

@@ -18,6 +18,10 @@ Fixed
   escape is kept as written, and a raw invalid byte is scrubbed the same way
   its percent-encoded form (``%FF``) already was.
 
+- The general rate-limit throttle skips internal paths by the routing path.
+  It read raw ``PATH_INFO``, so ``/%5Fmcp`` was counted while ``/_mcp``, the
+  path the router dispatches it as, was skipped.
+
 Documentation
 -------------
 

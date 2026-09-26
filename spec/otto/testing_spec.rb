@@ -85,8 +85,10 @@ RSpec.describe Otto::Testing do
   end
 
   describe '.env_for' do
+    let(:defaults) { Otto::Security::Config.new }
+
     it 'masks otto.client_ip while otto.ip_match sees the full address' do
-      env = described_class.env_for('/', client_ip: '203.0.113.9')
+      env = described_class.env_for('/', client_ip: '203.0.113.9', security_config: defaults)
 
       expect(env['otto.client_ip']).to eq('203.0.113.0')
       expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
@@ -95,33 +97,56 @@ RSpec.describe Otto::Testing do
     end
 
     it 'leaves a private address unmasked, as the middleware does' do
-      env = described_class.env_for('/', client_ip: '192.168.1.50')
+      env = described_class.env_for('/', client_ip: '192.168.1.50', security_config: defaults)
 
       expect(env['otto.client_ip']).to eq('192.168.1.50')
       expect(env['otto.ip_match'].call(['192.168.1.50/32'])).to be(true)
     end
 
     it 'follows the privacy profile of the security config it is given' do
-      security_config = Otto::Security::Config.new
-      security_config.ip_privacy_config.profile = :audit
+      defaults.ip_privacy_config.profile = :audit
 
-      env = described_class.env_for('/', client_ip: '203.0.113.9', security_config: security_config)
+      env = described_class.env_for('/', client_ip: '203.0.113.9', security_config: defaults)
 
       expect(env['otto.client_ip']).to eq('203.0.113.9')
       expect(env['otto.ip_match'].call(['203.0.113.9/32'])).to be(true)
     end
 
     it 'builds a request with no resolvable client IP from client_ip: nil' do
-      env = described_class.env_for('/', client_ip: nil)
+      env = described_class.env_for('/', client_ip: nil, security_config: defaults)
 
-      expect(env).not_to have_key('otto.client_ip')
+      expect(env['otto.client_ip']).to be_nil
       expect(env).not_to have_key('REMOTE_ADDR')
       expect(env['otto.ip_match'].call(['0.0.0.0/0', '::/0'])).to be(false)
     end
 
+    it 'gives client_ip: nil a nil otto.client_ip under the audit profile too' do
+      # The unmasked path writes the key with a nil value where the masking
+      # path leaves it out; both read as nil.
+      defaults.ip_privacy_config.profile = :audit
+
+      env = described_class.env_for('/', client_ip: nil, security_config: defaults)
+
+      expect(env['otto.client_ip']).to be_nil
+      expect(env['otto.ip_match'].call(['0.0.0.0/0', '::/0'])).to be(false)
+    end
+
+    it 'refuses forwarded-for headers, which could resolve an address other than client_ip' do
+      depth = Otto::Security::Config.new.tap { |c| c.trusted_proxy_depth = 1 }
+      client_ips = [nil, '10.0.0.5']
+
+      %w[HTTP_X_FORWARDED_FOR HTTP_X_REAL_IP HTTP_X_CLIENT_IP HTTP_FORWARDED].each do |header|
+        client_ips.each do |client_ip|
+          expect do
+            described_class.env_for('/', client_ip: client_ip, security_config: depth, header => '203.0.113.9')
+          end.to raise_error(ArgumentError, /#{header}.*resolve_client_ip!/)
+        end
+      end
+    end
+
     it 'passes Rack::MockRequest options and env keys through' do
-      env = described_class.env_for('/submit?x=1', client_ip: '203.0.113.9', method: 'POST',
-                                                   'HTTP_ACCEPT' => 'application/json')
+      env = described_class.env_for('/submit?x=1', client_ip: '203.0.113.9', security_config: defaults,
+                                                   method: 'POST', 'HTTP_ACCEPT' => 'application/json')
 
       expect(env['REQUEST_METHOD']).to eq('POST')
       expect(env['PATH_INFO']).to eq('/submit')
@@ -130,10 +155,9 @@ RSpec.describe Otto::Testing do
     end
 
     it 'records the proxy-trust verdict when the config configures trust' do
-      security_config = Otto::Security::Config.new
-      security_config.add_trusted_proxy('10.0.0.0/8')
+      defaults.add_trusted_proxy('10.0.0.0/8')
 
-      env = described_class.env_for('/', client_ip: '203.0.113.9', security_config: security_config)
+      env = described_class.env_for('/', client_ip: '203.0.113.9', security_config: defaults)
 
       expect(env['otto.via_trusted_proxy']).to be(false)
     end
@@ -152,6 +176,21 @@ RSpec.describe Otto::Testing do
       expect(env['otto.client_ip']).to eq('203.0.113.0')
       expect(env['otto.ip_match'].call(['203.0.113.9/32'])).to be(true)
       expect(env['otto.ip_match'].call(['10.0.0.5/32'])).to be(false)
+    end
+
+    it 'refuses an env that was already resolved' do
+      env = described_class.env_for('/', client_ip: '203.0.113.9', security_config: Otto::Security::Config.new)
+
+      expect { described_class.resolve_client_ip!(env, Otto::Security::Config.new) }
+        .to raise_error(ArgumentError, /already carries otto\.client_ip or otto\.ip_match/)
+    end
+
+    it 'refuses an env whose no-IP resolution left only otto.ip_match' do
+      env = described_class.env_for('/', client_ip: nil, security_config: Otto::Security::Config.new)
+      expect(env).not_to have_key('otto.client_ip')
+
+      expect { described_class.resolve_client_ip!(env, Otto::Security::Config.new) }
+        .to raise_error(ArgumentError, /already carries/)
     end
   end
 
@@ -178,6 +217,22 @@ RSpec.describe Otto::Testing do
       expect(captured[:env]['otto.client_ip']).to eq('203.0.113.0')
       expect(captured[:env]['otto.ip_match'].call(['203.0.113.9/32'])).to be(true)
       expect(captured[:env]['otto.via_trusted_proxy']).to be(false)
+    end
+
+    it 'matches the forwarded client when a relayed env is resolved under the app config' do
+      sink = captured
+      routes_file = create_test_routes_file('testing_depth.txt', ['GET /probe &probe'])
+      depth_app = Otto.new(routes_file, trusted_proxy_depth: 1, lambda_handlers: {
+                             'probe' => ->(req, _res, _extra) { sink[:env] = req.env },
+                           })
+      env = Rack::MockRequest.env_for('/probe', 'REMOTE_ADDR' => '10.0.0.5', 'HTTP_X_FORWARDED_FOR' => '203.0.113.9')
+
+      described_class.resolve_client_ip!(env, depth_app.security_config)
+      depth_app.call(env)
+
+      expect(captured[:env]['otto.via_trusted_proxy']).to be(true)
+      expect(captured[:env]['otto.ip_match'].call(['203.0.113.9/32'])).to be(true)
+      expect(captured[:env]['otto.ip_match'].call(['10.0.0.5/32'])).to be(false)
     end
 
     it 'denies every range when the harness writes otto.client_ip by hand' do

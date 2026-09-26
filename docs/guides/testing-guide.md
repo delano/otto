@@ -112,9 +112,14 @@ class Minitest::Test
   end
 end
 
-# Tryouts: in the setup section of each file that builds an Otto app
+# Tryouts: at the start of each test case that builds an Otto app
+## a depth-mode app reading Forwarded
 Otto::Testing.reset!
+Otto.new(nil, trusted_proxy_depth: 1, trusted_proxy_header: 'Forwarded')
 ```
+
+Tryouts runs a file's setup section once, before all of its test cases, so a
+reset placed there does not separate the cases from each other.
 
 `Otto::Security::Config.reset_rack_forwarding_family_for_testing!` does the
 same but raises unless RSpec is loaded. It remains for existing callers.
@@ -406,12 +411,30 @@ env['otto.client_ip']                          # => "203.0.113.0" (masked)
 env['otto.ip_match'].call(['203.0.113.9/32'])  # => true
 ```
 
-Pass the application's `security_config` so masking and proxy trust match the
-application under test; without it Otto's defaults apply. `client_ip: nil`
-builds a request with no resolvable client IP. Other keywords and String env
-keys go to `Rack::MockRequest.env_for`. For a request relayed by a proxy, build
-the env with `REMOTE_ADDR` and the forwarded headers, then call
-`Otto::Testing.resolve_client_ip!(env, otto.security_config)`.
+`security_config:` is required. The application's own middleware keeps what
+this resolution produced, so pass `otto.security_config` to get the masking and
+proxy trust of the application under test; `nil` means an unconfigured
+middleware (public addresses masked, no proxy trust). `client_ip: nil` builds a
+request with no resolvable client IP: `env['otto.client_ip']` is `nil` and
+`otto.ip_match` denies every range. Other keywords and String env keys go to
+`Rack::MockRequest.env_for`.
+
+`env_for` models a direct request, so it raises `ArgumentError` when given
+`X-Forwarded-For`, `X-Real-IP`, `X-Client-IP` or `Forwarded`: under a
+configuration that trusts the peer, those would resolve an address other than
+`client_ip`. For a request relayed by a proxy, build the env with `REMOTE_ADDR`
+and the forwarded headers, then resolve it under the application's
+configuration:
+
+```ruby
+env = Rack::MockRequest.env_for('/admin', 'REMOTE_ADDR' => '10.0.0.5',
+                                          'HTTP_X_FORWARDED_FOR' => '203.0.113.9')
+Otto::Testing.resolve_client_ip!(env, otto.security_config)
+```
+
+Resolved under a different configuration, the proxy can become the client and
+the application keeps that answer. `resolve_client_ip!` raises on an env that
+already carries `otto.client_ip` or `otto.ip_match` for the same reason.
 
 See the [privacy guide](privacy.md) and the maintained privacy specs:
 

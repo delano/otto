@@ -7,9 +7,13 @@ Added
   replacing ``Otto::Security::Config.reset_rack_forwarding_family_for_testing!``,
   which raises unless RSpec is loaded and remains for existing callers.
   ``Otto::Testing.env_for`` builds a Rack env by running
-  ``IPPrivacyMiddleware`` for a given client IP, so ``otto.client_ip`` and
-  ``otto.ip_match`` come from one resolution; ``resolve_client_ip!`` does the
-  same for an env that already carries proxy headers.
+  ``IPPrivacyMiddleware`` for a direct request from a given client IP, so
+  ``otto.client_ip`` and ``otto.ip_match`` come from one resolution;
+  ``resolve_client_ip!`` does the same for a relayed request whose env
+  already carries proxy headers. Both take the application's security config
+  as a required argument, because the application's own middleware keeps the
+  result. ``env_for`` refuses forwarded-for headers, and
+  ``resolve_client_ip!`` refuses an env that was already resolved.
 
 Changed
 -------

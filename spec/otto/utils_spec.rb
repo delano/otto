@@ -366,6 +366,33 @@ RSpec.describe Otto::Utils do
     end
   end
 
+  describe "CLIENT_ADDRESS_HEADERS" do
+    # Derived from the resolver rather than restated: IPPrivacyMiddleware's
+    # no-IP scrub and Otto::Testing.env_for's refusal both follow this list,
+    # so a relay carrier the resolver reads an address from and the list omits
+    # would leak on the one path and slip past the other.
+    it "lists exactly the relay carriers some trust mode reads a client address from" do
+      cidr = Otto::Security::Config.new.tap { |cfg| cfg.add_trusted_proxy("10.0.0.0/8") }
+      # Each header choice pins Rack's process-global family, so reset between them.
+      depth = %w[X-Forwarded-For Forwarded Both].map do |header|
+        Otto::Testing.reset!
+        Otto::Security::Config.new.tap do |cfg|
+          cfg.trusted_proxy_depth = 1
+          cfg.trusted_proxy_header = header
+        end
+      end
+      values = ["203.0.113.9", "for=203.0.113.9"]
+
+      read = Otto::Utils::RELAY_MARKER_HEADERS.select do |header|
+        [cidr, *depth].product(values).any? do |cfg, value|
+          Otto::Utils.resolve_client_ip({ "REMOTE_ADDR" => "10.0.0.5", header => value }, cfg) == "203.0.113.9"
+        end
+      end
+
+      expect(Otto::Utils::CLIENT_ADDRESS_HEADERS).to match_array(read)
+    end
+  end
+
   describe "#loopback_address?" do
     it "recognizes the IPv4 loopback block, not just 127.0.0.1" do
       expect(Otto::Utils.loopback_address?("127.0.0.1")).to be true

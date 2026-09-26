@@ -217,7 +217,8 @@ class Otto
     # Note: setting CLIENT_IP yourself is out of contract — it trips the
     #       middleware's idempotency guard, so the unmasked address is never
     #       captured and this capability degrades to a logged fail-closed
-    #       check that denies every range.
+    #       check that denies every range. Test harnesses build both keys
+    #       with Otto::Testing.env_for (require 'otto/testing').
     IP_MATCH = 'otto.ip_match'
 
     # Privacy-safe masked IP address

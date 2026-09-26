@@ -154,6 +154,11 @@ the closure.
 allowed = req.env.fetch('otto.ip_match').call(['192.0.2.0/24', '2001:db8::/32'])
 ```
 
+In tests, build the env with `Otto::Testing.env_for` rather than writing
+`otto.client_ip` by hand; a hand-written value leaves `otto.ip_match` denying
+every range. See
+[Testing Otto applications](testing-guide.md#hand-a-harness-a-resolved-client-ip).
+
 ## Middleware placement
 
 When building a larger Rack stack, put privacy before components that log or

@@ -267,7 +267,9 @@ class Otto
         Otto application in this process already uses %s. Rack's forwarded
         host, port, scheme, and IP policy is process-global, so every Otto
         application in one process that resolves proxied requests must use the
-        same forwarding family.
+        same forwarding family. A test suite that builds applications with
+        different families must clear this between tests: require
+        'otto/testing' and call Otto::Testing.reset!.
       MSG
 
       # Eager so the first two concurrent Otto.new calls cannot race on
@@ -343,16 +345,16 @@ class Otto
         attr_reader :rack_forwarding_family
 
         # Clear process-global forwarding state between isolated RSpec examples.
+        # Otto::Testing.reset! does the same under any test framework.
         #
         # @api private
         def reset_rack_forwarding_family_for_testing!
-          raise 'reset_rack_forwarding_family_for_testing! is only available in RSpec test environment' unless defined?(RSpec)
-
-          RACK_FORWARDING_MUTEX.synchronize do
-            @rack_forwarding_owners = nil
-            @rack_forwarding_family = nil
-            RACK_REQUEST.forwarded_priority = DEFAULT_RACK_FORWARDED_PRIORITY.dup
+          unless defined?(RSpec)
+            raise 'reset_rack_forwarding_family_for_testing! is only available in RSpec test environment; ' \
+                  "outside RSpec, require 'otto/testing' and call Otto::Testing.reset!"
           end
+
+          reset_rack_forwarding_family!
         end
 
         private
@@ -360,6 +362,17 @@ class Otto
         # Identity-keyed set of configs committed to the family.
         def rack_forwarding_owners
           @rack_forwarding_owners ||= {}.compare_by_identity
+        end
+
+        # Drop every commitment and restore Rack's load-time priority. Private
+        # because production must never do this: it is what lets two configs
+        # with different families coexist. Otto::Testing.reset! reaches it.
+        def reset_rack_forwarding_family!
+          RACK_FORWARDING_MUTEX.synchronize do
+            @rack_forwarding_owners = nil
+            @rack_forwarding_family = nil
+            RACK_REQUEST.forwarded_priority = DEFAULT_RACK_FORWARDED_PRIORITY.dup
+          end
         end
       end
 

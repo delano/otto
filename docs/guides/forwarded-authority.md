@@ -190,10 +190,14 @@ process that both resolve proxied requests must agree. The later one raises:
 Cannot use forwarding family %s (trusted_proxy_header) because another Otto
 application in this process already uses %s. Rack's forwarded host, port,
 scheme, and IP policy is process-global, so every Otto application in one
-process that resolves proxied requests must use the same forwarding family.
+process that resolves proxied requests must use the same forwarding family. A
+test suite that builds applications with different families must clear this
+between tests: require 'otto/testing' and call Otto::Testing.reset!.
 ```
 
 The two placeholders are the requested family and the already committed one.
+See [Testing Otto applications](testing-guide.md#reset-ottos-process-global-state-between-tests)
+for the reset.
 
 An application that configures no proxy trust, and one that asserts
 `trusted_proxies: :none`, read no forwarded chain and therefore stake no claim

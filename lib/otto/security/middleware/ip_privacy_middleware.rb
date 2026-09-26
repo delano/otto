@@ -232,7 +232,8 @@ class Otto
             '[IPPrivacyMiddleware] otto.client_ip was set outside this ' \
             'middleware, so otto.ip_match could not be built from the ' \
             'unmasked address; installing a fail-closed check (every CIDR ' \
-            'test returns false). Let IPPrivacyMiddleware resolve the client IP.'
+            'test returns false). Let IPPrivacyMiddleware resolve the client IP; ' \
+            'test harnesses can build the env with Otto::Testing.env_for.'
           )
           env['otto.ip_match'] = ->(_cidrs) { false }
         end
@@ -499,10 +500,7 @@ class Otto
         #
         # @param env [Hash] Rack environment
         def scrub_forwarded_headers(env)
-          env.delete('HTTP_X_FORWARDED_FOR')
-          env.delete('HTTP_X_REAL_IP')
-          env.delete('HTTP_X_CLIENT_IP')
-          env.delete('HTTP_FORWARDED')
+          Otto::Utils::CLIENT_ADDRESS_HEADERS.each { |key| env.delete(key) }
         end
 
         # Mask X-Forwarded-For and related proxy headers

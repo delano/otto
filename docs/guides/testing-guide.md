@@ -41,6 +41,7 @@ require 'rack/mock'
 require 'rspec'
 require 'tempfile'
 require 'otto'
+require 'otto/testing'
 
 module OttoAppSpecHelpers
   def rack_env(path = '/', method: 'GET', headers: {}, params: {})
@@ -69,6 +70,10 @@ end
 RSpec.configure do |config|
   config.include OttoAppSpecHelpers
 
+  config.before do
+    Otto::Testing.reset!
+  end
+
   config.after do
     Array(@route_files).each(&:unlink)
   end
@@ -78,6 +83,46 @@ end
 Within Otto itself, use the existing helpers in
 [`spec/support/test_helpers.rb`](../../spec/support/test_helpers.rb) instead of
 copying this application-level helper.
+
+## Reset Otto's process-global state between tests
+
+`require 'otto'` does not load `otto/testing`. Require it from the test helper;
+it does not depend on RSpec.
+
+`Otto.new` pins `Rack::Request.forwarded_priority` from `trusted_proxy_header`
+whenever an application configures proxy trust or names a header. Rack keeps one
+priority per process, so Otto records the family and raises `ArgumentError`
+when a later application in the same process chooses a different one. A suite
+that builds one application with `trusted_proxy_header: 'Forwarded'` and
+another with `trusted_proxies:` fails or passes depending on test order unless
+the record is cleared between tests. `Otto::Testing.reset!` clears it and
+restores Rack's priority to the value Otto saw at load time.
+
+Call it before every test:
+
+```ruby
+# RSpec
+RSpec.configure { |config| config.before { Otto::Testing.reset! } }
+
+# Minitest
+class Minitest::Test
+  def before_setup
+    super
+    Otto::Testing.reset!
+  end
+end
+
+# Tryouts: at the start of each test case that builds an Otto app
+## a depth-mode app reading Forwarded
+Otto::Testing.reset!
+Otto.new(nil, trusted_proxy_depth: 1, trusted_proxy_header: 'Forwarded')
+```
+
+Tryouts runs a file's setup section once, before all of its test cases, so a
+reset placed there does not separate the cases from each other.
+
+`Otto::Security::Config.reset_rack_forwarding_family_for_testing!` does the
+same but raises unless RSpec is loaded. It remains for existing callers.
 
 ## Test Logic classes as plain Ruby objects
 
@@ -344,6 +389,52 @@ Set `security_config.ip_privacy_config.octet_precision = 2` to mask two IPv4
 octets, or set `mask_private_ips = true` to include private and localhost
 addresses. For application-facing tests, prefer a real Otto instance configured
 through `configure_ip_privacy`.
+
+### Hand a harness a resolved client IP
+
+Code that runs behind `IPPrivacyMiddleware` reads `env['otto.client_ip']` and,
+for access decisions, `env['otto.ip_match']`. Do not write `otto.client_ip` by
+hand. The middleware treats its presence as a sign that it already ran, so it
+never builds `otto.ip_match` from the full address. Instead it installs a check
+that returns `false` for every range and logs a warning. Allowlist tests then
+deny, and when the application uses CIDR proxy trust it also treats the peer as
+untrusted.
+
+`Otto::Testing.env_for` runs the middleware over a Rack env for a request
+arriving directly from `client_ip`, so both keys come from one resolution:
+
+```ruby
+env = Otto::Testing.env_for('/admin', client_ip: '203.0.113.9',
+                                      security_config: otto.security_config)
+
+env['otto.client_ip']                          # => "203.0.113.0" (masked)
+env['otto.ip_match'].call(['203.0.113.9/32'])  # => true
+```
+
+`security_config:` is required. The application's own middleware keeps what
+this resolution produced, so pass `otto.security_config` to get the masking and
+proxy trust of the application under test; `nil` means an unconfigured
+middleware (public addresses masked, no proxy trust). `client_ip: nil` builds a
+request with no resolvable client IP: `env['otto.client_ip']` is `nil` and
+`otto.ip_match` denies every range. Other keywords and String env keys go to
+`Rack::MockRequest.env_for`.
+
+`env_for` models a direct request, so it raises `ArgumentError` when given
+`X-Forwarded-For`, `X-Real-IP`, `X-Client-IP` or `Forwarded`: under a
+configuration that trusts the peer, those would resolve an address other than
+`client_ip`. For a request relayed by a proxy, build the env with `REMOTE_ADDR`
+and the forwarded headers, then resolve it under the application's
+configuration:
+
+```ruby
+env = Rack::MockRequest.env_for('/admin', 'REMOTE_ADDR' => '10.0.0.5',
+                                          'HTTP_X_FORWARDED_FOR' => '203.0.113.9')
+Otto::Testing.resolve_client_ip!(env, otto.security_config)
+```
+
+Resolved under a different configuration, the proxy can become the client and
+the application keeps that answer. `resolve_client_ip!` raises on an env that
+already carries `otto.client_ip` or `otto.ip_match` for the same reason.
 
 See the [privacy guide](privacy.md) and the maintained privacy specs:
 

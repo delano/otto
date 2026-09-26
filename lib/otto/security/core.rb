@@ -221,8 +221,10 @@ class Otto
       # emits a `report-to` directive plus a `Reporting-Endpoints` header so those
       # browsers deliver `application/reports+json` to the same receiver.
       #
-      # @param report_uri [String] path browsers POST reports to (matched against
-      #   `PATH_INFO`, e.g. `/_/csp-report`).
+      # @param report_uri [String] site-absolute path browsers POST reports to,
+      #   including any mount prefix (e.g. `/_/csp-report`, or
+      #   `/api/_/csp-report` when mounted at `/api`). See
+      #   {Otto::Security::Config#csp_report_uri=}.
       # @param endpoint_url [String, nil] absolute URL for the modern Reporting
       #   API endpoint (e.g. `https://example.com/_/csp-report`); nil emits only
       #   the legacy `report-uri`.

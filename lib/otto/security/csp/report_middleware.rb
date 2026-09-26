@@ -22,6 +22,8 @@ class Otto
       #   not configured the middleware is a transparent pass-through.
       # - Only intercepts a POST whose path matches the configured report URI.
       #   Everything else (other paths, other methods) passes through untouched.
+      #   The match is on the full request path (mount prefix included), since
+      #   the report URI is the site-absolute path the browser POSTs to.
       # - Short-circuits BEFORE inner middleware, so CSRF, auth, and rate
       #   limiting never see the request. This is why browsers can POST reports
       #   with no CSRF token: the report never reaches the CSRF middleware.
@@ -76,6 +78,19 @@ class Otto
         # True only when reporting is configured AND this is a POST to the
         # configured report path.
         #
+        # The configured path is site-absolute: it is emitted verbatim as the
+        # `report-uri` directive, and the browser resolves it against the site
+        # root. So it is compared against the request's full path, SCRIPT_NAME
+        # plus PATH_INFO, not the mount-relative PATH_INFO the router matches.
+        # Under `map '/api' { run otto }` a report to `/api/csp-report` arrives
+        # as SCRIPT_NAME=/api, PATH_INFO=/csp-report and still matches a
+        # configured `/api/csp-report`. Unmounted, SCRIPT_NAME is empty and the
+        # two forms coincide.
+        #
+        # Both sides go through Otto::Utils.normalize_path, so a trailing slash
+        # or percent-encoded spelling of the report path is intercepted the way
+        # the router would normalize it.
+        #
         # @param env [Hash]
         # @return [Boolean]
         def report_request?(env)
@@ -83,7 +98,8 @@ class Otto
           return false if report_uri.nil? || report_uri.empty?
           return false unless env['REQUEST_METHOD'] == 'POST'
 
-          env['PATH_INFO'] == report_uri
+          request_path = Otto::Utils.normalize_path("#{env['SCRIPT_NAME']}#{env['PATH_INFO']}")
+          request_path == Otto::Utils.normalize_path(report_uri)
         end
 
         # Read (capped), parse, and dispatch. Never raises; parse/dispatch

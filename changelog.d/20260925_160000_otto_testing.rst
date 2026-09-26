@@ -21,6 +21,11 @@ Changed
 - The forwarding-family conflict error, the RSpec-only reset's error, and the
   warning logged when ``otto.client_ip`` was set outside the middleware now
   name the ``Otto::Testing`` helper that addresses each.
+- ``Otto::Utils::CLIENT_ADDRESS_HEADERS`` lists the headers the client-IP
+  resolver can read an address from. ``IPPrivacyMiddleware`` deletes them
+  when no client IP resolves, and ``env_for`` refuses them, both from this one
+  list; a spec checks it against the resolver's behaviour in every trust
+  mode.
 
 AI Assistance
 -------------

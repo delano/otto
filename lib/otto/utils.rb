@@ -45,6 +45,14 @@ class Otto
     # fallback scan cannot drift.
     RELAY_MARKER_HEADERS = (FORWARDED_FOR_HEADERS + FORWARDED_AUTHORITY_HEADERS).uniq.freeze
 
+    # Headers the client-IP resolver may read an address from: the
+    # forwarded-for family (the CIDR walk, and X-Forwarded-For in depth mode)
+    # and RFC 7239 Forwarded (depth mode with trusted_proxy_header 'Forwarded'
+    # or 'Both'). A header resolve_client_ip starts reading belongs here, so
+    # that IPPrivacyMiddleware deletes it when no client IP resolves and
+    # Otto::Testing.env_for refuses it in a request it builds as direct.
+    CLIENT_ADDRESS_HEADERS = (FORWARDED_FOR_HEADERS + %w[HTTP_FORWARDED]).freeze
+
     # Special-use IPv4/IPv6 ranges that IPAddr's #private?/#loopback?/#link_local?
     # predicates do not cover but that should still be treated as non-public
     # (e.g. when picking the real client out of a forwarded chain).

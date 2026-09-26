@@ -500,10 +500,7 @@ class Otto
         #
         # @param env [Hash] Rack environment
         def scrub_forwarded_headers(env)
-          env.delete('HTTP_X_FORWARDED_FOR')
-          env.delete('HTTP_X_REAL_IP')
-          env.delete('HTTP_X_CLIENT_IP')
-          env.delete('HTTP_FORWARDED')
+          Otto::Utils::CLIENT_ADDRESS_HEADERS.each { |key| env.delete(key) }
         end
 
         # Mask X-Forwarded-For and related proxy headers

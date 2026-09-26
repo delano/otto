@@ -34,11 +34,6 @@ class Otto
     RESOLVED_APP = ->(_env) { [200, {}, []] }
     private_constant :RESOLVED_APP
 
-    # Headers the client-IP resolver can read an address from. A request
-    # carrying one is relayed, not direct, so .env_for refuses them.
-    FORWARDED_IP_HEADERS = (Otto::Utils::FORWARDED_FOR_HEADERS + %w[HTTP_FORWARDED]).freeze
-    private_constant :FORWARDED_IP_HEADERS
-
     module_function
 
     # Clear the process-global state Otto accumulates across Otto.new calls,
@@ -75,8 +70,9 @@ class Otto
     # app under test. nil means an unconfigured middleware: public addresses
     # masked, no proxy trust.
     #
-    # The request is direct, so forwarded-for headers (X-Forwarded-For,
-    # X-Real-IP, X-Client-IP, Forwarded) raise ArgumentError: under a config
+    # The request is direct, so the headers in
+    # Otto::Utils::CLIENT_ADDRESS_HEADERS (X-Forwarded-For, X-Real-IP,
+    # X-Client-IP, Forwarded) raise ArgumentError: under a config
     # that trusts the peer they would move the resolved address away from
     # client_ip. For a relayed request, build the env with REMOTE_ADDR and the
     # forwarded headers and call {.resolve_client_ip!}.
@@ -98,7 +94,7 @@ class Otto
     #   env['otto.client_ip']                          # => "203.0.113.0"
     #   env['otto.ip_match'].call(['203.0.113.9/32'])  # => true
     def env_for(uri = '/', client_ip:, security_config:, **rack_options)
-      forwarded = FORWARDED_IP_HEADERS & rack_options.keys
+      forwarded = Otto::Utils::CLIENT_ADDRESS_HEADERS & rack_options.keys
       unless forwarded.empty?
         raise ArgumentError, "env_for builds a direct request from client_ip; #{forwarded.join(', ')} " \
                              'would change which address resolves. Build the env yourself and call ' \
@@ -129,6 +125,8 @@ class Otto
     # @raise [ArgumentError] if env was already resolved, since the
     #   middleware would keep the earlier result instead of applying
     #   security_config
+    # @raise [RuntimeError] if the middleware returned without installing
+    #   otto.ip_match, which every path that resolves an env writes
     def resolve_client_ip!(env, security_config)
       if env.key?('otto.client_ip') || env.key?('otto.ip_match')
         raise ArgumentError, 'env already carries otto.client_ip or otto.ip_match, so IPPrivacyMiddleware ' \
@@ -136,6 +134,14 @@ class Otto
       end
 
       Otto::Security::Middleware::IPPrivacyMiddleware.new(RESOLVED_APP, security_config).call(env)
+      # The middleware's response is discarded, so check its effect instead: a
+      # path that answered before resolving would otherwise hand back an env
+      # that looks built and is not.
+      unless env.key?('otto.ip_match')
+        raise 'IPPrivacyMiddleware returned without installing otto.ip_match; Otto::Testing ' \
+              'no longer matches the middleware and needs updating'
+      end
+
       env
     end
   end

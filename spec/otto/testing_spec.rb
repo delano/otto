@@ -192,6 +192,22 @@ RSpec.describe Otto::Testing do
       expect { described_class.resolve_client_ip!(env, Otto::Security::Config.new) }
         .to raise_error(ArgumentError, /already carries/)
     end
+
+    it 'raises when the middleware returns without installing otto.ip_match' do
+      # The helper discards the middleware's response, so only the missing key
+      # can reveal a path that answered before resolving. An env that drops
+      # the write stands in for that path: the middleware class may already be
+      # frozen when this runs, so it cannot be stubbed.
+      drops_ip_match = Class.new(Hash) do
+        def []=(key, value)
+          super unless key == 'otto.ip_match'
+        end
+      end
+      env = drops_ip_match.new.merge!(Rack::MockRequest.env_for('/', 'REMOTE_ADDR' => '203.0.113.9'))
+
+      expect { described_class.resolve_client_ip!(env, Otto::Security::Config.new) }
+        .to raise_error(RuntimeError, /without installing otto\.ip_match/)
+    end
   end
 
   # The regression the builder exists for: a harness env handed to a real

@@ -50,10 +50,17 @@ class Otto
       # Note the axis this controls: what PERSISTS observably (env keys, logs,
       # fingerprints). Precise ephemeral matching against the unmasked IP does
       # not require :audit — see EnvKeys::IP_MATCH, available in every profile.
+      #
+      # This table is the only list of knobs a profile governs: #profile=
+      # assigns whatever keys a preset carries, through each knob's writer so
+      # any check or normalization the writer does still runs. Every profile
+      # names the same keys, so applying one yields the same state whatever
+      # preceded it, and each key names a Config attribute with a writer and
+      # a public reader.
       PROFILES = {
         anonymous: { disabled: false, mask_private_ips: true }.freeze,
            masked: { disabled: false, mask_private_ips: false }.freeze,
-            audit: { disabled: true }.freeze,
+            audit: { disabled: true, mask_private_ips: false }.freeze,
       }.freeze
 
       attr_accessor :octet_precision, :hash_rotation_period, :geo_enabled, :mask_private_ips,
@@ -396,23 +403,18 @@ class Otto
 
       # Apply a named privacy profile's presets to this config.
       #
-      # Sets only the knobs the profile names (see {PROFILES}); other settings
+      # Assigns every knob the preset names (see {PROFILES}), so the result
+      # never depends on the profile applied before it: :anonymous -> :audit
+      # -> enable! lands on :masked, exactly as
+      # Config.new(profile: :audit).enable! does. Other settings
       # (octet_precision, geo, correlation_secret, ...) are untouched.
-      #
-      # Presets are applied, not reset: a knob a profile does not name keeps its
-      # previous value. Switching :anonymous -> :audit therefore leaves
-      # mask_private_ips true, because :audit names only `disabled`. That is
-      # inert rather than wrong — `disabled` short-circuits privacy_enabled?
-      # before mask_private_ips is ever read, and #profile below tests @disabled
-      # first, so the derived label stays accurate. Switching on to :masked
-      # re-sets both knobs explicitly. Only surprising if you read the raw ivars.
       #
       # @param profile [Symbol, String] :anonymous, :masked, or :audit
       # @raise [ArgumentError] for an unknown profile name
       def profile=(profile)
-        presets = self.class.profile_presets(profile)
-        @disabled = presets[:disabled] if presets.key?(:disabled)
-        @mask_private_ips = presets[:mask_private_ips] if presets.key?(:mask_private_ips)
+        self.class.profile_presets(profile).each do |knob, value|
+          send(:"#{knob}=", value)
+        end
       end
 
       # The profile the current knob state corresponds to.
@@ -516,6 +518,10 @@ class Otto
       end
 
       private
+
+      # Profile-governed, so #profile= can assign it through a writer like the
+      # other knobs. Public callers use #disable! and #enable!.
+      attr_writer :disabled
 
       # Normalize a database-path option to a non-empty String or nil. Shared by
       # the geo, ASN and anonymizer paths — the rule is identical for all three.

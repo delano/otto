@@ -141,7 +141,42 @@ RSpec.describe 'IP precision capability and privacy profiles' do
         config = described_class.new
         config.profile = :audit
         expect(config.disabled?).to be true
+        expect(config.mask_private_ips).to be false
         expect(config.profile).to eq(:audit)
+      end
+
+      it 'names the same knobs in every profile' do
+        # profile= assigns only the keys a preset carries, so a knob missing
+        # from one profile would keep its previous value when that one applies.
+        key_sets = described_class::PROFILES.values.map { |presets| presets.keys.sort }
+        expect(key_sets.uniq.size).to eq(1)
+      end
+
+      it 'lands on exactly its preset, whether constructed or assigned after any profile' do
+        # Reads each knob through its public reader, as callers see it.
+        knob_state = ->(config, presets) { presets.keys.to_h { |knob| [knob, config.public_send(knob)] } }
+
+        described_class::PROFILES.each do |target, presets|
+          expect(knob_state.call(described_class.new(profile: target), presets))
+            .to eq(presets), "new(profile: #{target.inspect})"
+
+          described_class::PROFILES.each_key do |prior|
+            config = described_class.new(profile: prior)
+            config.profile = target
+            expect(knob_state.call(config, presets)).to eq(presets), "#{prior.inspect} -> #{target.inspect}"
+          end
+        end
+      end
+
+      it 're-enables :audit to :masked even after :anonymous' do
+        # :audit used to name only `disabled`, leaving mask_private_ips true
+        # from the :anonymous pass, so enable! resurrected :anonymous.
+        config = described_class.new
+        config.profile = :anonymous
+        config.profile = :audit
+        config.enable!
+        expect(config.mask_private_ips).to be false
+        expect(config.profile).to eq(:masked)
       end
 
       it 'returns to :masked when re-applied' do
@@ -154,12 +189,11 @@ RSpec.describe 'IP precision capability and privacy profiles' do
       end
 
       it 'round-trips through all three profiles' do
-        # :audit names only `disabled`, so it leaves mask_private_ips set from
-        # the :anonymous pass. :masked must re-set both knobs to land clean.
         config = described_class.new
         config.profile = :anonymous
         config.profile = :audit
         expect(config.profile).to eq(:audit)
+        expect(config.mask_private_ips).to be false
 
         config.profile = :masked
         expect(config.enabled?).to be true

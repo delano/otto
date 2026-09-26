@@ -7,6 +7,106 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.12.0:
+
+2.12.0 — 2026-09-26
+===================
+
+Added
+-----
+
+- ``referrer_policy`` sets the Referrer-Policy header on routed responses,
+  static files, built-in 404 and 500 responses, and authentication failures.
+  Pass one W3C policy token to ``Otto.new`` or assign it before the first
+  request. A value a route handler sets on its own response is kept. See
+  ``docs/guides/testing-guide.md``. (#281)
+
+- Logic classes can declare a ``route_params:`` keyword on ``initialize`` to
+  receive the router's path captures separately from caller-supplied
+  parameters. (#285)
+
+- ``Otto::Utils.routing_path(env)`` returns the normalized path the router
+  matches, so middleware can judge a request by the same path the router
+  dispatches. ``include_mount: true`` includes ``SCRIPT_NAME``. See
+  ``docs/guides/routing.md``. (#288)
+
+- ``require 'otto/testing'`` adds test support for any test framework.
+  ``Otto::Testing.reset!`` clears Otto's process-global forwarding state
+  between tests. ``Otto::Testing.env_for`` and ``resolve_client_ip!`` build a
+  Rack env whose ``otto.client_ip`` and ``otto.ip_match`` are resolved by
+  ``IPPrivacyMiddleware``. See ``docs/guides/testing-guide.md``. (#287)
+
+- ``Otto::Security::Config#trusted_proxy_mode`` returns ``:filter``,
+  ``:depth``, ``:none``, or nil. (#148)
+
+Changed
+-------
+
+- A ``referrer-policy`` value set through ``security_headers`` is now
+  validated like ``referrer_policy``. An unknown token or a comma-separated
+  fallback list raises ``ArgumentError`` at configuration time, and the header
+  can no longer be removed from ``security_headers``. (#281)
+
+- Trusted-proxy state moved into a private
+  ``Otto::Security::TrustedProxyConfig``, and
+  ``Security::Configurator#configure`` now takes ``**options``. Public
+  methods, accepted keys, and behavior are unchanged. (#148)
+
+- The forwarding-family conflict error and the warning for a hand-set
+  ``otto.client_ip`` now name the ``Otto::Testing`` helper that addresses
+  each. ``Otto::Security::Config.reset_rack_forwarding_family_for_testing!``
+  remains for existing RSpec callers. (#287)
+
+Fixed
+-----
+
+- Requests whose ``PATH_INFO`` contains a malformed percent-escape (``%zz``)
+  or a raw invalid byte are now routed instead of answering 500. (#288)
+
+- The general rate-limit throttle now skips internal paths by the path the
+  router dispatches, so ``/%5Fmcp`` is skipped like ``/_mcp``. (#288)
+
+- ``Otto::Privacy::Config#profile=`` now sets both ``disabled`` and
+  ``mask_private_ips`` for every profile. Switching to ``:audit`` previously
+  left ``mask_private_ips`` unchanged, so a later ``enable!`` could restore
+  ``:anonymous`` instead of ``:masked``. (#286)
+
+- CSP violation reports now reach the receiver when Otto is mounted under a
+  sub-path. The receiver matches ``csp_report_uri`` against ``SCRIPT_NAME`` +
+  ``PATH_INFO``, so configure the site-absolute path including the mount
+  prefix, such as ``/api/csp-report`` under ``map '/api'``. A mount-relative
+  value no longer matches. Trailing-slash and percent-encoded spellings of
+  the report path are also matched. (#289)
+
+Security
+--------
+
+- JSON request bodies can no longer override path captures, query
+  parameters, or form fields in Logic class parameters; JSON keys now merge
+  below them. JSON bodies are no longer parsed for ``GET`` or ``HEAD``
+  requests. Before upgrading, check Logic classes that read a JSON body on
+  ``GET`` or expect a JSON key to replace a query or path value. (#285)
+
+Documentation
+-------------
+
+- ``docs/guides/routing.md`` covers matching request paths in middleware,
+  including apps mounted under a sub-path. ``docs/guides/testing-guide.md``
+  covers ``Otto::Testing`` and Referrer-Policy configuration. (#281, #287,
+  #288)
+
+AI Assistance
+-------------
+
+- The ``TrustedProxyConfig`` refactor was implemented with AI assistance and
+  checked against the previous release by a differential run of 1,620
+  trusted-proxy operation sequences and 29 ``configure`` calls, with no
+  difference in outcome. (#148)
+
+- ``Otto::Testing`` helpers, specs, and guide updates were written with AI
+  assistance. The reset was also exercised without RSpec, under Tryouts and
+  Minitest. (#287)
+
 .. _changelog-2.11.0:
 
 2.11.0 — 2026-09-12

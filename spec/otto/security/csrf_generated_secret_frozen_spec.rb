@@ -1,0 +1,140 @@
+# spec/otto/security/csrf_generated_secret_frozen_spec.rb
+#
+# frozen_string_literal: true
+
+require 'spec_helper'
+require 'tempfile'
+
+# Without OTTO_CSRF_SECRET or csrf_secret=, Security::Config signs CSRF tokens
+# with a generated per-process secret and logs a warning about it once per
+# config. Otto skips its lazy configuration freeze under RSpec (see Otto#call),
+# so the normal request path never generates a token through a genuinely
+# frozen config. These specs freeze explicitly: generating a token after the
+# freeze must not raise, and the warning must still be logged exactly once.
+# Integration spec over a behaviour, not a class; same shape as
+# csp_extras_frozen_spec.
+# rubocop:disable-next RSpec/DescribeClass
+RSpec.describe 'CSRF generated-secret warning against a frozen configuration' do
+  include Rack::Test::Methods
+
+  # Routes-file controllers must be resolvable by name, hence a real constant
+  # (the same pattern as FrozenCspExtrasApp in csp_extras_frozen_spec).
+  # rubocop:disable-next Lint/ConstantDefinitionInBlock, RSpec/LeakyConstantDeclaration
+  class FrozenCsrfGeneratedSecretApp
+    # Controller ivars, not spec state.
+    # rubocop:disable RSpec/InstanceVariable
+    def initialize(_req, res)
+      @res = res
+    end
+
+    def index
+      @res['content-type'] = 'text/html; charset=utf-8'
+      @res.write('<html><head><title>t</title></head><body>ok</body></html>')
+    end
+    # rubocop:enable RSpec/InstanceVariable
+  end
+
+  let(:warning) { /randomly generated per-process secret/ }
+
+  around do |example|
+    original_secret = ENV.fetch('OTTO_CSRF_SECRET', nil)
+    original_env    = ENV.fetch('RACK_ENV', nil)
+    ENV.delete('OTTO_CSRF_SECRET')
+    example.run
+  ensure
+    ENV['OTTO_CSRF_SECRET'] = original_secret
+    ENV['RACK_ENV']         = original_env
+  end
+
+  before do
+    # A non-production environment, where the generated secret is allowed and
+    # only warned about (production raises instead).
+    ENV['RACK_ENV'] = 'development'
+    allow(Otto.logger).to receive(:warn)
+  end
+
+  describe 'Otto::Security::Config#generate_csrf_token after deep_freeze!' do
+    let(:config) do
+      cfg = Otto::Security::Config.new
+      cfg.enable_csrf_protection!
+      cfg
+    end
+
+    it 'generates a verifiable token without raising' do
+      config.deep_freeze!
+
+      token = nil
+      expect { token = config.generate_csrf_token('session_a') }.not_to raise_error
+      expect(config.verify_csrf_token(token, 'session_a')).to be true
+    end
+
+    it 'logs the generated-secret warning exactly once across freeze and repeated generation' do
+      config.deep_freeze!
+      3.times { |i| config.generate_csrf_token("session_#{i}") }
+
+      expect(Otto.logger).to have_received(:warn).with(warning).once
+    end
+
+    it 'logs the warning once when a token was generated before the freeze' do
+      config.generate_csrf_token('session_before')
+      config.deep_freeze!
+      config.generate_csrf_token('session_after')
+
+      expect(Otto.logger).to have_received(:warn).with(warning).once
+    end
+
+    it 'does not log the warning when a secret is configured' do
+      config.csrf_secret = SecureRandom.hex(32)
+      config.deep_freeze!
+      config.generate_csrf_token('session_a')
+
+      expect(Otto.logger).not_to have_received(:warn).with(warning)
+    end
+
+    it 'with CSRF protection disabled, neither warns at freeze time nor raises on generation' do
+      disabled = Otto::Security::Config.new.deep_freeze!
+
+      expect(Otto.logger).not_to have_received(:warn).with(warning)
+      # CSRFHelpers#csrf_token can still mint tokens with CSRF disabled.
+      expect { disabled.generate_csrf_token('session_a') }.not_to raise_error
+    end
+  end
+
+  describe 'an Otto app with CSRF enabled and a generated secret' do
+    let(:routes_file) do
+      file = Tempfile.new(['frozen_csrf_generated_secret_routes', '.txt'])
+      file.write("GET / FrozenCsrfGeneratedSecretApp#index\n")
+      file.flush
+      file
+    end
+
+    let(:otto) do
+      instance = Otto.new(routes_file.path)
+      instance.enable_csrf_protection!
+      # Freeze the whole instance the way the first real request would outside
+      # the test suite (RSpec skips this). freeze_configuration! is private.
+      instance.send(:freeze_configuration!)
+      instance
+    end
+
+    def app
+      otto
+    end
+
+    after { routes_file.close! }
+
+    it 'freezes the security config (the precondition this spec exists for)' do
+      expect(otto.security_config.frozen?).to be true
+    end
+
+    it 'serves HTML pages with an injected CSRF token' do
+      2.times do
+        get '/'
+
+        expect(last_response.status).to eq(200)
+        expect(last_response.body).to include('<meta name="csrf-token" content="')
+      end
+      expect(Otto.logger).to have_received(:warn).with(warning).once
+    end
+  end
+end

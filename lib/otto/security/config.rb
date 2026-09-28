@@ -1342,9 +1342,14 @@ class Otto
       # randomly-generated per-process secret. Such tokens do not survive process
       # restarts and are not shared across workers; set OTTO_CSRF_SECRET (or
       # config.csrf_secret=) for stable multi-process behavior.
+      #
+      # Called from #validate_csrf_secret_config! while #deep_freeze! runs, before
+      # the instance is frozen, and from #generate_csrf_token on a config that
+      # is not frozen. A frozen config cannot record the once-only flag, so it
+      # skips the warning here; with CSRF enabled it was logged at freeze time.
       def warn_generated_csrf_secret
         return unless @csrf_secret_generated
-        return if @csrf_secret_warning_emitted
+        return if @csrf_secret_warning_emitted || frozen?
 
         @csrf_secret_warning_emitted = true
         Otto.logger.warn(<<~MSG.gsub(/\s+/, ' ').strip)
@@ -1382,8 +1387,13 @@ class Otto
       # enables CSRF with a generated (non-configured) secret. Mirrors
       # #validate_trusted_proxy_config! so the failure surfaces at boot, before
       # serving traffic, for apps that deep-freeze their config.
+      #
+      # Outside production, a generated secret is allowed, so the generated-secret
+      # warning is logged here, while the instance can still record that it was.
       def validate_csrf_secret_config!
         raise ArgumentError, CSRF_SECRET_REQUIRED_MESSAGE if csrf_secret_unsafe_for_production?
+
+        warn_generated_csrf_secret if @csrf_protection
       end
 
       # Generation-time guard for apps that never freeze their config: never

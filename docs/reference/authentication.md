@@ -266,7 +266,9 @@ When a route has authentication requirements:
 1. Looks up strategies from `auth_config[:auth_strategies]`
 2. Executes `strategy.authenticate(env, requirement)` for each strategy
 3. On first success:
-   - Sets `env['rack.session']` (if provided)
+   - Sets `env['rack.session']` from the result only when env has no
+     session and the strategy returned one; an existing session is never
+     replaced
    - Sets `env['otto.strategy_result']`
    - Sets `env['otto.user']` (extracted from result)
    - Checks role requirements (if `role=` specified)

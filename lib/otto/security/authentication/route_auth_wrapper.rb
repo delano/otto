@@ -209,9 +209,13 @@ class Otto
           # Set environment variables for controllers/logic
           env['otto.strategy_result'] = result
 
-          # SESSION PERSISTENCE: Ensure env['rack.session'] and strategy_result.session
-          # reference the SAME object for proper session persistence
-          env['rack.session'] = result.session if result.is_a?(StrategyResult) && result.session
+          # SESSION PERSISTENCE: never replace an existing env['rack.session']
+          # (e.g. rack-session's SessionHash); the session middleware commits
+          # the object it installed. The strategy's session fills env only
+          # when env has none. The empty Hash that StrategyResult.anonymous and
+          # AuthStrategy#success use as a default is not a session the
+          # strategy produced, so it is never copied into env.
+          env['rack.session'] ||= result.session unless result.session.nil? || result.session == {}
 
           # Layer 1 Authorization: Check role requirements
           auth_check = @role_authorizer.check(result, env)

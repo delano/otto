@@ -66,6 +66,36 @@ forwarded host, scheme, port, and IP values directly.
 Configure these options before the first request, when Otto freezes its
 configuration.
 
+## How enumerated proxy trust resolves the client IP
+
+With `trusted_proxies: [...]`, Otto reads `X-Forwarded-For` only when
+`REMOTE_ADDR` matches a configured proxy. It then reads the header from the
+right: starting with the entry nearest the application, it skips entries that
+match a configured proxy and takes the first entry that does not as the client
+IP. Entries to the left of that one are never used. If every entry matches a
+configured proxy, or the walk reaches an entry that is not a valid IP address
+(such as `unknown`), Otto uses `REMOTE_ADDR`.
+
+For example, with `trusted_proxies: ['10.0.0.0/8']` and a request from
+`10.0.0.5` carrying `X-Forwarded-For: 198.51.100.7, 203.0.113.9, 10.0.0.9`,
+the client IP is `203.0.113.9`. The `198.51.100.7` entry is whatever the client
+sent.
+
+This gives the right answer only when every trusted proxy appends the address
+it received the request from to `X-Forwarded-For`. nginx does this with
+`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`. A trusted proxy
+that passes the client's `X-Forwarded-For` through unchanged lets the client
+choose the rightmost entry, and with it the resolved client IP, the value
+`env['otto.ip_match']` checks, and every key derived from it. Configure each
+trusted proxy to append to the header, or to replace a client-supplied value
+with the address it observed.
+
+`X-Real-IP` and `X-Client-IP` each carry one address. Otto reads them only when
+`X-Forwarded-For` is absent or blank, `X-Real-IP` first and then `X-Client-IP`,
+and never adds them to the `X-Forwarded-For` chain. A proxy that sets
+`X-Real-IP` but passes a client's `X-Forwarded-For` through still lets that
+header decide the client IP.
+
 ## How Otto handles each trust state
 
 The decision is made by `IPPrivacyMiddleware` from the connecting peer
@@ -209,9 +239,10 @@ registers the family for the process, even under `trusted_proxies: :none`.
 `trusted_proxy_header` accepts `X-Forwarded-For` (the default), `Forwarded`, or
 `Both`. When configuring proxy trust, `Forwarded` and `Both` require depth mode.
 CIDR filter mode resolves client IPs from the `X-Forwarded-For` family only
-(`X-Forwarded-For`, then `X-Real-IP`, then `X-Client-IP`) and never from RFC
-7239 `Forwarded`, so a non-default family would make Rack read a header that
-Otto ignores:
+(`X-Forwarded-For`, or `X-Real-IP` then `X-Client-IP` when it is absent; see
+[How enumerated proxy trust resolves the client IP](#how-enumerated-proxy-trust-resolves-the-client-ip))
+and never from RFC 7239 `Forwarded`, so a non-default family would make Rack
+read a header that Otto ignores:
 
 ```text
 Cannot configure trusted_proxy_header 'Forwarded' or 'Both' together with

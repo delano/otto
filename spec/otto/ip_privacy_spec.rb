@@ -2040,7 +2040,7 @@ RSpec.describe 'IP Privacy Features' do
         }
         middleware.call(env)
 
-        # Should resolve to first non-trusted IP (203.0.113.50) and mask it
+        # Should resolve to the rightmost non-trusted IP (203.0.113.50) and mask it
         expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
         expect(env['HTTP_X_FORWARDED_FOR']).to eq('203.0.113.0')
       end

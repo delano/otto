@@ -451,15 +451,15 @@ RSpec.describe Otto::Utils do
       expect(Otto::Utils.resolve_client_ip(env, config_with("10.0.0.0/8"))).to eq("203.0.113.50")
     end
 
-    it "walks the forwarded chain and returns the first non-proxy address" do
+    it "walks the forwarded chain from the right and returns the first non-proxy address" do
       env = {
         "REMOTE_ADDR" => "10.0.0.1",
-        "HTTP_X_FORWARDED_FOR" => "203.0.113.50, 10.0.0.9, 10.0.0.1",
+        "HTTP_X_FORWARDED_FOR" => "198.51.100.7, 203.0.113.50, 10.0.0.9, 10.0.0.1",
       }
       expect(Otto::Utils.resolve_client_ip(env, config_with("10.0.0.0/8"))).to eq("203.0.113.50")
     end
 
-    it "honors X-Real-IP and X-Client-IP in addition to X-Forwarded-For" do
+    it "honors X-Real-IP and X-Client-IP when X-Forwarded-For is absent" do
       real = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_REAL_IP" => "203.0.113.7" }
       client = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_CLIENT_IP" => "203.0.113.8" }
       cfg = config_with("10.0.0.0/8")

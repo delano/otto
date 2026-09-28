@@ -10,8 +10,9 @@ class Otto
   module Utils
     extend self
 
-    # Forwarded-for style headers consulted (in order) when resolving the real
-    # client IP from behind a trusted proxy. Shared by IPPrivacyMiddleware and
+    # Forwarded-for style headers consulted when resolving the real client IP
+    # from behind a trusted proxy. The resolver reads only the first one that
+    # is not blank, in this order. Shared by IPPrivacyMiddleware and
     # Otto::Request so the two resolvers cannot drift.
     FORWARDED_FOR_HEADERS = %w[
       HTTP_X_FORWARDED_FOR
@@ -225,9 +226,12 @@ class Otto
     # This is the single canonical resolver shared by IPPrivacyMiddleware
     # ("resolve once") and Otto::Request#client_ipaddress (its no-middleware
     # fallback), so both paths agree on which headers to trust and how to walk
-    # a proxy chain. It walks the forwarded chain left-to-right and returns the
-    # first address that is not itself a trusted proxy; if the peer is not a
-    # trusted proxy (or there is no config) it returns REMOTE_ADDR unchanged.
+    # a proxy chain. It walks the forwarded chain from the right (nearest proxy
+    # first, the direction Rack::Request#ip also walks), skips trusted proxies,
+    # and returns the first address that is not one. Entries left of that
+    # address were supplied by the client and are never selected. If the peer
+    # is not a trusted proxy (or there is no config) it returns REMOTE_ADDR
+    # unchanged.
     #
     # @param env [Hash] Rack environment
     # @param security_config [Otto::Security::Config, nil] config exposing #trusted_proxy?
@@ -246,19 +250,26 @@ class Otto
       # is the client. Don't honor forwarded headers from untrusted sources.
       return remote_addr unless security_config&.trusted_proxy?(remote_addr)
 
-      forwarded_ips = FORWARDED_FOR_HEADERS
-                      .filter_map { |header| env[header] }
-                      .flat_map { |value| value.split(/,\s*/) }
+      # Read one header: the first of FORWARDED_FOR_HEADERS that is not blank.
+      # X-Real-IP and X-Client-IP carry a single address, so they are read only
+      # when X-Forwarded-For is absent and never become positions in its chain.
+      header = FORWARDED_FOR_HEADERS.find { |name| !env[name].to_s.strip.empty? }
+      forwarded_ips = header ? env[header].split(/,\s*/) : []
 
-      forwarded_ips.each do |candidate|
+      # Walk from the right. A proxy that appends writes the address it received
+      # the request from after whatever the client sent, so skip trusted proxies
+      # and stop at the first entry that is not one: everything left of it came
+      # from the client. An entry that is not a valid address (for example
+      # "unknown") also stops the walk, since reading past it would reach
+      # client-supplied values.
+      forwarded_ips.reverse_each do |candidate|
         clean_ip = normalize_ip(candidate.strip)
-        next unless clean_ip
-
-        # First address in the chain that isn't a known proxy is the client.
+        break unless clean_ip
         return clean_ip unless security_config.trusted_proxy?(clean_ip)
       end
 
-      # Whole chain was trusted proxies (or empty): fall back to the peer.
+      # Whole chain was trusted proxies, or empty, or stopped at an invalid
+      # entry: fall back to the peer.
       remote_addr
     end
 

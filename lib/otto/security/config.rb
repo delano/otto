@@ -1208,8 +1208,16 @@ class Otto
       # This pre-initializes any lazy values before freezing to prevent FrozenError
       # when accessing configuration after it's frozen.
       #
+      # Idempotent, like Otto::Core::Freezable#deep_freeze!: a frozen config
+      # returns self without rerunning the freeze-time validators. Middleware
+      # that takes this config as an argument (the MCP token and rate limit
+      # middleware) leads Otto#freeze_configuration! to reach it a second time
+      # while freezing the middleware stack.
+      #
       # @return [self] The frozen configuration
       def deep_freeze!
+        return self if frozen?
+
         # Ensure custom_rules is initialized (should already be done in constructor)
         @rate_limiting_config[:custom_rules] ||= {}
         validate_referrer_policy!(@security_headers['referrer-policy'])

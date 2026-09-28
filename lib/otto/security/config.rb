@@ -436,9 +436,8 @@ class Otto
         @rate_limiting_config   = { custom_rules: {} }
         @ip_privacy_config      = Otto::Privacy::Config.new
 
-        configured_secret      = ENV.fetch('OTTO_CSRF_SECRET', nil)
-        @csrf_secret_generated = configured_secret.nil? || configured_secret.empty?
-        @csrf_secret           = @csrf_secret_generated ? SecureRandom.hex(32) : configured_secret
+        # Unset or blank falls back to a generated secret (see #csrf_secret=).
+        self.csrf_secret = ENV.fetch('OTTO_CSRF_SECRET', nil)
       end
 
       # Enable CSRF (Cross-Site Request Forgery) protection
@@ -777,11 +776,27 @@ class Otto
       #
       # Write-only by design: the signing key has no public reader, so it is not
       # exposed to inspection/logging/serialization via the config object.
+      #
+      # nil or a blank String (empty after strip), including an unset or blank
+      # OTTO_CSRF_SECRET at construction, is not used as the key. A fresh random
+      # per-process secret is generated instead and marked as generated, so the
+      # production guard (CSRF_SECRET_REQUIRED_MESSAGE) still applies.
+      #
+      # @param secret [String, nil] stable signing secret, or nil/blank for a
+      #   generated per-process secret
+      # @raise [FrozenError] if configuration is frozen
+      # @raise [ArgumentError] if secret is neither a String nor nil
       def csrf_secret=(secret)
         ensure_not_frozen!
 
-        @csrf_secret           = secret
-        @csrf_secret_generated = false
+        unless secret.nil? || secret.is_a?(String)
+          raise ArgumentError,
+                "CSRF secret must be a String or nil, got: #{secret.class}"
+        end
+
+        # Blank check on a binary copy: String#strip raises on invalid UTF-8.
+        @csrf_secret_generated = secret.nil? || secret.b.strip.empty?
+        @csrf_secret           = @csrf_secret_generated ? SecureRandom.hex(32) : secret
       end
 
       # Generate a CSRF token bound to the given session id and signed (HMAC-SHA256)

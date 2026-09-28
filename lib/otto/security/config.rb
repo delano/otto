@@ -1261,14 +1261,25 @@ class Otto
         commit_rack_forwarding_family!
       end
 
+      # Returns the value CSRF tokens are bound to, as a String, or nil.
+      #
+      # A binding stored under csrf_session_key is read before session.id.
+      # Lazy session stores (rack-session) report a nil id until the session
+      # is first written, so the first page a new visitor loads gets a random
+      # binding stored in the session. On later requests session.id is set,
+      # and reading it first would bind the next check to a different value.
+      # Reading the key also makes such stores load an existing session.
+      #
+      # Values are coerced with to_s because session ids may be objects
+      # (rack-session returns a Rack::Session::SessionId).
       def extract_existing_session_id(request)
         # Try session first
         begin
           session = request.session
           if session
-            return session.id if session.respond_to?(:id) && session.id
-            return session[csrf_session_key] if session[csrf_session_key]
-            return session['session_id'] if session['session_id']
+            return session[csrf_session_key].to_s if session[csrf_session_key]
+            return session.id.to_s if session.respond_to?(:id) && session.id
+            return session['session_id'].to_s if session['session_id']
           end
         rescue StandardError
           # Fall through to cookies

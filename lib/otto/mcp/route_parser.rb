@@ -27,7 +27,7 @@ class Otto
           type: :mcp_resource,
           resource_uri: resource_uri,
           handler: handler_definition,
-          options: extract_options_from_handler(handler_definition),
+          options: extract_options_from_handler(handler_definition, "MCP route #{resource_uri.inspect}"),
         }
       end
 
@@ -50,7 +50,7 @@ class Otto
           type: :mcp_tool,
           tool_name: tool_name,
           handler: handler_definition,
-          options: extract_options_from_handler(handler_definition),
+          options: extract_options_from_handler(handler_definition, "TOOL route #{tool_name.inspect}"),
         }
       end
 
@@ -62,16 +62,24 @@ class Otto
         definition.start_with?('TOOL ')
       end
 
-      def self.extract_options_from_handler(handler_definition)
+      def self.extract_options_from_handler(handler_definition, route_label = "handler #{handler_definition.inspect}")
         parts   = handler_definition.split(/\s+/)
         options = {}
 
-        # First part is the handler class.method. Delegate token parsing to
-        # Otto::RouteDefinition so a bare/empty auth|role|csrf token here
-        # fails fast exactly like it does for normal routes (issue #191
-        # MCP/TOOL follow-up), instead of silently registering the route
-        # without its intended protection.
+        # First part is the handler class.method. The MCP server registers
+        # resources and tools without running the auth, role or CSRF checks
+        # that normal routes get, so an auth|role|csrf token here (in any
+        # form or case) fails the load instead of registering the route as
+        # if it were protected. Other tokens are parsed by
+        # Otto::RouteDefinition exactly as for normal routes.
         parts[1..]&.each do |part|
+          if Otto::RouteDefinition::SECURITY_GATING_OPTIONS.include?(part.split('=', 2).first.to_s.downcase)
+            raise Otto::RouteDefinitionError,
+                  "#{route_label} sets #{part.inspect}, but auth, role and csrf options are not " \
+                  'enforced on MCP or TOOL routes. Remove the option and use mcp_auth_tokens ' \
+                  'to require a token for the MCP endpoint.'
+          end
+
           pair = Otto::RouteDefinition.parse_option_token(part, "handler #{handler_definition.inspect}")
           if pair
             options[pair[0]] = pair[1]

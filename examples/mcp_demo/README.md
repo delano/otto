@@ -157,5 +157,6 @@ they are not registered by this checkout's route-loading path.
 
 - Build a CLI that communicates with the MCP endpoint
 - Integrate with AI systems that support MCP
-- Combine with [Authentication](../authentication_strategies/) for role-based MCP access
+- Protect the endpoint with `mcp_auth_tokens`. `MCP` and `TOOL` routes cannot use
+  `auth=`, `role=`, or `csrf=`; see the [MCP guide](../../docs/guides/mcp.md#register-resources-and-tools)
 - Explore [Advanced Routes](../advanced_routes/) for more routing patterns

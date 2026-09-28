@@ -117,6 +117,21 @@ currently advertise an empty input schema. A tool still receives the
 `params.arguments` object supplied by the client, so validate its fields in the
 handler before using them.
 
+`MCP` and `TOOL` declarations cannot use the `auth=`, `role=`, or `csrf=` route
+options. Otto does not run route-level authentication, role, or CSRF checks
+for resources and tools, so a routes file that sets any of these options on an
+`MCP` or `TOOL` line raises `Otto::RouteDefinitionError` when it loads:
+
+```text
+# Rejected when the routes file loads:
+POST /mcp/delete-user  TOOL delete_user AppMCP.delete_user auth=session role=admin
+```
+
+Use `mcp_auth_tokens` to require a token for the MCP endpoint (see
+[Authentication](#authentication)). A request that passes the token check can
+list, read, and call every registered resource and tool, so check permissions
+inside a handler when a tool needs them.
+
 ## Call the endpoint
 
 Every request must be a JSON-RPC 2.0 `POST` with

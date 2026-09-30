@@ -212,10 +212,14 @@ class Otto
           # SESSION PERSISTENCE: never replace an existing env['rack.session']
           # (e.g. rack-session's SessionHash); the session middleware commits
           # the object it installed. The strategy's session fills env only
-          # when env has none. The empty Hash that StrategyResult.anonymous and
-          # AuthStrategy#success use as a default is not a session the
-          # strategy produced, so it is never copied into env.
-          env['rack.session'] ||= result.session unless result.session.nil? || result.session == {}
+          # when env has none, and only if the strategy supplied one: nil and
+          # false are not sessions, and StrategyResult::DefaultSession is the
+          # placeholder StrategyResult.anonymous and AuthStrategy#success use
+          # when the strategy passed none. An empty Hash passed on purpose is
+          # a plain Hash and is copied. The check is by class, never by
+          # content, so it does not load a lazy session (rack-session).
+          session = result.session
+          env['rack.session'] ||= session if session && !session.instance_of?(StrategyResult::DefaultSession)
 
           # Layer 1 Authorization: Check role requirements
           auth_check = @role_authorizer.check(result, env)

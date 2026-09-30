@@ -14,5 +14,17 @@ Fixed
   middleware installed.
 
 - When env has no session, the wrapper still sets ``env['rack.session']`` to
-  a session the strategy hands back, but no longer to the empty Hash default.
-  ``result.session`` is unchanged: it is the session the strategy returned.
+  a session the strategy passed, including an empty Hash, but not to ``nil``,
+  ``false``, or the default. ``result.session`` is unchanged: it is the
+  session the strategy returned.
+
+Changed
+-------
+
+- When a strategy passes no ``session:``, ``StrategyResult.anonymous`` and
+  ``AuthStrategy#success`` now default ``result.session`` to a new, empty
+  ``StrategyResult::DefaultSession``, a ``Hash`` subclass, instead of a plain
+  ``{}``. It still compares equal to ``{}`` and is writable. The route auth
+  wrapper recognizes the default by its class, so a strategy that passes an
+  empty Hash on purpose has it copied into an empty env, and the check never
+  reads a session's contents.

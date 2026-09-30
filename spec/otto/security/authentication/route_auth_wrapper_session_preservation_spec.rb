@@ -217,6 +217,96 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
       expect(seen[:session]).to be_nil
       expect(env).not_to have_key('rack.session')
     end
+
+    it 'does not put the default session from AuthStrategy#success into env' do
+      status, env = call_route('auth=apikey', session: nil, headers: { 'X-API-Key' => api_key })
+
+      expect(status).to eq(200)
+      expect(env['otto.strategy_result'].session).to eq({})
+      expect(env).not_to have_key('rack.session')
+    end
+
+    it 'sets env[rack.session] to an empty Hash a strategy hands back' do
+      produced = {}
+      auth_config[:auth_strategies]['custom'] = strategy_returning(produced)
+
+      status, env = call_route('auth=custom', session: nil)
+
+      expect(status).to eq(200)
+      expect(seen[:session]).to equal(produced)
+      expect(env['rack.session']).to equal(produced)
+    end
+
+    it 'does not put a false session into env' do
+      auth_config[:auth_strategies]['custom'] = strategy_returning(false)
+
+      status, env = call_route('auth=custom', session: nil)
+
+      expect(status).to eq(200)
+      expect(env).not_to have_key('rack.session')
+    end
+
+    it 'copies a lazy session a strategy hands back without loading it' do
+      loads = []
+      lazy = session_hash_class.new
+      %i[[] []= key? dig empty? to_hash].each do |name|
+        lazy.define_singleton_method(name) do |*|
+          loads << name
+          raise 'session loaded'
+        end
+      end
+      auth_config[:auth_strategies]['custom'] = strategy_returning(lazy)
+
+      status, env = call_route('auth=custom', session: nil)
+
+      expect(status).to eq(200)
+      expect(env['rack.session']).to equal(lazy)
+      expect(loads).to be_empty
+    end
+
+    # A strategy that keeps its own server-side sessions, with no session
+    # middleware: the store hands back the same Hash for a token on every
+    # request, and a new token starts with an empty one. Handler writes made
+    # through req.session must land in that Hash from the first request on.
+    context 'when a strategy supplies the session from its own store' do
+      let(:store) { Hash.new { |sessions, token| sessions[token] = {} } }
+
+      let(:handler) do
+        lambda do |env, _extra_params|
+          session = Rack::Request.new(env).session
+          session['visits'] = (session['visits'] || 0) + 1
+          [200, { 'content-type' => 'text/plain' }, ['ok']]
+        end
+      end
+
+      let(:token_strategy) do
+        sessions = store
+        Class.new(Otto::Security::Authentication::AuthStrategy) do
+          define_method(:authenticate) do |env, _requirement|
+            token = env['HTTP_X_TOKEN']
+            return failure('No token') unless token
+
+            success(user: { id: token }, session: sessions[token], auth_method: 'token')
+          end
+        end.new
+      end
+
+      before { auth_config[:auth_strategies]['token'] = token_strategy }
+
+      it 'keeps the writes for a new token whose session starts empty' do
+        3.times { call_route('auth=token', session: nil, headers: { 'X-Token' => 'new' }) }
+
+        expect(store['new']).to eq('visits' => 3)
+      end
+
+      it 'keeps the writes for a token whose session already has data' do
+        store['old'] = { 'seen' => true }
+
+        3.times { call_route('auth=token', session: nil, headers: { 'X-Token' => 'old' }) }
+
+        expect(store['old']).to eq('seen' => true, 'visits' => 3)
+      end
+    end
   end
 
   def strategy_returning(session)

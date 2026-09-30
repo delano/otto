@@ -352,4 +352,36 @@ RSpec.describe Otto::Security::Authentication::StrategyResult do
       expect(described_class.anonymous.has_permission?(:read)).to be(false)
     end
   end
+
+  # RouteAuthWrapper tells "the strategy passed no session" apart from "the
+  # strategy passed an empty Hash" by class, never by content.
+  describe 'default session' do
+    let(:strategy_class) do
+      Class.new(Otto::Security::Authentication::AuthStrategy) do
+        def build(**) = success(user: { id: 1 }, **)
+      end
+    end
+
+    it 'gives .anonymous an empty, writable DefaultSession' do
+      session = described_class.anonymous.session
+
+      expect(session).to be_an_instance_of(described_class::DefaultSession)
+      expect(session).to eq({})
+      expect(session).not_to be_frozen
+    end
+
+    it 'gives each .anonymous result its own DefaultSession' do
+      expect(described_class.anonymous.session).not_to equal(described_class.anonymous.session)
+    end
+
+    it 'gives AuthStrategy#success a DefaultSession when no session: is passed' do
+      expect(strategy_class.new.build.session).to be_an_instance_of(described_class::DefaultSession)
+    end
+
+    it 'keeps an empty Hash passed to AuthStrategy#success as a plain Hash' do
+      produced = {}
+
+      expect(strategy_class.new.build(session: produced).session).to equal(produced)
+    end
+  end
 end

@@ -108,11 +108,15 @@ class Otto
         # Used by middleware for routes without auth requirements
         # and by PublicStrategy for publicly accessible routes.
         #
+        # The session is a new, empty {DefaultSession}: the result carries no
+        # session of its own, and RouteAuthWrapper does not copy it into
+        # env['rack.session'].
+        #
         # @param metadata [Hash] Optional metadata (IP, user agent, etc.)
         # @return [StrategyResult] Anonymous result with nil user
         def self.anonymous(metadata: {}, strategy_name: 'anonymous')
           new(
-            session: {},
+            session: StrategyResult::DefaultSession.new,
             user: nil,
             auth_method: 'anonymous',
             metadata: metadata,
@@ -361,6 +365,20 @@ class Otto
         # @return [Array<String>]
         def normalize_list(value)
           Array(value).map(&:to_s)
+        end
+      end
+
+      class StrategyResult
+        # The empty session a result carries when its strategy passed none:
+        # {StrategyResult.anonymous} and AuthStrategy#success use a new
+        # instance as their default. It is an ordinary, writable Hash, so it
+        # compares equal to {} and code that reads result.session keeps
+        # working. The class is the marker: RouteAuthWrapper checks
+        # `instance_of?(DefaultSession)` to skip copying it into
+        # env['rack.session'], so an empty Hash that a strategy passes on
+        # purpose is still copied, and the check never reads a session's
+        # contents (which would load a lazy rack-session SessionHash).
+        class DefaultSession < ::Hash
         end
       end
     end

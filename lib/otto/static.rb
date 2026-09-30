@@ -39,6 +39,22 @@ class Otto
       [status, copy_headers(headers), body.is_a?(Array) ? body.dup : body]
     end
 
+    # Drop the body of a response to a HEAD request, as Rack::Head does.
+    #
+    # The Rack SPEC requires an empty body for HEAD. The original body is
+    # closed here, because the server only closes the body it receives, and
+    # the status and headers (including any content-length the handler set)
+    # are kept. A new triple is returned rather than writing into +response+,
+    # which may be frozen or shared.
+    #
+    # @param response [Array] a Rack triple +[status, headers, body]+
+    # @return [Array] +[status, headers, []]+
+    def head_response(response)
+      status, headers, body = response
+      body.close if body.respond_to?(:close)
+      [status, headers, []]
+    end
+
     # Copy a Rack headers container, keeping its class and copying Array values.
     #
     # @param headers [Hash, Rack::Headers, nil] the headers to copy

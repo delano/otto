@@ -12,16 +12,38 @@ require 'spec_helper'
 # replace a declared HEAD handler and grew routes[:HEAD] on every request.
 #
 # Otto#call skips the lazy freeze under RSpec, so the frozen examples freeze
-# explicitly.
+# explicitly. A HEAD response has an empty body (spec/otto/head_response_spec.rb),
+# so each handler names itself in an x-handler header.
 RSpec.describe Otto::Core::Router do
+  before do
+    stub_const('HeadDispatchApp', Module.new do
+      { index: 'Hello World', test: 'test response', search: 'Search results' }.each do |name, text|
+        define_singleton_method(name) do |_req, res|
+          res.headers['x-handler'] = name.to_s
+          res.write(text)
+        end
+      end
+
+      define_singleton_method(:show) do |req, res|
+        res.headers['x-handler'] = 'show'
+        res.write("Showing #{req.params['id']}")
+      end
+
+      define_singleton_method(:update) do |req, res|
+        res.headers['x-handler'] = 'update'
+        res.write("Updated #{req.params['id']}")
+      end
+    end)
+  end
+
   let(:routes) do
     [
-      'GET /health TestApp.index',
-      'HEAD /health TestApp.test',
-      'GET /other TestApp.search',
-      'GET /show/:id TestApp.show',
-      'GET /items/:id TestApp.show',
-      'HEAD /items/:id TestApp.update',
+      'GET /health HeadDispatchApp.index',
+      'HEAD /health HeadDispatchApp.test',
+      'GET /other HeadDispatchApp.search',
+      'GET /show/:id HeadDispatchApp.show',
+      'GET /items/:id HeadDispatchApp.show',
+      'HEAD /items/:id HeadDispatchApp.update',
     ]
   end
 
@@ -34,6 +56,10 @@ RSpec.describe Otto::Core::Router do
 
   def body_of(response)
     response[2].to_enum(:each).to_a.join
+  end
+
+  def handler_of(response)
+    response[1]['x-handler']
   end
 
   def table_sizes
@@ -58,28 +84,28 @@ RSpec.describe Otto::Core::Router do
       response = head('/health')
 
       expect(response[0]).to eq(200)
-      expect(body_of(response)).to eq('test response')
+      expect(handler_of(response)).to eq('test')
     end
 
     it 'falls back to the GET handler for a GET-only literal path' do
       response = head('/other')
 
       expect(response[0]).to eq(200)
-      expect(body_of(response)).to eq('Search results')
+      expect(handler_of(response)).to eq('search')
     end
 
     it 'falls back to the GET handler for a GET-only dynamic path' do
       response = head('/show/123')
 
       expect(response[0]).to eq(200)
-      expect(body_of(response)).to eq('Showing 123')
+      expect(handler_of(response)).to eq('show')
     end
 
     it 'tries a declared HEAD dynamic route before the GET dynamic route' do
       response = head('/items/7')
 
       expect(response[0]).to eq(200)
-      expect(body_of(response)).to eq('Updated 7')
+      expect(handler_of(response)).to eq('update')
     end
 
     it 'keeps serving GET requests with the GET handler' do
@@ -98,8 +124,8 @@ RSpec.describe Otto::Core::Router do
 
   context 'without freezing (the RSpec default)' do
     it 'uses the declared HEAD handler instead of the GET handler for the same path' do
-      expect(body_of(head('/health'))).to eq('test response')
-      expect(body_of(head('/health'))).to eq('test response')
+      expect(handler_of(head('/health'))).to eq('test')
+      expect(handler_of(head('/health'))).to eq('test')
     end
 
     it 'does not change the route table sizes after repeated HEAD requests' do
@@ -117,7 +143,7 @@ RSpec.describe Otto::Core::Router do
     end
 
     it 'does not create a HEAD table when no HEAD route is declared' do
-      get_only = Otto.new(create_test_routes_file('head_get_only.txt', ['GET /other TestApp.search']))
+      get_only = Otto.new(create_test_routes_file('head_get_only.txt', ['GET /other HeadDispatchApp.search']))
 
       response = get_only.call(mock_rack_env(method: 'HEAD', path: '/other'))
 
@@ -130,8 +156,8 @@ RSpec.describe Otto::Core::Router do
   context 'with a GET /404 route' do
     let(:routes) do
       [
-        'GET /404 TestApp.search',
-        'HEAD /health TestApp.test',
+        'GET /404 HeadDispatchApp.search',
+        'HEAD /health HeadDispatchApp.test',
       ]
     end
 
@@ -141,15 +167,15 @@ RSpec.describe Otto::Core::Router do
       response = head('/missing')
 
       expect(response[0]).to eq(200)
-      expect(body_of(response)).to eq('Search results')
+      expect(handler_of(response)).to eq('search')
     end
   end
 
   context 'with both HEAD /404 and GET /404 routes' do
     let(:routes) do
       [
-        'GET /404 TestApp.search',
-        'HEAD /404 TestApp.test',
+        'GET /404 HeadDispatchApp.search',
+        'HEAD /404 HeadDispatchApp.test',
       ]
     end
 
@@ -159,7 +185,7 @@ RSpec.describe Otto::Core::Router do
       response = head('/missing')
 
       expect(response[0]).to eq(200)
-      expect(body_of(response)).to eq('test response')
+      expect(handler_of(response)).to eq('test')
     end
 
     it 'keeps using the GET /404 route for an unmatched GET request' do
@@ -173,7 +199,7 @@ RSpec.describe Otto::Core::Router do
   # A HEAD request with no HEAD route falls back to the GET route, and the GET
   # route's options come with it: the fallback must not skip its auth= gate.
   context 'with a GET-only route that requires auth' do
-    let(:routes) { ['GET /secret TestApp.search auth=apikey'] }
+    let(:routes) { ['GET /secret HeadDispatchApp.search auth=apikey'] }
 
     before do
       app.add_auth_strategy('apikey',
@@ -191,7 +217,10 @@ RSpec.describe Otto::Core::Router do
     end
 
     it 'serves the fallback when the HEAD request authenticates' do
-      expect(head_secret('X-API-Key' => 'head-key')[0]).to eq(200)
+      response = head_secret('X-API-Key' => 'head-key')
+
+      expect(response[0]).to eq(200)
+      expect(handler_of(response)).to eq('search')
     end
   end
 end

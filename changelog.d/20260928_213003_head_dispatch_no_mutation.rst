@@ -17,3 +17,11 @@ Fixed
   or ``role=`` from the ``GET`` route for the same path. A HEAD request for a
   path with only a ``GET`` route falls back to that route, including its
   ``auth=``.
+
+- Responses to HEAD requests now have an empty body, as the Rack SPEC
+  requires. A HEAD request that fell back to a ``GET`` route returned the GET
+  body, which ``Rack::Lint`` rejects. ``Otto#call`` now drops the body after
+  dispatch and error handling, as ``Rack::Head`` does: it closes the original
+  body and keeps the status and headers, including a ``content-length`` the
+  handler set. This covers handler, ``/404``, not-found and error responses.
+  Request completion hooks receive the response with the empty body.

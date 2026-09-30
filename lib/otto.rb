@@ -200,10 +200,18 @@ class Otto
     response_raw = nil
 
     begin
-      # Use pre-built middleware app (built once at initialization)
-      response_raw = @app.call(env)
-    rescue StandardError => e
-      response_raw = handle_error(e, env)
+      response_raw = begin
+        # Use pre-built middleware app (built once at initialization)
+        @app.call(env)
+      rescue StandardError => e
+        handle_error(e, env)
+      end
+      # HEAD is dispatched to the GET route when no HEAD route is declared, so
+      # the handler writes a body. Drop it here, after error handling, so every
+      # response source is covered, and before the completion hooks, so they
+      # see the response the client receives. The method is normalized the
+      # same way the router normalizes it for dispatch.
+      response_raw = Otto::Static.head_response(response_raw) if env['REQUEST_METHOD'].to_s.upcase == 'HEAD'
     ensure
       # Execute request completion hooks if any are registered
       unless @request_complete_callbacks.empty?

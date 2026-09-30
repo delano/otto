@@ -64,8 +64,10 @@ GET /api/data  DataLogic#show  auth=session,apikey,oauth
 Declaration order does not let an anonymous strategy win early. On
 `auth=noauth,session`, a request whose session holds a user is
 authenticated by `session`, and `noauth` wins only when `session` fails. On
-`auth=noauth,apikey`, a request that presents an invalid API key gets 401:
-the key's terminal failure halts the chain.
+`auth=noauth,apikey`, a request that presents an invalid API key is refused:
+the key's terminal failure halts the chain, and the response follows step 8
+(401 when the route is `response=json` or the request accepts
+`application/json`, otherwise a 302 redirect to the login path).
 
 ## Strategy Pattern Matching
 

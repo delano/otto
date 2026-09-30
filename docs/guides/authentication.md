@@ -367,10 +367,17 @@ their mutability remains the application's responsibility.
 Otto never changes the session id. `SessionStrategy` authenticates any request
 whose session holds the configured key, whatever the session's id. If the login
 handler writes the user id into the session without renewing the id, the
-session keeps the id it had before login. That is session fixation: an attacker
-who obtained a session id before the victim logged in, for example by planting
-the session cookie in the victim's browser, is authenticated as the victim once
-the victim logs in.
+session keeps the id it had before login. That is session fixation. Its effect
+depends on the session store:
+
+- With a server-side store such as rack-session's `Rack::Session::Pool`, an
+  attacker who obtained the session id before the victim logged in, for
+  example by planting the session cookie in the victim's browser, is
+  authenticated as the victim once the victim logs in.
+- With `Rack::Session::Cookie`, the session data travels in the cookie, so the
+  attacker's copy of the cookie stays anonymous. The session id inside it does
+  not change, though, so with CSRF protection enabled a token issued for the
+  attacker's copy still validates on the victim's requests (see below).
 
 Renew the id in the handler that completes the login. With rack-session, set
 the `:renew` option for the request:
@@ -407,7 +414,16 @@ id.
 With CSRF protection enabled, Otto binds CSRF tokens to `session.id` when the
 session has one (see `Otto::Security::Config#get_or_create_session_id`). After
 the id is renewed, a token issued before login no longer validates and the
-request gets `403`. Forms rendered after the login carry a token that does.
+request gets `403`. rack-session renews the id when it commits the session,
+after the response is built, so a form rendered in the login response itself
+also carries a token bound to the old id. Respond to the login with a redirect
+and render forms on the page it redirects to (post/redirect/get); those carry a
+token that validates.
+
+This CSRF behavior assumes the session-binding change in delano/otto#295.
+Without it, a new visitor's first token is bound to a random value rather than
+to `session.id`, and that visitor's first CSRF-protected POST, such as the
+login form itself, gets `403` whether or not the id is renewed.
 
 ## Failure and response behavior
 

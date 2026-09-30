@@ -63,3 +63,11 @@ Documentation
   describes the held anonymous fallback, terminal failures, and the 403, 401
   and 302 outcomes. Its role extraction order now includes object-backed users
   (``#roles``, then ``#role``).
+
+- The session-renewal section of the authentication guide says fixation lets
+  the attacker in with a server-side store such as ``Rack::Session::Pool``
+  but not with ``Rack::Session::Cookie``, recommends redirecting after login
+  because a form rendered in the login response carries a token bound to the
+  old id, and notes that its CSRF text assumes #295. The reference's
+  ``auth=noauth,apikey`` example gives the 302 for non-JSON requests, and the
+  multi-strategy notes in ``AGENTS.md`` match the code. (#298)

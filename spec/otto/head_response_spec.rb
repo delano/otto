@@ -151,5 +151,63 @@ RSpec.describe Otto do # rubocop:disable RSpec/SpecFilePathFormat
         expect(HeadResponseApp.last_body).not_to be_closed
       end
     end
+
+    # The static stages answer HEAD with the headers GET would get, so a
+    # client can check an asset's size and type without downloading it.
+    context 'with a public directory and a static mount' do
+      let(:public_dir) { Dir.mktmpdir('otto_head_public') }
+      let(:mount_dir) { Dir.mktmpdir('otto_head_mount') }
+      let(:app) do
+        otto = described_class.new(create_test_routes_file('head_static.txt', routes), public: public_dir)
+        otto.mount_static('/assets', root: mount_dir)
+        otto
+      end
+
+      before do
+        File.write(File.join(public_dir, 'asset.txt'), 'asset content')
+        File.write(File.join(mount_dir, 'app.css'), 'body{}')
+        app.freeze_configuration!
+      end
+
+      after do
+        FileUtils.remove_entry(public_dir)
+        FileUtils.remove_entry(mount_dir)
+      end
+
+      it 'serves the headers of a public-directory file with an empty body' do
+        status, headers, body = lint_call('HEAD', '/asset.txt')
+
+        expect(status).to eq(200)
+        expect(headers['content-length']).to eq('13')
+        expect(headers['content-type']).to eq('text/plain')
+        expect(body).to eq('')
+      end
+
+      it 'serves the headers of a mounted file with an empty body' do
+        status, headers, body = lint_call('HEAD', '/assets/app.css')
+
+        expect(status).to eq(200)
+        expect(headers['content-length']).to eq('6')
+        expect(headers['content-type']).to eq('text/css')
+        expect(body).to eq('')
+      end
+
+      it 'falls through to not found for a missing file' do
+        status, _headers, body = lint_call('HEAD', '/assets/missing.css')
+
+        expect(status).to eq(404)
+        expect(body).to eq('')
+      end
+
+      it 'still serves the files to GET' do
+        expect(lint_call('GET', '/asset.txt')[2]).to eq('asset content')
+        expect(lint_call('GET', '/assets/app.css')[2]).to eq('body{}')
+      end
+
+      it 'still does not serve the files to POST' do
+        expect(lint_call('POST', '/asset.txt')[0]).to eq(404)
+        expect(lint_call('POST', '/assets/app.css')[0]).to eq(404)
+      end
+    end
   end
 end

@@ -25,3 +25,9 @@ Fixed
   body and keeps the status and headers, including a ``content-length`` the
   handler set. This covers handler, ``/404``, not-found and error responses.
   Request completion hooks receive the response with the empty body.
+
+- Static mounts and the public directory now answer HEAD requests. They
+  answered only GET, so a HEAD request for an asset fell through to the
+  dynamic routes and, when none matched, to not found. A HEAD response
+  carries the headers a GET would get, including ``content-length``, and an
+  empty body. Requests with other methods still skip the static stages.

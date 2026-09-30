@@ -8,6 +8,9 @@ class Otto
   module Core
     # Router module providing route loading and request dispatching functionality
     module Router
+      # Request methods the static-mount and public-directory stages answer.
+      STATIC_VERBS = %i[GET HEAD].freeze
+
       def load(path)
         path = File.expand_path(path)
         raise ArgumentError, "Bad path: #{path}" unless File.exist?(path)
@@ -132,7 +135,10 @@ class Otto
         # for them. Literal lookup keeps '' — it already keys root that way.
         dispatch_path = path_info_clean.empty? ? '/' : path_info_clean
 
-        static_candidate = !static_route.nil? && http_verb == :GET
+        # The static stages answer GET and HEAD. Rack::Files returns the GET
+        # headers with an empty body for HEAD.
+        static_verb      = STATIC_VERBS.include?(http_verb)
+        static_candidate = !static_route.nil? && static_verb
 
         # Dispatch precedence is fixed: literal routes, then explicit static
         # mounts (longest prefix first), then the implicit public directory,
@@ -152,7 +158,7 @@ class Otto
             @route_matched_callbacks.each { |cb| cb.call(env, route.route_definition) }
           end
           route.call(env)
-        elsif http_verb == :GET && (mounted = resolve_mounted_file(dispatch_path))
+        elsif static_verb && (mounted = resolve_mounted_file(dispatch_path))
           mount, static_file = mounted
           Otto.structured_log(:debug, 'Route matched',
             Otto::LoggingHelpers.request_context(env).merge(

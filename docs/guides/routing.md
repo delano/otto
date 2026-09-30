@@ -192,6 +192,10 @@ the result is still inside that root and is a regular, readable file owned by
 the process user or group. Anything else, including a symlink that points
 outside the root, is treated as not found.
 
+Both answer `GET` and `HEAD` requests. A `HEAD` response carries the headers a
+`GET` would get, including `content-length`, and an empty body. Requests with
+any other method skip the static stages.
+
 ### Implicit public directory
 
 Passing `public:` serves every file under that directory at its relative path.

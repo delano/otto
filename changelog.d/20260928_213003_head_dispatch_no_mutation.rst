@@ -32,7 +32,7 @@ Fixed
   closes it, as it would for GET, so an error raised by that close surfaces
   there, not from ``Otto#call`` or from middleware such as ``Rack::ETag``.
   This covers handler, ``/404``, not-found and error responses. Request
-  completion hooks receive the response with the empty body. (#294)
+  completion hooks receive a plain empty Array as the body. (#294)
 
 - Static mounts and the public directory now answer HEAD requests. They
   answered only GET, so a HEAD request for an asset fell through to the

@@ -120,6 +120,23 @@ RSpec.describe Otto do # rubocop:disable RSpec/SpecFilePathFormat
       expect(seen).to eq([[200, []]])
     end
 
+    # A hook that converts the body (Array(res.body), res.body.to_ary) must
+    # not reach the handler's body: only the server's close may close it.
+    it 'hands request completion hooks a plain empty Array that does not close the handler body' do
+      seen = []
+      app.on_request_complete { |_req, res, _duration| seen << res.body << Array(res.body) }
+
+      _status, _headers, body = app.call(mock_rack_env(method: 'HEAD', path: '/closable'))
+
+      expect(seen).to eq([[], []])
+      expect(seen.first).to be_an_instance_of(Array)
+      expect(HeadResponseApp.last_body).not_to be_closed
+
+      body.close
+
+      expect(HeadResponseApp.last_body).to be_closed
+    end
+
     # RFC 9110 section 8.6: a HEAD response must not carry a content-length
     # other than the one a GET would have sent. Rack::ContentLength, like
     # Puma, derives the length from an Array body via #to_ary.

@@ -472,8 +472,8 @@ class Otto
     #
     # Asymmetric strictness, on purpose:
     # - `ip` is runtime data — nil, blank, or malformed input, a range such
-    #   as "203.0.113.7/32" included, returns false (fail-closed for
-    #   allowlist callers).
+    #   as "203.0.113.7/32" or an IPAddr with a prefix shorter than a host
+    #   address included, returns false (fail-closed for allowlist callers).
     # - `cidrs` entries are configuration — an invalid CIDR string raises
     #   IPAddr::InvalidAddressError, because silently skipping an entry
     #   narrows an allowlist or widens a denylist. Validate entries at
@@ -497,6 +497,10 @@ class Otto
 
           IPAddr.new(candidate).native
         end
+      # An IPAddr can hold a range, and IPAddr#include? accepts a range wholly
+      # inside the entry. The client is one address: anything shorter than a
+      # host prefix is malformed runtime data.
+      return false unless client.prefix == (client.ipv4? ? 32 : 128)
 
       cidrs.any? do |entry|
         range = entry.is_a?(IPAddr) ? entry : IPAddr.new(entry.to_s)

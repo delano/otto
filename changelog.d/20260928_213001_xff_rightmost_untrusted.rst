@@ -78,4 +78,6 @@ Security
   is now invalid; before, it was returned as the client IP, masked to the
   range's network address (``0.0.0.0`` for ``/0``), and matched by
   ``ip_match(['0.0.0.0/0'])``. ``Otto::Utils.ip_in_cidrs?`` returns false when
-  the client address it is given is a range.
+  the client address it is given is a range, as a string or as an ``IPAddr``
+  whose prefix is shorter than a host address (``IPAddr.new('203.0.113.0/24')``
+  used to match ``203.0.0.0/16``).

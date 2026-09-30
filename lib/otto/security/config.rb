@@ -1241,6 +1241,17 @@ class Otto
         ivar == :@csrf_secret ? redacted_placeholder(value) : super
       end
 
+      # Freezable#deep_freeze! calls this before freezing the config. The
+      # signing key is replaced with a frozen SecretString copy first, so the
+      # caller's String is not frozen by the config (a later write to it would
+      # raise a FrozenError that prints it) and the config keeps signing with
+      # the value it had. Done here rather than in csrf_secret= so it covers
+      # every way the key is set.
+      def freeze_instance_variables!
+        @csrf_secret = Otto::Core::RedactedInspect.secret(@csrf_secret)
+        super
+      end
+
       # Guard for mutators: refuse changes once the configuration is frozen.
       # Centralizes the repeated frozen-check so every setter shares one message.
       def ensure_not_frozen!

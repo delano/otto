@@ -78,6 +78,39 @@ RSpec.describe 'Secrets in #inspect output' do
     end
   end
 
+  describe 'secrets the caller passed in' do
+    it 'keeps the correlation secret out of a FrozenError from a write through its reader' do
+      config = Otto::Privacy::Config.new(correlation_secret: +correlation_secret)
+      config.deep_freeze!
+      message = frozen_error_message { config.correlation_secret << 'x' }
+
+      expect(message).not_to include(correlation_secret)
+      expect(config.correlation_secret).to eq(correlation_secret)
+    end
+
+    it 'does not freeze the String given as the correlation secret' do
+      given  = +correlation_secret
+      config = Otto::Privacy::Config.new(correlation_secret: given)
+      config.deep_freeze!
+
+      expect(given).not_to be_frozen
+    end
+
+    it 'does not freeze the String given as the CSRF secret, and keeps signing with its value' do
+      given  = +csrf_secret
+      config = Otto::Security::Config.new
+      config.csrf_secret = given
+      token = config.generate_csrf_token('sess1')
+      config.deep_freeze!
+
+      expect(given).not_to be_frozen
+      given << 'changed-later'
+      expect(config.verify_csrf_token(token, 'sess1')).to be true
+      expect(config.instance_variable_get(:@csrf_secret)).to be_frozen
+      expect(config.instance_variable_get(:@csrf_secret).inspect).to eq('[REDACTED]')
+    end
+  end
+
   describe Otto::Privacy::Config do
     it 'redacts the correlation secret and keeps an unset one visible' do
       config = described_class.new(correlation_secret: correlation_secret)

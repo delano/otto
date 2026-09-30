@@ -190,7 +190,10 @@ class Otto
           raise ArgumentError, "correlation_secret must be a String or nil, got: #{value.class}"
         end
 
-        @correlation_secret = value
+        # A frozen SecretString copy: the reader cannot hand out a String
+        # whose FrozenError would print the secret, and the caller's String is
+        # not frozen by deep_freeze!.
+        @correlation_secret = Otto::Core::RedactedInspect.secret(value)
       end
 
       # Set the trusted, app-configured geo header.

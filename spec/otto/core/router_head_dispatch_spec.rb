@@ -144,4 +144,54 @@ RSpec.describe Otto::Core::Router do
       expect(body_of(response)).to eq('Search results')
     end
   end
+
+  context 'with both HEAD /404 and GET /404 routes' do
+    let(:routes) do
+      [
+        'GET /404 TestApp.search',
+        'HEAD /404 TestApp.test',
+      ]
+    end
+
+    before { app.freeze_configuration! }
+
+    it 'uses the HEAD /404 route for an unmatched HEAD request' do
+      response = head('/missing')
+
+      expect(response[0]).to eq(200)
+      expect(body_of(response)).to eq('test response')
+    end
+
+    it 'keeps using the GET /404 route for an unmatched GET request' do
+      response = app.call(mock_rack_env(method: 'GET', path: '/missing'))
+
+      expect(response[0]).to eq(200)
+      expect(body_of(response)).to eq('Search results')
+    end
+  end
+
+  # A HEAD request with no HEAD route falls back to the GET route, and the GET
+  # route's options come with it: the fallback must not skip its auth= gate.
+  context 'with a GET-only route that requires auth' do
+    let(:routes) { ['GET /secret TestApp.search auth=apikey'] }
+
+    before do
+      app.add_auth_strategy('apikey',
+        Otto::Security::Authentication::Strategies::APIKeyStrategy.new(api_keys: ['head-key']))
+      app.freeze_configuration!
+    end
+
+    def head_secret(headers = {})
+      app.call(mock_rack_env(method: 'HEAD', path: '/secret',
+        headers: { 'Accept' => 'application/json' }.merge(headers)))
+    end
+
+    it 'rejects an unauthenticated HEAD request that falls back to the GET route' do
+      expect(head_secret[0]).to eq(401)
+    end
+
+    it 'serves the fallback when the HEAD request authenticates' do
+      expect(head_secret('X-API-Key' => 'head-key')[0]).to eq(200)
+    end
+  end
 end

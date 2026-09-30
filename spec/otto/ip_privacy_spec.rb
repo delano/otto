@@ -2058,13 +2058,16 @@ RSpec.describe 'IP Privacy Features' do
       it 'handles multiple IPs in X-Forwarded-For chain' do
         env = {
           'REMOTE_ADDR' => '10.0.0.1',  # Trusted proxy
-          'HTTP_X_FORWARDED_FOR' => '203.0.113.50, 172.16.0.10, 10.0.0.1'
+          # 198.51.100.7 is client supplied: a leftmost walk would pick it
+          'HTTP_X_FORWARDED_FOR' => '198.51.100.7, 203.0.113.50, 172.16.0.10, 10.0.0.1'
         }
         middleware.call(env)
 
         # Should resolve to the rightmost non-trusted IP (203.0.113.50) and mask it
         expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
         expect(env['HTTP_X_FORWARDED_FOR']).to eq('203.0.113.0')
+        expect(env['otto.ip_match'].call(['203.0.113.50/32'])).to be(true)
+        expect(env['otto.ip_match'].call(['198.51.100.7/32'])).to be(false)
       end
 
       it 'exempts private IP from X-Forwarded-For' do

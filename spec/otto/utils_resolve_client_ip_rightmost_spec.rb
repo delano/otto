@@ -28,6 +28,26 @@ RSpec.describe Otto::Utils, '.resolve_client_ip' do
       expect(resolve('HTTP_X_FORWARDED_FOR' => '9.9.9.9, 203.0.113.50, 10.0.0.9')).to eq('203.0.113.50')
     end
 
+    it 'skips a trusted hop written in IPv4-mapped IPv6 form' do
+      # trusted_proxy? folds ::ffff:10.0.0.9 to 10.0.0.9 before matching.
+      expect(resolve('HTTP_X_FORWARDED_FOR' => '9.9.9.9, 203.0.113.50, ::ffff:10.0.0.9')).to eq('203.0.113.50')
+    end
+
+    it 'strips ports from entries in a multi-entry chain' do
+      expect(resolve('HTTP_X_FORWARDED_FOR' => '9.9.9.9:1, 203.0.113.50:4711, 10.0.0.9:443')).to eq('203.0.113.50')
+      expect(resolve('HTTP_X_FORWARDED_FOR' => '[2001:db8::bad]:1, [2001:db8::7]:443, 10.0.0.9')).to eq('2001:db8::7')
+    end
+
+    it 'walks a multi-hop IPv6 chain behind IPv6 trusted proxies' do
+      v6 = Otto::Security::Config.new.tap { |cfg| cfg.add_trusted_proxy('fd00::/8') }
+      env = {
+        'REMOTE_ADDR' => 'fd00::1',
+        'HTTP_X_FORWARDED_FOR' => '2001:db8::bad, 2001:db8::7, fd00::9, fd00::8',
+      }
+
+      expect(described_class.resolve_client_ip(env, v6)).to eq('2001:db8::7')
+    end
+
     it 'resolves nothing when the walk reaches an entry that is not an address' do
       # A proxy that hides the client appends a token such as "unknown".
       # Everything left of it is client supplied, and the proxy is not the

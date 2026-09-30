@@ -1,22 +1,24 @@
 # Otto MCP Demo
 
 This example boots Otto's Model Context Protocol (MCP) JSON-RPC 2.0 endpoint at
-`/_mcp`. Use it to verify endpoint initialization alongside ordinary Otto web
-routes.
+`/_mcp`, with one resource and one tool declared in the routes file, alongside
+ordinary Otto web routes.
 
 ## What You'll Learn
 
 - How to enable an MCP HTTP endpoint
+- How to declare an MCP resource and tool in the routes file
 - How the endpoint coexists with ordinary Otto web routes
-- How to send a JSON-RPC 2.0 `initialize` request
+- How to send JSON-RPC 2.0 requests to list, read, and call them
 - How bearer-token authentication protects the endpoint
-- The current resource and tool limitations described below
 
 ## Features Demonstrated
 
 - **MCP endpoint**: A single `POST /_mcp` endpoint
+- **Resource and tool**: The `users` resource and the `create_user` tool
 - **Web interface**: Separate web routes coexist with the MCP endpoint
-- **JSON-RPC 2.0**: `initialize`, `resources/list`, and `tools/list` requests
+- **JSON-RPC 2.0**: `initialize`, `resources/list`, `resources/read`,
+  `tools/list`, and `tools/call` requests
 
 ## How to Run
 
@@ -38,7 +40,10 @@ If either enabled feature's gem is missing or incompatible, MCP setup raises
 `enable_validation: false` or `enable_rate_limiting: false` to `enable_mcp!`, or
 alongside `mcp_enabled: true` in the `Otto.new` options, only when that protection
 is intentionally disabled. To enforce the configured limits, mount
-`Rack::Attack` before Otto in `config.ru`, as this example does.
+`Rack::Attack` before Otto in `config.ru`, as this example does. `Rack::Attack`
+counts requests in a cache store and has no default store outside Rails, so
+`config.ru` sets a small in-process store (`DemoRateLimitStore`). Use a shared
+store, such as Redis, when the app runs in more than one process.
 
 ```sh
 cd /path/to/otto
@@ -64,14 +69,27 @@ and a JSON-RPC `Unauthorized` error. The `requests_per_minute` and
 `tools_per_minute` values in `config.ru` are applied as configured. See the
 [MCP guide](../../docs/guides/mcp.md) for the full option list.
 
-## Current Limitations
+## Resources and Tools
 
-Although `routes` contains `MCP /users` and `TOOL /create_user` declarations,
-the current route-loading path does not register them. Therefore
-`resources/list` and `tools/list` both return empty arrays, and `resources/read`
-or `tools/call` for those names fails. This README documents the runnable
-endpoint behavior; do not use this example as a resource or tool integration
-template until those routes are registered.
+`routes` declares one resource and one tool:
+
+```
+GET   /mcp/users        MCP users UserAPI.mcp_list_users
+POST  /mcp/create_user  TOOL create_user UserAPI.mcp_create_user
+```
+
+The verb and path are required by the route-file grammar but create no HTTP
+route: the resource and the tool are served only through `POST /_mcp`. The word
+after `MCP` is the resource URI (`users`), and the word after `TOOL` is the tool
+name (`create_user`). MCP must be enabled when the routes file loads, as
+`Otto.new('routes', mcp_enabled: true, ...)` in `config.ru` does. If the file
+loads before MCP is enabled, Otto skips its `MCP` and `TOOL` lines.
+
+`UserAPI.mcp_list_users` takes no arguments. A resource handler may instead
+take one argument, the Rack env of the MCP request. `UserAPI.mcp_create_user`
+receives the tool `arguments` and the Rack env. `MCP` and `TOOL` lines cannot
+use `auth=`, `role=`, or `csrf=`; see the
+[MCP guide](../../docs/guides/mcp.md#register-resources-and-tools).
 
 ## Interacting with the MCP Endpoint
 
@@ -101,7 +119,8 @@ curl -X POST http://localhost:9292/_mcp \
 
 ### MCP: Initialize
 
-The `initialize` method is a built-in MCP method that returns information about the available resources and tools.
+The `initialize` method is a built-in MCP method that returns the protocol
+version, the server capabilities, and the server name and version.
 
 ```sh
 curl -X POST http://localhost:9292/_mcp \
@@ -114,7 +133,7 @@ curl -X POST http://localhost:9292/_mcp \
 
 A successful `initialize` request returns `result.protocolVersion`,
 `result.capabilities`, and `result.serverInfo` with the same request ID. To
-confirm the current registry state, run:
+list the registered resource and tool, run:
 
 ```sh
 curl -X POST http://localhost:9292/_mcp \
@@ -128,30 +147,48 @@ curl -X POST http://localhost:9292/_mcp \
   -d '{"jsonrpc":"2.0","method":"tools/list","id":3}'
 ```
 
-Each request returns `"jsonrpc":"2.0"` and an empty `resources` or `tools`
-array in the current checkout.
+`resources/list` returns one entry with `"uri":"users"`, and `tools/list`
+returns one entry with `"name":"create_user"`. Read the resource and call the
+tool:
+
+```sh
+curl -X POST http://localhost:9292/_mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer demo-token-123' \
+  -d '{"jsonrpc":"2.0","method":"resources/read","id":4,"params":{"uri":"users"}}'
+
+curl -X POST http://localhost:9292/_mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer demo-token-123' \
+  -d '{"jsonrpc":"2.0","method":"tools/call","id":5,"params":{"name":"create_user","arguments":{"name":"Carol"}}}'
+```
+
+`resources/read` returns `result.contents[0].text`, the JSON list of users
+from `UserAPI.mcp_list_users`. `tools/call` returns `result.content[0].text`,
+starting with `Created user:`. `tools_per_minute: 20` limits each client IP:
+the 21st `tools/call` in the same 60-second window gets HTTP `429`.
 
 ## File Structure
 
 - `README.md`: This file
 - `app.rb`: Application logic
   - `DemoApp`: Web interface and health check
-  - `UserAPI`: Intended MCP resource and tool handlers (not registered by the current route-loading path)
-- `config.ru`: Rack configuration (loads Otto, enables MCP)
+  - `UserAPI`: MCP resource and tool handlers
+- `config.ru`: Rack configuration (loads Otto, enables MCP, sets the
+  `Rack::Attack` store)
 - `routes`: Route definitions for web and MCP routes
 
 ## Routes
 
-The ordinary web routes in `routes` are active:
-
 ```
-GET  /        DemoApp.index
-GET  /health  DemoApp.health
+GET   /                 DemoApp.index
+GET   /health           DemoApp.health
+GET   /mcp/users        MCP users UserAPI.mcp_list_users
+POST  /mcp/create_user  TOOL create_user UserAPI.mcp_create_user
 ```
 
-The file also contains `MCP /users UserAPI.mcp_list_users` and
-`TOOL /create_user UserAPI.mcp_create_user`. See [Current Limitations](#current-limitations):
-they are not registered by this checkout's route-loading path.
+The first two are ordinary web routes. The last two register the MCP resource
+and tool described in [Resources and Tools](#resources-and-tools).
 
 ## Next Steps
 

@@ -1,9 +1,13 @@
 # Basic HTTP routes
-GET     /           DemoApp.index
-GET     /health     DemoApp.health
+GET     /                   DemoApp.index
+GET     /health             DemoApp.health
 
-# MCP Resources - provide read-only data
-MCP     /users       UserAPI.mcp_list_users
+# MCP and TOOL declarations need a verb and a path to satisfy the route-file
+# grammar, but they create no HTTP route. The single MCP endpoint (POST /_mcp)
+# serves them.
 
-# MCP Tools - provide actions/operations
-TOOL    /create_user UserAPI.mcp_create_user
+# MCP resource: read-only data, read with resources/read (uri "users")
+GET     /mcp/users          MCP users UserAPI.mcp_list_users
+
+# MCP tool: an action, called with tools/call (name "create_user")
+POST    /mcp/create_user    TOOL create_user UserAPI.mcp_create_user

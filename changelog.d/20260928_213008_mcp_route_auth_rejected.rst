@@ -43,3 +43,11 @@ Documentation
   loads the routes file. It called ``Otto.new('routes')`` first, so Otto
   logged and skipped every ``MCP`` and ``TOOL`` line and the endpoint served
   no resources or tools.
+
+- ``examples/mcp_demo`` now registers its resource and tool. Its routes file
+  put ``MCP`` and ``TOOL`` in the verb position, so the route loader
+  registered them as ordinary routes for HTTP methods named ``MCP`` and
+  ``TOOL`` instead of as a resource and a tool. The lines now use the
+  ``VERB /path MCP uri Handler`` and ``VERB /path TOOL name Handler`` forms.
+  Its ``config.ru`` also sets a ``Rack::Attack`` cache store, without which
+  every request raised ``Rack::Attack::MissingStoreError``.

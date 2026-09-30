@@ -140,7 +140,8 @@ class Otto
     initialize_options(path, opts)
     initialize_configurations(opts)
 
-    Otto.logger.debug "new Otto: #{opts}" if Otto.debug
+    # @option, not opts: OptionHash#to_s redacts the MCP bearer tokens.
+    Otto.logger.debug "new Otto: #{@option}" if Otto.debug
     load(path) unless path.nil?
     super()
 

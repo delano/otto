@@ -137,6 +137,29 @@ RSpec.describe 'Secrets in #inspect output' do
     end
   end
 
+  describe 'the Otto.new debug log line' do
+    around do |example|
+      original = Otto.debug
+      Otto.debug = true
+      example.run
+    ensure
+      Otto.debug = original
+    end
+
+    it 'logs the options without the MCP tokens' do
+      lines = []
+      allow(Otto.logger).to receive(:debug) { |message = nil, &block| lines << (message || block&.call).to_s }
+
+      Otto.new(nil, mcp_enabled: true, mcp_http: true, mcp_validation: false,
+                    mcp_rate_limiting: false, mcp_auth_tokens: [mcp_token])
+
+      new_otto = lines.grep(/new Otto:/)
+      expect(new_otto.size).to eq(1)
+      expect(new_otto.first).to include('[REDACTED] (1)')
+      expect(lines.join("\n")).not_to include(mcp_token)
+    end
+  end
+
   # freeze_configuration! deep-freezes @option and the token list in it. MCP is
   # left disabled here so the freeze does not depend on the MCP middleware;
   # @option keeps the tokens either way.

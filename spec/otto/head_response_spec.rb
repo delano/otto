@@ -53,6 +53,9 @@ RSpec.describe Otto do # rubocop:disable RSpec/SpecFilePathFormat
         'GET /sized HeadResponseApp.sized',
         'GET /closable HeadResponseApp.closable',
         'GET /raising HeadResponseApp.raising_close',
+        'GET /api HeadResponseApp.data response=json',
+        'GET /nocontent HeadResponseApp.no_content',
+        'GET /chunked HeadResponseApp.chunked',
       ]
     end
 
@@ -64,6 +67,12 @@ RSpec.describe Otto do # rubocop:disable RSpec/SpecFilePathFormat
       raising_class = raising_close_body
       stub_const('HeadResponseApp', Module.new do
         define_singleton_method(:raising_close) { |_req, res| res.body = raising_class.new }
+        define_singleton_method(:data) { |_req, _res| { hello: 'world' } }
+        define_singleton_method(:no_content) { |_req, res| res.status = 204 }
+        define_singleton_method(:chunked) do |_req, res|
+          res.headers['transfer-encoding'] = 'chunked'
+          res.body = ["3\r\nabc\r\n0\r\n\r\n"]
+        end
         define_singleton_method(:page) do |_req, res|
           res.headers['content-type'] = 'text/plain'
           res.headers['x-page'] = 'yes'
@@ -109,6 +118,87 @@ RSpec.describe Otto do # rubocop:disable RSpec/SpecFilePathFormat
       app.call(mock_rack_env(method: 'HEAD', path: '/raising'))
 
       expect(seen).to eq([[200, []]])
+    end
+
+    # RFC 9110 section 8.6: a HEAD response must not carry a content-length
+    # other than the one a GET would have sent. Rack::ContentLength, like
+    # Puma, derives the length from an Array body via #to_ary.
+    context 'with a length-computing server or middleware' do
+      let(:measured) { Rack::ContentLength.new(app) }
+
+      before do
+        require 'rack/content_length'
+        app.freeze_configuration!
+      end
+
+      it 'advertises the GET length for HEAD on a response=json route' do
+        get  = Rack::MockRequest.new(measured).get('/api')
+        head = Rack::MockRequest.new(measured).head('/api')
+
+        expect(get.headers['content-length']).to eq('17')
+        expect(head.headers['content-length']).to eq('17')
+        expect(head.body).to eq('')
+      end
+
+      it 'sets content-length itself and returns a body without #to_ary' do
+        _status, headers, body = app.call(mock_rack_env(method: 'HEAD', path: '/api'))
+
+        expect(headers['content-length']).to eq('17')
+        expect(body).not_to respond_to(:to_ary)
+        expect(body.to_enum(:each).to_a).to eq([])
+      end
+
+      it 'keeps a content-length the handler set' do
+        expect(Rack::MockRequest.new(measured).head('/sized').headers['content-length']).to eq('11')
+      end
+
+      it 'sets no content-length on a 204 response' do
+        status, headers, _body = app.call(mock_rack_env(method: 'HEAD', path: '/nocontent'))
+
+        expect(status).to eq(204)
+        expect(headers).not_to have_key('content-length')
+      end
+
+      it 'sets no content-length when the handler set transfer-encoding' do
+        _status, headers, _body = app.call(mock_rack_env(method: 'HEAD', path: '/chunked'))
+
+        expect(headers['transfer-encoding']).to eq('chunked')
+        expect(headers).not_to have_key('content-length')
+      end
+
+      it 'sets no content-length for a body that is not an Array' do
+        _status, headers, body = app.call(mock_rack_env(method: 'HEAD', path: '/closable'))
+
+        expect(headers).not_to have_key('content-length')
+        body.close
+      end
+    end
+
+    # Rack::ETag and Rack::ContentLength call #to_ary on a body that has it,
+    # which would close the handler's body inside their #call.
+    context 'with Rack::ETag in front' do
+      let(:tagged) { Rack::ETag.new(app) }
+
+      before do
+        require 'rack/etag'
+        app.freeze_configuration!
+      end
+
+      it 'raises a failing close where the server closes the body, not from the middleware call' do
+        _status, _headers, body = tagged.call(Rack::MockRequest.env_for('/raising', method: 'HEAD'))
+
+        expect { body.close }.to raise_error(IOError, 'close failed')
+      end
+
+      it 'leaves the handler body open until the server closes the response body' do
+        _status, _headers, body = tagged.call(Rack::MockRequest.env_for('/closable', method: 'HEAD'))
+
+        expect(HeadResponseApp.last_body).not_to be_closed
+
+        body.close
+
+        expect(HeadResponseApp.last_body).to be_closed
+      end
     end
 
     context 'with the configuration frozen' do

@@ -23,11 +23,16 @@ Fixed
   with "Response body was given for HEAD request, but should be empty".
   ``Otto#call`` now replaces the body after dispatch and error handling and
   keeps the status and headers, including a ``content-length`` the handler
-  set. The replacement body closes the original when the server closes it,
-  as it would for GET, so an error raised by that close surfaces there and
-  not from ``Otto#call``. This covers handler, ``/404``, not-found and error
-  responses. Request completion hooks receive the response with the empty
-  body. (#294)
+  set. When the handler's body is a plain Array and the response has no
+  ``content-length``, no ``transfer-encoding`` and a status that allows
+  content, ``Otto#call`` sets ``content-length`` from that Array, so the HEAD
+  response advertises the length a GET would send; Puma and
+  ``Rack::ContentLength`` would otherwise compute 0 from the empty body. The
+  replacement body has no ``#to_ary`` and closes the original when the server
+  closes it, as it would for GET, so an error raised by that close surfaces
+  there, not from ``Otto#call`` or from middleware such as ``Rack::ETag``.
+  This covers handler, ``/404``, not-found and error responses. Request
+  completion hooks receive the response with the empty body. (#294)
 
 - Static mounts and the public directory now answer HEAD requests. They
   answered only GET, so a HEAD request for an asset fell through to the

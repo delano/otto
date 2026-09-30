@@ -140,7 +140,8 @@ class Otto
       def self.respond(req, res, status, body)
         res.status          = status
         res['content-type'] = 'text/plain'
-        # HEAD must carry no body (Rack SPEC / Rack::Lint); headers still apply.
+        # Rack::Lint rejects a HEAD body ("Response body was given for HEAD request,
+        # but should be empty"); headers still apply.
         res.body            = req.head? ? [] : [body]
         res
       end

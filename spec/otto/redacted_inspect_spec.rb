@@ -3,6 +3,7 @@
 # frozen_string_literal: true
 
 require 'spec_helper'
+require 'pp'
 
 # Objects that hold secrets must not print them from #inspect. Ruby's native
 # FrozenError message embeds the receiver's #inspect, and Otto's error handler
@@ -199,6 +200,38 @@ RSpec.describe 'Secrets in #inspect output' do
       expect(message).not_to include(mcp_token)
       expect(single.option[:mcp_auth_tokens]).to eq(mcp_token)
       expect(single.option[:mcp_auth_tokens]).to be_a(String)
+    end
+
+    context 'with the tokens given as a Set' do
+      let(:otto) do
+        instance = Otto.new(nil, mcp_auth_tokens: Set[mcp_token])
+        instance.freeze_configuration!
+        instance
+      end
+
+      it 'keeps a Set that prints no token' do
+        tokens = otto.option[:mcp_auth_tokens]
+
+        expect(tokens).to be_a(Set)
+        expect(tokens).to eq(Set[mcp_token])
+        expect(tokens).to include(mcp_token)
+        expect([tokens.inspect, tokens.to_s, tokens.pretty_inspect].join).not_to include(mcp_token)
+        expect(tokens.inspect).to eq('[REDACTED] (1)')
+      end
+
+      it 'keeps the tokens out of the FrozenError from a write to the Set' do
+        message = frozen_error_message { otto.option[:mcp_auth_tokens] << 'y' }
+
+        expect(message).to start_with("can't modify frozen")
+        expect(message).not_to include(mcp_token)
+      end
+
+      it 'keeps the token out of the FrozenError from a write to one token' do
+        message = frozen_error_message { otto.option[:mcp_auth_tokens].first << 'y' }
+
+        expect(message).to start_with("can't modify frozen")
+        expect(message).not_to include(mcp_token)
+      end
     end
 
     it 'still reads like the Hash and Array it was' do

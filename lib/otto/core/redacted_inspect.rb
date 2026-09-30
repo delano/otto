@@ -50,18 +50,41 @@ class Otto
         alias to_s inspect
       end
 
-      # Wrap a secret so its #inspect is redacted: a String becomes a
-      # SecretString, an Array a SecretList of SecretStrings. Other values
-      # (nil, or something validation will reject) are returned as given.
+      # A Set of secrets whose #inspect, #to_s and #pretty_print show
+      # PLACEHOLDER and the element count. Membership, ==, include? and
+      # iteration are Set's. A write to a frozen one raises a FrozenError
+      # without the elements: before Ruby 3.5 Set raises it for its internal
+      # Hash, whose keys print as SecretString placeholders.
+      class SecretSet < Set
+        # @return [String] "[REDACTED] (N)"
+        def inspect
+          "#{PLACEHOLDER} (#{size})"
+        end
+        alias to_s inspect
+
+        # @param printer [PP]
+        def pretty_print(printer)
+          printer.text(inspect)
+        end
+      end
+
+      # Wrap a secret so its #inspect is redacted: a String becomes a frozen
+      # SecretString copy, an Array a SecretList and a Set a SecretSet of
+      # such SecretStrings. Other values (nil, or something validation will
+      # reject) are returned as given. The strings are frozen so a write to
+      # one raises a FrozenError that shows the placeholder, also inside a
+      # Set, which Otto::Core::Freezable freezes without its elements.
       #
       # @param value [Object]
-      # @return [Object] a copy for a String or Array, value otherwise
+      # @return [Object] a copy for a String, Array or Set, value otherwise
       def self.secret(value)
-        return value if value.is_a?(SecretString) || value.is_a?(SecretList)
-        return SecretString.new(value) if value.is_a?(String)
-        return SecretList.new(value.map { |item| secret(item) }) if value.is_a?(Array)
-
-        value
+        case value
+        when SecretString then value.frozen? ? value : SecretString.new(value).freeze
+        when String then SecretString.new(value).freeze
+        when Array then SecretList.new(value.map { |item| secret(item) })
+        when Set then SecretSet.new(value.map { |item| secret(item) })
+        else value
+        end
       end
 
       # Per-fiber set of objects whose #inspect is running, so an object that

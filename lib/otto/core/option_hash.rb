@@ -36,19 +36,38 @@ class Otto
 
       # @return [String] Hash#inspect with each secret key's value redacted
       def inspect
-        to_h do |key, value|
-          [key, self.class.secret_keys.include?(key) ? Placeholder.new(value) : value]
-        end.inspect
+        redacted_view.inspect
       end
       alias to_s inspect
 
-      # Prints the redaction placeholder for a secret value from #inspect.
+      # Hash#pretty_print walks the pairs itself instead of calling #inspect.
+      #
+      # @param printer [PP]
+      def pretty_print(printer)
+        printer.pp(redacted_view)
+      end
+
+      private
+
+      # A plain Hash copy with each secret key's value replaced.
+      def redacted_view
+        to_h do |key, value|
+          [key, self.class.secret_keys.include?(key) ? Placeholder.new(value) : value]
+        end
+      end
+
+      # Prints the redaction placeholder for a secret value from #inspect and
+      # from pp.
       Placeholder = Struct.new(:value) do
         def inspect
           return 'nil' if value.nil?
-          return "#{RedactedInspect::PLACEHOLDER} (#{value.size})" if value.is_a?(Array)
+          return "#{RedactedInspect::PLACEHOLDER} (#{value.size})" if value.is_a?(Enumerable) && !value.is_a?(Hash)
 
           RedactedInspect::PLACEHOLDER
+        end
+
+        def pretty_print(printer)
+          printer.text(inspect)
         end
       end
       private_constant :Placeholder

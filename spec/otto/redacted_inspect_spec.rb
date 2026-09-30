@@ -138,6 +138,36 @@ RSpec.describe 'Secrets in #inspect output' do
     end
   end
 
+  describe 'pretty_inspect (pp)' do
+    it 'redacts the option Hash, including a plain token value assigned after construction' do
+      otto = Otto.new(nil, mcp_auth_tokens: [mcp_token])
+      expect(otto.option.pretty_inspect).not_to include(mcp_token)
+      expect(otto.option.pretty_inspect).to match(/mcp_auth_tokens(: |=>)\[REDACTED\] \(1\)/)
+
+      otto.option[:mcp_auth_tokens] = 'late-token-value-0123456789'
+      expect(otto.option.pretty_inspect).not_to include('late-token-value-0123456789')
+    end
+
+    it 'redacts a token list and a multi-line token' do
+      list  = Otto::Core::RedactedInspect.secret([mcp_token])
+      token = Otto::Core::RedactedInspect.secret("first-line-secret\nsecond-line-secret")
+
+      expect(list.pretty_inspect).to eq("[REDACTED] (1)\n")
+      expect(token.pretty_inspect).to eq("[REDACTED]\n")
+    end
+
+    it 'redacts Otto, the security config and the privacy config' do
+      otto = Otto.new(nil, mcp_auth_tokens: [mcp_token])
+      otto.security_config.csrf_secret = csrf_secret
+      otto.security_config.ip_privacy_config.correlation_secret = correlation_secret
+
+      shown = otto.pretty_inspect + otto.security_config.pretty_inspect
+      expect(shown).not_to include(mcp_token)
+      expect(shown).not_to include(csrf_secret)
+      expect(shown).not_to include(correlation_secret)
+    end
+  end
+
   describe 'the Otto.new debug log line' do
     around do |example|
       original = Otto.debug

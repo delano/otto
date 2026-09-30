@@ -36,6 +36,13 @@ class Otto
         def inspect
           PLACEHOLDER
         end
+
+        # pp prints a multi-line String line by line, each as a plain String.
+        #
+        # @param printer [PP]
+        def pretty_print(printer)
+          printer.text(inspect)
+        end
       end
 
       # An Array of secrets whose #inspect (and #to_s, which Array aliases to
@@ -48,6 +55,11 @@ class Otto
           "#{PLACEHOLDER} (#{size})"
         end
         alias to_s inspect
+
+        # @param printer [PP]
+        def pretty_print(printer)
+          printer.text(inspect)
+        end
       end
 
       # A Set of secrets whose #inspect, #to_s and #pretty_print show

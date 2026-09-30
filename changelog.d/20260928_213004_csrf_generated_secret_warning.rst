@@ -6,9 +6,11 @@ Fixed
   production. ``Otto#call`` freezes the configuration on the first request,
   and the first CSRF token generation then recorded on the frozen
   ``Otto::Security::Config`` that the generated-secret warning had been
-  logged, which raised ``FrozenError``. The warning is now logged once when
-  the configuration is frozen, and token generation on a frozen config does
-  not write to it. A frozen config with CSRF protection disabled no longer
-  logs the warning when ``CSRFHelpers#csrf_token`` mints a token (it raised
-  ``FrozenError`` before). Specs under RSpec did not hit the error because
-  Otto skips the lazy freeze when RSpec is loaded.
+  logged, which raised ``FrozenError``. The once-only state now lives in an
+  object that stays writable after the freeze. With CSRF enabled, the warning
+  is logged when the configuration is frozen. A frozen config with CSRF
+  protection disabled logs it the first time ``CSRFHelpers#csrf_token`` or
+  ``generate_csrf_token`` signs a token (it raised ``FrozenError`` before).
+  The warning is logged once per config, also when several threads generate
+  the first tokens at the same time. Specs under RSpec did not hit the error
+  because Otto skips the lazy freeze when RSpec is loaded.

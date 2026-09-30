@@ -91,12 +91,36 @@ RSpec.describe 'CSRF generated-secret warning against a frozen configuration' do
       expect(Otto.logger).not_to have_received(:warn).with(warning)
     end
 
-    it 'with CSRF protection disabled, neither warns at freeze time nor raises on generation' do
-      disabled = Otto::Security::Config.new.deep_freeze!
+    it 'with CSRF protection disabled, does not warn at freeze time' do
+      Otto::Security::Config.new.deep_freeze!
 
       expect(Otto.logger).not_to have_received(:warn).with(warning)
-      # CSRFHelpers#csrf_token can still mint tokens with CSRF disabled.
-      expect { disabled.generate_csrf_token('session_a') }.not_to raise_error
+    end
+
+    # CSRFHelpers#csrf_token can still mint tokens with CSRF disabled, and
+    # those tokens are signed with the generated secret too.
+    it 'with CSRF protection disabled, warns once when tokens are generated after the freeze' do
+      disabled = Otto::Security::Config.new.deep_freeze!
+
+      expect { 3.times { |i| disabled.generate_csrf_token("session_#{i}") } }.not_to raise_error
+      expect(Otto.logger).to have_received(:warn).with(warning).once
+    end
+
+    it 'logs the warning once when threads generate the first tokens concurrently' do
+      disabled = Otto::Security::Config.new.deep_freeze!
+      start    = Queue.new
+
+      # rubocop:disable-next ThreadSafety/NewThread
+      threads = Array.new(16) do |i|
+        Thread.new do
+          start.pop
+          disabled.generate_csrf_token("session_#{i}")
+        end
+      end
+      16.times { start << true }
+      threads.each(&:join)
+
+      expect(Otto.logger).to have_received(:warn).with(warning).once
     end
   end
 

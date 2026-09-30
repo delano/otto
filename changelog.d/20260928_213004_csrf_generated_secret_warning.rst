@@ -13,14 +13,16 @@ Fixed
   ``generate_csrf_token`` signs a token (it raised ``FrozenError`` before).
   The warning is logged once per config, also when several threads generate
   the first tokens at the same time. Specs under RSpec did not hit the error
-  because Otto skips the lazy freeze when RSpec is loaded.
+  because Otto skips the lazy freeze when RSpec is loaded. (#297)
 
 Changed
 -------
 
 - The generated-secret warning and ``CSRF_SECRET_REQUIRED_MESSAGE`` no longer
-  say that a generated secret is not valid across workers. Workers forked
-  after the secret was generated, as in a preloaded app, share it. The
-  messages now say that its tokens stop verifying after a restart and are not
-  valid on processes started separately or on other hosts. The warning text
-  is in ``Otto::Security::Config::CSRF_GENERATED_SECRET_WARNING``.
+  say that a generated secret is not valid across workers in general. Workers
+  forked after the secret was generated, as in a preloaded app, share it.
+  Workers that load the app themselves (cluster mode without preload),
+  processes started separately, other hosts and restarts each generate their
+  own secret and reject each other's tokens, and the messages now say so. The
+  warning text is in
+  ``Otto::Security::Config::CSRF_GENERATED_SECRET_WARNING``. (#297)

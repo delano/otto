@@ -417,25 +417,30 @@ class Otto
       CSP_REPORTING_GROUP = Otto::Security::CSP::Policy::REPORTING_GROUP
 
       # Error raised when CSRF protection is enabled in production without an
-      # explicitly configured secret. A generated secret lives in one process's
-      # memory (and in workers forked from it), so tokens stop verifying after a
-      # restart and on processes started separately or on other hosts. We
-      # refuse it in production rather than serve intermittently-failing tokens.
+      # explicitly configured secret. A generated secret lives in the memory of
+      # the process that built the config and of workers forked from it
+      # afterwards. Workers that build their own app (cluster mode without
+      # preload), processes started separately, other hosts and restarts each
+      # generate a different one and reject each other's tokens. We refuse it
+      # in production rather than serve intermittently-failing tokens.
       CSRF_SECRET_REQUIRED_MESSAGE = <<~MSG.gsub(/\s+/, ' ').strip.freeze
         CSRF protection is enabled in production without a configured secret.
         Set OTTO_CSRF_SECRET (or config.csrf_secret=) to a stable random value
-        (e.g. SecureRandom.hex(32)); a generated secret is not valid after a
-        restart or on processes started separately or on other hosts.
+        (e.g. SecureRandom.hex(32)); a generated secret is not shared with
+        workers that load the app themselves (cluster mode without preload),
+        processes started separately, other hosts or a restart.
       MSG
 
       # Logged once per config when a generated secret signs CSRF tokens or
       # is frozen into a config with CSRF protection enabled.
       CSRF_GENERATED_SECRET_WARNING = <<~MSG.gsub(/\s+/, ' ').strip.freeze
         [Otto::Security::Config] CSRF tokens are signed with a randomly
-        generated secret. Workers forked after the secret was generated share
-        it, but its tokens stop verifying after a restart and are not valid on
-        processes started separately or on other hosts. Set OTTO_CSRF_SECRET
-        (or config.csrf_secret=) to a stable random value.
+        generated secret. Workers forked after the secret was generated (a
+        preloaded app) share it, but workers that load the app themselves
+        (cluster mode without preload), processes started separately, other
+        hosts and restarts each generate their own secret and reject each
+        other's tokens. Set OTTO_CSRF_SECRET (or config.csrf_secret=) to a
+        stable random value.
       MSG
 
       attr_accessor :input_validation, :max_param_depth, :csrf_token_key,

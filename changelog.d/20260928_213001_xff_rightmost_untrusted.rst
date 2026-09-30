@@ -28,7 +28,8 @@ Security
   or to replace a client-supplied value. A proxy that sets only ``X-Real-IP``
   must also append to or replace ``X-Forwarded-For``. See `How enumerated
   proxy trust resolves the client IP
-  <docs/guides/forwarded-authority.md#how-enumerated-proxy-trust-resolves-the-client-ip>`__.
+  <docs/guides/forwarded-authority.md#how-enumerated-proxy-trust-resolves-the-client-ip>`__. (#292)
+
 - A forwarded entry that is not a valid IP address (such as ``unknown``, or
   an empty entry, including the one a trailing comma leaves) no longer falls
   back to ``REMOTE_ADDR``. In ``trusted_proxies`` mode the walk ends there;
@@ -42,14 +43,15 @@ Security
   ``REMOTE_ADDR`` takes the same path; its ``Forwarded`` header used to be
   deleted outright. ``Otto::Request#ip`` and a plain ``Rack::Request#ip``
   still return ``REMOTE_ADDR``, the proxy, on purpose: rate limiters key on
-  the request IP, and
-  rack-attack skips a throttle whose discriminator is nil. Use ``ip_match``,
+  the request IP, and rack-attack skips a throttle whose discriminator is
+  nil. Use ``ip_match``,
   not ``req.ip``, for access decisions. Falling back to the proxy's own
   address made a private or loopback peer the client, which skipped masking,
   left the client's address in ``X-Forwarded-For``, and let ``ip_match``
   test the proxy. **Behavior change** for ``trusted_proxy_depth``, whose
   invalid-target fallback to ``REMOTE_ADDR`` was documented. Depth mode's
-  short-chain fallback to ``REMOTE_ADDR`` is unchanged.
+  short-chain fallback to ``REMOTE_ADDR`` is unchanged. (#292)
+
 - With IP privacy enabled, a request exempt from masking because its resolved
   client IP is private or loopback now has its ``X-Forwarded-For``,
   ``X-Real-IP`` and ``X-Client-IP`` headers and the ``for=`` values in
@@ -60,9 +62,15 @@ Security
   ``Rack::Request#ip``, whose default filter trusts private and loopback
   addresses, returned that public address. **Behavior change**: code behind
   a private or loopback peer that read these headers, or called a plain
-  ``Rack::Request#ip``, now sees the resolved client IP. **Migration:** to
-  get the client's address from a local reverse proxy, list that proxy in
-  ``trusted_proxies`` so Otto resolves the client (and masks a public one).
+  ``Rack::Request#ip``, now sees the resolved client IP. Behind a local
+  reverse proxy with no trusted proxy configured, that is ``127.0.0.1`` for
+  every client, so a rate limiter keyed on ``Rack::Request#ip`` after
+  ``IPPrivacyMiddleware`` (rack-attack's request is a ``Rack::Request``) puts
+  every client in the loopback bucket. It used to read each client's own,
+  unverified ``X-Forwarded-For`` value. **Migration:** to get the client's
+  address from a local reverse proxy, list that proxy in ``trusted_proxies``
+  so Otto resolves the client (and masks a public one). (#292)
+
 - The ``Forwarded`` ``for=`` rewrite (masking, the exemption above, and the
   no-client-IP removal) now finds ``for=`` after every separator Rack 3.2.7
   accepts: whitespace, including a leading tab, and a closing quote, as in
@@ -72,12 +80,20 @@ Security
   ``Rack::Utils.forwarded_values``; if another ``for=`` value survives, or
   Rack cannot parse the header (Rack rejects parameters other than ``by``,
   ``for``, ``host`` and ``proto``), the header is deleted and a warning
-  logged.
-- ``Otto::Utils.normalize_ip`` returns nil for a range (``203.0.113.9/0``,
-  ``10.0.0.0/8``, ``203.0.113.9/32``). A forwarded entry written as a range
-  is now invalid; before, it was returned as the client IP, masked to the
-  range's network address (``0.0.0.0`` for ``/0``), and matched by
-  ``ip_match(['0.0.0.0/0'])``. ``Otto::Utils.ip_in_cidrs?`` returns false when
-  the client address it is given is a range, as a string or as an ``IPAddr``
-  whose prefix is shorter than a host address (``IPAddr.new('203.0.113.0/24')``
-  used to match ``203.0.0.0/16``).
+  logged. (#292)
+
+- ``Otto::Utils.normalize_ip`` returns nil for a value written as a range,
+  such as ``203.0.113.9/0`` or ``10.0.0.0/8``, so a forwarded entry written
+  that way is now invalid and the request has no client IP. 2.12.0 took it
+  for an address. With ``trusted_proxies: ['10.0.0.0/8']``: a public range
+  was returned as the client IP and masked to its network address
+  (``203.0.113.9/0`` became ``0.0.0.0``, ``203.0.113.9/32`` became
+  ``203.0.113.0``); a loopback or private range outside the trusted list was
+  exempted from masking and written to ``REMOTE_ADDR`` and
+  ``otto.client_ip`` as the literal string (``127.0.0.1/8``, which
+  ``ip_match(['127.0.0.0/8'])`` accepted); and a range inside the trusted
+  list (``10.0.0.0/8``) was skipped as a trusted hop.
+  ``Otto::Utils.ip_in_cidrs?`` returns false when the client address it is
+  given is a range, as a string or as an ``IPAddr`` whose prefix is shorter
+  than a host address (``IPAddr.new('203.0.113.0/24')`` used to match
+  ``203.0.0.0/16``). (#292)

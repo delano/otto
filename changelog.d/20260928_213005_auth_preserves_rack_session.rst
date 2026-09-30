@@ -51,3 +51,9 @@ Documentation
   with rack-session's ``:renew`` option, as protection against session
   fixation. Otto never changes the session id itself. With CSRF protection
   enabled, tokens issued before the renewal stop validating.
+
+- The authentication reference's multi-strategy flow no longer says the first
+  success wins and that 401 is returned only when every strategy fails. It now
+  describes the held anonymous fallback, terminal failures, and the 403, 401
+  and 302 outcomes. Its role extraction order now includes object-backed users
+  (``#roles``, then ``#role``).

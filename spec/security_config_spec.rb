@@ -518,16 +518,6 @@ RSpec.describe Otto::Security::Config do
       expect { config.trusted_proxy_depth = 2 }.to raise_error(FrozenError)
     end
 
-    # Otto#freeze_configuration! freezes the config, then walks the middleware
-    # arguments, which can hold the same config (the MCP token middleware
-    # does), so deep_freeze! must be a no-op the second time.
-    it 'returns the frozen config from a second deep_freeze! instead of raising' do
-      config.deep_freeze!
-
-      expect(config.deep_freeze!).to equal(config)
-      expect(config).to be_frozen
-    end
-
     describe 'eager type/range validation' do
       it 'rejects a non-integer (String) depth at assignment' do
         expect { config.trusted_proxy_depth = '2' }

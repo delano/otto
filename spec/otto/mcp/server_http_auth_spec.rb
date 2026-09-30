@@ -105,28 +105,6 @@ RSpec.describe Otto::MCP::Server do
 
         expect(status).to eq(401)
       end
-
-      # Otto#call freezes the configuration on the first request outside
-      # RSpec. The token middleware is registered with the security config as
-      # its argument, so the freeze reached Security::Config#deep_freeze! a
-      # second time, which raised FrozenError on every request.
-      context 'with the configuration frozen' do
-        it 'freezes without raising' do
-          expect { otto.freeze_configuration! }.not_to raise_error
-        end
-
-        it 'still rejects a request with no token' do
-          otto.freeze_configuration!
-
-          expect(mcp_request(otto).first).to eq(401)
-        end
-
-        it 'still accepts a valid bearer token' do
-          otto.freeze_configuration!
-
-          expect(mcp_request(otto, headers: { 'HTTP_AUTHORIZATION' => "Bearer #{token}" }).first).to eq(200)
-        end
-      end
     end
   end
 

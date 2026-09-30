@@ -326,6 +326,43 @@ RSpec.describe 'Secrets in #inspect output' do
       expect(late.option['auth_tokens']).to eq("#{mcp_token}-b")
     end
 
+    # Every Hash method that can put a value under a key, including the ones
+    # implemented in C that do not call #[]=.
+    {
+      '[]=' => ->(opts, tokens) { opts[:mcp_auth_tokens] = tokens },
+      'store' => ->(opts, tokens) { opts.store(:mcp_auth_tokens, tokens) },
+      'merge!' => ->(opts, tokens) { opts.merge!(mcp_auth_tokens: tokens) },
+      'merge! with a block' => lambda { |opts, tokens|
+        opts[:mcp_auth_tokens] = ['old']
+        opts.merge!({ mcp_auth_tokens: tokens }) { |_key, _old, new| new }
+      },
+      'update' => ->(opts, tokens) { opts.update('mcp_auth_tokens' => tokens) },
+      'replace' => ->(opts, tokens) { opts.replace(opts.to_h.merge(auth_tokens: tokens)) },
+      'transform_values!' => lambda { |opts, tokens|
+        opts[:mcp_auth_tokens] = 'placeholder'
+        opts.transform_values! { |value| value == 'placeholder' ? tokens : value }
+      },
+      'transform_keys!' => lambda { |opts, tokens|
+        opts[:staged_tokens] = tokens
+        opts.transform_keys!(staged_tokens: :mcp_auth_tokens)
+      },
+    }.each do |writer, write|
+      it "wraps tokens stored with #{writer} after construction" do
+        late = Otto.new(nil)
+        write.call(late.option, ["#{mcp_token}-w"])
+        key = late.option.keys.find { |k| Otto::Core::OptionHash.secret_keys.include?(k) }
+        late.freeze_configuration!
+
+        messages = [
+          frozen_error_message { late.option[key] << 'y' },
+          frozen_error_message { late.option[key].first << 'y' },
+          frozen_error_message { late.option[:x] = 1 },
+        ]
+        expect(messages.join).not_to include(mcp_token)
+        expect(late.option[key]).to eq(["#{mcp_token}-w"])
+      end
+    end
+
     it 'still reads like the Hash and Array it was' do
       tokens = otto.option[:mcp_auth_tokens]
 

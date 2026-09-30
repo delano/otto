@@ -11,13 +11,14 @@ class Otto
     # late write such as otto.option[:x] = 1 would print every option,
     # including the MCP bearer tokens.
     #
-    # .build, #[]= and #store store the values of .secret_keys as
-    # RedactedInspect secrets (a SecretList or SecretSet of SecretStrings, or
-    # a SecretString), so a write to the frozen token collection or to one
+    # .build and every Hash method that can store a value under a key (#[]=,
+    # #store, #merge!, #update, #replace, #transform_values!,
+    # #transform_keys!) store the values of .secret_keys as RedactedInspect
+    # secrets (a SecretList or SecretSet of SecretStrings, or a
+    # SecretString), so a write to the frozen token collection or to one
     # token cannot print them either. #inspect also redacts those keys
-    # whatever their value, which covers a value stored by #merge!. It is
-    # still a Hash, and the token values are still an Array, a Set or a
-    # String.
+    # whatever their value. It is still a Hash, and the token values are
+    # still an Array, a Set or a String.
     class OptionHash < Hash
       # Option keys whose values are MCP bearer tokens, in both spellings a
       # caller may use (see Otto::MCP::Options::OPTION_ALIASES).
@@ -37,12 +38,41 @@ class Otto
 
       # Stores value, wrapped by RedactedInspect.secret when key is one of
       # .secret_keys, so a token assigned after construction is covered too.
-      # Hash#merge! and #update store without calling this; #inspect still
-      # redacts those keys.
       def []=(key, value)
         super(key, self.class.secret_keys.include?(key) ? RedactedInspect.secret(value) : value)
       end
       alias store []=
+
+      # The other Hash methods that can put a value under a key are written in
+      # C and do not call #[]=, so each wraps the secret keys after it runs.
+      # (default= and default_proc= set no entry.)
+
+      # @return [self]
+      def merge!(...)
+        super
+        wrap_secret_values!
+      end
+      alias update merge!
+
+      # @return [self]
+      def replace(...)
+        super
+        wrap_secret_values!
+      end
+
+      # @return [self]
+      def transform_values!(...)
+        result = super
+        wrap_secret_values!
+        result
+      end
+
+      # @return [self]
+      def transform_keys!(...)
+        result = super
+        wrap_secret_values!
+        result
+      end
 
       # @return [String] Hash#inspect with each secret key's value redacted
       def inspect
@@ -58,6 +88,14 @@ class Otto
       end
 
       private
+
+      # Re-store each secret key's value through #[]=, which wraps it.
+      def wrap_secret_values!
+        self.class.secret_keys.each do |key|
+          self[key] = fetch(key) if key?(key)
+        end
+        self
+      end
 
       # A plain Hash copy with each secret key's value replaced.
       def redacted_view

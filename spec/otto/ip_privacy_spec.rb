@@ -1993,6 +1993,28 @@ RSpec.describe 'IP Privacy Features' do
         expect(env['REMOTE_ADDR']).to eq('192.168.1.100')
         expect(env['otto.original_ip']).to eq('192.168.1.100')
       end
+
+      it 'rewrites a forwarded header sent by an untrusted private peer' do
+        # The peer is not a trusted proxy, so it is the client and its
+        # X-Forwarded-For is ignored for resolution. Left as sent, the header
+        # would hand the public address to Rack::Request#ip, which trusts
+        # private peers by default.
+        env = { 'REMOTE_ADDR' => '192.168.1.100', 'HTTP_X_FORWARDED_FOR' => '203.0.113.50' }
+        middleware.call(env)
+
+        expect(env['HTTP_X_FORWARDED_FOR']).to eq('192.168.1.100')
+        expect(Rack::Request.new(env).ip).to eq('192.168.1.100')
+      end
+
+      it 'rewrites a forwarded header behind a loopback peer with no proxy trust configured' do
+        unconfigured = Otto::Security::Middleware::IPPrivacyMiddleware.new(app, Otto::Security::Config.new)
+        env = { 'REMOTE_ADDR' => '127.0.0.1', 'HTTP_X_FORWARDED_FOR' => '203.0.113.50' }
+        unconfigured.call(env)
+
+        expect(env['otto.client_ip']).to eq('127.0.0.1')
+        expect(env['HTTP_X_FORWARDED_FOR']).to eq('127.0.0.1')
+        expect(Rack::Request.new(env).ip).to eq('127.0.0.1')
+      end
     end
 
     context 'request through trusted proxy' do
@@ -2057,6 +2079,29 @@ RSpec.describe 'IP Privacy Features' do
         expect(env['otto.original_ip']).to eq('192.168.1.100')
         # Header should not be masked for private IPs
         expect(env['HTTP_X_FORWARDED_FOR']).to eq('192.168.1.100')
+      end
+
+      it 'rewrites forwarded addresses to the exempt client IP' do
+        # An unlisted private hop (192.168.1.5) appended after the client's
+        # public address. The rightmost untrusted entry is private, so the
+        # request is exempt from masking, but the public address to its left
+        # must not survive anywhere in env.
+        env = {
+          'REMOTE_ADDR' => '10.0.0.1',
+          'HTTP_X_FORWARDED_FOR' => '198.51.100.7, 192.168.1.5',
+          'HTTP_X_REAL_IP' => '198.51.100.7',
+          'HTTP_X_CLIENT_IP' => '198.51.100.7',
+          'HTTP_FORWARDED' => 'for=198.51.100.7;proto=https, for=192.168.1.5',
+        }
+        middleware.call(env)
+
+        expect(env['otto.client_ip']).to eq('192.168.1.5')
+        expect(env['REMOTE_ADDR']).to eq('192.168.1.5')
+        expect(env.values_at('HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'HTTP_X_CLIENT_IP'))
+          .to eq(%w[192.168.1.5 192.168.1.5 192.168.1.5])
+        expect(env['HTTP_FORWARDED']).to eq('for=192.168.1.5;proto=https, for=192.168.1.5')
+        expect(env.values.grep(String).join(' ')).not_to include('198.51.100.7')
+        expect(Rack::Request.new(env).ip).to eq(env['otto.client_ip'])
       end
 
       it 'resolves no client IP when the nearest forwarded entry is not an address' do

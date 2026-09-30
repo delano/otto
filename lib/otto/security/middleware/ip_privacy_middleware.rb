@@ -306,7 +306,14 @@ class Otto
               env['otto.original_ip'] = client_ip
               # Canonical client IP downstream reads (exempt: not masked)
               env['otto.client_ip'] = client_ip
-              # Don't mask forwarded headers for private IPs
+              # Rewrite the forwarded address headers to the exempt client IP
+              # rather than leaving them as received. They can carry public
+              # addresses: entries left of client_ip in the chain (an unlisted
+              # private hop appended after the real client), or a header an
+              # untrusted private peer sent. Rack::Request#ip trusts private
+              # and loopback peers by default and would read those raw values;
+              # rewritten, it returns client_ip.
+              rewrite_forwarded_addresses(env, client_ip)
               #
               # This early return also means NONE of the privacy fingerprint
               # values are produced for exempt IPs — no otto.privacy.fingerprint,
@@ -371,7 +378,7 @@ class Otto
 
           # Mask X-Forwarded-For headers to prevent leakage
           # Replace with masked IP so proxy resolution logic finds the masked IP
-          mask_forwarded_headers(env, fingerprint.masked_ip)
+          rewrite_forwarded_addresses(env, fingerprint.masked_ip)
 
           Otto.logger.debug "[IPPrivacyMiddleware] Masked IP: #{fingerprint.masked_ip}" if Otto.debug
 
@@ -510,27 +517,30 @@ class Otto
           Otto::Utils::CLIENT_ADDRESS_HEADERS.each { |key| env.delete(key) }
         end
 
-        # Mask X-Forwarded-For and related proxy headers
+        # Rewrite X-Forwarded-For and related proxy headers to one address
         #
-        # Replaces forwarded IP headers with the masked IP to prevent leakage
-        # when downstream code (including Rack's request.ip) parses these headers.
+        # Replaces every present forwarded IP header with +address+ so
+        # downstream code (including Rack's request.ip) that parses these
+        # headers finds only that address. The masking path passes the masked
+        # IP; the private/localhost exemption passes the resolved client IP.
+        # Absent headers stay absent.
         #
         # @param env [Hash] Rack environment
-        # @param masked_ip [String] The masked IP to use as replacement
-        def mask_forwarded_headers(env, masked_ip)
+        # @param address [String] The address to use as replacement
+        def rewrite_forwarded_addresses(env, address)
           # Defensive: never write a nil replacement into these CGI-style headers
           # (the Rack SPEC requires String values; a nil trips Rack::Lint — see
           # issue #167). apply_privacy's early "no client IP" guard already
-          # guarantees a non-nil masked_ip here, but keep this method
+          # guarantees a non-nil address here, but keep this method
           # self-contained so a future caller change can't reintroduce a
           # present-but-nil HTTP_X_FORWARDED_FOR.
-          return if masked_ip.nil?
+          return if address.nil?
 
-          # Replace X-Forwarded-For with masked IP
-          # This prevents Rack::Request#ip from finding the real IP
-          env['HTTP_X_FORWARDED_FOR'] = masked_ip if env['HTTP_X_FORWARDED_FOR']
-          env['HTTP_X_REAL_IP'] = masked_ip if env['HTTP_X_REAL_IP']
-          env['HTTP_X_CLIENT_IP'] = masked_ip if env['HTTP_X_CLIENT_IP']
+          # Replace X-Forwarded-For with the address
+          # This prevents Rack::Request#ip from finding any other address
+          env['HTTP_X_FORWARDED_FOR'] = address if env['HTTP_X_FORWARDED_FOR']
+          env['HTTP_X_REAL_IP'] = address if env['HTTP_X_REAL_IP']
+          env['HTTP_X_CLIENT_IP'] = address if env['HTTP_X_CLIENT_IP']
 
           # RFC 7239 Forwarded carries the client IP in a structured `for=`
           # token, and Otto reads it as an authoritative client-IP source in
@@ -538,10 +548,10 @@ class Otto
           # Left as-is it would leak the real IP to downstream code. Redact only
           # the `for=` value(s) so proto=/host=/by= metadata survives.
           if env['HTTP_FORWARDED']
-            env['HTTP_FORWARDED'] = Otto::Privacy::IPPrivacy.mask_forwarded_for(env['HTTP_FORWARDED'], masked_ip)
+            env['HTTP_FORWARDED'] = Otto::Privacy::IPPrivacy.mask_forwarded_for(env['HTTP_FORWARDED'], address)
           end
 
-          Otto.logger.debug "[IPPrivacyMiddleware] Masked forwarded headers" if Otto.debug
+          Otto.logger.debug "[IPPrivacyMiddleware] Rewrote forwarded headers" if Otto.debug
         end
 
         # Check if the connecting peer counts as a trusted proxy

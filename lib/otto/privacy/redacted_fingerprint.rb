@@ -27,7 +27,7 @@ class Otto
 
       # IP-bearing forwarded headers overwritten with the masked IP in the
       # geo-resolution env view. Mirrors the set
-      # IPPrivacyMiddleware#mask_forwarded_headers rewrites, so a custom resolver
+      # IPPrivacyMiddleware#rewrite_forwarded_addresses rewrites, so a custom resolver
       # reading env sees masked values everywhere the middleware would. The
       # structured RFC 7239 Forwarded header (HTTP_FORWARDED) is handled
       # separately in {#geo_env} (dropped, not swapped, to keep valid syntax).

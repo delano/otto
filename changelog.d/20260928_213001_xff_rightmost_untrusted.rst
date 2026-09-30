@@ -24,6 +24,15 @@ Security
   left the client's address in ``X-Forwarded-For``, and let ``ip_match``
   test the proxy. Depth mode's short-chain fallback to ``REMOTE_ADDR`` is
   unchanged.
+- With IP privacy enabled, a request exempt from masking because its resolved
+  client IP is private or loopback now has its ``X-Forwarded-For``,
+  ``X-Real-IP`` and ``X-Client-IP`` headers and the ``for=`` values in
+  ``Forwarded`` rewritten to that client IP. They were left as received, so
+  a public address in them stayed in the Rack env: an entry left of an
+  unlisted private proxy hop, or a header sent by an untrusted private peer
+  or by any client behind a loopback peer with no proxy trust configured.
+  ``Rack::Request#ip``, whose default filter trusts private and loopback
+  addresses, returned that public address.
 - ``Otto::Utils.normalize_ip`` returns nil for a range (``203.0.113.9/0``,
   ``10.0.0.0/8``, ``203.0.113.9/32``). A forwarded entry written as a range
   is now invalid; before, it was returned as the client IP, masked to the

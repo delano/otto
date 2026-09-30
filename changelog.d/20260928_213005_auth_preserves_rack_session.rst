@@ -13,21 +13,26 @@ Fixed
   session writes were lost. The handler now receives the session object the
   middleware installed.
 
-- When env has no session, the wrapper still sets ``env['rack.session']`` to
-  a session the strategy passed, including an empty Hash, but not to ``nil``,
-  ``false``, or the default. ``result.session`` is unchanged: it is the
-  session the strategy returned.
+- When env has no session, or holds only the stand-in Hash that
+  ``Otto::Request#session`` installs when no session middleware ran, the
+  wrapper sets ``env['rack.session']`` to the strategy's session (anything
+  but ``nil`` or ``false``), as before. Otto's CSRF check reads the session
+  that way before authentication, so strategy-owned sessions keep their
+  writes on CSRF-checked requests. (#298)
 
 Changed
 -------
 
-- When a strategy passes no ``session:``, ``StrategyResult.anonymous`` and
-  ``AuthStrategy#success`` now default ``result.session`` to a new, empty
-  ``StrategyResult::DefaultSession``, a ``Hash`` subclass, instead of a plain
-  ``{}``. It still compares equal to ``{}`` and is writable. The route auth
-  wrapper recognizes the default by its class, so a strategy that passes an
-  empty Hash on purpose has it copied into an empty env, and the check never
-  reads a session's contents.
+- Behind a session middleware, a strategy's ``result.session`` no longer
+  replaces ``env['rack.session']``. A custom strategy that returned its own
+  session, or wrote into the default one, is visible only as
+  ``env['otto.strategy_result'].session`` there. Migration: write to
+  ``env['rack.session']``, or pass ``session: env['rack.session']`` to
+  ``success``. (#298)
+
+- ``Otto::Request#session`` installs an ``Otto::Request::DefaultSession`` (an
+  empty ``Hash`` subclass) instead of a plain ``{}`` when env has no
+  session. (#298)
 
 Documentation
 -------------

@@ -27,13 +27,7 @@ class Otto
         # NOTE: strategy_name will be injected by RouteAuthWrapper after strategy execution.
         # Strategies don't know their registered name, so we pass nil here and let the wrapper
         # set it based on how the strategy was registered via add_auth_strategy(name, strategy).
-        #
-        # Without session:, the result carries a new, empty
-        # StrategyResult::DefaultSession, which RouteAuthWrapper does not copy
-        # into env['rack.session']. Pass session: to hand the wrapper a session
-        # (for example env['rack.session'] itself, or an empty Hash on purpose).
-        def success(user:, session: Otto::Security::Authentication::StrategyResult::DefaultSession.new,
-                    auth_method: nil, **metadata)
+        def success(user:, session: {}, auth_method: nil, **metadata)
           Otto::Security::Authentication::StrategyResult.new(
             session: session,
             user: user,

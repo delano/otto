@@ -22,6 +22,30 @@ class Otto
   #
   # @see Otto#register_request_helpers
   class Request < Rack::Request
+    # The Hash that #session installs in env['rack.session'] when no session
+    # middleware provided one. It is an ordinary, writable Hash; the class
+    # marks it as a stand-in, so RouteAuthWrapper can install a strategy's
+    # session over it while never replacing a session a middleware installed.
+    class DefaultSession < ::Hash
+      # Whether +session+ is no session a middleware installed: nil, or a
+      # DefaultSession. Checks the class only, so a lazy session object (for
+      # example rack-session's SessionHash) is not loaded.
+      #
+      # @param session [Object, nil] the value of env['rack.session']
+      # @return [Boolean]
+      def self.vacant?(session)
+        session.nil? || session.instance_of?(self)
+      end
+    end
+
+    # Same as Rack::Request#session, except that when env has no session the
+    # Hash it installs is a {DefaultSession}.
+    #
+    # @return [Object] env['rack.session']
+    def session
+      fetch_header(Rack::RACK_SESSION) { |key| set_header(key, DefaultSession.new) }
+    end
+
     def user_agent
       env['HTTP_USER_AGENT']
     end

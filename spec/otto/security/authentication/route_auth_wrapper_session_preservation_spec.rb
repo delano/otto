@@ -210,20 +210,62 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
       expect(env['rack.session']).to equal(produced)
     end
 
-    it 'does not put the default empty session from auth=noauth into env' do
+    it 'puts the auth=noauth result session into env' do
       status, env = call_route('auth=noauth', session: nil)
 
       expect(status).to eq(200)
-      expect(seen[:session]).to be_nil
-      expect(env).not_to have_key('rack.session')
+      expect(seen[:session]).to eq({})
+      expect(env['rack.session']).to equal(env['otto.strategy_result'].session)
     end
 
-    it 'does not put the default session from AuthStrategy#success into env' do
+    it 'puts the AuthStrategy#success default session into env' do
       status, env = call_route('auth=apikey', session: nil, headers: { 'X-API-Key' => api_key })
 
       expect(status).to eq(200)
-      expect(env['otto.strategy_result'].session).to eq({})
-      expect(env).not_to have_key('rack.session')
+      expect(env['rack.session']).to equal(env['otto.strategy_result'].session)
+    end
+
+    it 'lets a handler on an auth=noauth route write env[rack.session] directly' do
+      writer = lambda do |env, _extra_params|
+        env['rack.session']['flash'] = 'hi'
+        [200, { 'content-type' => 'text/plain' }, ['ok']]
+      end
+      route = Otto::RouteDefinition.new('GET', '/resource', 'TestApp.index auth=noauth')
+      env = Rack::MockRequest.env_for('/resource')
+
+      status, = described_class.new(writer, route, auth_config).call(env)
+
+      expect(status).to eq(200)
+      expect(env['rack.session']).to eq('flash' => 'hi')
+    end
+
+    it 'puts data a strategy writes into the default session after #success into env' do
+      auth_config[:auth_strategies]['custom'] = Class.new(Otto::Security::Authentication::AuthStrategy) do
+        def authenticate(_env, _requirement)
+          result = success(user: { id: 7 })
+          result.session['token_scope'] = 'read'
+          result
+        end
+      end.new
+
+      status, = call_route('auth=custom', session: nil)
+
+      expect(status).to eq(200)
+      expect(seen[:session]).to eq('token_scope' => 'read')
+    end
+
+    it 'puts a session derived from a default session into env' do
+      auth_config[:auth_strategies]['custom'] = Class.new(Otto::Security::Authentication::AuthStrategy) do
+        def authenticate(_env, _requirement)
+          base = Otto::Security::Authentication::StrategyResult.anonymous
+          success(user: { id: 8 }, session: base.session.merge('token_scope' => 'write'))
+        end
+      end.new
+
+      status, = call_route('auth=custom', session: nil)
+
+      expect(status).to eq(200)
+      expect(seen[:session]).to eq('token_scope' => 'write')
     end
 
     it 'sets env[rack.session] to an empty Hash a strategy hands back' do
@@ -306,6 +348,128 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
 
         expect(store['old']).to eq('seen' => true, 'visits' => 3)
       end
+    end
+  end
+
+  # Otto's CSRF check runs before RouteAuthWrapper and reads the session
+  # through Otto::Request#session, which installs a DefaultSession when no
+  # middleware provided one. That placeholder is not a session anyone
+  # supplied, so a strategy's session still replaces it.
+  describe 'with the placeholder session Otto::Request#session installs' do
+    it 'replaces it with the session a strategy hands back' do
+      produced = { 'user_id' => 7 }
+      auth_config[:auth_strategies]['custom'] = strategy_returning(produced)
+
+      status, env = call_route('auth=custom', session: Otto::Request::DefaultSession.new)
+
+      expect(status).to eq(200)
+      expect(seen[:session]).to equal(produced)
+      expect(env['rack.session']).to equal(produced)
+    end
+
+    it 'replaces it with the auth=noauth result session' do
+      status, env = call_route('auth=noauth', session: Otto::Request::DefaultSession.new)
+
+      expect(status).to eq(200)
+      expect(env['rack.session']).to equal(env['otto.strategy_result'].session)
+    end
+
+    it 'keeps a plain Hash session that something other than Otto::Request installed' do
+      installed = { 'user_id' => 1 }
+      auth_config[:auth_strategies]['custom'] = strategy_returning({ 'user_id' => 7 })
+
+      status, env = call_route('auth=custom', session: installed)
+
+      expect(status).to eq(200)
+      expect(seen[:session]).to equal(installed)
+      expect(env['rack.session']).to equal(installed)
+    end
+  end
+
+  # The same strategy-owned sessions as above, behind Otto's CSRF protection:
+  # CSRFEnforcementWrapper checks the token before RouteAuthWrapper runs, and
+  # the checks read the session. The strategy's session must still reach the
+  # handler, and the tokens must stay valid from one request to the next.
+  describe 'through Otto#call with CSRF protection and no session middleware' do
+    include OttoTestHelpers
+
+    let(:store) { { 'abc' => {} } }
+
+    let(:otto) do
+      holder = {}
+      handlers = {
+        'public_form' => lambda do |_req, res, _extra|
+          res['content-type'] = 'text/html'
+          res.write('<html><head></head><body></body></html>')
+        end,
+        'form' => lambda do |req, res, _extra|
+          config = holder[:otto].security_config
+          token = config.generate_csrf_token(config.get_or_create_session_id(req))
+          res['content-type'] = 'text/html'
+          res.write(%(<html><head></head><body><input name="_csrf_token" value="#{token}"></body></html>))
+        end,
+        'visit' => lambda do |req, res, _extra|
+          req.session['visits'] = (req.session['visits'] || 0) + 1
+          res['content-type'] = 'text/plain'
+          res.write("visits=#{req.session['visits']}")
+        end,
+      }
+      route_lines = [
+        'GET /public-form &public_form',
+        'GET /form &form auth=token',
+        'POST /visit &visit auth=token',
+      ]
+      routes = create_test_routes_file('test_routes_session_csrf.txt', route_lines)
+      holder[:otto] = Otto.new(routes, lambda_handlers: handlers, csrf_protection: true)
+      holder[:otto].security_config.csrf_secret = 'a' * 64
+      holder[:otto].add_auth_strategy('token', token_store_strategy)
+      holder[:otto]
+    end
+
+    let(:token_store_strategy) do
+      sessions = store
+      Class.new(Otto::Security::Authentication::AuthStrategy) do
+        define_method(:authenticate) do |env, _requirement|
+          session = sessions[Rack::Request.new(env).cookies['tok']]
+          return failure('No token') unless session
+
+          success(user: { id: 'abc' }, session: session, auth_method: 'token')
+        end
+      end.new
+    end
+
+    let(:jar) { { 'tok' => 'abc' } }
+
+    def request(method, path, params = {})
+      env = Rack::MockRequest.env_for(path, method: method, params: params)
+      env['HTTP_COOKIE'] = jar.map { |name, value| "#{name}=#{value}" }.join('; ')
+      status, headers, body = otto.call(env)
+      Array(headers['set-cookie']).flat_map { |line| line.split("\n") }.each do |cookie|
+        name, value = cookie.split(';').first.split('=', 2)
+        jar[name] = value
+      end
+      text = +''
+      body.each { |chunk| text << chunk }
+      [status, text]
+    end
+
+    it 'keeps the handler writes in the strategy session on CSRF-checked POSTs' do
+      _, html = request('GET', '/public-form')
+      token = html[/name="csrf-token" content="([^"]+)"/, 1]
+
+      responses = Array.new(3) { request('POST', '/visit', '_csrf_token' => token) }
+
+      expect(responses).to eq([[200, 'visits=1'], [200, 'visits=2'], [200, 'visits=3']])
+      expect(store['abc']).to include('visits' => 3)
+    end
+
+    it 'issues tokens that match the binding cookie when the strategy session is installed' do
+      _, html = request('GET', '/form')
+      helper_token = html[/name="_csrf_token" value="([^"]+)"/, 1]
+      meta_token = html[/name="csrf-token" content="([^"]+)"/, 1]
+
+      expect(request('POST', '/visit', '_csrf_token' => helper_token)).to eq([200, 'visits=1'])
+      expect(request('POST', '/visit', '_csrf_token' => meta_token)).to eq([200, 'visits=2'])
     end
   end
 

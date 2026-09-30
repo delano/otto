@@ -2,6 +2,8 @@
 #
 # frozen_string_literal: true
 
+require 'rack/body_proxy'
+
 class Otto
   # Static response utilities for common HTTP responses
   module Static
@@ -39,20 +41,22 @@ class Otto
       [status, copy_headers(headers), body.is_a?(Array) ? body.dup : body]
     end
 
-    # Drop the body of a response to a HEAD request, as Rack::Head does.
+    # Replace the body of a response to a HEAD request with an empty one.
     #
-    # The Rack SPEC requires an empty body for HEAD. The original body is
-    # closed here, because the server only closes the body it receives, and
-    # the status and headers (including any content-length the handler set)
-    # are kept. A new triple is returned rather than writing into +response+,
-    # which may be frozen or shared.
+    # Rack::Lint rejects a body for HEAD: "Response body was given for HEAD
+    # request, but should be empty" (rack/lint.rb). The status and headers,
+    # including any content-length the handler set, are kept. The original
+    # body is not closed here: the returned empty body closes it when the
+    # server closes the response body, the same point at which a GET body is
+    # closed, so an error raised by that close surfaces there too. A new
+    # triple is returned rather than writing into +response+, which may be
+    # frozen or shared.
     #
     # @param response [Array] a Rack triple +[status, headers, body]+
-    # @return [Array] +[status, headers, []]+
+    # @return [Array] +[status, headers, Rack::BodyProxy]+ whose body yields nothing
     def head_response(response)
       status, headers, body = response
-      body.close if body.respond_to?(:close)
-      [status, headers, []]
+      [status, headers, Rack::BodyProxy.new([]) { body.close if body.respond_to?(:close) }]
     end
 
     # Copy a Rack headers container, keeping its class and copying Array values.

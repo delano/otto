@@ -5,12 +5,26 @@
 require 'spec_helper'
 require 'rack/lint'
 
-# The Rack SPEC requires an empty body for a HEAD request, and Rack::Lint
-# enforces it. Otto dispatches HEAD to the declared HEAD route or falls back
-# to the GET route, so the handler writes the GET body; Otto#call must drop
-# that body, close it, and keep the headers (Rack::Head semantics).
+# Rack::Lint rejects a response body for a HEAD request ("Response body was
+# given for HEAD request, but should be empty", rack/lint.rb). Otto dispatches
+# HEAD to the declared HEAD route or falls back to the GET route, so the
+# handler writes the GET body. Otto#call must return an empty body, keep the
+# headers, and close the handler's body when the server closes the returned
+# one, as it would for GET.
 RSpec.describe Otto do # rubocop:disable RSpec/SpecFilePathFormat
   describe '#call with a HEAD request' do
+    let(:raising_close_body) do
+      Class.new do
+        def each
+          yield 'x'
+        end
+
+        def close
+          raise IOError, 'close failed'
+        end
+      end
+    end
+
     let(:closable_body) do
       Class.new do
         attr_reader :chunks
@@ -38,6 +52,7 @@ RSpec.describe Otto do # rubocop:disable RSpec/SpecFilePathFormat
         'GET /boom HeadResponseApp.boom',
         'GET /sized HeadResponseApp.sized',
         'GET /closable HeadResponseApp.closable',
+        'GET /raising HeadResponseApp.raising_close',
       ]
     end
 
@@ -46,7 +61,9 @@ RSpec.describe Otto do # rubocop:disable RSpec/SpecFilePathFormat
 
     before do
       body_class = closable_body
+      raising_class = raising_close_body
       stub_const('HeadResponseApp', Module.new do
+        define_singleton_method(:raising_close) { |_req, res| res.body = raising_class.new }
         define_singleton_method(:page) do |_req, res|
           res.headers['content-type'] = 'text/plain'
           res.headers['x-page'] = 'yes'
@@ -81,6 +98,15 @@ RSpec.describe Otto do # rubocop:disable RSpec/SpecFilePathFormat
       app.on_request_complete { |_req, res, _duration| seen << [res.status, res.body.to_enum(:each).to_a] }
 
       app.call(mock_rack_env(method: 'HEAD', path: '/page'))
+
+      expect(seen).to eq([[200, []]])
+    end
+
+    it 'hands request completion hooks the empty body when closing the original would raise' do
+      seen = []
+      app.on_request_complete { |_req, res, _duration| seen << [res.status, res.body.to_enum(:each).to_a] }
+
+      app.call(mock_rack_env(method: 'HEAD', path: '/raising'))
 
       expect(seen).to eq([[200, []]])
     end
@@ -137,11 +163,28 @@ RSpec.describe Otto do # rubocop:disable RSpec/SpecFilePathFormat
         expect(body).to eq('')
       end
 
-      it 'closes the body the handler returned' do
+      it 'closes the body the handler returned when the server closes the response body' do
         _status, _headers, body = app.call(mock_rack_env(method: 'HEAD', path: '/closable'))
 
         expect(body.to_enum(:each).to_a).to eq([])
+        expect(HeadResponseApp.last_body).not_to be_closed
+
+        body.close
+
         expect(HeadResponseApp.last_body).to be_closed
+      end
+
+      it 'does not raise from Otto#call when closing the handler body raises' do
+        status, _headers, body = app.call(mock_rack_env(method: 'HEAD', path: '/raising'))
+
+        expect(status).to eq(200)
+        expect(body.to_enum(:each).to_a).to eq([])
+      end
+
+      it 'raises the close error where the server closes the response body, as for GET' do
+        _status, _headers, body = app.call(mock_rack_env(method: 'HEAD', path: '/raising'))
+
+        expect { body.close }.to raise_error(IOError, 'close failed')
       end
 
       it 'leaves the body of a GET request open for the server to close' do

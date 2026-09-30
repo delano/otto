@@ -207,9 +207,11 @@ class Otto
         handle_error(e, env)
       end
       # HEAD is dispatched to the GET route when no HEAD route is declared, so
-      # the handler writes a body. Drop it here, after error handling, so every
-      # response source is covered, and before the completion hooks, so they
-      # see the response the client receives. The method is normalized the
+      # the handler writes a body. Replace it here, after error handling, so
+      # every response source is covered, and before the completion hooks, so
+      # they see the response the client receives. head_response does not
+      # close the handler's body itself (the server's close of the returned
+      # body does), so this line cannot raise. The method is normalized the
       # same way the router normalizes it for dispatch.
       response_raw = Otto::Static.head_response(response_raw) if env['REQUEST_METHOD'].to_s.upcase == 'HEAD'
     ensure

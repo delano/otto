@@ -18,13 +18,16 @@ Fixed
   path with only a ``GET`` route falls back to that route, including its
   ``auth=``.
 
-- Responses to HEAD requests now have an empty body, as the Rack SPEC
-  requires. A HEAD request that fell back to a ``GET`` route returned the GET
-  body, which ``Rack::Lint`` rejects. ``Otto#call`` now drops the body after
-  dispatch and error handling, as ``Rack::Head`` does: it closes the original
-  body and keeps the status and headers, including a ``content-length`` the
-  handler set. This covers handler, ``/404``, not-found and error responses.
-  Request completion hooks receive the response with the empty body.
+- Responses to HEAD requests now have an empty body. A HEAD request that fell
+  back to a ``GET`` route returned the GET body, which ``Rack::Lint`` rejects
+  with "Response body was given for HEAD request, but should be empty".
+  ``Otto#call`` now replaces the body after dispatch and error handling and
+  keeps the status and headers, including a ``content-length`` the handler
+  set. The replacement body closes the original when the server closes it,
+  as it would for GET, so an error raised by that close surfaces there and
+  not from ``Otto#call``. This covers handler, ``/404``, not-found and error
+  responses. Request completion hooks receive the response with the empty
+  body.
 
 - Static mounts and the public directory now answer HEAD requests. They
   answered only GET, so a HEAD request for an asset fell through to the

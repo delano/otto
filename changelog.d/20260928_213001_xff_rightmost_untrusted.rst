@@ -36,12 +36,13 @@ Security
   hop. The request then has no client IP: ``env['otto.ip_match']`` denies
   every range, ``env['otto.client_ip']`` and
   ``Otto::Request#client_ipaddress`` are nil, and with IP privacy enabled
-  ``X-Forwarded-For``, ``X-Real-IP`` and ``X-Client-IP`` are deleted and each
-  ``for=`` value in ``Forwarded`` becomes ``unknown``, keeping its ``proto=``,
-  ``host=`` and ``by=``. A request with no ``REMOTE_ADDR`` takes the same
-  path, and its ``Forwarded`` header is now rewritten the same way instead of
-  deleted. ``Otto::Request#ip`` still returns ``REMOTE_ADDR``, the proxy,
-  on purpose: rate limiters key on the request IP, and
+  ``X-Forwarded-For``, ``X-Real-IP`` and ``X-Client-IP`` are deleted and
+  ``Forwarded`` loses its ``for=`` pairs but keeps ``proto=``, ``host=`` and
+  ``by=`` (it is deleted only if nothing else is left). A request with no
+  ``REMOTE_ADDR`` takes the same path; its ``Forwarded`` header used to be
+  deleted outright. ``Otto::Request#ip`` and a plain ``Rack::Request#ip``
+  still return ``REMOTE_ADDR``, the proxy, on purpose: rate limiters key on
+  the request IP, and
   rack-attack skips a throttle whose discriminator is nil. Use ``ip_match``,
   not ``req.ip``, for access decisions. Falling back to the proxy's own
   address made a private or loopback peer the client, which skipped masking,

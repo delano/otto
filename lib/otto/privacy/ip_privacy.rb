@@ -136,11 +136,38 @@ class Otto
         return value if value.nil? || masked_ip.nil? || masked_ip.empty?
 
         replacement = masked_ip.include?(':') ? %("[#{masked_ip}]") : masked_ip
-        # Match `for=` only at an element/pair boundary (start, comma, or
-        # semicolon) so a parameter merely ending in "for" is never touched.
-        value.gsub(/(\A|[,;]\s*)for\s*=\s*("[^"]*"|[^;,]+)/i) do
+        value.gsub(FORWARDED_FOR_PAIR) do
           "#{Regexp.last_match(1)}for=#{replacement}"
         end
+      end
+
+      # A `for=` pair in an RFC 7239 Forwarded value. Group 1 is the boundary
+      # before it, kept on rewrite. `for=` matches only at an element/pair
+      # boundary (start, comma, or semicolon) so a parameter merely ending in
+      # "for" is never touched.
+      FORWARDED_FOR_PAIR = /(\A|[,;]\s*)for\s*=\s*("[^"]*"|[^;,]+)/i
+
+      # Remove every `for=` pair from an RFC 7239 Forwarded header value.
+      #
+      # For a request with no resolvable client IP there is no address to put
+      # in `for=`. The pairs are removed rather than set to `unknown`: Rack
+      # returns a `for=` value as the client IP whenever it reads Forwarded,
+      # so `for=unknown` made Rack::Request#ip the string "unknown", while
+      # with no `for=` it falls back to REMOTE_ADDR as Otto::Request#ip does.
+      # RFC 7239 allows an element without `for=`, so `proto=`, `host=` and
+      # `by=` stay. An element left with no pairs is dropped.
+      #
+      # @param value [String, nil] the Forwarded header value
+      # @return [String, nil] the header without `for=` pairs; an empty string
+      #   when nothing else remains, nil for nil input
+      def self.strip_forwarded_for(value)
+        return value if value.nil?
+
+        value.gsub(FORWARDED_FOR_PAIR) { Regexp.last_match(1) }
+             .split(',', -1)
+             .map { |element| element.gsub(/\s*;[\s;]*/, ';').gsub(/\A[\s;]+|[\s;]+\z/, '') }
+             .reject(&:empty?)
+             .join(', ')
       end
 
       # Mask IPv4 address

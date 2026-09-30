@@ -6,7 +6,8 @@ require 'spec_helper'
 
 # A blank or nil CSRF secret must never become the HMAC signing key. Both the
 # OTTO_CSRF_SECRET constructor path and Config#csrf_secret= fall back to a
-# generated per-process secret instead, which keeps the production guard armed.
+# non-blank OTTO_CSRF_SECRET, then to a generated per-process secret, which
+# keeps the production guard armed.
 RSpec.describe Otto::Security::Config do
   around do |example|
     original_rack_env = ENV.fetch('RACK_ENV', nil)
@@ -129,6 +130,34 @@ RSpec.describe Otto::Security::Config do
 
       expect(generated?(config)).to be false
       expect(secret_of(config)).to eq(secret)
+    end
+  end
+
+  describe '#csrf_secret= with OTTO_CSRF_SECRET set' do
+    let(:env_secret) { 'e' * 64 }
+
+    blank_values.merge('a zero-width space' => "\u200B").each do |label, value|
+      it "falls back to OTTO_CSRF_SECRET for #{label}" do
+        ENV['OTTO_CSRF_SECRET'] = env_secret
+        cfg = described_class.new
+        cfg.csrf_secret = 'c' * 64
+
+        cfg.csrf_secret = value
+
+        expect(generated?(cfg)).to be false
+        expect(secret_of(cfg)).to eq(env_secret)
+      end
+    end
+
+    it 'generates a secret when OTTO_CSRF_SECRET is blank too' do
+      ENV['OTTO_CSRF_SECRET'] = " \u200B "
+      cfg = described_class.new
+      cfg.csrf_secret = 'c' * 64
+
+      cfg.csrf_secret = nil
+
+      expect(generated?(cfg)).to be true
+      expect(secret_of(cfg)).not_to eq('c' * 64)
     end
   end
 

@@ -783,13 +783,15 @@ class Otto
       # Write-only by design: the signing key has no public reader, so it is not
       # exposed to inspection/logging/serialization via the config object.
       #
-      # nil or a blank String (see BLANK_CSRF_SECRET), including an unset or
-      # blank OTTO_CSRF_SECRET at construction, is not used as the key. A fresh
-      # random per-process secret is generated instead and marked as generated,
-      # so the production guard (CSRF_SECRET_REQUIRED_MESSAGE) still applies.
+      # nil or a blank String (see BLANK_CSRF_SECRET) is not used as the key.
+      # A non-blank OTTO_CSRF_SECRET is used instead, read when the setter
+      # runs. If that is unset or blank too, a fresh random per-process secret
+      # is generated and marked as generated, so the production guard
+      # (CSRF_SECRET_REQUIRED_MESSAGE) still applies. The constructor assigns
+      # OTTO_CSRF_SECRET through this setter.
       #
-      # @param secret [String, nil] stable signing secret, or nil/blank for a
-      #   generated per-process secret
+      # @param secret [String, nil] stable signing secret, or nil/blank for
+      #   OTTO_CSRF_SECRET or a generated per-process secret
       # @raise [FrozenError] if configuration is frozen
       # @raise [ArgumentError] if secret is neither a String nor nil
       def csrf_secret=(secret)
@@ -800,6 +802,7 @@ class Otto
                 "CSRF secret must be a String or nil, got: #{secret.class}"
         end
 
+        secret                 = ENV.fetch('OTTO_CSRF_SECRET', nil) if blank_csrf_secret?(secret)
         @csrf_secret_generated = blank_csrf_secret?(secret)
         @csrf_secret           = @csrf_secret_generated ? SecureRandom.hex(32) : secret
       end

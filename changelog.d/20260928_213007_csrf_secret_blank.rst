@@ -6,12 +6,15 @@ Security
   example from ``ENV.fetch('OTTO_CSRF_SECRET', '')``) stored the empty string
   as the HMAC key and marked the secret as configured, so the production guard
   did not fire and a token signed with an empty key verified. ``nil`` was
-  stored as well, and every token signing then raised ``TypeError``. ``nil``
-  and blank strings now get a fresh random per-process secret marked as
-  generated, the same fallback as an unset ``OTTO_CSRF_SECRET``. With CSRF
-  protection enabled and ``RACK_ENV=production``, generating a token then
-  raises ``ArgumentError`` asking for a configured secret, as it does when
-  ``OTTO_CSRF_SECRET`` is unset.
+  stored as well, and every token signing then raised ``TypeError``. For
+  ``nil`` and blank strings the setter now uses ``OTTO_CSRF_SECRET`` when that
+  is set and not blank, so an assignment from an unset setting no longer
+  replaces a secret from the environment. Otherwise it generates a fresh
+  random per-process secret marked as generated, the same fallback as an unset
+  ``OTTO_CSRF_SECRET``. With CSRF protection enabled and
+  ``RACK_ENV=production``, generating a token then raises ``ArgumentError``
+  asking for a configured secret, as it does when ``OTTO_CSRF_SECRET`` is
+  unset.
 
 - A secret is blank when it holds only Unicode whitespace (``[[:space:]]``),
   NUL, zero-width spaces and joiners (U+200B to U+200D), the word joiner

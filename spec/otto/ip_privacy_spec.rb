@@ -565,15 +565,16 @@ RSpec.describe 'IP Privacy Features' do
           expect(env['HTTP_FORWARDED']).to eq('for=192.168.1.100')
         end
 
-        it 'deletes forwarded headers when there is no resolvable client IP' do
+        it 'removes forwarded addresses when there is no resolvable client IP' do
           # No REMOTE_ADDR to anchor resolution, but forwarded headers carry a
-          # raw client address. With no masked IP to rewrite them to, they must
-          # be dropped, not left to leak downstream.
-          env = { 'HTTP_X_FORWARDED_FOR' => '203.0.113.99', 'HTTP_FORWARDED' => 'for=203.0.113.99' }
+          # raw client address. With no masked IP to rewrite them to, the
+          # address headers are dropped and Forwarded's for= becomes unknown,
+          # so nothing leaks downstream.
+          env = { 'HTTP_X_FORWARDED_FOR' => '203.0.113.99', 'HTTP_FORWARDED' => 'for=203.0.113.99;proto=https' }
           middleware.call(env)
 
           expect(env).not_to have_key('HTTP_X_FORWARDED_FOR')
-          expect(env).not_to have_key('HTTP_FORWARDED')
+          expect(env['HTTP_FORWARDED']).to eq('for=unknown;proto=https')
         end
       end
 
@@ -2119,10 +2120,34 @@ RSpec.describe 'IP Privacy Features' do
         middleware.call(env)
 
         expect(env).not_to have_key('otto.client_ip')
-        expect(env.keys).not_to include('HTTP_X_FORWARDED_FOR', 'HTTP_FORWARDED')
+        expect(env).not_to have_key('HTTP_X_FORWARDED_FOR')
+        # Forwarded keeps proto= (scheme authority); only for= is replaced.
+        expect(env['HTTP_FORWARDED']).to eq('for=unknown;proto=https')
         expect(env['otto.ip_match'].call(['10.0.0.0/8', '0.0.0.0/0'])).to be(false)
         expect(env.values.grep(String).join(' ')).not_to include('203.0.113.50')
         expect(env['REMOTE_ADDR']).to eq('10.0.0.1')
+      end
+
+      it 'keeps Forwarded proto= and host= when an obfuscated for= leaves no client IP' do
+        # Depth mode reading RFC 7239 Forwarded. The proxy hid the client
+        # (for=_hidden) but still asserts the scheme and host. Deleting the
+        # header would drop https and the public host along with the address.
+        depth = Otto::Security::Config.new.tap do |cfg|
+          cfg.trusted_proxy_depth = 1
+          cfg.trusted_proxy_header = 'Forwarded'
+        end
+        env = {
+          'REMOTE_ADDR' => '10.0.0.1',
+          'HTTP_X_REAL_IP' => '203.0.113.50',
+          'HTTP_FORWARDED' => 'for=_hidden;proto=https;host=app.example.com',
+        }
+        Otto::Security::Middleware::IPPrivacyMiddleware.new(app, depth).call(env)
+
+        expect(env['otto.ip_match'].call(['0.0.0.0/0'])).to be(false)
+        expect(env).not_to have_key('HTTP_X_REAL_IP')
+        expect(env['HTTP_FORWARDED']).to eq('for=unknown;proto=https;host=app.example.com')
+        expect(Rack::Utils.forwarded_values(env['HTTP_FORWARDED']))
+          .to eq(for: ['unknown'], proto: ['https'], host: ['app.example.com'])
       end
 
       it 'keeps the no-client verdict on a second middleware pass' do

@@ -87,8 +87,9 @@ client IP. A proxy wrote that entry where the client belongs, and the proxy
 itself is not the client. `env['otto.ip_match']` returns false for every range,
 `env['otto.client_ip']` and `Otto::Request#client_ipaddress` are nil, and when
 IP privacy is enabled (the `:masked` and `:anonymous` profiles) Otto deletes
-`X-Forwarded-For`, `X-Real-IP`, `X-Client-IP` and `Forwarded`. `REMOTE_ADDR`
-keeps the proxy's address.
+`X-Forwarded-For`, `X-Real-IP` and `X-Client-IP` and replaces each `for=` value
+in `Forwarded` with `unknown`, keeping its `proto=`, `host=` and `by=` fields.
+`REMOTE_ADDR` keeps the proxy's address.
 
 The walk gives the right answer only when two things hold:
 
@@ -135,7 +136,7 @@ The decision is made by `IPPrivacyMiddleware` from the connecting peer
 
 | Trust state | `otto.via_trusted_proxy` | Forwarded host, scheme, and port carriers |
 | --- | --- | --- |
-| `REMOTE_ADDR` matches a configured trusted-proxy CIDR | `true` | Kept. When privacy masking applies, `Forwarded` keeps its `proto=`, `host=`, and `by=` fields while its `for=` value is replaced with the masked IP. |
+| `REMOTE_ADDR` matches a configured trusted-proxy CIDR | `true` | Kept. When IP privacy is enabled, `Forwarded` keeps its `proto=`, `host=`, and `by=` fields while its `for=` value is replaced with the masked IP, with the resolved client IP when that IP is private or loopback and exempt from masking, or with `unknown` when no client IP resolves. |
 | Depth mode is enabled | `true` for every peer | Kept, subject to the same privacy masking. |
 | Proxy trust is configured, but the peer does not match a configured CIDR | `false` | Deleted. |
 | `trusted_proxies: :none` is configured | `false` for every peer | Deleted. |

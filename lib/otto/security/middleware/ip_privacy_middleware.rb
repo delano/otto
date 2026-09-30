@@ -286,7 +286,9 @@ class Otto
           # Likewise, forwarded headers may still carry raw client addresses
           # (e.g. an X-Forwarded-For / Forwarded value with no usable REMOTE_ADDR
           # to anchor resolution). There is no masked IP to rewrite them to, so
-          # DELETE them — leaving them would leak the raw address downstream.
+          # the address headers are DELETED and Forwarded's for= values become
+          # `unknown` (its proto=/host= stay) — leaving them would leak the raw
+          # address downstream.
           if client_ip.to_s.empty?
             Otto.logger.debug '[IPPrivacyMiddleware] No resolvable client IP; skipping IP masking' if Otto.debug
             scrub_sensitive_headers(
@@ -505,16 +507,22 @@ class Otto
           UNTRUSTED_FORWARDING_METADATA_HEADERS.each { |key| env.delete(key) }
         end
 
-        # Delete forwarded IP headers outright.
+        # Remove the client addresses from the forwarded headers.
         #
         # Used on the no-resolvable-client-IP path, where there is no masked IP
-        # to rewrite these to. Leaving them would leak a raw client address (in
-        # X-Forwarded-For / X-Real-IP / X-Client-IP / RFC 7239 Forwarded)
-        # downstream. Deleting is Rack-SPEC-safe: an absent CGI key is valid.
+        # to rewrite these to. Leaving them would leak a raw client address
+        # downstream. X-Forwarded-For, X-Real-IP and X-Client-IP carry nothing
+        # but addresses, so they are deleted (an absent CGI key is
+        # Rack-SPEC-safe). RFC 7239 Forwarded also carries the scheme (proto=)
+        # and host (host=) a trusted proxy asserts, which Rack reads for
+        # #scheme, #ssl? and #host; deleting it would turn an https request
+        # into http and hand the host to the proxy. Its for= values are
+        # replaced with the RFC 7239 `unknown` identifier instead.
         #
         # @param env [Hash] Rack environment
         def scrub_forwarded_headers(env)
-          Otto::Utils::CLIENT_ADDRESS_HEADERS.each { |key| env.delete(key) }
+          Otto::Utils::FORWARDED_FOR_HEADERS.each { |key| env.delete(key) }
+          rewrite_forwarded_for(env, 'unknown')
         end
 
         # Rewrite X-Forwarded-For and related proxy headers to one address
@@ -542,16 +550,25 @@ class Otto
           env['HTTP_X_REAL_IP'] = address if env['HTTP_X_REAL_IP']
           env['HTTP_X_CLIENT_IP'] = address if env['HTTP_X_CLIENT_IP']
 
-          # RFC 7239 Forwarded carries the client IP in a structured `for=`
-          # token, and Otto reads it as an authoritative client-IP source in
-          # count-based depth mode (trusted_proxy_header 'Forwarded'/'Both').
-          # Left as-is it would leak the real IP to downstream code. Redact only
-          # the `for=` value(s) so proto=/host=/by= metadata survives.
-          if env['HTTP_FORWARDED']
-            env['HTTP_FORWARDED'] = Otto::Privacy::IPPrivacy.mask_forwarded_for(env['HTTP_FORWARDED'], address)
-          end
+          rewrite_forwarded_for(env, address)
 
           Otto.logger.debug "[IPPrivacyMiddleware] Rewrote forwarded headers" if Otto.debug
+        end
+
+        # Replace every `for=` value in RFC 7239 Forwarded with +replacement+.
+        #
+        # Forwarded carries the client IP in a structured `for=` token, and Otto
+        # reads it as an authoritative client-IP source in count-based depth
+        # mode (trusted_proxy_header 'Forwarded'/'Both'). Left as-is it would
+        # leak the real IP to downstream code. Only the `for=` value(s) are
+        # redacted, so proto=/host=/by= metadata survives.
+        #
+        # @param env [Hash] Rack environment
+        # @param replacement [String] an address, or 'unknown'
+        def rewrite_forwarded_for(env, replacement)
+          return unless env['HTTP_FORWARDED']
+
+          env['HTTP_FORWARDED'] = Otto::Privacy::IPPrivacy.mask_forwarded_for(env['HTTP_FORWARDED'], replacement)
         end
 
         # Check if the connecting peer counts as a trusted proxy

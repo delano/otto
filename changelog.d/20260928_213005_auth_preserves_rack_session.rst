@@ -28,3 +28,12 @@ Changed
   wrapper recognizes the default by its class, so a strategy that passes an
   empty Hash on purpose has it copied into an empty env, and the check never
   reads a session's contents.
+
+Documentation
+-------------
+
+- The authentication guide and reference describe when the route auth wrapper
+  sets ``env['rack.session']`` from ``result.session``. The guide adds that
+  Logic classes get no env, so on ``auth=noauth``, role, permission, and API
+  key routes, and on routes without ``auth=``, ``@context.session`` is a
+  separate Hash whose writes are not persisted, and says what to use instead.

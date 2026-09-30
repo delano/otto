@@ -329,14 +329,31 @@ result.metadata
 result.strategy_name
 ```
 
-`result.session` is the session the strategy returned. The route auth wrapper
-does not replace an existing `env['rack.session']` with it, so the handler
-receives the session object that the session middleware installed. It copies
-`result.session` into env only when env has no session and the strategy
-returned one. The built-in `SessionStrategy` returns the object from env.
-`NoAuthStrategy`, `RoleStrategy`, `PermissionStrategy`, and `APIKeyStrategy`
-return an empty Hash, so read and write the session through
-`env['rack.session']` (or `req.session`) on those routes.
+`result.session` is the session the strategy passed to the result. When a
+strategy passes no `session:`, `StrategyResult.anonymous` and
+`AuthStrategy#success` use a new, empty `StrategyResult::DefaultSession` (a
+`Hash` subclass) as a placeholder.
+
+After a strategy succeeds, the route auth wrapper never replaces an existing
+`env['rack.session']`, so the handler receives the session object that the
+session middleware installed. When env has no session, the wrapper sets
+`env['rack.session']` to `result.session` unless that value is `nil`, `false`,
+or a `StrategyResult::DefaultSession`. An empty Hash that the strategy passed on
+purpose is copied.
+
+The built-in `SessionStrategy` passes the object from env. `NoAuthStrategy`,
+`RoleStrategy`, `PermissionStrategy`, and `APIKeyStrategy` pass no session, so
+on their routes `result.session` is the placeholder, not `env['rack.session']`.
+The same is true of the anonymous result on a route without `auth=`. On those
+routes, a controller handler reads and writes the session through
+`req.session` (or `env['rack.session']`).
+
+Logic classes receive the result as `@context` and get no env. On those routes
+`@context.session` is therefore a separate Hash, with or without a session
+middleware, and nothing written to it is persisted. For a Logic class to see
+the session, the route's strategy has to pass `session: env['rack.session']` to
+`success`, as `SessionStrategy` does. Otherwise, make the endpoint a controller
+handler.
 
 Application code should read the result created by Otto rather than constructing
 its own `StrategyResult`. The `Data` record does not allow member reassignment,

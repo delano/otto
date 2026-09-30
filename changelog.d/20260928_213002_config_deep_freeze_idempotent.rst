@@ -1,15 +1,17 @@
 Fixed
 -----
 
-- An app with MCP bearer tokens (``mcp_auth_tokens``) or MCP rate limiting no
-  longer fails every request once its configuration is frozen. Freezing the
+- An MCP endpoint with ``auth_tokens`` (``mcp_auth_tokens``), or with MCP rate
+  limiting, raised ``FrozenError`` on every request outside RSpec. The first
+  request runs the lazy configuration freeze in ``Otto#call``. Freezing the
   middleware stack reached the already frozen security config a second time,
   through the arguments of ``Otto::MCP::Auth::TokenMiddleware`` and
-  ``Otto::MCP::RateLimitMiddleware``. ``Otto::Security::Config#deep_freeze!``
-  then reran its freeze-time validators and raised ``FrozenError``. Because
-  the lazy freeze in ``Otto#call`` never completed, every later request
-  retried it and raised again; an explicit ``freeze_configuration!`` at boot
-  raised the same error. ``Config#deep_freeze!`` now returns ``self`` when the
-  config is already frozen, as ``Otto::Core::Freezable#deep_freeze!`` does.
-  The test suite did not catch this because ``Otto#call`` skips the lazy
-  freeze when RSpec is loaded.
+  ``Otto::MCP::RateLimitMiddleware``, and
+  ``Otto::Security::Config#deep_freeze!`` then reran its freeze-time
+  validators and raised ``FrozenError: Cannot modify frozen configuration``.
+  Because the freeze never completed, every later request retried it and
+  raised again; an explicit ``freeze_configuration!`` at boot raised the same
+  error. ``Config#deep_freeze!`` now returns ``self`` when the config is
+  already frozen, as ``Otto::Core::Freezable#deep_freeze!`` does. The test
+  suite did not catch this because ``Otto#call`` skips the lazy freeze when
+  RSpec is loaded.

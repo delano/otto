@@ -9,14 +9,14 @@ Fixed
   checked against a different value.
   ``Otto::Security::Config#get_or_create_session_id`` now reads back the id
   the store minted during the write and binds the token to it. Pages that
-  wrote to the session before the token was issued were not affected.
+  wrote to the session before the token was issued were not affected. (#295)
 
 - Session ids are converted with ``to_s`` before they are used as the CSRF
   binding, and ``get_or_create_session_id`` always returns a String.
   rack-session returns a ``Rack::Session::SessionId`` object, which never
   compared equal to the ``_otto_session`` cookie, so ``CSRFMiddleware`` set
-  that cookie again on every HTML response it added a token to.
+  that cookie again on every HTML response it added a token to. (#295)
 
 - The binding still follows the session id. A store that renews the id, for
   example rack-session's ``renew`` option at login, invalidates the tokens
-  issued before the renewal.
+  issued before the renewal. (#295)

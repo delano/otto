@@ -444,10 +444,11 @@ class Otto
       MSG
 
       # A CSRF secret made only of these characters is blank: Unicode
-      # whitespace ([[:space:]]), NUL, U+200B to U+200D (zero-width space,
-      # non-joiner and joiner), U+2060 (word joiner) and U+FEFF (zero-width
-      # no-break space, the byte order mark).
-      BLANK_CSRF_SECRET = /\A[[:space:]\u0000\u200B-\u200D\u2060\uFEFF]*\z/
+      # whitespace ([[:space:]]), the Unicode Default_Ignorable_Code_Point
+      # property (characters that render as nothing, such as zero-width
+      # spaces and joiners, U+00AD soft hyphen, U+2060 word joiner, U+FEFF,
+      # bidirectional marks, variation selectors and Hangul fillers) and NUL.
+      BLANK_CSRF_SECRET = /\A[[:space:]\p{Default_Ignorable_Code_Point}\u0000]*\z/
 
       # A configured CSRF secret shorter than this many bytes logs a warning.
       CSRF_SECRET_MIN_BYTES = 32

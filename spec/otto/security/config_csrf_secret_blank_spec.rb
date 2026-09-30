@@ -114,6 +114,12 @@ RSpec.describe Otto::Security::Config do
       'NUL bytes' => "\0" * 32,
       'mixed ASCII and Unicode blanks' => " \t\u200B\u00A0\uFEFF\n",
       'UTF-16LE spaces' => '  '.encode(Encoding::UTF_16LE),
+      # Default_Ignorable_Code_Point characters outside the zero-width set
+      '32 soft hyphens (U+00AD)' => "\u00AD" * 32,
+      '32 Mongolian vowel separators (U+180E)' => "\u180E" * 32,
+      '32 function applications (U+2061)' => "\u2061" * 32,
+      '32 Hangul fillers (U+3164)' => "\u3164" * 32,
+      '32 left-to-right marks (U+200E)' => "\u200E" * 32,
     }.each do |label, value|
       it "treats #{label} as blank and generates a secret" do
         config.csrf_secret = value

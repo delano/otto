@@ -102,6 +102,34 @@ RSpec.describe Otto::Security::Config do
       expect(generated?(config)).to be false
       expect(secret_of(config)).to eq(secret)
     end
+
+    {
+      'a no-break space' => "\u00A0",
+      'an ideographic space' => "\u3000",
+      'a line separator' => "\u2028",
+      'zero-width spaces and joiners' => "\u200B\u200C\u200D",
+      'a word joiner' => "\u2060",
+      'a byte order mark' => "\uFEFF",
+      'NUL bytes' => "\0" * 32,
+      'mixed ASCII and Unicode blanks' => " \t\u200B\u00A0\uFEFF\n",
+      'UTF-16LE spaces' => '  '.encode(Encoding::UTF_16LE),
+    }.each do |label, value|
+      it "treats #{label} as blank and generates a secret" do
+        config.csrf_secret = value
+
+        expect(generated?(config)).to be true
+        forged = "ab:#{OpenSSL::HMAC.hexdigest('SHA256', value, 'sess1:ab')}"
+        expect(config.verify_csrf_token(forged, 'sess1')).to be false
+      end
+    end
+
+    it 'keeps a secret that has invisible characters around visible ones' do
+      secret = "\u200B#{'v' * 32}\uFEFF"
+      config.csrf_secret = secret
+
+      expect(generated?(config)).to be false
+      expect(secret_of(config)).to eq(secret)
+    end
   end
 
   describe '#initialize with OTTO_CSRF_SECRET' do

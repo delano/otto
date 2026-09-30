@@ -394,6 +394,12 @@ class Otto
         across workers or restarts.
       MSG
 
+      # A CSRF secret made only of these characters is blank: Unicode
+      # whitespace ([[:space:]]), NUL, U+200B to U+200D (zero-width space,
+      # non-joiner and joiner), U+2060 (word joiner) and U+FEFF (zero-width
+      # no-break space, the byte order mark).
+      BLANK_CSRF_SECRET = /\A[[:space:]\u0000\u200B-\u200D\u2060\uFEFF]*\z/
+
       attr_accessor :input_validation, :max_param_depth, :csrf_token_key,
                     :rate_limiting_config, :csrf_session_key, :max_request_size,
                     :max_param_keys
@@ -777,10 +783,10 @@ class Otto
       # Write-only by design: the signing key has no public reader, so it is not
       # exposed to inspection/logging/serialization via the config object.
       #
-      # nil or a blank String (empty after strip), including an unset or blank
-      # OTTO_CSRF_SECRET at construction, is not used as the key. A fresh random
-      # per-process secret is generated instead and marked as generated, so the
-      # production guard (CSRF_SECRET_REQUIRED_MESSAGE) still applies.
+      # nil or a blank String (see BLANK_CSRF_SECRET), including an unset or
+      # blank OTTO_CSRF_SECRET at construction, is not used as the key. A fresh
+      # random per-process secret is generated instead and marked as generated,
+      # so the production guard (CSRF_SECRET_REQUIRED_MESSAGE) still applies.
       #
       # @param secret [String, nil] stable signing secret, or nil/blank for a
       #   generated per-process secret
@@ -794,8 +800,7 @@ class Otto
                 "CSRF secret must be a String or nil, got: #{secret.class}"
         end
 
-        # Blank check on a binary copy: String#strip raises on invalid UTF-8.
-        @csrf_secret_generated = secret.nil? || secret.b.strip.empty?
+        @csrf_secret_generated = blank_csrf_secret?(secret)
         @csrf_secret           = @csrf_secret_generated ? SecureRandom.hex(32) : secret
       end
 
@@ -1293,6 +1298,22 @@ class Otto
         request.cookies['_otto_session'] ||
           request.cookies['session_id'] ||
           request.cookies['_session_id']
+      end
+
+      # Whether secret is nil or blank per BLANK_CSRF_SECRET. The string is
+      # checked in UTF-8. A string that is not valid in its encoding, or cannot
+      # be converted to UTF-8, is blank only if it holds nothing but ASCII
+      # whitespace and NUL, the characters String#strip removes; such bytes
+      # still work as an HMAC key.
+      def blank_csrf_secret?(secret)
+        return true if secret.nil?
+
+        utf8 = secret.encoding == Encoding::UTF_8 ? secret : secret.encode(Encoding::UTF_8)
+        return BLANK_CSRF_SECRET.match?(utf8) if utf8.valid_encoding?
+
+        secret.b.strip.empty?
+      rescue EncodingError
+        secret.b.strip.empty?
       end
 
       def store_session_id(request, session_id)

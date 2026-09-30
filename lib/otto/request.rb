@@ -38,13 +38,16 @@ class Otto
       end
     end
 
-    # Same as Rack::Request#session, except that when env has no session the
-    # Hash it installs is a {DefaultSession}.
+    # Rack::Request#session installs the value of this private hook in
+    # env['rack.session'] when env has no session (rack 3.1 and 3.2:
+    # request.rb, `def default_session; {}; end`). Otto installs a
+    # {DefaultSession} instead of a plain Hash.
     #
-    # @return [Object] env['rack.session']
-    def session
-      fetch_header(Rack::RACK_SESSION) { |key| set_header(key, DefaultSession.new) }
+    # @return [DefaultSession]
+    def default_session
+      DefaultSession.new
     end
+    private :default_session
 
     def user_agent
       env['HTTP_USER_AGENT']

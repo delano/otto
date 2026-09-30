@@ -17,7 +17,7 @@ Security
   - the ``auth_tokens`` and ``mcp_auth_tokens`` entries of ``Otto#option``
 
   The output otherwise keeps the ``Object#inspect`` shape. The shared
-  implementation is ``Otto::Core::RedactedInspect``.
+  implementation is ``Otto::Core::RedactedInspect``. (#300)
 
 - ``Otto#option`` is now an ``Otto::Core::OptionHash``, a ``Hash`` subclass.
   It stores MCP bearer tokens as ``Otto::Core::RedactedInspect::SecretList``
@@ -35,10 +35,10 @@ Security
   list and of a token Set now returns the redacted text, for example
   ``[REDACTED] (1)``; ``to_s`` of one token still returns the token.
   ``otto.option[:mcp_auth_tokens]`` is a copy, so the Array or Set passed to
-  ``Otto.new`` is no longer frozen with the configuration.
+  ``Otto.new`` is no longer frozen with the configuration. (#300)
 
 - With ``Otto.debug`` on, ``Otto.new`` logged its raw options, including
-  ``mcp_auth_tokens``. It now logs the redacted ``Otto#option``.
+  ``mcp_auth_tokens``. It now logs the redacted ``Otto#option``. (#300)
 
 - ``Otto::Privacy::Config#correlation_secret`` returns a frozen
   ``SecretString`` copy of the configured value, and
@@ -46,4 +46,4 @@ Security
   a frozen ``SecretString`` copy before it freezes the config. Neither freezes
   the String the application passed in, so a later write to that String no
   longer raises a ``FrozenError`` that prints it, and a write through
-  ``correlation_secret`` raises one that shows ``[REDACTED]``.
+  ``correlation_secret`` raises one that shows ``[REDACTED]``. (#300)

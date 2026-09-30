@@ -113,7 +113,8 @@ RSpec.describe 'Secrets in #inspect output' do
 
     it 'keeps the tokens out of Otto#inspect' do
       expect(otto.inspect).not_to include(mcp_token)
-      expect(otto.inspect).to include('mcp_auth_tokens: [REDACTED] (1)')
+      # Hash#inspect prints `key: value` from Ruby 3.4 and `:key=>value` before.
+      expect(otto.inspect).to match(/mcp_auth_tokens(: |=>)\[REDACTED\] \(1\)/)
     end
 
     it 'keeps the tokens out of the MCP server #inspect' do

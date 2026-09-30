@@ -7,6 +7,7 @@ require 'digest'
 require 'openssl'
 require 'rack/request'
 require_relative '../core/freezable'
+require_relative '../core/redacted_inspect'
 require_relative 'csp/policy'
 require_relative 'trusted_proxy_config'
 
@@ -29,6 +30,7 @@ class Otto
     #   config.max_param_depth = 16
     class Config
       include Otto::Core::Freezable
+      include Otto::Core::RedactedInspect
 
       # Otto accepts exactly one W3C Referrer Policy token for its
       # referrer_policy setting. The supported tokens are enumerated below:
@@ -1232,6 +1234,23 @@ class Otto
       end
 
       private
+
+      # #inspect (and so a native FrozenError message) shows the CSRF signing
+      # key as [REDACTED]. See Otto::Core::RedactedInspect.
+      def redacted_inspect_value(ivar, value)
+        ivar == :@csrf_secret ? redacted_placeholder(value) : super
+      end
+
+      # Freezable#deep_freeze! calls this before freezing the config. The
+      # signing key is replaced with a frozen SecretString copy first, so the
+      # caller's String is not frozen by the config (a later write to it would
+      # raise a FrozenError that prints it) and the config keeps signing with
+      # the value it had. Done here rather than in csrf_secret= so it covers
+      # every way the key is set.
+      def freeze_instance_variables!
+        @csrf_secret = Otto::Core::RedactedInspect.secret(@csrf_secret)
+        super
+      end
 
       # Guard for mutators: refuse changes once the configuration is frozen.
       # Centralizes the repeated frozen-check so every setter shares one message.

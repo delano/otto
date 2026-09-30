@@ -7,7 +7,7 @@ Security
   subdomain or a network attacker can no longer plant the binding. Before,
   when the session provided no binding, a planted ``_otto_session`` (or
   ``session_id`` or ``_session_id``) cookie became the binding, and an
-  attacker holding a token for it could forge a login.
+  attacker holding a token for it could forge a login. (#302)
 
 Changed
 -------
@@ -23,4 +23,4 @@ Changed
   request as HTTPS (``HTTPS=on``, ``rack.url_scheme``, or
   ``X-Forwarded-Proto``) for the hardening to apply. If Otto sees HTTPS while
   the browser uses HTTP, the browser rejects the cookie and CSRF-protected
-  requests get ``403``.
+  requests get ``403``. (#302)

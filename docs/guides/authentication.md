@@ -331,29 +331,31 @@ result.strategy_name
 
 `result.session` is the session the strategy passed to the result. When a
 strategy passes no `session:`, `StrategyResult.anonymous` and
-`AuthStrategy#success` use a new, empty `StrategyResult::DefaultSession` (a
-`Hash` subclass) as a placeholder.
+`AuthStrategy#success` use a new, empty Hash.
 
-After a strategy succeeds, the route auth wrapper never replaces an existing
-`env['rack.session']`, so the handler receives the session object that the
-session middleware installed. When env has no session, the wrapper sets
-`env['rack.session']` to `result.session` unless that value is `nil`, `false`,
-or a `StrategyResult::DefaultSession`. An empty Hash that the strategy passed on
-purpose is copied.
+After a strategy succeeds, the route auth wrapper sets `env['rack.session']` to
+`result.session`, unless that value is `nil` or `false`, when env holds no
+session that a middleware installed: the key is absent, or it holds the
+`Otto::Request::DefaultSession` that `Otto::Request#session` installs when no
+session middleware ran. (Otto's CSRF check reads the session that way before
+authentication runs.) A session that a middleware installed is never replaced,
+so the handler receives that object.
 
 The built-in `SessionStrategy` passes the object from env. `NoAuthStrategy`,
-`RoleStrategy`, `PermissionStrategy`, and `APIKeyStrategy` pass no session, so
-on their routes `result.session` is the placeholder, not `env['rack.session']`.
-The same is true of the anonymous result on a route without `auth=`. On those
-routes, a controller handler reads and writes the session through
-`req.session` (or `env['rack.session']`).
+`RoleStrategy`, `PermissionStrategy`, and `APIKeyStrategy` pass no session.
+Without a session middleware, their empty Hash becomes `env['rack.session']`,
+so `result.session` and `env['rack.session']` are the same object. Behind a
+session middleware, `result.session` on those routes is a separate Hash, and a
+controller handler reads and writes the session through `req.session` (or
+`env['rack.session']`). On a route without `auth=`, the anonymous result's
+session is never placed in env.
 
-Logic classes receive the result as `@context` and get no env. On those routes
-`@context.session` is therefore a separate Hash, with or without a session
-middleware, and nothing written to it is persisted. For a Logic class to see
-the session, the route's strategy has to pass `session: env['rack.session']` to
-`success`, as `SessionStrategy` does. Otherwise, make the endpoint a controller
-handler.
+Logic classes receive the result as `@context` and get no env. Behind a session
+middleware on those routes, and on any route without `auth=`, `@context.session`
+is therefore a separate Hash, and nothing written to it is persisted. For a
+Logic class to see the middleware's session, the route's strategy has to pass
+`session: env['rack.session']` to `success`, as `SessionStrategy` does.
+Otherwise, make the endpoint a controller handler.
 
 Application code should read the result created by Otto rather than constructing
 its own `StrategyResult`. The `Data` record does not allow member reassignment,

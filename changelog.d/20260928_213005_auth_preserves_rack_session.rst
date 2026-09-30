@@ -39,9 +39,10 @@ Documentation
 
 - The authentication guide and reference describe when the route auth wrapper
   sets ``env['rack.session']`` from ``result.session``. The guide adds that
-  Logic classes get no env, so on ``auth=noauth``, role, permission, and API
-  key routes, and on routes without ``auth=``, ``@context.session`` is a
-  separate Hash whose writes are not persisted, and says what to use instead.
+  Logic classes get no env, so behind a session middleware on ``auth=noauth``,
+  role, permission, and API key routes, and on any route without ``auth=``,
+  ``@context.session`` is a separate Hash whose writes are not persisted, and
+  says what to use instead.
 
 - The authentication reference no longer says the route auth wrapper sets
   ``env['otto.user']`` (nothing sets it; the user is

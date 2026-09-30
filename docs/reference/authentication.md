@@ -299,10 +299,11 @@ When a route has authentication requirements:
    order, until one authenticates or a terminal failure halts the chain
 3. On the winning success (the first authenticated success, or the held
    anonymous fallback once the chain completes; see Execution Flow above):
-   - Leaves an existing `env['rack.session']` unchanged. When env has no
-     session, sets it to `result.session` unless that value is `nil`,
-     `false`, or the `StrategyResult::DefaultSession` placeholder that a
-     result carries when its strategy passed no `session:`
+   - Sets `env['rack.session']` to `result.session` (unless that is `nil` or
+     `false`) when env holds no session a middleware installed: the key is
+     absent, or it holds the `Otto::Request::DefaultSession` that
+     `Otto::Request#session` installs when no session middleware ran. A
+     session a middleware installed is never replaced
    - Sets `env['otto.strategy_result']`; the user is
      `env['otto.strategy_result'].user`
    - Checks role requirements (if `role=` specified)

@@ -46,3 +46,8 @@ Documentation
   and ``RoleStrategy`` checks the session's roles). A ``LoggingHelpers``
   example comment that read ``env['otto.user']`` now reads the strategy
   result.
+
+- The authentication guide has a section on renewing the session id at login
+  with rack-session's ``:renew`` option, as protection against session
+  fixation. Otto never changes the session id itself. With CSRF protection
+  enabled, tokens issued before the renewal stop validating.

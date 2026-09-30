@@ -360,6 +360,53 @@ its own `StrategyResult`. The `Data` record does not allow member reassignment,
 but contained `session`, `user`, and `metadata` objects are not deep-frozen;
 their mutability remains the application's responsibility.
 
+## Renew the session id at login
+
+Otto never changes the session id. `SessionStrategy` authenticates any request
+whose session holds the configured key, whatever the session's id. If the login
+handler writes the user id into the session without renewing the id, the
+session keeps the id it had before login. That is session fixation: an attacker
+who obtained a session id before the victim logged in, for example by planting
+the session cookie in the victim's browser, is authenticated as the victim once
+the victim logs in.
+
+Renew the id in the handler that completes the login. With rack-session, set
+the `:renew` option for the request:
+
+```ruby
+class Session
+  def self.create(req, res)
+    account = Account.authenticate(req.params['email'], req.params['password'])
+    return res.redirect('/signin') unless account
+
+    req.env['rack.session.options'][:renew] = true
+    req.session['user_id'] = account.id
+    res.redirect('/dashboard')
+  end
+end
+```
+
+rack-session 2.1.2 documents the option in the comment above
+`Rack::Session::Abstract::Persisted`, an ancestor of its `Pool` and `Cookie`
+stores ([lib/rack/session/abstract/id.rb, lines 223-225](https://github.com/rack/rack-session/blob/v2.1.2/lib/rack/session/abstract/id.rb#L223-L225)):
+
+> :renew (implementation dependent) will prompt the generation of a new
+> session id, and migration of data to be referenced at the new id. If
+> :defer is set, it will be overridden and the cookie will be set.
+
+The same comment
+([lines 229-230](https://github.com/rack/rack-session/blob/v2.1.2/lib/rack/session/abstract/id.rb#L229-L230))
+says where to set it: "These options can be set on a per request basis, at the
+location of <tt>env['rack.session.options']</tt>." rack-session sets that key
+on each request it handles, so the handler must run behind a rack-session
+middleware. For another session store, see its documentation on renewing the
+id.
+
+With CSRF protection enabled, Otto binds CSRF tokens to `session.id` when the
+session has one (see `Otto::Security::Config#get_or_create_session_id`). After
+the id is renewed, a token issued before login no longer validates and the
+request gets `403`. Forms rendered after the login carry a token that does.
+
 ## Failure and response behavior
 
 - Unknown strategy names fail before any strategy in the route runs.

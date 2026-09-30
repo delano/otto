@@ -68,15 +68,16 @@ class Otto
           # prior pass may have run under a different (or no) configuration,
           # so this instance still enforces its own trust posture below.
           #
-          # otto.ip_match alone also marks a prior pass: the no-resolvable-IP
-          # path installs it without otto.client_ip. That path deletes the
-          # forwarded headers, so re-resolving would see only the peer and
-          # could turn "client unknown" into "the proxy is the client".
-          if env.key?('otto.client_ip') || env.key?('otto.ip_match')
+          # otto.ip_match without otto.client_ip also marks a prior pass: the
+          # no-resolvable-IP path installs it alone. That path deletes the
+          # forwarded address headers, so re-resolving would see only the peer
+          # and could turn "client unknown" into "the proxy is the client".
+          if env.key?('otto.client_ip') || prior_no_client_ip_pass?(env)
             ensure_ip_match_present(env)
             enforce_proxy_trust_after_prior_pass(env)
             return @app.call(env)
           end
+          discard_out_of_contract_ip_match(env)
 
           # Record the connecting peer's trust decision BEFORE any masking, so
           # secure? can authorize X-Forwarded-Proto canonically even after
@@ -208,14 +209,49 @@ class Otto
           end
         end
 
+        # Whether a prior pass of this middleware resolved no client IP.
+        #
+        # That pass leaves otto.ip_match without otto.client_ip. otto.ip_match
+        # alone is not enough to tell: a spec or app may have stubbed it, and
+        # taking a stub for a verdict would skip resolution and masking. Every
+        # pass writes otto.peer_relayed before resolving, so the pair is the
+        # marker.
+        #
+        # @param env [Hash] Rack environment
+        # @return [Boolean]
+        def prior_no_client_ip_pass?(env)
+          env.key?('otto.ip_match') && env.key?('otto.peer_relayed')
+        end
+
+        # Drop an otto.ip_match this middleware did not install, and say so.
+        #
+        # Reached only when #call found no prior pass. Resolution below
+        # installs the real capability; the warning makes the overwrite
+        # diagnosable, as #ensure_ip_match_present does for a hand-set
+        # otto.client_ip.
+        #
+        # @param env [Hash] Rack environment
+        def discard_out_of_contract_ip_match(env)
+          return unless env.key?('otto.ip_match')
+
+          Otto.logger.warn(
+            '[IPPrivacyMiddleware] otto.ip_match was set outside this ' \
+            'middleware and is being replaced: resolving and masking the ' \
+            'client IP as usual. Test harnesses can build the env with ' \
+            'Otto::Testing.env_for.'
+          )
+          env.delete('otto.ip_match')
+        end
+
         # Guarantee env['otto.ip_match'] exists on the idempotent-return path.
         #
         # Every path in this middleware that sets otto.client_ip installs the
         # capability first, so a second IPPrivacyMiddleware pass that reaches
         # this guard finds both keys and leaves the precise closure in place.
         # (The no-resolvable-IP path installs the capability but never sets
-        # otto.client_ip; #call treats otto.ip_match alone as a prior pass, so
-        # its fail-closed closure is kept too.) The gap is out-of-contract
+        # otto.client_ip; #call recognises that pass by otto.ip_match plus
+        # otto.peer_relayed, so its fail-closed closure is kept too.) The gap
+        # is out-of-contract
         # writes: otto.client_ip is documented as "Set by: IPPrivacyMiddleware"
         # (see Otto::EnvKeys), but
         # an app or test harness that sets it directly trips the idempotency

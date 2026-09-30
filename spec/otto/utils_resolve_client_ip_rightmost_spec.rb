@@ -157,6 +157,18 @@ RSpec.describe Otto::Utils, '.resolve_client_ip' do
 
         expect(req.client_ipaddress).to be_nil
       end
+
+      it 'resolves normally when otto.ip_match was set without the middleware' do
+        # otto.peer_relayed is written by every middleware pass; a stubbed
+        # capability without it is not a verdict.
+        env = Rack::MockRequest.env_for('/', 'REMOTE_ADDR' => '10.0.0.1',
+                                             'HTTP_X_FORWARDED_FOR' => '9.9.9.9, 203.0.113.50',
+                                             'otto.ip_match' => ->(_cidrs) { true })
+        req = Otto::Request.new(env)
+        allow(req).to receive(:otto_security_config).and_return(config)
+
+        expect(req.client_ipaddress).to eq('203.0.113.50')
+      end
     end
   end
 end

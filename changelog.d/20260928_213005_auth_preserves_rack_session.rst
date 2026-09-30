@@ -37,3 +37,12 @@ Documentation
   Logic classes get no env, so on ``auth=noauth``, role, permission, and API
   key routes, and on routes without ``auth=``, ``@context.session`` is a
   separate Hash whose writes are not persisted, and says what to use instead.
+
+- The authentication reference no longer says the route auth wrapper sets
+  ``env['otto.user']`` (nothing sets it; the user is
+  ``env['otto.strategy_result'].user``), that ``enable_authentication!`` is a
+  no-op (it was removed and raises ``NoMethodError``), or that the
+  ``auth=role:admin`` syntax was removed (it resolves to the ``role`` strategy,
+  and ``RoleStrategy`` checks the session's roles). A ``LoggingHelpers``
+  example comment that read ``env['otto.user']`` now reads the strategy
+  result.

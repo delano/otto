@@ -270,8 +270,8 @@ When a route has authentication requirements:
      session, sets it to `result.session` unless that value is `nil`,
      `false`, or the `StrategyResult::DefaultSession` placeholder that a
      result carries when its strategy passed no `session:`
-   - Sets `env['otto.strategy_result']`
-   - Sets `env['otto.user']` (extracted from result)
+   - Sets `env['otto.strategy_result']`; the user is
+     `env['otto.strategy_result'].user`
    - Checks role requirements (if `role=` specified)
    - Calls wrapped handler
 4. If all strategies fail: Returns 401/302
@@ -279,9 +279,17 @@ When a route has authentication requirements:
 
 ## Compatibility Notes
 
-- `enable_authentication!` is a no-op kept for API compatibility
+- `enable_authentication!` was removed; calling it raises `NoMethodError`.
+  `RouteAuthWrapper` wraps every route handler without it
 - AuthenticationMiddleware was removed (architecturally broken - ran before routing)
-- `auth=role:admin` syntax removed in favor of separate `role=admin` option
+- `env['otto.user']` is not set; read the user from
+  `env['otto.strategy_result'].user`
+- `auth=role:admin` is a strategy requirement, not the route-level role check.
+  It resolves to a strategy registered under the exact name `role:admin`, or
+  else to the one registered as `role` (prefix match). A `RoleStrategy`
+  checks `admin` against the session's roles (`user_roles` by default).
+  `role=admin` is the separate route-level check (Layer 1) against the
+  successful strategy result
 
 ## Best Practices
 

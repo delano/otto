@@ -96,8 +96,11 @@ POST /mcp/create-user  TOOL create_user AppMCP.create_user
 ```
 
 `MCP` registers a resource. Its resource URI is `users`: Otto removes one
-leading slash from the declaration. The handler must be a zero-argument class
-method. Otto returns its value as text with the `text/plain` MIME type.
+leading slash from the declaration. The handler is a class method that takes
+no arguments, or one argument: the Rack `env` of the MCP request. A handler
+that requires more than one argument, or a keyword argument, fails the read
+with a JSON-RPC internal error. Otto returns the handler's value as text with
+the `text/plain` MIME type.
 
 `TOOL` registers a tool. Its handler is a class method that receives
 `arguments` and the Rack `env`:
@@ -146,7 +149,9 @@ name and the handler, so these options have no effect.
 Use `mcp_auth_tokens` to require a token for the MCP endpoint (see
 [Authentication](#authentication)). A request that passes the token check can
 list, read, and call every registered resource and tool, so check permissions
-inside a handler when a tool needs them.
+inside the handler of any resource or tool that needs them. Both receive the
+Rack `env` of the MCP request: a tool handler always, a resource handler when
+it takes one argument.
 
 ## Call the endpoint
 

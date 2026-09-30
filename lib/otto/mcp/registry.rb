@@ -9,6 +9,28 @@ class Otto
   module MCP
     # Registry for managing MCP resources and tools
     class Registry
+      POSITIONAL_PARAMETER_TYPES = %i[req opt rest].freeze
+
+      # Arguments to call a resource handler with: the Rack env of the MCP
+      # request when the handler takes a positional argument, nothing when it
+      # takes none, so zero-argument handlers keep working. Reflects on
+      # #parameters rather than #arity: +->(env = nil) {}+ has arity -1.
+      #
+      # @param callable [Proc, Method, #call] the handler, or the Method it calls
+      # @param env [Hash, nil] Rack env of the MCP request
+      # @param label [String] names the handler in the error message
+      # @return [Array] +[]+ or +[env]+
+      # @raise [ArgumentError] if the handler requires more than one positional
+      #   argument or any keyword argument
+      def self.resource_handler_args(callable, env, label)
+        callable = callable.method(:call) unless callable.is_a?(Proc) || callable.is_a?(Method)
+        params   = callable.parameters
+        unusable = params.count { |(type, _)| type == :req } > 1 || params.any? { |(type, _)| type == :keyreq }
+        raise ArgumentError, "#{label} must take no arguments or one (the Rack env)" if unusable
+
+        params.any? { |(type, _)| POSITIONAL_PARAMETER_TYPES.include?(type) } ? [env] : []
+      end
+
       def initialize
         @resources = {}
         @tools     = {}
@@ -54,7 +76,10 @@ class Otto
         end
       end
 
-      def read_resource(uri)
+      # @param uri [String] resource URI
+      # @param env [Hash, nil] Rack env of the MCP request, passed to a handler
+      #   that takes one argument (see .resource_handler_args)
+      def read_resource(uri, env = nil)
         resource = @resources[uri]
         return nil unless resource
 
@@ -62,7 +87,8 @@ class Otto
         # (-32603/500), not a missing resource (-32001/404). Returning nil
         # here previously made the two indistinguishable to the protocol,
         # which owns the logging (Protocol#handle_resources_read).
-        content = resource[:handler].call
+        handler = resource[:handler]
+        content = handler.call(*self.class.resource_handler_args(handler, env, "Resource handler for #{uri}"))
         {
           contents: [{
             uri: uri,

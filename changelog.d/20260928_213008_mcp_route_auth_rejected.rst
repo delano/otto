@@ -14,6 +14,19 @@ Security
   and skips every ``MCP`` and ``TOOL`` line, as before, without checking its
   options. See the `MCP guide <docs/guides/mcp.md>`__.
 
+Added
+-----
+
+- A resource handler declared on an ``MCP`` line can take one argument, the
+  Rack env of the MCP request, so it can check permissions per request the
+  way a tool handler can. A zero-argument handler is still called with no
+  arguments. ``Otto::MCP::Registry#read_resource`` takes the env as an
+  optional second argument and passes it to a registered handler that takes
+  one argument. A handler that requires more than one argument, or a keyword
+  argument, raises ``ArgumentError`` on read, which the endpoint reports as a
+  JSON-RPC internal error. Before this, any handler that took an argument
+  failed that way.
+
 Changed
 -------
 

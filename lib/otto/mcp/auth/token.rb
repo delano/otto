@@ -16,7 +16,10 @@ class Otto
         include Otto::Core::RedactedInspect
 
         def initialize(tokens)
-          @tokens = Otto::Core::RedactedInspect.secret(Array(tokens)).to_set
+          # A frozen SecretSet of frozen SecretStrings. Otto::Core::Freezable
+          # only shallow-freezes a TokenAuth, and nothing here mutates the
+          # tokens after construction, so they are frozen now.
+          @tokens = Otto::Core::RedactedInspect.secret(Array(tokens).to_set).freeze
         end
 
         def authenticate(env)

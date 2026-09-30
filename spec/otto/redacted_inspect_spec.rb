@@ -98,6 +98,19 @@ RSpec.describe 'Secrets in #inspect output' do
   end
 
   describe Otto::MCP::Auth::TokenAuth do
+    # Otto::Core::Freezable only shallow-freezes a TokenAuth, and a Set keeps
+    # a String subclass key as given, so TokenAuth freezes its own state.
+    it 'freezes its token Set and every token when built' do
+      auth   = described_class.new([mcp_token, "#{mcp_token}-2"])
+      tokens = auth.instance_variable_get(:@tokens)
+
+      expect(tokens).to be_frozen
+      expect(tokens).to all(be_frozen)
+      expect(tokens.inspect).to eq('[REDACTED] (2)')
+      env = { 'HTTP_AUTHORIZATION' => "Bearer #{mcp_token}" }
+      expect(auth.authenticate(env)).to be true
+    end
+
     it 'redacts the tokens and shows how many there are' do
       auth = described_class.new([mcp_token, "#{mcp_token}-2"])
 

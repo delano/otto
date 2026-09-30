@@ -1507,8 +1507,10 @@ class Otto
       end
 
       # Generation-time guard for apps that never freeze their config: never
-      # mint a CSRF token signed with a generated per-process secret in
-      # production (fail loud instead of serving tokens that won't verify).
+      # mint a CSRF token signed with a generated secret in production, where
+      # workers that load the app themselves, separately started processes,
+      # other hosts and restarts would reject each other's tokens (fail loud
+      # instead of serving tokens that won't verify).
       def reject_generated_secret_in_production!
         raise ArgumentError, CSRF_SECRET_REQUIRED_MESSAGE if csrf_secret_unsafe_for_production?
       end

@@ -841,6 +841,11 @@ class Otto
       # A configured secret shorter than CSRF_SECRET_MIN_BYTES bytes is used
       # as given and logs a warning, without raising.
       #
+      # Each generated secret gets a fresh once-only flag, so the
+      # generated-secret warning is logged for it even if it was already
+      # logged for an earlier one (generate_csrf_token on an unfrozen config
+      # logs it before this setter can run again).
+      #
       # @param secret [String, nil] stable signing secret, or nil/blank for
       #   OTTO_CSRF_SECRET or a generated per-process secret
       # @raise [FrozenError] if configuration is frozen
@@ -856,6 +861,7 @@ class Otto
         secret                 = ENV.fetch('OTTO_CSRF_SECRET', nil) if blank_csrf_secret?(secret)
         @csrf_secret_generated = blank_csrf_secret?(secret)
         @csrf_secret           = @csrf_secret_generated ? SecureRandom.hex(32) : secret
+        @csrf_secret_warning   = OnceFlag.new if @csrf_secret_generated
         warn_short_csrf_secret unless @csrf_secret_generated
       end
 

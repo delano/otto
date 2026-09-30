@@ -33,3 +33,9 @@ Security
   (``Otto::Security::Config::CSRF_SECRET_MIN_BYTES``). The warning gives the
   length, not the secret. The secret is still used, and nothing raises, so an
   app that already runs with a short secret keeps booting.
+
+- When ``csrf_secret=`` generates a new secret, the generated-secret warning
+  (``Otto::Security::Config::CSRF_GENERATED_SECRET_WARNING``) is logged for
+  that secret too, even if it was already logged for an earlier generated
+  secret, for example by ``generate_csrf_token`` on a config that was not yet
+  frozen.

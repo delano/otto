@@ -210,6 +210,47 @@ RSpec.describe Otto::Security::Config do
     end
   end
 
+  # csrf_secret= only runs before the freeze, but generate_csrf_token on an
+  # unfrozen config can log the warning first (a config that is never
+  # frozen, or tokens minted before the first request). A secret the setter
+  # generates afterwards is a new one, and it gets its own warning.
+  describe 'the generated-secret warning when csrf_secret= generates a new secret' do
+    let(:warning) { /CSRF tokens are signed with a randomly generated secret/ }
+    let(:messages) { [] }
+
+    before do
+      allow(Otto.logger).to receive(:warn) { |message| messages << message }
+    end
+
+    it 'warns again after the earlier generated secret was warned about' do
+      config.generate_csrf_token('sess1')
+      config.csrf_secret = 'c' * 64
+      config.csrf_secret = nil
+      config.generate_csrf_token('sess1')
+
+      expect(messages.grep(warning).size).to eq(2)
+    end
+
+    it 'warns once for the new secret across later tokens and the freeze' do
+      config.generate_csrf_token('sess1')
+      config.csrf_secret = ''
+      config.generate_csrf_token('sess1')
+      config.deep_freeze!
+      config.generate_csrf_token('sess2')
+
+      expect(messages.grep(warning).size).to eq(2)
+    end
+
+    it 'does not warn when the setter falls back to OTTO_CSRF_SECRET' do
+      config.generate_csrf_token('sess1')
+      ENV['OTTO_CSRF_SECRET'] = 'e' * 64
+      config.csrf_secret = nil
+      config.generate_csrf_token('sess1')
+
+      expect(messages.grep(warning).size).to eq(1)
+    end
+  end
+
   describe '#initialize with OTTO_CSRF_SECRET' do
     ['', '   '].each do |value|
       it "treats #{value.inspect} as unset and generates a secret" do

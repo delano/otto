@@ -24,15 +24,23 @@ Changed
 -------
 
 - Behind a session middleware, a strategy's ``result.session`` no longer
-  replaces ``env['rack.session']``. A custom strategy that returned its own
-  session, or wrote into the default one, is visible only as
-  ``env['otto.strategy_result'].session`` there. Migration: write to
-  ``env['rack.session']``, or pass ``session: env['rack.session']`` to
-  ``success``. (#298)
+  replaces ``env['rack.session']``. The same holds without one when a plain
+  Hash is already there, for example because upstream Rack middleware or an
+  Otto handler wrapper called ``Rack::Request#session`` before the route auth
+  wrapper ran. A custom strategy that returned its own session, or wrote into
+  the default one, is then visible only as
+  ``env['otto.strategy_result'].session``. Migration: write to
+  ``env['rack.session']``, pass ``session: env['rack.session']`` to
+  ``success``, or read the session through ``Otto::Request`` (whose stand-in
+  the wrapper replaces) instead of ``Rack::Request`` before authentication.
+  (#298)
 
 - ``Otto::Request#session`` installs an ``Otto::Request::DefaultSession`` (an
-  empty ``Hash`` subclass) instead of a plain ``{}`` when env has no
-  session. (#298)
+  empty ``Hash`` subclass) instead of a plain ``{}`` when env has no session,
+  and app code can see it: ``instance_of?(Hash)`` is false,
+  ``YAML.safe_load`` of its YAML dump raises ``Psych::DisallowedClass``, and
+  ``Marshal.dump`` records the class name, so loading the dump needs Otto.
+  ``to_h`` returns a plain ``Hash``. (#298)
 
 Documentation
 -------------

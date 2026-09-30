@@ -339,16 +339,23 @@ session that a middleware installed: the key is absent, or it holds the
 `Otto::Request::DefaultSession` that `Otto::Request#session` installs when no
 session middleware ran. (Otto's CSRF check reads the session that way before
 authentication runs.) A session that a middleware installed is never replaced,
-so the handler receives that object.
+so the handler receives that object. Any other value already in
+`env['rack.session']` counts as installed too, including the plain Hash that
+`Rack::Request#session` creates when upstream Rack middleware or a handler
+wrapper calls it before the route auth wrapper runs; the strategy's session is
+then not placed in env.
 
-The built-in `SessionStrategy` passes the object from env. `NoAuthStrategy`,
-`RoleStrategy`, `PermissionStrategy`, and `APIKeyStrategy` pass no session.
-Without a session middleware, their empty Hash becomes `env['rack.session']`,
-so `result.session` and `env['rack.session']` are the same object. Behind a
-session middleware, `result.session` on those routes is a separate Hash, and a
-controller handler reads and writes the session through `req.session` (or
-`env['rack.session']`). On a route without `auth=`, the anonymous result's
-session is never placed in env.
+The built-in `SessionStrategy` passes the object from env. `NoAuthStrategy` and
+`APIKeyStrategy` pass no session. Without a session middleware, their empty
+Hash becomes `env['rack.session']`, so `result.session` and
+`env['rack.session']` are the same object. Behind a session middleware,
+`result.session` on those routes is a separate Hash, and a controller handler
+reads and writes the session through `req.session` (or `env['rack.session']`).
+`RoleStrategy` and `PermissionStrategy` also pass no session, but they read
+roles and permissions from `env['rack.session']` and fail with
+`No session available` when env has none, so their routes need a session
+middleware. On a route without `auth=`, the anonymous result's session is never
+placed in env.
 
 Logic classes receive the result as `@context` and get no env. Behind a session
 middleware on those routes, and on any route without `auth=`, `@context.session`
@@ -356,6 +363,16 @@ is therefore a separate Hash, and nothing written to it is persisted. For a
 Logic class to see the middleware's session, the route's strategy has to pass
 `session: env['rack.session']` to `success`, as `SessionStrategy` does.
 Otherwise, make the endpoint a controller handler.
+
+With CSRF protection enabled and no session middleware, a strategy session that
+responds to `id` or holds a `'session_id'` key becomes the CSRF binding for code
+that runs after authentication: a token the handler generates, and the token
+`CSRFMiddleware` injects into an HTML response. On an HTML response the
+middleware also sets the binding cookie to that value, so the next request's
+CSRF check, which runs before authentication and reads the cookie, accepts the
+injected token. A token the handler generates for a response that is not HTML
+is bound to the strategy's value while the cookie keeps the old one, so the next
+CSRF-protected request rejects it with `403`.
 
 Application code should read the result created by Otto rather than constructing
 its own `StrategyResult`. The `Data` record does not allow member reassignment,

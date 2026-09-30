@@ -14,6 +14,15 @@ Security
   and skips every ``MCP`` and ``TOOL`` line, as before, without checking its
   options. See the `MCP guide <docs/guides/mcp.md>`__.
 
+Changed
+-------
+
+- Any other ``key=value`` option on an ``MCP`` or ``TOOL`` line, such as
+  ``response=json``, now logs a ``MCP/tool route option not applied`` warning
+  when the routes file loads with MCP enabled. The option still loads, but the
+  MCP server reads only the resource URI or tool name and the handler, so it
+  has no effect.
+
 Fixed
 -----
 

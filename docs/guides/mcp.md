@@ -138,6 +138,11 @@ POST /mcp/delete-user  TOOL delete_user AppMCP.delete_user auth=session role=adm
 When MCP is not enabled as the file loads, Otto logs and skips every `MCP` and
 `TOOL` line, as described above, without checking its options.
 
+Any other `key=value` option on an `MCP` or `TOOL` line, such as
+`response=json`, still loads, but Otto logs a `MCP/tool route option not
+applied` warning for it. The MCP server reads only the resource URI or tool
+name and the handler, so these options have no effect.
+
 Use `mcp_auth_tokens` to require a token for the MCP endpoint (see
 [Authentication](#authentication)). A request that passes the token check can
 list, read, and call every registered resource and tool, so check permissions

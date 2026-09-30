@@ -71,7 +71,9 @@ class Otto
         # that normal routes get, so an auth|role|csrf token here (in any
         # form or case) fails the load instead of registering the route as
         # if it were protected. Other tokens are parsed by
-        # Otto::RouteDefinition exactly as for normal routes.
+        # Otto::RouteDefinition exactly as for normal routes and returned in
+        # :options, but Otto::MCP::Server reads only the resource URI or tool
+        # name and the handler, so each one is logged as not applied.
         parts[1..]&.each do |part|
           if Otto::RouteDefinition::SECURITY_GATING_OPTIONS.include?(part.split('=', 2).first.to_s.downcase)
             raise Otto::RouteDefinitionError,
@@ -83,6 +85,8 @@ class Otto
           pair = Otto::RouteDefinition.parse_option_token(part, "handler #{handler_definition.inspect}")
           if pair
             options[pair[0]] = pair[1]
+            Otto.structured_log(:warn, 'MCP/tool route option not applied',
+              { option: part, route: route_label })
           else
             Otto.structured_log(:warn, 'Malformed MCP/tool route option ignored',
               { option: part, handler: handler_definition })

@@ -7,12 +7,16 @@ require 'securerandom'
 
 # Minimal stand-in for rack-session 2.x, which is not a dependency of this gem.
 # It follows Rack::Session::Abstract::SessionHash and Rack::Session::Pool in the
-# two ways that matter for the CSRF binding:
+# three ways that matter for the CSRF binding:
 #
 # - The session loads lazily. Without a session cookie, #id is nil and a read
 #   loads nothing; the first write mints an id. With a cookie, the first read or
 #   write loads the stored data.
 # - The id is a SessionId object, not a String. Its #to_s is the cookie value.
+# - Setting :renew in env['rack.session.options'] moves the session data to a
+#   new id when the response is committed and deletes the old id, as
+#   Rack::Session::Pool#delete_session does. Apps do this at login to defeat
+#   session fixation.
 module CsrfSessionBindingSpec
   class SessionId
     attr_reader :public_id
@@ -60,6 +64,10 @@ module CsrfSessionBindingSpec
       @data.dup
     end
 
+    def renew!(new_id)
+      @id = new_id
+    end
+
     private
 
     def load!
@@ -88,19 +96,25 @@ module CsrfSessionBindingSpec
     end
 
     def call(env)
-      cookie_sid          = Rack::Request.new(env).cookies[COOKIE]
-      session             = LazySession.new(@pool, cookie_sid)
-      env['rack.session'] = session
+      cookie_sid                  = Rack::Request.new(env).cookies[COOKIE]
+      session                     = LazySession.new(@pool, cookie_sid)
+      env['rack.session']         = session
+      env['rack.session.options'] = {}
 
       status, headers, body = @app.call(env)
-      commit(session, cookie_sid, headers)
+      commit(session, cookie_sid, env['rack.session.options'], headers)
       [status, headers, body]
     end
 
     private
 
-    def commit(session, cookie_sid, headers)
+    def commit(session, cookie_sid, options, headers)
       return unless session.loaded?
+
+      if options[:renew]
+        @pool.delete(session.id.public_id)
+        session.renew!(SessionId.new(SecureRandom.hex(16)))
+      end
 
       sid        = session.id.public_id
       @pool[sid] = session.to_hash
@@ -137,12 +151,20 @@ RSpec.describe 'CSRF session binding with a lazily loaded session' do
         res['content-type'] = 'text/plain'
         res.write('accepted')
       end
+
+      # Renews the session id on login, the usual session fixation defence.
+      def self.login(req, res)
+        req.env['rack.session.options'][:renew] = true
+        req.session['user'] = 'member'
+        submit(req, res)
+      end
     end)
 
     route_lines = [
       'GET /form CsrfBindingApp.form',
       'GET /touch CsrfBindingApp.touch',
       'POST /submit CsrfBindingApp.submit',
+      'POST /login CsrfBindingApp.login',
     ]
     routes   = create_test_routes_file('csrf_session_binding_routes.txt', route_lines)
     instance = Otto.new(routes, csrf_protection: true)
@@ -227,6 +249,30 @@ RSpec.describe 'CSRF session binding with a lazily loaded session' do
 
       get '/touch'
       expect(otto_session_cookies).to be_empty
+    end
+  end
+
+  context 'when the app renews the session id at login' do
+    # With session fixation, an attacker plants their own session cookie in
+    # the victim's browser and keeps a token issued to that session. The
+    # renewal at login must retire that token along with the old id.
+    it 'rejects a token issued before the renewal' do
+      get '/form'
+      pre_login_token = issued_token
+
+      post '/login', '_csrf_token' => pre_login_token
+      expect(last_response.status).to eq(200)
+      expect(session_store.pool.size).to eq(1) # the data moved to the new id
+
+      expect(submit(pre_login_token).status).to eq(403)
+    end
+
+    it 'accepts a token issued after the renewal' do
+      get '/form'
+      post '/login', '_csrf_token' => issued_token
+      get '/form'
+
+      expect(submit(issued_token).status).to eq(200)
     end
   end
 

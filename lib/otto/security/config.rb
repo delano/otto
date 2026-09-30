@@ -1218,6 +1218,14 @@ class Otto
         super
       end
 
+      # Returns the value CSRF tokens are bound to, always as a String.
+      #
+      # When no binding exists yet, a random value is stored under
+      # csrf_session_key. A lazy session store (rack-session) mints its session
+      # id on that first write, so the id is read back and used as the binding
+      # when there is one. The next request then finds the same value through
+      # session.id, and a store that renews the id (for example at login)
+      # retires every token bound to the old one.
       def get_or_create_session_id(request)
         # Try existing sources first
         session_id = extract_existing_session_id(request)
@@ -1226,6 +1234,8 @@ class Otto
         if session_id.nil? || session_id.empty?
           session_id = SecureRandom.hex(16)
           store_session_id(request, session_id)
+          minted_id  = minted_session_id(request)
+          session_id = minted_id if minted_id
         end
 
         session_id
@@ -1261,14 +1271,11 @@ class Otto
         commit_rack_forwarding_family!
       end
 
-      # Returns the value CSRF tokens are bound to, as a String, or nil.
+      # Returns the existing CSRF binding as a String, or nil.
       #
-      # A binding stored under csrf_session_key is read before session.id.
-      # Lazy session stores (rack-session) report a nil id until the session
-      # is first written, so the first page a new visitor loads gets a random
-      # binding stored in the session. On later requests session.id is set,
-      # and reading it first would bind the next check to a different value.
-      # Reading the key also makes such stores load an existing session.
+      # session.id is read first, so the binding follows the store's session
+      # id and changes when the store renews it. The value stored under
+      # csrf_session_key is used only by sessions without an id.
       #
       # Values are coerced with to_s because session ids may be objects
       # (rack-session returns a Rack::Session::SessionId).
@@ -1277,8 +1284,8 @@ class Otto
         begin
           session = request.session
           if session
-            return session[csrf_session_key].to_s if session[csrf_session_key]
             return session.id.to_s if session.respond_to?(:id) && session.id
+            return session[csrf_session_key].to_s if session[csrf_session_key]
             return session['session_id'].to_s if session['session_id']
           end
         rescue StandardError
@@ -1296,6 +1303,18 @@ class Otto
         session[csrf_session_key] = session_id if session
       rescue StandardError
         # Cookie fallback handled in inject_csrf_token
+      end
+
+      # The session id a lazy store minted while #store_session_id wrote to the
+      # session, as a String, or nil when the session has no id.
+      def minted_session_id(request)
+        session = request.session
+        return nil unless session.respond_to?(:id)
+
+        minted_id = session.id.to_s
+        minted_id.empty? ? nil : minted_id
+      rescue StandardError
+        nil
       end
 
       # Default security headers applied to all responses

@@ -38,9 +38,12 @@ Security
   ``Otto::Request#client_ipaddress`` are nil, and with IP privacy enabled
   ``X-Forwarded-For``, ``X-Real-IP`` and ``X-Client-IP`` are deleted and each
   ``for=`` value in ``Forwarded`` becomes ``unknown``, keeping its ``proto=``,
-  ``host=`` and ``by=``. The same applies to a request with no
-  ``REMOTE_ADDR``, which used to lose the whole ``Forwarded`` header and with
-  it the scheme and host a trusted proxy asserted. Falling back to the proxy's own
+  ``host=`` and ``by=``. A request with no ``REMOTE_ADDR`` takes the same
+  path, and its ``Forwarded`` header is now rewritten the same way instead of
+  deleted. ``Otto::Request#ip`` still returns ``REMOTE_ADDR``, the proxy,
+  on purpose: rate limiters key on the request IP, and
+  rack-attack skips a throttle whose discriminator is nil. Use ``ip_match``,
+  not ``req.ip``, for access decisions. Falling back to the proxy's own
   address made a private or loopback peer the client, which skipped masking,
   left the client's address in ``X-Forwarded-For``, and let ``ip_match``
   test the proxy. **Behavior change** for ``trusted_proxy_depth``, whose

@@ -89,7 +89,9 @@ itself is not the client. `env['otto.ip_match']` returns false for every range,
 IP privacy is enabled (the `:masked` and `:anonymous` profiles) Otto deletes
 `X-Forwarded-For`, `X-Real-IP` and `X-Client-IP` and replaces each `for=` value
 in `Forwarded` with `unknown`, keeping its `proto=`, `host=` and `by=` fields.
-`REMOTE_ADDR` keeps the proxy's address.
+`REMOTE_ADDR` keeps the proxy's address, and `req.ip` returns it so rate
+limiters still have a key; see
+[the privacy guide](privacy.md#default-behavior) for why.
 
 The walk gives the right answer only when two things hold:
 

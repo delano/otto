@@ -158,6 +158,21 @@ RSpec.describe Otto::Utils, '.resolve_client_ip' do
         expect(req.client_ipaddress).to be_nil
       end
 
+      it 'keeps Otto::Request#ip on the connecting peer so rate limiters still get a key' do
+        # client_ipaddress is nil, but req.ip stays a String: rack-attack
+        # skips a throttle whose discriminator is nil, so a nil req.ip would
+        # exempt every request whose proxy hides the client from rate limits.
+        env = Rack::MockRequest.env_for('/', 'REMOTE_ADDR' => '10.0.0.1',
+                                             'HTTP_X_FORWARDED_FOR' => '203.0.113.50, unknown')
+        Otto::Testing.resolve_client_ip!(env, config)
+        req = Otto::Request.new(env)
+        allow(req).to receive(:otto_security_config).and_return(config)
+
+        expect(req.client_ipaddress).to be_nil
+        expect(req.ip).to eq('10.0.0.1')
+        expect(Rack::Request.new(env).ip).to eq('10.0.0.1')
+      end
+
       it 'resolves normally when otto.ip_match was set without the middleware' do
         # otto.peer_relayed is written by every middleware pass; a stubbed
         # capability without it is not a verdict.

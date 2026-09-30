@@ -26,6 +26,18 @@ With the default `:masked` profile:
 Downstream code should read `req.ip`, `req.masked_ip`, and the documented privacy
 environment keys rather than re-resolving an address from forwarded headers.
 
+A request can have no client IP when a trusted proxy wrote a value that is not
+an address (such as `unknown`) where the client belongs. For that request,
+`env['otto.client_ip']` and `req.client_ipaddress` are nil and
+`env['otto.ip_match']` returns false for every range, but `req.ip` still
+returns the connecting peer (`REMOTE_ADDR`, which is the proxy). That is
+deliberate: rate limiters key on `req.ip`, and rack-attack skips a throttle
+whose discriminator is nil, so a nil `req.ip` would exempt those requests from
+rate limiting. Do not use `req.ip` for access decisions; use
+`env['otto.ip_match']`. See
+[Forwarded host authority](forwarded-authority.md#how-enumerated-proxy-trust-resolves-the-client-ip)
+for when a request has no client IP.
+
 These profiles are technical data-minimization controls, not a compliance
 certification. Whether a deployment meets GDPR, CCPA, or another legal regime
 also depends on its purposes, notices, retention, access controls, vendors, and
@@ -84,7 +96,7 @@ Common values are also available in the Rack environment:
 
 | Value | Environment key | Contract |
 | --- | --- | --- |
-| Canonical client IP | `otto.client_ip` | Masked IP when masking applies; resolved full IP under `:audit` or for an exempt private/loopback request. |
+| Canonical client IP | `otto.client_ip` | Masked IP when masking applies; resolved full IP under `:audit` or for an exempt private/loopback request; nil when no client IP resolves. |
 | Precise CIDR verdict | `otto.ip_match` | Callable that checks the resolved full IP against CIDRs and returns only `true` or `false`. |
 | Masked IP | `otto.privacy.masked_ip` | Set when the request runs through the privacy fingerprint; absent for exempt or `:audit` requests. |
 | Rotating IP hash | `otto.privacy.hashed_ip` | Correlation value computed with Otto's rotating key; absent for exempt or `:audit` requests. |

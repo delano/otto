@@ -61,6 +61,34 @@ RSpec.describe Otto::Security::Config, '#deep_freeze!' do
     end
   end
 
+  # Object#freeze freezes only the config object. Its nested settings stay
+  # mutable, so deep_freeze! must not treat it as already done.
+  describe 'on a config frozen with Object#freeze' do
+    it 'raises FrozenError instead of returning with mutable nested settings' do
+      config = described_class.new
+      config.freeze
+
+      expect { config.deep_freeze! }
+        .to raise_error(FrozenError, /frozen with Object#freeze.*nested settings are still mutable/)
+      expect(config.security_headers).not_to be_frozen
+    end
+
+    it 'makes freeze_configuration! raise for an Otto whose config was shallow-frozen' do
+      otto = Otto.new(nil)
+      otto.security_config.freeze
+
+      expect { otto.freeze_configuration! }.to raise_error(FrozenError, /frozen with Object#freeze/)
+    end
+
+    it 'still returns self for a config that deep_freeze! froze' do
+      config = described_class.new
+      config.deep_freeze!
+
+      expect(config.deep_freeze!).to be(config)
+      expect(config.security_headers).to be_frozen
+    end
+  end
+
   describe 'Otto with MCP middleware after freeze_configuration!' do
     # MCP rate limiting rewrites the process-global Rack::Attack throttles.
     include_context 'with rack attack isolation'

@@ -11,7 +11,9 @@ Fixed
   validators and raised ``FrozenError: Cannot modify frozen configuration``.
   Because the freeze never completed, every later request retried it and
   raised again; an explicit ``freeze_configuration!`` at boot raised the same
-  error. ``Config#deep_freeze!`` now returns ``self`` when the config is
-  already frozen, as ``Otto::Core::Freezable#deep_freeze!`` does. The test
-  suite did not catch this because ``Otto#call`` skips the lazy freeze when
-  RSpec is loaded.
+  error. ``Config#deep_freeze!`` now returns ``self`` when ``deep_freeze!``
+  already froze the config. On a config frozen with ``Object#freeze``, whose
+  nested settings are still mutable, it raises ``FrozenError`` with
+  ``Otto::Security::Config::SHALLOW_FREEZE_MESSAGE``, as main raised a
+  ``FrozenError`` there too. The test suite did not catch this because
+  ``Otto#call`` skips the lazy freeze when RSpec is loaded. (#293)

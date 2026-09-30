@@ -1203,20 +1203,41 @@ class Otto
         @security_headers.merge!(headers)
       end
 
+      # Raised by #deep_freeze! on a config frozen with Object#freeze.
+      SHALLOW_FREEZE_MESSAGE = <<~MSG.gsub(/\s+/, ' ').strip.freeze
+        Otto::Security::Config was frozen with Object#freeze, not deep_freeze!,
+        so its nested settings are still mutable and it cannot be deep-frozen
+        now. Call deep_freeze! (or Otto#freeze_configuration!) instead of
+        freeze.
+      MSG
+
       # Override deep_freeze! to ensure rate_limiting_config has custom_rules initialized
       #
       # This pre-initializes any lazy values before freezing to prevent FrozenError
       # when accessing configuration after it's frozen.
       #
-      # Idempotent, like Otto::Core::Freezable#deep_freeze!: a frozen config
-      # returns self without rerunning the freeze-time validators. Middleware
-      # that takes this config as an argument (the MCP token and rate limit
-      # middleware) leads Otto#freeze_configuration! to reach it a second time
-      # while freezing the middleware stack.
+      # Idempotent, like Otto::Core::Freezable#deep_freeze!: a config that
+      # deep_freeze! already froze returns self without rerunning the
+      # freeze-time validators. Middleware that takes this config as an
+      # argument (the MCP token and rate limit middleware) leads
+      # Otto#freeze_configuration! to reach it a second time while freezing
+      # the middleware stack.
+      #
+      # A config frozen with Object#freeze is frozen while its nested settings
+      # (security headers, rate limiting config, ...) are not. It cannot be
+      # finished either, since its instance variables can no longer be
+      # replaced, so that case raises instead of passing as deep-frozen.
+      # deep_freeze! freezes @security_headers before the config itself, so a
+      # frozen config with unfrozen @security_headers was shallow-frozen.
       #
       # @return [self] The frozen configuration
+      # @raise [FrozenError] if the config was frozen with Object#freeze
       def deep_freeze!
-        return self if frozen?
+        if frozen?
+          return self if @security_headers.frozen?
+
+          raise FrozenError, SHALLOW_FREEZE_MESSAGE
+        end
 
         # Ensure custom_rules is initialized (should already be done in constructor)
         @rate_limiting_config[:custom_rules] ||= {}

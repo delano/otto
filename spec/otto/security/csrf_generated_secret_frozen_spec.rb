@@ -6,9 +6,10 @@ require 'spec_helper'
 require 'tempfile'
 
 # Without OTTO_CSRF_SECRET or csrf_secret=, Security::Config signs CSRF tokens
-# with a generated secret and logs a warning about it once per config. Otto skips its lazy configuration freeze under RSpec (see Otto#call),
-# so the normal request path never generates a token through a genuinely
-# frozen config. These specs freeze explicitly: generating a token after the
+# with a generated secret and logs a warning about it once per config. Otto
+# skips its lazy configuration freeze under RSpec (see Otto#call), so the
+# normal request path never generates a token through a genuinely frozen
+# config. These specs freeze explicitly: generating a token after the
 # freeze must not raise, and the warning must still be logged exactly once.
 # Integration spec over a behaviour, not a class; same shape as
 # csp_extras_frozen_spec.
@@ -129,10 +130,17 @@ RSpec.describe 'CSRF generated-secret warning against a frozen configuration' do
 
       expect(messages.size).to eq(1)
       message = messages.first
-      expect(message).to include('Workers forked after the secret was generated share it')
-      expect(message).to include('after a restart')
-      expect(message).to include('processes started separately or on other hosts')
+      expect(message).to include('Workers forked after the secret was generated (a preloaded app) share it')
+      expect(message).to include('workers that load the app themselves (cluster mode without preload)')
+      expect(message).to include('processes started separately, other hosts and restarts')
       expect(message).not_to include(config.instance_variable_get(:@csrf_secret))
+    end
+
+    it 'names the same cases in the production error' do
+      message = Otto::Security::Config::CSRF_SECRET_REQUIRED_MESSAGE
+
+      expect(message).to include('workers that load the app themselves (cluster mode without preload)')
+      expect(message).to include('processes started separately, other hosts or a restart')
     end
   end
 

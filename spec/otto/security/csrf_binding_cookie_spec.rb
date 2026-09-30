@@ -81,13 +81,22 @@ RSpec.describe 'CSRF binding cookie' do
           res['content-type'] = 'text/plain'
           res.write('logged in')
         end,
+        # A token endpoint for a JSON client: no HTML, so no injected token.
+        'csrf_json' => lambda do |req, res, _extra|
+          config = holder[:otto].security_config
+          token = config.generate_csrf_token(config.get_or_create_session_id(req))
+          res['content-type'] = 'application/json'
+          res.write(JSON.generate(token: token))
+        end,
       }
       routes = create_test_routes_file('test_routes_csrf_binding_cookie.txt',
-                                       ['GET /form &form', 'POST /login &login'])
-      Otto.new(routes, lambda_handlers: handlers, csrf_protection: true).tap do |app|
+                                       ['GET /form &form', 'POST /login &login', 'GET /csrf &csrf_json'])
+      holder[:otto] = Otto.new(routes, lambda_handlers: handlers, csrf_protection: true).tap do |app|
         app.security_config.csrf_secret = 'c' * 64
       end
     end
+
+    let(:holder) { {} }
 
     def call(method, url, cookies, params = {})
       env = Rack::MockRequest.env_for(url, method: method, params: params)
@@ -138,6 +147,32 @@ RSpec.describe 'CSRF binding cookie' do
       status, = call('POST', 'https://example.org/login', planted, '_csrf_token' => token_in(attacker_html))
 
       expect(status).to eq(403)
+    end
+
+    # A JSON client never receives an HTML response, so the binding cookie
+    # must be set on whatever response the request that created the binding
+    # gets. Here the client's app-set session_id cookie is ignored on HTTPS.
+    it 'sets the binding cookie on a JSON response and accepts the next POST' do
+      jar = { 'session_id' => 'appsid123' }
+      _, body, set_cookies = call('GET', 'https://example.org/csrf', jar)
+
+      binding_cookie = set_cookies.find { |cookie| cookie.start_with?('__Host-otto_session=') }
+      expect(binding_cookie).not_to be_nil
+      expect(binding_cookie.split(';').drop(1).map(&:strip)).to include('Secure', 'Path=/')
+      jar.merge!(cookie_jar(set_cookies))
+
+      status, = call('POST', 'https://example.org/login', jar, '_csrf_token' => JSON.parse(body)['token'])
+
+      expect(status).to eq(200)
+    end
+
+    it 'does not set the binding cookie again once the request carries it' do
+      _, _, set_cookies = call('GET', 'https://example.org/csrf', {})
+      jar = cookie_jar(set_cookies)
+
+      _, _, again = call('GET', 'https://example.org/csrf', jar)
+
+      expect(again.grep(/\A__Host-otto_session=/)).to be_empty
     end
   end
 end

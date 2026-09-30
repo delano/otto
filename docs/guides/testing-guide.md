@@ -359,7 +359,8 @@ header is not a valid token.
 
 When the session provides no binding (no session middleware, or a session with
 no id and no stored binding), the binding lives in a cookie that
-`CSRFMiddleware` sets on HTML responses. `Otto::Security::Config#csrf_binding_cookie_name`
+`CSRFMiddleware` sets on the response to any request that resolved a binding,
+HTML or not. `Otto::Security::Config#csrf_binding_cookie_name`
 returns its name: `__Host-otto_session` when Rack reports the request as HTTPS
 (`request.scheme == 'https'`), set with `Secure`, `Path=/` and no `Domain`, and
 `_otto_session` otherwise. On HTTPS requests Otto reads only the `__Host-`

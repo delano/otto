@@ -29,11 +29,25 @@ class Otto
 
           request  = Otto::Request.new(env)
           response = @app.call(env)
-          response = inject_csrf_token(request, response) if html_response?(response)
-          response
+          return inject_csrf_token(request, response) if html_response?(response)
+
+          apply_binding_cookie(request, response)
         end
 
         private
+
+        # A request that resolved a CSRF binding (a JSON token endpoint, a
+        # CSRF-checked API call) but got a response that is not HTML still
+        # needs the binding cookie, or a client that never loads an HTML page
+        # would get a new binding, and a 403, on every request. The cookie
+        # follows the same rules as on HTML responses (#ensure_session_cookie).
+        def apply_binding_cookie(request, response)
+          binding_id = request.env['otto.csrf_binding']
+          return response unless binding_id && response.is_a?(Array) && response.length >= 2
+
+          ensure_session_cookie(request, response[1], binding_id)
+          response
+        end
 
         def inject_csrf_token(request, response)
           return response unless response.is_a?(Array) && response.length >= 3

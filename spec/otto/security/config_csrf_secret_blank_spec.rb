@@ -161,6 +161,55 @@ RSpec.describe Otto::Security::Config do
     end
   end
 
+  describe 'a configured secret shorter than 32 bytes' do
+    let(:short_warning) { /configured CSRF secret is shorter than 32 bytes/ }
+    let(:messages) { [] }
+
+    before do
+      allow(Otto.logger).to receive(:warn) { |message| messages << message }
+    end
+
+    it 'is accepted with a warning that gives its length but not its value' do
+      config.csrf_secret = 's' * 31
+
+      expect(generated?(config)).to be false
+      expect(messages.grep(short_warning)).to eq([messages.first])
+      expect(messages.first).to include('(31 bytes)')
+      expect(messages.join).not_to include('s' * 31)
+    end
+
+    it 'counts bytes, not characters' do
+      config.csrf_secret = 'é' * 15 # 30 bytes
+      config.csrf_secret = 'é' * 16 # 32 bytes
+
+      expect(messages.grep(short_warning).size).to eq(1)
+      expect(messages.first).to include('(30 bytes)')
+    end
+
+    it 'is not warned about at 32 bytes or for a generated secret' do
+      config.csrf_secret = 'x' * 32
+      config.csrf_secret = nil
+
+      expect(messages.grep(short_warning)).to be_empty
+    end
+
+    it 'is warned about when it comes from OTTO_CSRF_SECRET' do
+      ENV['OTTO_CSRF_SECRET'] = 'short'
+      cfg = described_class.new
+
+      expect(generated?(cfg)).to be false
+      expect(messages.grep(short_warning).size).to eq(1)
+    end
+
+    it 'does not stop a production config from freezing' do
+      ENV['RACK_ENV'] = 'production'
+      config.csrf_secret = 's' * 16
+
+      expect { config.deep_freeze! }.not_to raise_error
+      expect(messages.grep(short_warning).size).to eq(1)
+    end
+  end
+
   describe '#initialize with OTTO_CSRF_SECRET' do
     ['', '   '].each do |value|
       it "treats #{value.inspect} as unset and generates a secret" do

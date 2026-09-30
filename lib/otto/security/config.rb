@@ -400,6 +400,9 @@ class Otto
       # no-break space, the byte order mark).
       BLANK_CSRF_SECRET = /\A[[:space:]\u0000\u200B-\u200D\u2060\uFEFF]*\z/
 
+      # A configured CSRF secret shorter than this many bytes logs a warning.
+      CSRF_SECRET_MIN_BYTES = 32
+
       attr_accessor :input_validation, :max_param_depth, :csrf_token_key,
                     :rate_limiting_config, :csrf_session_key, :max_request_size,
                     :max_param_keys
@@ -790,6 +793,9 @@ class Otto
       # (CSRF_SECRET_REQUIRED_MESSAGE) still applies. The constructor assigns
       # OTTO_CSRF_SECRET through this setter.
       #
+      # A configured secret shorter than CSRF_SECRET_MIN_BYTES bytes is used
+      # as given and logs a warning, without raising.
+      #
       # @param secret [String, nil] stable signing secret, or nil/blank for
       #   OTTO_CSRF_SECRET or a generated per-process secret
       # @raise [FrozenError] if configuration is frozen
@@ -805,6 +811,7 @@ class Otto
         secret                 = ENV.fetch('OTTO_CSRF_SECRET', nil) if blank_csrf_secret?(secret)
         @csrf_secret_generated = blank_csrf_secret?(secret)
         @csrf_secret           = @csrf_secret_generated ? SecureRandom.hex(32) : secret
+        warn_short_csrf_secret unless @csrf_secret_generated
       end
 
       # Generate a CSRF token bound to the given session id and signed (HMAC-SHA256)
@@ -1317,6 +1324,21 @@ class Otto
         secret.b.strip.empty?
       rescue EncodingError
         secret.b.strip.empty?
+      end
+
+      # Warn, without raising, when the configured secret is shorter than
+      # CSRF_SECRET_MIN_BYTES. Logs the length, never the secret. Raising
+      # would stop deploys that already run with a short secret from booting.
+      def warn_short_csrf_secret
+        bytes = @csrf_secret.bytesize
+        return if bytes >= CSRF_SECRET_MIN_BYTES
+
+        Otto.logger.warn(
+          '[Otto::Security::Config] The configured CSRF secret is shorter than ' \
+          "#{CSRF_SECRET_MIN_BYTES} bytes (#{bytes} bytes). A short secret is " \
+          'easier to guess from a token the app issued. Set a stable random value ' \
+          "of at least #{CSRF_SECRET_MIN_BYTES} bytes, e.g. SecureRandom.hex(32)."
+        )
       end
 
       def store_session_id(request, session_id)

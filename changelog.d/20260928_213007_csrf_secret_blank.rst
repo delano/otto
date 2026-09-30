@@ -27,3 +27,9 @@ Security
 
 - ``csrf_secret=`` raises ``ArgumentError`` for a value that is neither a
   ``String`` nor ``nil``.
+
+- ``csrf_secret=`` logs a warning when the configured secret, from the setter
+  or from ``OTTO_CSRF_SECRET``, is shorter than 32 bytes
+  (``Otto::Security::Config::CSRF_SECRET_MIN_BYTES``). The warning gives the
+  length, not the secret. The secret is still used, and nothing raises, so an
+  app that already runs with a short secret keeps booting.

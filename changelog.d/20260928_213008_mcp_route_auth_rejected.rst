@@ -1,14 +1,18 @@
 Security
 --------
 
-- A routes file that sets ``auth=``, ``role=``, or ``csrf=`` on an ``MCP`` or
-  ``TOOL`` line now fails to load with ``Otto::RouteDefinitionError``. Otto
-  parsed these options but never applied them: the MCP server registered the
-  resource or tool without an authentication, role, or CSRF check, so any
-  request the MCP endpoint accepted could read the resource or call the tool.
-  Remove these options from ``MCP`` and ``TOOL`` lines and require a token for
-  the endpoint with ``mcp_auth_tokens``. Other options on these lines still
-  load. See the `MCP guide <docs/guides/mcp.md>`__.
+- ``auth=``, ``role=``, and ``csrf=`` on an ``MCP`` or ``TOOL`` line are now
+  rejected. Otto parsed these options but never applied them: the MCP server
+  registered the resource or tool without an authentication, role, or CSRF
+  check, so any request the MCP endpoint accepted could read the resource or
+  call the tool. **Behavior change**: when MCP is enabled as the routes file
+  loads (``Otto.new(path, mcp_enabled: true)``, or ``enable_mcp!`` before
+  ``load``), a routes file that sets any of these options on an ``MCP`` or
+  ``TOOL`` line raises ``Otto::RouteDefinitionError`` and the application
+  fails to boot. Remove the options and require a token for the endpoint with
+  ``mcp_auth_tokens``. When MCP is not enabled as the file loads, Otto logs
+  and skips every ``MCP`` and ``TOOL`` line, as before, without checking its
+  options. See the `MCP guide <docs/guides/mcp.md>`__.
 
 Fixed
 -----
@@ -20,3 +24,11 @@ Fixed
   argument, so freezing reached ``Otto::Security::Config#deep_freeze!`` a
   second time, and the second call raised. A second call now returns the
   frozen config, as ``Otto::Core::Freezable#deep_freeze!`` already did.
+
+Documentation
+-------------
+
+- The MCP guide's multi-step example now calls ``enable_mcp!`` before it
+  loads the routes file. It called ``Otto.new('routes')`` first, so Otto
+  logged and skipped every ``MCP`` and ``TOOL`` line and the endpoint served
+  no resources or tools.

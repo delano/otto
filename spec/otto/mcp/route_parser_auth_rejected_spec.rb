@@ -71,6 +71,46 @@ RSpec.describe Otto::MCP::RouteParser do
     end
   end
 
+  # The rejection, and registration itself, happen only while a routes file
+  # loads with MCP already enabled (docs/guides/mcp.md).
+  describe 'when MCP is enabled relative to loading the routes file' do
+    let(:auth_line) { 'POST /_x TOOL delete_all MCPRouteAuthRejectedApp.delete_all auth=session' }
+    let(:plain_lines) do
+      [
+        'GET /mcp/users MCP users MCPRouteAuthRejectedApp.users',
+        'POST /_x TOOL delete_all MCPRouteAuthRejectedApp.delete_all',
+      ]
+    end
+
+    def registered(otto)
+      registry = otto.mcp_server.protocol.registry
+      [registry.list_resources.map { |r| r[:uri] }, registry.list_tools.map { |t| t[:name] }]
+    end
+
+    it 'raises when enable_mcp! runs before load' do
+      otto = Otto.new
+      otto.enable_mcp!(allow_unauthenticated: true)
+
+      expect { otto.load(create_test_routes_file('mcp_late.txt', [auth_line])) }
+        .to raise_error(Otto::RouteDefinitionError, /not enforced on MCP or TOOL routes/)
+    end
+
+    it 'registers resources and tools when enable_mcp! runs before load' do
+      otto = Otto.new
+      otto.enable_mcp!(allow_unauthenticated: true)
+      otto.load(create_test_routes_file('mcp_late.txt', plain_lines))
+
+      expect(registered(otto)).to eq([['users'], ['delete_all']])
+    end
+
+    it 'skips MCP and TOOL lines without raising when the file loads before MCP is enabled' do
+      otto = Otto.new(create_test_routes_file('mcp_early.txt', [auth_line, *plain_lines]))
+      otto.enable_mcp!(allow_unauthenticated: true)
+
+      expect(registered(otto)).to eq([[], []])
+    end
+  end
+
   describe 'parsing a single MCP or TOOL definition' do
     it 'raises from parse_tool_route' do
       expect do

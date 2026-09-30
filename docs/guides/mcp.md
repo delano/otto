@@ -62,15 +62,22 @@ The endpoint is `POST /_mcp` unless `mcp_endpoint:` (or `http_endpoint:`) sets
 another slash-prefixed path. `mcp_enabled?` returns `true` after MCP has been
 enabled.
 
-For multi-step boot configuration, call `enable_mcp!` instead:
+For multi-step boot configuration, construct Otto without a routes file, call
+`enable_mcp!`, then load the routes file:
 
 ```ruby
-otto = Otto.new('routes')
+otto = Otto.new
 otto.enable_mcp!(
   http_endpoint: '/api/mcp',
   auth_tokens: [ENV.fetch('MCP_TOKEN')],
 )
+otto.load('routes')
 ```
+
+Otto registers `MCP` and `TOOL` lines only while a routes file loads, and only
+if MCP is already enabled. `Otto.new('routes')` followed by `enable_mcp!` loads
+the file first: Otto logs an error for each `MCP` and `TOOL` line, skips it,
+and the endpoint serves no resources or tools.
 
 Enable MCP only once per `Otto` instance. A second call raises `ArgumentError`;
 provide all MCP settings in the first call.
@@ -119,13 +126,17 @@ handler before using them.
 
 `MCP` and `TOOL` declarations cannot use the `auth=`, `role=`, or `csrf=` route
 options. Otto does not run route-level authentication, role, or CSRF checks
-for resources and tools, so a routes file that sets any of these options on an
-`MCP` or `TOOL` line raises `Otto::RouteDefinitionError` when it loads:
+for resources and tools. When MCP is enabled as the routes file loads, a line
+that sets any of these options raises `Otto::RouteDefinitionError` and the
+application fails to boot:
 
 ```text
-# Rejected when the routes file loads:
+# Rejected when the routes file loads with MCP enabled:
 POST /mcp/delete-user  TOOL delete_user AppMCP.delete_user auth=session role=admin
 ```
+
+When MCP is not enabled as the file loads, Otto logs and skips every `MCP` and
+`TOOL` line, as described above, without checking its options.
 
 Use `mcp_auth_tokens` to require a token for the MCP endpoint (see
 [Authentication](#authentication)). A request that passes the token check can

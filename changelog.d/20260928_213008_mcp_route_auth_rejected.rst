@@ -12,7 +12,7 @@ Security
   fails to boot. Remove the options and require a token for the endpoint with
   ``mcp_auth_tokens``. When MCP is not enabled as the file loads, Otto logs
   and skips every ``MCP`` and ``TOOL`` line, as before, without checking its
-  options. See the `MCP guide <docs/guides/mcp.md>`__.
+  options. See the `MCP guide <docs/guides/mcp.md>`__. (#296)
 
 Added
 -----
@@ -25,7 +25,7 @@ Added
   one argument. A handler that requires more than one argument, or a keyword
   argument, raises ``ArgumentError`` on read, which the endpoint reports as a
   JSON-RPC internal error. Before this, any handler that took an argument
-  failed that way.
+  failed that way. (#296)
 
 Changed
 -------
@@ -34,7 +34,7 @@ Changed
   ``response=json``, now logs a ``MCP/tool route option not applied`` warning
   when the routes file loads with MCP enabled. The option still loads, but the
   MCP server reads only the resource URI or tool name and the handler, so it
-  has no effect.
+  has no effect. (#296)
 
 Documentation
 -------------
@@ -42,7 +42,7 @@ Documentation
 - The MCP guide's multi-step example now calls ``enable_mcp!`` before it
   loads the routes file. It called ``Otto.new('routes')`` first, so Otto
   logged and skipped every ``MCP`` and ``TOOL`` line and the endpoint served
-  no resources or tools.
+  no resources or tools. (#296)
 
 - ``examples/mcp_demo`` now registers its resource and tool. Its routes file
   put ``MCP`` and ``TOOL`` in the verb position, so the route loader
@@ -50,4 +50,4 @@ Documentation
   ``TOOL`` instead of as a resource and a tool. The lines now use the
   ``VERB /path MCP uri Handler`` and ``VERB /path TOOL name Handler`` forms.
   Its ``config.ru`` also sets a ``Rack::Attack`` cache store, without which
-  every request raised ``Rack::Attack::MissingStoreError``.
+  every request raised ``Rack::Attack::MissingStoreError``. (#296)

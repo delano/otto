@@ -1368,19 +1368,30 @@ class Otto
       end
 
       # Whether secret is nil or blank per BLANK_CSRF_SECRET. The string is
-      # checked in UTF-8. A string that is not valid in its encoding, or cannot
-      # be converted to UTF-8, is blank only if it holds nothing but ASCII
-      # whitespace and NUL, the characters String#strip removes; such bytes
-      # still work as an HMAC key.
+      # checked in UTF-8: converted from its own encoding, or else its bytes
+      # read as UTF-8, which is how a non-ASCII OTTO_CSRF_SECRET arrives under
+      # LANG=C (tagged ASCII-8BIT). A string that fits neither is blank only
+      # if it holds nothing but ASCII whitespace and NUL, the characters
+      # String#strip removes; such bytes still work as an HMAC key.
       def blank_csrf_secret?(secret)
         return true if secret.nil?
 
-        utf8 = secret.encoding == Encoding::UTF_8 ? secret : secret.encode(Encoding::UTF_8)
-        return BLANK_CSRF_SECRET.match?(utf8) if utf8.valid_encoding?
+        utf8 = transcoded_utf8(secret) || relabelled_utf8(secret)
+        utf8 ? BLANK_CSRF_SECRET.match?(utf8) : secret.b.strip.empty?
+      end
 
-        secret.b.strip.empty?
+      # secret converted to valid UTF-8 from its own encoding, or nil.
+      def transcoded_utf8(secret)
+        utf8 = secret.encode(Encoding::UTF_8)
+        utf8 if utf8.valid_encoding?
       rescue EncodingError
-        secret.b.strip.empty?
+        nil
+      end
+
+      # secret's bytes read as UTF-8 if they are valid UTF-8, or nil.
+      def relabelled_utf8(secret)
+        utf8 = secret.dup.force_encoding(Encoding::UTF_8)
+        utf8 if utf8.valid_encoding?
       end
 
       # Warn, without raising, when the configured secret is shorter than

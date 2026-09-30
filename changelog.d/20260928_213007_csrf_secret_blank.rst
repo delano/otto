@@ -21,9 +21,11 @@ Security
   as zero-width spaces and joiners, the soft hyphen U+00AD, the word joiner
   U+2060, the byte order mark U+FEFF, bidirectional marks and the Hangul
   filler U+3164) and NUL. The pattern is
-  ``Otto::Security::Config::BLANK_CSRF_SECRET``, matched in UTF-8. A string
-  that is not valid in its encoding, or cannot be converted to UTF-8, is blank
-  only if it holds nothing but ASCII whitespace and NUL. (#299)
+  ``Otto::Security::Config::BLANK_CSRF_SECRET``, matched in UTF-8: the
+  string converted from its own encoding, or else its bytes read as UTF-8,
+  which is how a non-ASCII ``OTTO_CSRF_SECRET`` arrives under ``LANG=C``
+  (tagged ``ASCII-8BIT``). A string that fits neither is blank only if it
+  holds nothing but ASCII whitespace and NUL. (#299)
 
 - A blank ``OTTO_CSRF_SECRET`` is now treated as unset, like an empty one. (#299)
 

@@ -130,6 +130,29 @@ RSpec.describe Otto::Security::Config do
       end
     end
 
+    # Under LANG=C / POSIX (a container with no locale), Ruby tags ENV values
+    # that hold non-ASCII bytes as ASCII-8BIT, so OTTO_CSRF_SECRET set to a
+    # zero-width space reaches csrf_secret= as binary bytes.
+    it 'treats a zero-width space from a C-locale ENV (ASCII-8BIT) as blank' do
+      config.csrf_secret = "\u200B".b
+
+      expect(generated?(config)).to be true
+    end
+
+    it 'treats the same value tagged UTF-8 as blank' do
+      config.csrf_secret = "\u200B"
+
+      expect(generated?(config)).to be true
+    end
+
+    it 'keeps a binary secret whose bytes are not valid UTF-8' do
+      secret = SecureRandom.random_bytes(32).b
+      secret = SecureRandom.random_bytes(32).b while secret.dup.force_encoding(Encoding::UTF_8).valid_encoding?
+      config.csrf_secret = secret
+
+      expect(generated?(config)).to be false
+    end
+
     it 'keeps a secret that has invisible characters around visible ones' do
       secret = "\u200B#{'v' * 32}\uFEFF"
       config.csrf_secret = secret

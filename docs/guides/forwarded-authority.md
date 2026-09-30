@@ -75,35 +75,57 @@ match a configured proxy and takes the first entry that does not as the client
 IP. Entries to the left of that one are never used. If every entry matches a
 configured proxy, Otto uses `REMOTE_ADDR`.
 
-If the walk reaches an entry that is not a valid IP address (such as `unknown`,
-or an empty entry, including the one a trailing comma leaves) before it finds
-one that does not match, the request has no client IP. A
-proxy wrote that entry where the client belongs, and the proxy itself is not
-the client. `env['otto.ip_match']` returns false for every range,
-`env['otto.client_ip']` and `Otto::Request#client_ipaddress` are nil, and when
-IP privacy is enabled (the `:masked` and `:anonymous` profiles) Otto deletes
-`X-Forwarded-For`, `X-Real-IP`, `X-Client-IP` and `Forwarded`. `REMOTE_ADDR`
-keeps the proxy's address.
-
 For example, with `trusted_proxies: ['10.0.0.0/8']` and a request from
 `10.0.0.5` carrying `X-Forwarded-For: 198.51.100.7, 203.0.113.9, 10.0.0.9`,
 the client IP is `203.0.113.9`. The `198.51.100.7` entry is whatever the client
 sent.
 
-This gives the right answer only when every trusted proxy appends the address
-it received the request from to `X-Forwarded-For`. nginx does this with
-`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`. A trusted proxy
-that passes the client's `X-Forwarded-For` through unchanged lets the client
-choose the rightmost entry, and with it the resolved client IP, the value
-`env['otto.ip_match']` checks, and every key derived from it. Configure each
-trusted proxy to append to the header, or to replace a client-supplied value
-with the address it observed.
+If the walk reaches an entry that is not a valid IP address (such as `unknown`,
+an empty entry, including the one a trailing comma leaves, or a range such as
+`203.0.113.9/0`) before it finds one that does not match, the request has no
+client IP. A proxy wrote that entry where the client belongs, and the proxy
+itself is not the client. `env['otto.ip_match']` returns false for every range,
+`env['otto.client_ip']` and `Otto::Request#client_ipaddress` are nil, and when
+IP privacy is enabled (the `:masked` and `:anonymous` profiles) Otto deletes
+`X-Forwarded-For`, `X-Real-IP`, `X-Client-IP` and `Forwarded`. `REMOTE_ADDR`
+keeps the proxy's address.
+
+The walk gives the right answer only when two things hold:
+
+- **Every proxy between the client and the application is listed** in
+  `trusted_proxies`, together with any address a proxy appends about itself.
+  Google Cloud's external Application Load Balancer, for example, appends the
+  client's address and then its forwarding rule's address, so the forwarding
+  rule's address has to be listed as well as the load balancer's own ranges.
+  An unlisted address is an untrusted entry: the one nearest the application
+  becomes the client IP for every request through it. Rate-limit keys and
+  `otto.privacy.hashed_ip` then collapse onto that address, `ip_match` tests
+  it, and if it is private or loopback the request is exempt from masking.
+  A CDN in front of a listed load balancer is the common case: list the CDN's
+  edge ranges too.
+- **Every listed proxy appends** the address it received the request from to
+  `X-Forwarded-For`. nginx does this with
+  `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`. A trusted
+  proxy that passes the client's `X-Forwarded-For` through unchanged lets the
+  client choose the rightmost entry, and with it the resolved client IP, the
+  value `env['otto.ip_match']` checks, and every key derived from it.
+  Configure each trusted proxy to append to the header, or to replace a
+  client-supplied value with the address it observed.
+
+Releases through 2.12.0 took the leftmost untrusted entry instead, which the
+client controls behind an appending proxy. Under that walk a missing inner
+proxy did not change the result for a client that sent no `X-Forwarded-For`,
+so a deployment that worked on 2.12.0 can need more `trusted_proxies` entries
+after upgrading.
 
 `X-Real-IP` and `X-Client-IP` each carry one address. Otto reads them only when
 `X-Forwarded-For` is absent or blank, `X-Real-IP` first and then `X-Client-IP`,
 and never adds them to the `X-Forwarded-For` chain. A proxy that sets
 `X-Real-IP` but passes a client's `X-Forwarded-For` through still lets that
-header decide the client IP.
+header decide the client IP. When `X-Forwarded-For` is present and every entry
+in it is a trusted proxy, Otto uses `REMOTE_ADDR`, not `X-Real-IP`. A proxy
+that sets only `X-Real-IP` should also append to or replace
+`X-Forwarded-For`.
 
 ## How Otto handles each trust state
 
@@ -248,7 +270,8 @@ registers the family for the process, even under `trusted_proxies: :none`.
 `trusted_proxy_header` accepts `X-Forwarded-For` (the default), `Forwarded`, or
 `Both`. When configuring proxy trust, `Forwarded` and `Both` require depth mode.
 CIDR filter mode resolves client IPs from the `X-Forwarded-For` family only
-(`X-Forwarded-For`, or `X-Real-IP` then `X-Client-IP` when it is absent; see
+(`X-Forwarded-For`, or `X-Real-IP` then `X-Client-IP` when it is absent or
+blank; see
 [How enumerated proxy trust resolves the client IP](#how-enumerated-proxy-trust-resolves-the-client-ip))
 and never from RFC 7239 `Forwarded`, so a non-default family would make Rack
 read a header that Otto ignores:

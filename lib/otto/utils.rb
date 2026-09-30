@@ -268,7 +268,8 @@ class Otto
 
       # Read one header: the first of FORWARDED_FOR_HEADERS that is not blank.
       # X-Real-IP and X-Client-IP carry a single address, so they are read only
-      # when X-Forwarded-For is absent and never become positions in its chain.
+      # when X-Forwarded-For is absent or blank and never become positions in
+      # its chain.
       # Split with xff_chain, as depth mode does: it keeps empty fields, a
       # trailing one included, so an empty entry the proxy tier wrote stops
       # the walk below like any other invalid entry instead of vanishing.

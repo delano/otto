@@ -99,3 +99,21 @@ Security
   given is a range, as a string or as an ``IPAddr`` whose prefix is shorter
   than a host address (``IPAddr.new('203.0.113.0/24')`` used to match
   ``203.0.0.0/16``). (#292)
+
+- With IP privacy enabled, vendor headers that carry the client address are
+  now masked along with ``REMOTE_ADDR``: ``CF-Connecting-IP``,
+  ``CF-Connecting-IPv6``,
+  ``True-Client-IP``, ``Fastly-Client-IP``, ``Fly-Client-IP``,
+  ``X-Azure-ClientIP``, ``X-Azure-SocketIP``, ``CloudFront-Viewer-Address``,
+  ``X-Vercel-Forwarded-For``, ``X-Original-Forwarded-For``,
+  ``X-Cluster-Client-IP`` and ``X-AppEngine-User-IP``
+  (``Otto::Utils::VENDOR_CLIENT_ADDRESS_HEADERS``). They were left raw while
+  ``REMOTE_ADDR`` was masked, so the public client address stayed in the Rack
+  env. They are rewritten to the resolved client IP on the private/loopback
+  exemption, deleted when no client IP resolves, and masked in the env a
+  custom geo resolver sees. Otto still never reads the client IP from them.
+  **Behavior change**: code that read one of these headers to get the
+  client address now sees the masked (or exempt) address. **Migration:**
+  configure ``trusted_proxies`` for the CDN so Otto resolves the client from
+  ``X-Forwarded-For``, and read ``req.ip`` or ``env['otto.ip_match']``; use
+  the ``:audit`` profile if the raw address is required. (#292)

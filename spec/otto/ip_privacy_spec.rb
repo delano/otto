@@ -2545,6 +2545,67 @@ RSpec.describe 'IP Privacy Features' do
       end
     end
 
+    context 'vendor client-address headers' do
+      # CDN and proxy headers that carry the client address. Otto never
+      # resolves from them, but they hold the same address as REMOTE_ADDR.
+      let(:vendor_headers) do
+        %w[
+          HTTP_CF_CONNECTING_IP HTTP_CF_CONNECTING_IPV6 HTTP_TRUE_CLIENT_IP
+          HTTP_FASTLY_CLIENT_IP HTTP_FLY_CLIENT_IP HTTP_X_AZURE_CLIENTIP
+          HTTP_X_AZURE_SOCKETIP HTTP_CLOUDFRONT_VIEWER_ADDRESS
+          HTTP_X_VERCEL_FORWARDED_FOR HTTP_X_ORIGINAL_FORWARDED_FOR
+          HTTP_X_CLUSTER_CLIENT_IP HTTP_X_APPENGINE_USER_IP
+        ]
+      end
+
+      def with_vendor_headers(env, value)
+        vendor_headers.each_with_object(env.dup) { |key, out| out[key] = value }
+      end
+
+      it 'lists every header in Otto::Utils::VENDOR_CLIENT_ADDRESS_HEADERS' do
+        expect(Otto::Utils::VENDOR_CLIENT_ADDRESS_HEADERS).to match_array(vendor_headers)
+      end
+
+      it 'masks them with REMOTE_ADDR on the masking path' do
+        env = with_vendor_headers({ 'REMOTE_ADDR' => '198.51.100.7' }, '198.51.100.7')
+        Otto::Security::Middleware::IPPrivacyMiddleware.new(app, Otto::Security::Config.new).call(env)
+
+        expect(env.values_at(*vendor_headers)).to all(eq('198.51.100.0'))
+        expect(env.values.grep(String).join(' ')).not_to include('198.51.100.7')
+      end
+
+      it 'rewrites them to the resolved client IP on the private/loopback exemption' do
+        env = with_vendor_headers({ 'REMOTE_ADDR' => '127.0.0.1' }, '198.51.100.7')
+        Otto::Security::Middleware::IPPrivacyMiddleware.new(app, Otto::Security::Config.new).call(env)
+
+        expect(env.values_at(*vendor_headers)).to all(eq('127.0.0.1'))
+        expect(env.values.grep(String).join(' ')).not_to include('198.51.100.7')
+      end
+
+      it 'deletes them when no client IP resolves' do
+        env = with_vendor_headers({ 'REMOTE_ADDR' => '10.0.0.1', 'HTTP_X_FORWARDED_FOR' => '198.51.100.7, unknown' },
+                                  '198.51.100.7')
+        middleware.call(env)
+
+        expect(env.keys & vendor_headers).to be_empty
+        expect(env.values.grep(String).join(' ')).not_to include('198.51.100.7')
+      end
+
+      it 'leaves them alone with IP privacy disabled' do
+        security_config.ip_privacy_config.disable!
+        env = with_vendor_headers({ 'REMOTE_ADDR' => '198.51.100.7' }, '198.51.100.7')
+        middleware.call(env)
+
+        expect(env.values_at(*vendor_headers)).to all(eq('198.51.100.7'))
+      end
+
+      it 'does not read them when resolving the client IP' do
+        env = with_vendor_headers({ 'REMOTE_ADDR' => '10.0.0.1' }, '198.51.100.7')
+
+        expect(Otto::Utils.resolve_client_ip(env, security_config)).to eq('10.0.0.1')
+      end
+    end
+
     context 'with enable_full_ip_privacy!' do
       before do
         security_config.ip_privacy_config.mask_private_ips = true

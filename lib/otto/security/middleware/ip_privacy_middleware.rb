@@ -547,9 +547,10 @@ class Otto
         #
         # Used on the no-resolvable-client-IP path, where there is no masked IP
         # to rewrite these to. Leaving them would leak a raw client address
-        # downstream. X-Forwarded-For, X-Real-IP and X-Client-IP carry nothing
-        # but addresses, so they are deleted (an absent CGI key is
-        # Rack-SPEC-safe). RFC 7239 Forwarded also carries the scheme (proto=)
+        # downstream. X-Forwarded-For, X-Real-IP, X-Client-IP and the vendor
+        # client-address headers carry nothing but addresses, so they are
+        # deleted (an absent CGI key is Rack-SPEC-safe). RFC 7239 Forwarded
+        # also carries the scheme (proto=)
         # and host (host=) a trusted proxy asserts, which Rack reads for
         # #scheme, #ssl? and #host; deleting it would turn an https request
         # into http and hand the host to the proxy. Its for= pairs are removed
@@ -558,7 +559,7 @@ class Otto
         #
         # @param env [Hash] Rack environment
         def scrub_forwarded_headers(env)
-          Otto::Utils::FORWARDED_FOR_HEADERS.each { |key| env.delete(key) }
+          Otto::Utils::ADDRESS_ONLY_HEADERS.each { |key| env.delete(key) }
           rewrite_forwarded_for(env, nil)
         end
 
@@ -581,11 +582,11 @@ class Otto
           # present-but-nil HTTP_X_FORWARDED_FOR.
           return if address.nil?
 
-          # Replace X-Forwarded-For with the address
-          # This prevents Rack::Request#ip from finding any other address
-          env['HTTP_X_FORWARDED_FOR'] = address if env['HTTP_X_FORWARDED_FOR']
-          env['HTTP_X_REAL_IP'] = address if env['HTTP_X_REAL_IP']
-          env['HTTP_X_CLIENT_IP'] = address if env['HTTP_X_CLIENT_IP']
+          # Replace X-Forwarded-For, X-Real-IP, X-Client-IP and the vendor
+          # client-address headers (CF-Connecting-IP, True-Client-IP, ...)
+          # with the address. This prevents Rack::Request#ip, or code reading
+          # a vendor header, from finding any other address.
+          Otto::Utils::ADDRESS_ONLY_HEADERS.each { |key| env[key] = address if env[key] }
 
           rewrite_forwarded_for(env, address)
 

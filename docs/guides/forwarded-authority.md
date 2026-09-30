@@ -87,7 +87,8 @@ client IP. A proxy wrote that entry where the client belongs, and the proxy
 itself is not the client. `env['otto.ip_match']` returns false for every range,
 `env['otto.client_ip']` and `Otto::Request#client_ipaddress` are nil, and when
 IP privacy is enabled (the `:masked` and `:anonymous` profiles) Otto deletes
-`X-Forwarded-For`, `X-Real-IP` and `X-Client-IP` and removes every `for=` pair
+`X-Forwarded-For`, `X-Real-IP`, `X-Client-IP` and the vendor headers in
+`Otto::Utils::VENDOR_CLIENT_ADDRESS_HEADERS` and removes every `for=` pair
 from `Forwarded`, keeping its `proto=`, `host=` and `by=` fields (an element
 left empty is dropped, and a header left empty is deleted). `REMOTE_ADDR` keeps
 the proxy's address, and both `req.ip` and a plain `Rack::Request#ip` return

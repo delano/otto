@@ -26,16 +26,14 @@ class Otto
                   :request_path, :request_method, :referer
 
       # IP-bearing forwarded headers overwritten with the masked IP in the
-      # geo-resolution env view. Mirrors the set
-      # IPPrivacyMiddleware#rewrite_forwarded_addresses rewrites, so a custom resolver
-      # reading env sees masked values everywhere the middleware would. The
-      # structured RFC 7239 Forwarded header (HTTP_FORWARDED) is handled
-      # separately in {#geo_env} (dropped, not swapped, to keep valid syntax).
-      GEO_MASKED_FORWARDED_HEADERS = %w[
-        HTTP_X_FORWARDED_FOR
-        HTTP_X_REAL_IP
-        HTTP_X_CLIENT_IP
-      ].freeze
+      # geo-resolution env view: the forwarded-for family and the vendor
+      # client-address headers (CF-Connecting-IP, True-Client-IP, ...). The
+      # same list IPPrivacyMiddleware#rewrite_forwarded_addresses rewrites,
+      # so a custom resolver reading env sees masked values everywhere the
+      # middleware would. The structured RFC 7239 Forwarded header
+      # (HTTP_FORWARDED) is handled separately in {#geo_env} (dropped, not
+      # swapped, to keep valid syntax).
+      GEO_MASKED_FORWARDED_HEADERS = Otto::Utils::ADDRESS_ONLY_HEADERS
 
       # Create a new RedactedFingerprint from a Rack environment
       #

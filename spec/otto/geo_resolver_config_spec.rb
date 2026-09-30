@@ -373,6 +373,20 @@ RSpec.describe 'Configurable geo resolution' do
         expect(seen.values).not_to include('8.8.8.8')
       end
 
+      it 'masks vendor client-address headers in the resolver env view' do
+        seen = {}
+        Otto::Privacy::GeoResolver.custom_resolver = lambda do |_ip, resolver_env|
+          seen[:cf] = resolver_env['HTTP_CF_CONNECTING_IP']
+          seen[:true_client] = resolver_env['HTTP_TRUE_CLIENT_IP']
+          'PT'
+        end
+
+        run(Otto::Security::Config.new,
+            { 'REMOTE_ADDR' => '8.8.8.8', 'HTTP_CF_CONNECTING_IP' => '8.8.8.8', 'HTTP_TRUE_CLIENT_IP' => '8.8.8.8' })
+
+        expect(seen).to eq(cf: '8.8.8.0', true_client: '8.8.8.0')
+      end
+
       it 'does not leak resolver env mutations back into the request env' do
         Otto::Privacy::GeoResolver.custom_resolver = lambda do |_ip, resolver_env|
           resolver_env['REMOTE_ADDR'] = 'tampered' # mutate the masked COPY

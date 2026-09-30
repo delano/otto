@@ -11,13 +11,18 @@ place the privacy middleware in the common stack first.
 With the default `:masked` profile:
 
 - public IP addresses are masked by the configured octet precision (one octet
-  by default: `203.0.113.9` becomes `203.0.113.0`);
+  by default: `203.0.113.9` becomes `203.0.113.0`), in `REMOTE_ADDR` and in
+  every header that carries the client address: `X-Forwarded-For`,
+  `X-Real-IP`, `X-Client-IP`, the `for=` values in `Forwarded`, and the vendor
+  headers in `Otto::Utils::VENDOR_CLIENT_ADDRESS_HEADERS` (such as
+  `CF-Connecting-IP`, `True-Client-IP`, `Fastly-Client-IP` and
+  `X-Original-Forwarded-For`), which Otto never reads the client IP from;
 - requests from private and loopback addresses are exempt from the privacy
   fingerprint by default, so their IP, user agent, and referer remain unchanged;
-  their `X-Forwarded-For`, `X-Real-IP`, and `X-Client-IP` headers and the
-  `for=` values in `Forwarded` are rewritten to the resolved client IP, because
-  those headers can still carry a public address (a `Forwarded` header whose
-  rewrite Otto cannot verify with Rack's parser is deleted);
+  their client-address headers (the same list) are rewritten to the resolved
+  client IP, because those headers can still carry a public address (a
+  `Forwarded` header whose rewrite Otto cannot verify with Rack's parser is
+  deleted);
 - for requests that are masked, user-agent version details are anonymized and
   referer query parameters are removed;
 - original public values are not retained in the Rack environment; and

@@ -50,9 +50,45 @@ class Otto
     # forwarded-for family (the CIDR walk, and X-Forwarded-For in depth mode)
     # and RFC 7239 Forwarded (depth mode with trusted_proxy_header 'Forwarded'
     # or 'Both'). A header resolve_client_ip starts reading belongs here, so
-    # that IPPrivacyMiddleware deletes it when no client IP resolves and
-    # Otto::Testing.env_for refuses it in a request it builds as direct.
+    # that IPPrivacyMiddleware removes its address when no client IP resolves
+    # (deleting it, or for Forwarded its for= pairs) and Otto::Testing.env_for
+    # refuses it in a request it builds as direct.
     CLIENT_ADDRESS_HEADERS = (FORWARDED_FOR_HEADERS + %w[HTTP_FORWARDED]).freeze
+
+    # Vendor headers in which a CDN or proxy passes on the client address it
+    # observed: Cloudflare (CF-Connecting-IP, CF-Connecting-IPv6), Akamai and
+    # Cloudflare Enterprise (True-Client-IP), Fastly (Fastly-Client-IP), Fly
+    # (Fly-Client-IP), Azure Front Door (X-Azure-ClientIP, X-Azure-SocketIP),
+    # CloudFront (CloudFront-Viewer-Address), Vercel (X-Vercel-Forwarded-For),
+    # ingress-nginx (X-Original-Forwarded-For), and the older
+    # X-Cluster-Client-IP and X-AppEngine-User-IP. The resolver never reads
+    # them: Otto cannot tell which vendor, if any, set one, and a client can
+    # send any of them. They are listed because they hold the address
+    # REMOTE_ADDR holds, so with IP privacy enabled IPPrivacyMiddleware
+    # rewrites them alongside X-Forwarded-For (masked IP, or the resolved
+    # client IP on the private/loopback exemption) and deletes them when no
+    # client IP resolves.
+    VENDOR_CLIENT_ADDRESS_HEADERS = %w[
+      HTTP_CF_CONNECTING_IP
+      HTTP_CF_CONNECTING_IPV6
+      HTTP_TRUE_CLIENT_IP
+      HTTP_FASTLY_CLIENT_IP
+      HTTP_FLY_CLIENT_IP
+      HTTP_X_AZURE_CLIENTIP
+      HTTP_X_AZURE_SOCKETIP
+      HTTP_CLOUDFRONT_VIEWER_ADDRESS
+      HTTP_X_VERCEL_FORWARDED_FOR
+      HTTP_X_ORIGINAL_FORWARDED_FOR
+      HTTP_X_CLUSTER_CLIENT_IP
+      HTTP_X_APPENGINE_USER_IP
+    ].freeze
+
+    # Headers that carry nothing but client addresses: the forwarded-for
+    # family and the vendor headers. IPPrivacyMiddleware rewrites every one
+    # present to a single address, or deletes them when no client IP
+    # resolves. (Forwarded also carries proto=/host=/by= and is handled
+    # separately.)
+    ADDRESS_ONLY_HEADERS = (FORWARDED_FOR_HEADERS + VENDOR_CLIENT_ADDRESS_HEADERS).freeze
 
     # Special-use IPv4/IPv6 ranges that IPAddr's #private?/#loopback?/#link_local?
     # predicates do not cover but that should still be treated as non-public

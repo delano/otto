@@ -7,6 +7,7 @@ require 'digest'
 require 'openssl'
 require 'rack/request'
 require_relative '../core/freezable'
+require_relative '../core/redacted_inspect'
 require_relative 'csp/policy'
 require_relative 'trusted_proxy_config'
 
@@ -29,6 +30,12 @@ class Otto
     #   config.max_param_depth = 16
     class Config
       include Otto::Core::Freezable
+      include Otto::Core::RedactedInspect
+
+      # Instance variables #inspect masks. @csrf_secret is the HMAC key that
+      # signs CSRF tokens.
+      REDACTED_IVARS = %i[@csrf_secret].freeze
+      private_constant :REDACTED_IVARS
 
       # Otto accepts exactly one W3C Referrer Policy token for its
       # referrer_policy setting. The supported tokens are enumerated below:
@@ -775,8 +782,9 @@ class Otto
       # a stable value (e.g. ENV['OTTO_CSRF_SECRET']) in multi-process or
       # multi-host deployments so tokens stay valid across workers and restarts.
       #
-      # Write-only by design: the signing key has no public reader, so it is not
-      # exposed to inspection/logging/serialization via the config object.
+      # Write-only by design: the signing key has no public reader, and
+      # #inspect shows it as [REDACTED] (see Otto::Core::RedactedInspect), so
+      # it does not appear in a native FrozenError message for this config.
       def csrf_secret=(secret)
         ensure_not_frozen!
 
@@ -1232,6 +1240,10 @@ class Otto
       end
 
       private
+
+      def inspect_redacted_ivars
+        REDACTED_IVARS
+      end
 
       # Guard for mutators: refuse changes once the configuration is frozen.
       # Centralizes the repeated frozen-check so every setter shares one message.

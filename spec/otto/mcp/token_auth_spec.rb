@@ -31,4 +31,18 @@ RSpec.describe Otto::MCP::Auth::TokenAuth do
       expect(empty_auth.authenticate(env)).to be(false)
     end
   end
+
+  describe '#inspect' do
+    it 'reports the token count without the token values' do
+      expect(auth.inspect).to eq('#<Otto::MCP::Auth::TokenAuth tokens=2>')
+    end
+
+    it 'keeps token values out of a FrozenError raised on a frozen instance' do
+      frozen_auth = described_class.new(['mcp-token-value']).freeze
+
+      expect { frozen_auth.instance_variable_set(:@probe, true) }.to raise_error(FrozenError) { |error|
+        expect(error.message).not_to include('mcp-token-value')
+      }
+    end
+  end
 end

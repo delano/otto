@@ -9,6 +9,7 @@ require 'digest'
 require 'concurrent'
 
 require_relative '../core/freezable'
+require_relative '../core/redacted_inspect'
 require_relative '../optional_dependency'
 
 class Otto
@@ -31,8 +32,15 @@ class Otto
     # modules would hide the symmetry that makes them reviewable.
     class Config
       include Otto::Core::Freezable
+      include Otto::Core::RedactedInspect
 
       MAXMIND_DB_REQUIREMENT = '~> 1.2'
+
+      # Instance variables #inspect masks. @correlation_secret keys the IP
+      # correlation hash. Rotation keys live in the class-level
+      # rotation_keys_store (or Redis), not on the instance.
+      REDACTED_IVARS = %i[@correlation_secret].freeze
+      private_constant :REDACTED_IVARS
 
       # Named privacy profiles: validated presets over the individual knobs,
       # so a deployment's observability posture is declared in one reviewable
@@ -522,6 +530,10 @@ class Otto
       # Profile-governed, so #profile= can assign it through a writer like the
       # other knobs. Public callers use #disable! and #enable!.
       attr_writer :disabled
+
+      def inspect_redacted_ivars
+        REDACTED_IVARS
+      end
 
       # Normalize a database-path option to a non-empty String or nil. Shared by
       # the geo, ASN and anonymizer paths — the rule is identical for all three.

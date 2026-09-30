@@ -58,6 +58,15 @@ RSpec.describe Otto::MCP::Server do
         expect(otto.middleware_stack).to include(Otto::MCP::Auth::TokenMiddleware)
       end
 
+      it 'keeps the token out of the server, authenticator, and config inspect output' do
+        server = otto.instance_variable_get(:@mcp_server)
+
+        expect(server.inspect).to include('auth_tokens=1')
+        expect(server.inspect).not_to include(token)
+        expect(otto.security_config.mcp_auth.inspect).not_to include(token)
+        expect(otto.security_config.inspect).not_to include(token)
+      end
+
       it 'rejects a request with no token' do
         status, body = mcp_request(otto)
 

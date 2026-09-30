@@ -23,6 +23,14 @@ class Otto
           valid_token?(token)
         end
 
+        # Token values are omitted: a config freeze shallow-freezes this
+        # object, and a native FrozenError embeds #inspect in its message.
+        #
+        # @return [String] debug representation with a token count only
+        def inspect
+          "#<#{self.class} tokens=#{@tokens.size}>"
+        end
+
         private
 
         def valid_token?(candidate)

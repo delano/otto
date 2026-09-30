@@ -94,6 +94,16 @@ class Otto
         @enabled
       end
 
+      # Omits the auth token values and the Otto instance. The default inspect
+      # would print both, and Otto's own inspect includes the constructor
+      # options, which carry the raw auth_tokens when passed to Otto.new.
+      #
+      # @return [String] debug representation
+      def inspect
+        "#<#{self.class} enabled=#{@enabled.inspect} http_endpoint=#{@http_endpoint.inspect} " \
+          "auth_tokens=#{Array(@auth_tokens).size} allow_unauthenticated=#{@allow_unauthenticated.inspect}>"
+      end
+
       def register_mcp_route(route_info)
         case route_info[:type]
         when :mcp_resource

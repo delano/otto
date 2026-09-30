@@ -2541,6 +2541,26 @@ RSpec.describe 'IP Privacy Features' do
       expect { config.correlation_secret = :nope }
         .to raise_error(ArgumentError, /correlation_secret must be a String or nil/)
     end
+
+    it 'is masked in #inspect before and after deep_freeze!' do
+      config = Otto::Privacy::Config.new(correlation_secret: 'correlation-key-value')
+      expect(config.inspect).to include('@correlation_secret=[REDACTED]')
+
+      config.deep_freeze!
+      expect(config.inspect).not_to include('correlation-key-value')
+    end
+
+    it 'is kept out of a native FrozenError message' do
+      config = Otto::Privacy::Config.new(correlation_secret: 'correlation-key-value').deep_freeze!
+
+      expect { config.instance_variable_set(:@probe, true) }.to raise_error(FrozenError) { |error|
+        expect(error.message).not_to include('correlation-key-value')
+      }
+    end
+
+    it 'shows an unset secret as nil in #inspect' do
+      expect(Otto::Privacy::Config.new.inspect).to include('@correlation_secret=nil')
+    end
   end
 
   describe 'Otto#configure_ip_privacy(correlation_secret:)' do

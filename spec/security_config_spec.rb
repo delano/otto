@@ -3,6 +3,7 @@
 # frozen_string_literal: true
 
 require 'spec_helper'
+require 'pp'
 
 RSpec.describe Otto::Security::Config do
   subject(:config) { described_class.new }
@@ -245,6 +246,64 @@ RSpec.describe Otto::Security::Config do
           expect(config.verify_csrf_token(token, 'session')).to be(false)
         end
       end
+    end
+  end
+
+  describe '#inspect (secret redaction)' do
+    let(:secret) { 's3cr3t-csrf-signing-key' }
+
+    before { config.csrf_secret = secret }
+
+    it 'masks the CSRF signing key' do
+      expect(config.inspect).not_to include(secret)
+      expect(config.inspect).to include('@csrf_secret=[REDACTED]')
+    end
+
+    it 'masks the generated per-process key' do
+      fresh = described_class.new
+      generated = fresh.instance_variable_get(:@csrf_secret)
+
+      expect(fresh.inspect).not_to include(generated)
+    end
+
+    it 'masks an empty-string key' do
+      config.csrf_secret = ''
+
+      expect(config.inspect).to include('@csrf_secret=[REDACTED]')
+    end
+
+    it 'masks the key after deep_freeze!' do
+      config.deep_freeze!
+
+      expect(config.inspect).not_to include(secret)
+    end
+
+    it 'writes no instance state when called on a frozen config' do
+      config.deep_freeze!
+      ivars = config.instance_variables
+
+      expect { config.inspect }.not_to raise_error
+      expect(config.instance_variables).to eq(ivars)
+    end
+
+    it 'keeps the key out of a native FrozenError message' do
+      config.deep_freeze!
+
+      expect { config.instance_variable_set(:@probe, true) }.to raise_error(FrozenError) { |error|
+        expect(error.message).to include('Otto::Security::Config')
+        expect(error.message).not_to include(secret)
+      }
+    end
+
+    it 'masks the key in pp output' do
+      expect(PP.pp(config, +'')).not_to include(secret)
+    end
+
+    it 'masks secrets held by nested config objects' do
+      config.mcp_auth = Otto::MCP::Auth::TokenAuth.new(['mcp-token-value'])
+      config.ip_privacy_config.correlation_secret = 'correlation-key-value'
+
+      expect(config.inspect).not_to include('mcp-token-value', 'correlation-key-value')
     end
   end
 

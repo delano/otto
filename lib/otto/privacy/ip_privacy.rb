@@ -3,6 +3,7 @@
 # frozen_string_literal: true
 
 require 'ipaddr'
+require 'rack/utils'
 require 'digest'
 require 'openssl'
 require 'socket'
@@ -142,10 +143,50 @@ class Otto
       end
 
       # A `for=` pair in an RFC 7239 Forwarded value. Group 1 is the boundary
-      # before it, kept on rewrite. `for=` matches only at an element/pair
-      # boundary (start, comma, or semicolon) so a parameter merely ending in
-      # "for" is never touched.
-      FORWARDED_FOR_PAIR = /(\A|[,;]\s*)for\s*=\s*("[^"]*"|[^;,]+)/i
+      # before it, kept on rewrite.
+      #
+      # The boundaries are the ones Rack 3.2.7 (Rack::Utils.forwarded_values)
+      # accepts before a parameter name: the start of the value, a comma or
+      # semicolon, any whitespace (Rack skips it between pairs, after a quoted
+      # value, and before the first pair; a newline becomes a separator), or
+      # the closing quote of a quoted value, which Rack needs nothing after.
+      # A parameter merely ending in "for" is never touched. A quoted value
+      # may contain backslash escapes, as in Rack; an unquoted one runs to
+      # the next comma, semicolon or newline.
+      FORWARDED_FOR_PAIR = /(\A|[\s;,"])for\s*=\s*("(?:[^"\\]|\\.)*"|[^;,\n]*)/i
+
+      # Redact the `for=` values of an RFC 7239 Forwarded value: replace them
+      # with +replacement+ ({.mask_forwarded_for}), or remove them when
+      # +replacement+ is nil ({.strip_forwarded_for}).
+      #
+      # @param value [String] the Forwarded header value
+      # @param replacement [String, nil] an address, or nil
+      # @return [String] the rewritten value; empty when nothing is left
+      def self.redact_forwarded_for(value, replacement)
+        replacement ? mask_forwarded_for(value, replacement) : strip_forwarded_for(value)
+      end
+
+      # Whether every `for=` value in an RFC 7239 Forwarded value is
+      # +replacement+ (or there is none, when +replacement+ is nil).
+      #
+      # The rewrite above is a pattern match; this is the check that it
+      # caught everything. It reads the header with Rack's parser, which
+      # decides Rack::Request#ip, and with Otto's depth-mode parser. A value
+      # Rack cannot parse (it rejects parameters other than by, for, host and
+      # proto) fails, since it cannot be verified.
+      #
+      # @param value [String] rewritten Forwarded header value
+      # @param replacement [String, nil] the address written into `for=`, or
+      #   nil when the `for=` pairs were removed
+      # @return [Boolean]
+      def self.forwarded_for_only?(value, replacement)
+        expected = replacement&.include?(':') ? "[#{replacement}]" : replacement
+        parsed = Rack::Utils.forwarded_values(value)
+        return false if parsed.nil?
+
+        values = Array(parsed[:for]) + Otto::Utils.rfc7239_for_chain(value).reject(&:empty?)
+        values.all?(expected)
+      end
 
       # Remove every `for=` pair from an RFC 7239 Forwarded header value.
       #

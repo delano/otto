@@ -602,23 +602,30 @@ class Otto
         # redacted, so proto=/host=/by= metadata survives. A header left with
         # nothing but separators is deleted.
         #
+        # The rewrite is a pattern match, so the result is re-read with Rack's
+        # parser (and Otto's). If any `for=` other than +replacement+ survives,
+        # or Rack cannot parse the result, the header is deleted and the
+        # deletion logged: losing proto=/host= is recoverable, a client-chosen
+        # address reaching Rack::Request#ip is not.
+        #
         # @param env [Hash] Rack environment
         # @param replacement [String, nil] an address, or nil to remove `for=`
         def rewrite_forwarded_for(env, replacement)
           value = env['HTTP_FORWARDED']
           return unless value
 
-          rewritten =
-            if replacement
-              Otto::Privacy::IPPrivacy.mask_forwarded_for(value, replacement)
-            else
-              Otto::Privacy::IPPrivacy.strip_forwarded_for(value)
-            end
-
+          rewritten = Otto::Privacy::IPPrivacy.redact_forwarded_for(value, replacement)
           if rewritten.empty?
             env.delete('HTTP_FORWARDED')
-          else
+          elsif Otto::Privacy::IPPrivacy.forwarded_for_only?(rewritten, replacement)
             env['HTTP_FORWARDED'] = rewritten
+          else
+            env.delete('HTTP_FORWARDED')
+            # No header value in the message: it may hold the address.
+            Otto.logger.warn(
+              '[IPPrivacyMiddleware] Forwarded still carried a for= value after ' \
+              'the rewrite, or could not be parsed; deleted the header.'
+            )
           end
         end
 

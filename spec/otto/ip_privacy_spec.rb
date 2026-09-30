@@ -138,6 +138,39 @@ RSpec.describe 'IP Privacy Features' do
         expect(Otto::Privacy::IPPrivacy.mask_forwarded_for('for=1.2.3.4', nil)).to eq('for=1.2.3.4')
         expect(Otto::Privacy::IPPrivacy.mask_forwarded_for(nil, '1.2.3.0')).to be_nil
       end
+
+      it 'finds for= after every separator Rack 3.2.7 accepts' do
+        # Rack skips whitespace between pairs, including after a quoted value
+        # and before the first pair, and needs no separator after a quote.
+        {
+          'by="x" for=198.51.100.7' => 'by="x" for=203.0.113.0',
+          "\tfor=198.51.100.7" => "\tfor=203.0.113.0",
+          'by="x"for=198.51.100.7' => 'by="x"for=203.0.113.0',
+          "proto=https\nfor=198.51.100.7" => "proto=https\nfor=203.0.113.0",
+          'for="198.51.100.7\"x"' => 'for=203.0.113.0',
+        }.each do |value, masked|
+          expect(Otto::Privacy::IPPrivacy.mask_forwarded_for(value, '203.0.113.0')).to eq(masked)
+          expect(Rack::Utils.forwarded_values(masked)[:for]).to eq(['203.0.113.0'])
+        end
+      end
+    end
+
+    describe '.forwarded_for_only?' do
+      it 'is true when every for= Rack or Otto reads is the replacement' do
+        expect(Otto::Privacy::IPPrivacy.forwarded_for_only?('for=203.0.113.0;proto=https', '203.0.113.0')).to be true
+        expect(Otto::Privacy::IPPrivacy.forwarded_for_only?('for="[2001:db8::]"', '2001:db8::')).to be true
+        expect(Otto::Privacy::IPPrivacy.forwarded_for_only?('proto=https', nil)).to be true
+      end
+
+      it 'is false when another for= value survives' do
+        expect(Otto::Privacy::IPPrivacy.forwarded_for_only?('for=203.0.113.0, for=198.51.100.7', '203.0.113.0'))
+          .to be false
+        expect(Otto::Privacy::IPPrivacy.forwarded_for_only?('by="x" for=198.51.100.7', nil)).to be false
+      end
+
+      it 'is false when Rack cannot parse the header' do
+        expect(Otto::Privacy::IPPrivacy.forwarded_for_only?('secret=1;for=203.0.113.0', '203.0.113.0')).to be false
+      end
     end
 
     describe '.strip_forwarded_for' do
@@ -161,6 +194,12 @@ RSpec.describe 'IP Privacy Features' do
       it 'does not touch a parameter merely ending in "for"' do
         expect(Otto::Privacy::IPPrivacy.strip_forwarded_for('secret_for=203.0.113.77;proto=https'))
           .to eq('secret_for=203.0.113.77;proto=https')
+      end
+
+      it 'removes a for= that follows whitespace, as Rack reads it' do
+        expect(Otto::Privacy::IPPrivacy.strip_forwarded_for('by="x" for=198.51.100.7;proto=https'))
+          .to eq('by="x";proto=https')
+        expect(Otto::Privacy::IPPrivacy.strip_forwarded_for("\tfor=198.51.100.7;proto=https")).to eq('proto=https')
       end
 
       it 'returns nil for nil' do
@@ -2042,6 +2081,27 @@ RSpec.describe 'IP Privacy Features' do
         expect(Rack::Request.new(env).ip).to eq('192.168.1.100')
       end
 
+      it 'rewrites a Forwarded for= that follows whitespace behind a loopback peer' do
+        # Rack reads for= after the space; a rewrite that missed it left the
+        # client-chosen address for Rack::Request#ip to return.
+        unconfigured = Otto::Security::Middleware::IPPrivacyMiddleware.new(app, Otto::Security::Config.new)
+        env = { 'REMOTE_ADDR' => '127.0.0.1', 'HTTP_FORWARDED' => 'by="x" for=198.51.100.7' }
+        unconfigured.call(env)
+
+        expect(Rack::Utils.forwarded_values(env['HTTP_FORWARDED'])[:for]).to eq(['127.0.0.1'])
+      end
+
+      it 'deletes Forwarded and warns when the rewrite cannot be verified' do
+        allow(Otto.logger).to receive(:warn)
+        allow(Otto::Privacy::IPPrivacy).to receive(:mask_forwarded_for).and_return('for=198.51.100.7')
+        unconfigured = Otto::Security::Middleware::IPPrivacyMiddleware.new(app, Otto::Security::Config.new)
+        env = { 'REMOTE_ADDR' => '127.0.0.1', 'HTTP_FORWARDED' => 'for=198.51.100.7;proto=https' }
+        unconfigured.call(env)
+
+        expect(env).not_to have_key('HTTP_FORWARDED')
+        expect(Otto.logger).to have_received(:warn).with(/Forwarded/)
+      end
+
       it 'rewrites a forwarded header behind a loopback peer with no proxy trust configured' do
         unconfigured = Otto::Security::Middleware::IPPrivacyMiddleware.new(app, Otto::Security::Config.new)
         env = { 'REMOTE_ADDR' => '127.0.0.1', 'HTTP_X_FORWARDED_FOR' => '203.0.113.50' }
@@ -2141,6 +2201,26 @@ RSpec.describe 'IP Privacy Features' do
         expect(env['HTTP_FORWARDED']).to eq('for=192.168.1.5;proto=https, for=192.168.1.5')
         expect(env.values.grep(String).join(' ')).not_to include('198.51.100.7')
         expect(Rack::Request.new(env).ip).to eq(env['otto.client_ip'])
+      end
+
+      it 'leaves no client-chosen for= for Rack in depth mode on Forwarded' do
+        # The client sent 'by="x" for=198.51.100.7'; the LB appended its peer.
+        # Rack reads both for= values and, with the exempt client trusted by
+        # its default filter, would return the client-chosen one.
+        original = Rack::Request.forwarded_priority
+        Rack::Request.forwarded_priority = %i[forwarded]
+        depth = Otto::Security::Config.new.tap do |cfg|
+          cfg.trusted_proxy_depth = 1
+          cfg.trusted_proxy_header = 'Forwarded'
+        end
+        env = { 'REMOTE_ADDR' => '10.0.0.1', 'HTTP_FORWARDED' => 'by="x" for=198.51.100.7, for=192.168.1.5' }
+        Otto::Security::Middleware::IPPrivacyMiddleware.new(app, depth).call(env)
+
+        expect(env['otto.client_ip']).to eq('192.168.1.5')
+        expect(Rack::Utils.forwarded_values(env['HTTP_FORWARDED'])[:for]).to eq(%w[192.168.1.5 192.168.1.5])
+        expect(Rack::Request.new(env).ip).to eq('192.168.1.5')
+      ensure
+        Rack::Request.forwarded_priority = original
       end
 
       it 'resolves no client IP when the nearest forwarded entry is not an address' do

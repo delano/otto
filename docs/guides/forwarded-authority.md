@@ -139,7 +139,7 @@ The decision is made by `IPPrivacyMiddleware` from the connecting peer
 
 | Trust state | `otto.via_trusted_proxy` | Forwarded host, scheme, and port carriers |
 | --- | --- | --- |
-| `REMOTE_ADDR` matches a configured trusted-proxy CIDR | `true` | Kept. When IP privacy is enabled, `Forwarded` keeps its `proto=`, `host=`, and `by=` fields while its `for=` value is replaced with the masked IP, or with the resolved client IP when that IP is private or loopback and exempt from masking. When no client IP resolves, the `for=` pairs are removed instead. |
+| `REMOTE_ADDR` matches a configured trusted-proxy CIDR | `true` | Kept. When IP privacy is enabled, `Forwarded` keeps its `proto=`, `host=`, and `by=` fields while its `for=` value is replaced with the masked IP, or with the resolved client IP when that IP is private or loopback and exempt from masking. When no client IP resolves, the `for=` pairs are removed instead. Otto re-reads the result with Rack's parser; if any other `for=` value survives, or Rack cannot parse the header, Otto deletes the header and logs a warning. |
 | Depth mode is enabled | `true` for every peer | Kept, subject to the same privacy masking. |
 | Proxy trust is configured, but the peer does not match a configured CIDR | `false` | Deleted. |
 | `trusted_proxies: :none` is configured | `false` for every peer | Deleted. |

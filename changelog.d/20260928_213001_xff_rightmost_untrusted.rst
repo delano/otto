@@ -63,6 +63,16 @@ Security
   ``Rack::Request#ip``, now sees the resolved client IP. **Migration:** to
   get the client's address from a local reverse proxy, list that proxy in
   ``trusted_proxies`` so Otto resolves the client (and masks a public one).
+- The ``Forwarded`` ``for=`` rewrite (masking, the exemption above, and the
+  no-client-IP removal) now finds ``for=`` after every separator Rack 3.2.7
+  accepts: whitespace, including a leading tab, and a closing quote, as in
+  ``by="x" for=198.51.100.7``. It used to find it only at the start or after
+  a comma or semicolon, so a client-chosen ``for=`` could survive and be
+  returned by ``Rack::Request#ip``. The result is re-read with
+  ``Rack::Utils.forwarded_values``; if another ``for=`` value survives, or
+  Rack cannot parse the header (Rack rejects parameters other than ``by``,
+  ``for``, ``host`` and ``proto``), the header is deleted and a warning
+  logged.
 - ``Otto::Utils.normalize_ip`` returns nil for a range (``203.0.113.9/0``,
   ``10.0.0.0/8``, ``203.0.113.9/32``). A forwarded entry written as a range
   is now invalid; before, it was returned as the client IP, masked to the

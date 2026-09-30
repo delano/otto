@@ -208,6 +208,12 @@ class Otto
       canonical = env['otto.client_ip']
       return canonical if canonical && !canonical.empty?
 
+      # otto.ip_match without a usable otto.client_ip means the middleware ran
+      # and found no client IP. It deleted the forwarded headers on that path,
+      # so re-resolving here would see only the peer and return a proxy as
+      # the client.
+      return canonical if env.key?('otto.ip_match')
+
       Otto::Utils.resolve_client_ip(env, otto_security_config)
     end
 

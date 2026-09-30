@@ -233,9 +233,19 @@ class Otto
     # is not a trusted proxy (or there is no config) it returns REMOTE_ADDR
     # unchanged.
     #
+    # Returns nil when the walk reaches an entry that is not a valid address
+    # before it finds an untrusted one. The proxy tier wrote that entry where
+    # the client belongs, so the client is unknown: the entries to its left
+    # are client supplied, and REMOTE_ADDR is a proxy. Falling back to the
+    # proxy would make a private or loopback peer the client, which exempts
+    # the request from masking and lets otto.ip_match test the proxy's own
+    # address. Depth mode returns nil for an invalid selected entry for the
+    # same reason.
+    #
     # @param env [Hash] Rack environment
     # @param security_config [Otto::Security::Config, nil] config exposing #trusted_proxy?
-    # @return [String, nil] resolved client IP (the raw REMOTE_ADDR when no proxy applies)
+    # @return [String, nil] resolved client IP (the raw REMOTE_ADDR when no
+    #   proxy applies), or nil when the walk reaches an invalid entry
     def resolve_client_ip(env, security_config)
       remote_addr = env['REMOTE_ADDR']
 
@@ -260,16 +270,15 @@ class Otto
       # the request from after whatever the client sent, so skip trusted proxies
       # and stop at the first entry that is not one: everything left of it came
       # from the client. An entry that is not a valid address (for example
-      # "unknown") also stops the walk, since reading past it would reach
-      # client-supplied values.
+      # "unknown") ends the walk with no answer: reading past it would reach
+      # client-supplied values, and the peer is a proxy, not the client.
       forwarded_ips.reverse_each do |candidate|
         clean_ip = normalize_ip(candidate.strip)
-        break unless clean_ip
+        return nil unless clean_ip
         return clean_ip unless security_config.trusted_proxy?(clean_ip)
       end
 
-      # Whole chain was trusted proxies, or empty, or stopped at an invalid
-      # entry: fall back to the peer.
+      # Whole chain was trusted proxies, or empty: fall back to the peer.
       remote_addr
     end
 
@@ -297,12 +306,16 @@ class Otto
     # consulted in depth mode. Positions are counted raw (never dropped), so junk
     # padding cannot shift the index; only the selected entry is validated. If
     # the chain is shorter than N+1 (a request that may have bypassed the proxy
-    # tier) or the selected entry is invalid, REMOTE_ADDR is returned rather than
-    # a spoofable forwarded value.
+    # tier), REMOTE_ADDR is returned rather than a spoofable forwarded value.
+    # If the selected entry is not a valid address (blank, `unknown`, an
+    # obfuscated `_hidden` token), nil is returned: the proxy tier wrote that
+    # entry where the client belongs, so the client is unknown, and the peer
+    # is a proxy.
     #
     # @param env [Hash] Rack environment
     # @param security_config [Otto::Security::Config] config exposing #trusted_proxy_depth and #trusted_proxy_header
-    # @return [String, nil] resolved client IP (REMOTE_ADDR on short chain / invalid target)
+    # @return [String, nil] resolved client IP (REMOTE_ADDR on a short chain,
+    #   nil on an invalid target)
     def resolve_client_ip_by_depth(env, security_config)
       remote_addr = env['REMOTE_ADDR']
       depth       = security_config.trusted_proxy_depth.to_i
@@ -317,7 +330,7 @@ class Otto
       index = chain.length - (depth + 1)
       return remote_addr if index.negative? # chain shorter than depth + 1
 
-      normalize_ip(chain[index].to_s.strip) || remote_addr
+      normalize_ip(chain[index].to_s.strip)
     end
 
     # Positional forwarded-hop chain for depth resolution, selected by header
@@ -358,7 +371,7 @@ class Otto
     # (raw position counting). The extracted token is only unquoted here; port
     # and IPv6 brackets are left for normalize_ip when the entry is selected.
     # Obfuscated (`for=_hidden`) and `for=unknown` identifiers are preserved as
-    # positions but normalize to nil (→ REMOTE_ADDR fallback if selected).
+    # positions but normalize to nil (the resolver returns nil if selected).
     # Commas separate forwarded-elements (and join multiple Forwarded headers).
     # A nil/blank header splits to [] (not ['']), so an absent Forwarded header
     # yields an empty chain and depth's explicit short-chain guard returns
@@ -377,8 +390,8 @@ class Otto
     # like for="1.2.3.4;junk" would be truncated to a valid-looking IP instead of
     # being rejected. Only DQUOTE wrappers are stripped: RFC 7239 quoted-strings
     # use DQUOTE exclusively, so a value like for='1.2.3.4' keeps its quotes,
-    # fails normalize_ip, and safely falls back to REMOTE_ADDR rather than being
-    # permissively accepted. This is deliberately stricter than OTS (which strips
+    # fails normalize_ip, and resolves to nil rather than being permissively
+    # accepted. This is deliberately stricter than OTS (which strips
     # both ['"]), consistent with depth's other intentionally-not-reconciled-down
     # safety properties. The raw value (port / IPv6 brackets intact) is left for
     # normalize_ip when the entry is selected. Returns '' when the element carries

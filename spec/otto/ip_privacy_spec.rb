@@ -2059,6 +2059,45 @@ RSpec.describe 'IP Privacy Features' do
         expect(env['HTTP_X_FORWARDED_FOR']).to eq('192.168.1.100')
       end
 
+      it 'resolves no client IP when the nearest forwarded entry is not an address' do
+        # The proxy wrote "unknown" where the client belongs. Resolving to the
+        # proxy would exempt the request from masking and let ip_match compare
+        # the proxy's own address, so the request carries no client IP at all.
+        env = {
+          'REMOTE_ADDR' => '10.0.0.1',
+          'HTTP_X_FORWARDED_FOR' => '203.0.113.50, unknown',
+          'HTTP_FORWARDED' => 'for=203.0.113.50;proto=https',
+        }
+        middleware.call(env)
+
+        expect(env).not_to have_key('otto.client_ip')
+        expect(env.keys).not_to include('HTTP_X_FORWARDED_FOR', 'HTTP_FORWARDED')
+        expect(env['otto.ip_match'].call(['10.0.0.0/8', '0.0.0.0/0'])).to be(false)
+        expect(env.values.grep(String).join(' ')).not_to include('203.0.113.50')
+        expect(env['REMOTE_ADDR']).to eq('10.0.0.1')
+      end
+
+      it 'keeps the no-client verdict on a second middleware pass' do
+        # The first pass deleted the forwarded headers. A second pass that
+        # re-resolved would now see only the proxy and grant it as the client.
+        env = { 'REMOTE_ADDR' => '10.0.0.1', 'HTTP_X_FORWARDED_FOR' => '203.0.113.50, unknown' }
+        middleware.call(env)
+        middleware.call(env)
+
+        expect(env).not_to have_key('otto.client_ip')
+        expect(env['otto.ip_match'].call(['10.0.0.0/8'])).to be(false)
+      end
+
+      it 'resolves no client IP in depth mode when the selected entry is not an address' do
+        depth = Otto::Security::Config.new.tap { |cfg| cfg.trusted_proxy_depth = 1 }
+        env = { 'REMOTE_ADDR' => '10.0.0.1', 'HTTP_X_FORWARDED_FOR' => '203.0.113.50, unknown' }
+        Otto::Security::Middleware::IPPrivacyMiddleware.new(app, depth).call(env)
+
+        expect(env).not_to have_key('otto.client_ip')
+        expect(env).not_to have_key('HTTP_X_FORWARDED_FOR')
+        expect(env['otto.ip_match'].call(['10.0.0.0/8'])).to be(false)
+      end
+
       it 'prefers X-Forwarded-For over X-Real-IP' do
         env = {
           'REMOTE_ADDR' => '10.0.0.1',

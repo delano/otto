@@ -28,14 +28,27 @@ RSpec.describe Otto::Utils, '.resolve_client_ip' do
       expect(resolve('HTTP_X_FORWARDED_FOR' => '9.9.9.9, 203.0.113.50, 10.0.0.9')).to eq('203.0.113.50')
     end
 
-    it 'does not read past an entry that is not an address' do
-      # A proxy that hides the client (for example Squid with forwarded_for off)
-      # appends "unknown". Everything left of it is client supplied.
-      expect(resolve('HTTP_X_FORWARDED_FOR' => '9.9.9.9, unknown')).to eq('10.0.0.1')
+    it 'resolves nothing when the walk reaches an entry that is not an address' do
+      # A proxy that hides the client appends a token such as "unknown".
+      # Everything left of it is client supplied, and the proxy is not the
+      # client, so neither 9.9.9.9 nor REMOTE_ADDR is an answer.
+      expect(resolve('HTTP_X_FORWARDED_FOR' => '9.9.9.9, unknown')).to be_nil
     end
 
-    it 'falls back to REMOTE_ADDR when no entry is a valid address' do
-      expect(resolve('HTTP_X_FORWARDED_FOR' => 'garbage, not-an-ip')).to eq('10.0.0.1')
+    it 'resolves nothing when an invalid entry sits right of trusted hops' do
+      expect(resolve('HTTP_X_FORWARDED_FOR' => '203.0.113.50, unknown, 10.0.0.9')).to be_nil
+    end
+
+    it 'resolves nothing when no entry is a valid address' do
+      expect(resolve('HTTP_X_FORWARDED_FOR' => 'garbage, not-an-ip')).to be_nil
+    end
+
+    it 'resolves nothing when the single-valued fallback header is not an address' do
+      expect(resolve('HTTP_X_REAL_IP' => 'unknown')).to be_nil
+    end
+
+    it 'still falls back to REMOTE_ADDR when every entry is a trusted proxy' do
+      expect(resolve('HTTP_X_FORWARDED_FOR' => '10.0.0.7, 10.0.0.8')).to eq('10.0.0.1')
     end
 
     it 'does not append X-Real-IP or X-Client-IP to the X-Forwarded-For chain' do
@@ -88,6 +101,20 @@ RSpec.describe Otto::Utils, '.resolve_client_ip' do
         allow(req).to receive(:otto_security_config).and_return(config)
 
         expect(req.client_ipaddress).to eq('203.0.113.50')
+      end
+    end
+
+    describe 'Otto::Request#client_ipaddress after the middleware found no client IP' do
+      it 'keeps the verdict instead of re-resolving to the proxy' do
+        # The middleware deleted the forwarded headers, so re-resolving would
+        # see only the trusted peer and return it as the client.
+        env = Rack::MockRequest.env_for('/', 'REMOTE_ADDR' => '10.0.0.1',
+                                             'HTTP_X_FORWARDED_FOR' => '203.0.113.50, unknown')
+        Otto::Testing.resolve_client_ip!(env, config)
+        req = Otto::Request.new(env)
+        allow(req).to receive(:otto_security_config).and_return(config)
+
+        expect(req.client_ipaddress).to be_nil
       end
     end
   end

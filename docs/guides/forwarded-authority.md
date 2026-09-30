@@ -73,8 +73,16 @@ With `trusted_proxies: [...]`, Otto reads `X-Forwarded-For` only when
 right: starting with the entry nearest the application, it skips entries that
 match a configured proxy and takes the first entry that does not as the client
 IP. Entries to the left of that one are never used. If every entry matches a
-configured proxy, or the walk reaches an entry that is not a valid IP address
-(such as `unknown`), Otto uses `REMOTE_ADDR`.
+configured proxy, Otto uses `REMOTE_ADDR`.
+
+If the walk reaches an entry that is not a valid IP address (such as `unknown`)
+before it finds one that does not match, the request has no client IP. A
+proxy wrote that entry where the client belongs, and the proxy itself is not
+the client. `env['otto.ip_match']` returns false for every range,
+`env['otto.client_ip']` and `Otto::Request#client_ipaddress` are nil, and when
+IP privacy is enabled (the `:masked` and `:anonymous` profiles) Otto deletes
+`X-Forwarded-For`, `X-Real-IP`, `X-Client-IP` and `Forwarded`. `REMOTE_ADDR`
+keeps the proxy's address.
 
 For example, with `trusted_proxies: ['10.0.0.0/8']` and a request from
 `10.0.0.5` carrying `X-Forwarded-For: 198.51.100.7, 203.0.113.9, 10.0.0.9`,

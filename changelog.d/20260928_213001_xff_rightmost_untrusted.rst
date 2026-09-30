@@ -7,10 +7,19 @@ Security
   leftmost such entry, which the client controls when the proxy appends to
   the header, so a client could choose ``env['otto.client_ip']``, the address
   ``env['otto.ip_match']`` checks, and the ``Otto::Request#client_ipaddress``
-  fallback. An entry that is not a valid IP address now ends the walk and
-  ``REMOTE_ADDR`` is used. ``X-Real-IP`` and ``X-Client-IP`` are read only
-  when ``X-Forwarded-For`` is absent and are no longer added to its chain.
+  fallback. ``X-Real-IP`` and ``X-Client-IP`` are read only when
+  ``X-Forwarded-For`` is absent and are no longer added to its chain.
   The resolved address is correct only when each trusted proxy appends to
   ``X-Forwarded-For``; see the `forwarded authority guide
-  <docs/guides/forwarded-authority.md>`__. ``trusted_proxy_depth`` is
+  <docs/guides/forwarded-authority.md>`__.
+- A forwarded entry that is not a valid IP address (such as ``unknown``) no
+  longer falls back to ``REMOTE_ADDR``. In ``trusted_proxies`` mode the walk
+  ends there; in ``trusted_proxy_depth`` mode it applies when that entry is
+  the selected hop. The request then has no client IP:
+  ``env['otto.ip_match']`` denies every range, ``env['otto.client_ip']`` and
+  ``Otto::Request#client_ipaddress`` are nil, and with IP privacy enabled the
+  forwarded address headers are deleted. Falling back to the proxy's own
+  address made a private or loopback peer the client, which skipped masking,
+  left the client's address in ``X-Forwarded-For``, and let ``ip_match``
+  test the proxy. Depth mode's short-chain fallback to ``REMOTE_ADDR`` is
   unchanged.

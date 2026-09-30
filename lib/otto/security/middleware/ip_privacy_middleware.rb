@@ -67,7 +67,12 @@ class Otto
           # Client-IP resolution is idempotent, but proxy TRUST is not: the
           # prior pass may have run under a different (or no) configuration,
           # so this instance still enforces its own trust posture below.
-          if env.key?('otto.client_ip')
+          #
+          # otto.ip_match alone also marks a prior pass: the no-resolvable-IP
+          # path installs it without otto.client_ip. That path deletes the
+          # forwarded headers, so re-resolving would see only the peer and
+          # could turn "client unknown" into "the proxy is the client".
+          if env.key?('otto.client_ip') || env.key?('otto.ip_match')
             ensure_ip_match_present(env)
             enforce_proxy_trust_after_prior_pass(env)
             return @app.call(env)
@@ -209,10 +214,10 @@ class Otto
         # capability first, so a second IPPrivacyMiddleware pass that reaches
         # this guard finds both keys and leaves the precise closure in place.
         # (The no-resolvable-IP path installs the capability but never sets
-        # otto.client_ip, so a second pass re-runs apply_privacy and reinstalls
-        # an equivalent fail-closed closure — idempotent, since there is nothing
-        # to double-mask.) The gap is out-of-contract writes: otto.client_ip is
-        # documented as "Set by: IPPrivacyMiddleware" (see Otto::EnvKeys), but
+        # otto.client_ip; #call treats otto.ip_match alone as a prior pass, so
+        # its fail-closed closure is kept too.) The gap is out-of-contract
+        # writes: otto.client_ip is documented as "Set by: IPPrivacyMiddleware"
+        # (see Otto::EnvKeys), but
         # an app or test harness that sets it directly trips the idempotency
         # guard and leaves the advertised capability nil — downstream policy
         # code then raises NoMethodError on nil.
@@ -260,8 +265,10 @@ class Otto
           # its own outcome. To trace resolution here, log a derived value (the
           # masked IP, the family, the trusted-proxy verdict) — never the address.
 
-          # No resolvable client IP (REMOTE_ADDR absent or blank, and no trusted
-          # forwarded value). There is nothing to mask, and masking would derive
+          # No resolvable client IP: REMOTE_ADDR absent or blank with no trusted
+          # forwarded value, or a trusted proxy chain whose walk reached an
+          # entry that is not an address (Otto::Utils.resolve_client_ip returns
+          # nil there). There is nothing to mask, and masking would derive
           # a nil masked IP (IPPrivacy.mask_ip returns nil for nil/empty input).
           # Writing that nil back to REMOTE_ADDR / forwarded headers would leave
           # present-but-nil CGI keys, which violate the Rack SPEC and trip

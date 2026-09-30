@@ -6,8 +6,7 @@ require 'spec_helper'
 require 'tempfile'
 
 # Without OTTO_CSRF_SECRET or csrf_secret=, Security::Config signs CSRF tokens
-# with a generated per-process secret and logs a warning about it once per
-# config. Otto skips its lazy configuration freeze under RSpec (see Otto#call),
+# with a generated secret and logs a warning about it once per config. Otto skips its lazy configuration freeze under RSpec (see Otto#call),
 # so the normal request path never generates a token through a genuinely
 # frozen config. These specs freeze explicitly: generating a token after the
 # freeze must not raise, and the warning must still be logged exactly once.
@@ -34,7 +33,7 @@ RSpec.describe 'CSRF generated-secret warning against a frozen configuration' do
     # rubocop:enable RSpec/InstanceVariable
   end
 
-  let(:warning) { /randomly generated per-process secret/ }
+  let(:warning) { /CSRF tokens are signed with a randomly generated secret/ }
 
   around do |example|
     original_secret = ENV.fetch('OTTO_CSRF_SECRET', nil)
@@ -121,6 +120,19 @@ RSpec.describe 'CSRF generated-secret warning against a frozen configuration' do
       threads.each(&:join)
 
       expect(Otto.logger).to have_received(:warn).with(warning).once
+    end
+
+    it 'says which processes share a generated secret, without logging the secret' do
+      messages = []
+      allow(Otto.logger).to receive(:warn) { |message| messages << message }
+      config.deep_freeze!
+
+      expect(messages.size).to eq(1)
+      message = messages.first
+      expect(message).to include('Workers forked after the secret was generated share it')
+      expect(message).to include('after a restart')
+      expect(message).to include('processes started separately or on other hosts')
+      expect(message).not_to include(config.instance_variable_get(:@csrf_secret))
     end
   end
 

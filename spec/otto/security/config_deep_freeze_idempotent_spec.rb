@@ -73,6 +73,15 @@ RSpec.describe Otto::Security::Config, '#deep_freeze!' do
       expect(config.security_headers).not_to be_frozen
     end
 
+    it 'raises when the application also froze some nested settings by hand' do
+      config = described_class.new
+      config.security_headers.freeze
+      config.rate_limiting_config.freeze
+      config.freeze
+
+      expect { config.deep_freeze! }.to raise_error(FrozenError, /frozen with Object#freeze/)
+    end
+
     it 'makes freeze_configuration! raise for an Otto whose config was shallow-frozen' do
       otto = Otto.new(nil)
       otto.security_config.freeze

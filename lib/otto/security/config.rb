@@ -1203,6 +1203,13 @@ class Otto
         @security_headers.merge!(headers)
       end
 
+      # Nested settings #deep_freeze! always freezes. A frozen config with any
+      # of these unfrozen was frozen with Object#freeze.
+      DEEP_FREEZE_MARKERS = %i[
+        @security_headers @rate_limiting_config @csp_directive_overrides
+        @trusted_proxy_config @ip_privacy_config
+      ].freeze
+
       # Raised by #deep_freeze! on a config frozen with Object#freeze.
       SHALLOW_FREEZE_MESSAGE = <<~MSG.gsub(/\s+/, ' ').strip.freeze
         Otto::Security::Config was frozen with Object#freeze, not deep_freeze!,
@@ -1227,14 +1234,16 @@ class Otto
       # (security headers, rate limiting config, ...) are not. It cannot be
       # finished either, since its instance variables can no longer be
       # replaced, so that case raises instead of passing as deep-frozen.
-      # deep_freeze! freezes @security_headers before the config itself, so a
-      # frozen config with unfrozen @security_headers was shallow-frozen.
+      # deep_freeze! freezes every instance variable before the config itself,
+      # so a frozen config counts as deep-frozen only when all of
+      # DEEP_FREEZE_MARKERS are frozen too; one Hash the application froze by
+      # hand is not enough.
       #
       # @return [self] The frozen configuration
       # @raise [FrozenError] if the config was frozen with Object#freeze
       def deep_freeze!
         if frozen?
-          return self if @security_headers.frozen?
+          return self if DEEP_FREEZE_MARKERS.all? { |ivar| instance_variable_get(ivar).frozen? }
 
           raise FrozenError, SHALLOW_FREEZE_MESSAGE
         end

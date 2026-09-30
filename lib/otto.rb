@@ -53,6 +53,7 @@ require_relative 'otto/logging_helpers'
 #   otto.enable_frame_protection!
 #
 class Otto
+  include Otto::Core::RedactedInspect
   include Otto::Core::Router
   include Otto::Core::FileSafety
   include Otto::Core::StaticMounts
@@ -229,6 +230,30 @@ class Otto
   # methods are provided by their respective Core modules (see includes above)
 
   private
+
+  # Option keys whose values are MCP bearer tokens, in both spellings a caller
+  # may use (see Otto::MCP::Options).
+  REDACTED_OPTION_KEYS = Otto::MCP::Options::OPTION_ALIASES.fetch(:auth_tokens)
+                                                           .flat_map { |key| [key, key.to_s] }.freeze
+  private_constant :REDACTED_OPTION_KEYS
+
+  # #inspect shows the MCP bearer tokens in @option as [REDACTED] with their
+  # count. See Otto::Core::RedactedInspect.
+  def redacted_inspect_value(ivar, value)
+    return super unless ivar == :@option && value.is_a?(Hash)
+
+    shown = value.to_h do |key, option|
+      [key, REDACTED_OPTION_KEYS.include?(key) ? RedactedValue.new(redacted_placeholder(option)) : option]
+    end
+    shown.inspect
+  end
+
+  # Prints its text verbatim from #inspect, so a redacted option value shows
+  # as [REDACTED] rather than "[REDACTED]".
+  RedactedValue = Struct.new(:text) do
+    def inspect = text
+  end
+  private_constant :RedactedValue
 
   def initialize_core_state
     @routes            = { GET: [] }

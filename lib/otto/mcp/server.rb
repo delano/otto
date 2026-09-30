@@ -10,11 +10,14 @@ require_relative 'schema_validation'
 require_relative 'rate_limiting'
 require_relative 'options'
 require_relative '../security/constant_resolver'
+require_relative '../core/redacted_inspect'
 
 class Otto
   module MCP
     # MCP server implementation providing Model Context Protocol endpoints
     class Server
+      include Otto::Core::RedactedInspect
+
       attr_reader :protocol, :otto_instance
 
       # Normalize raw options into the canonical MCP option hash.
@@ -104,6 +107,11 @@ class Otto
       end
 
       private
+
+      # #inspect shows the bearer tokens as [REDACTED] with their count.
+      def redacted_inspect_value(ivar, value)
+        ivar == :@auth_tokens ? redacted_placeholder(value) : super
+      end
 
       # Publish the per-minute limits under the keys RateLimitMiddleware /
       # RateLimiter.configure_rack_attack! already read, via Otto's sanctioned

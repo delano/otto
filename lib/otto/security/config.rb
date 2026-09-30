@@ -7,6 +7,7 @@ require 'digest'
 require 'openssl'
 require 'rack/request'
 require_relative '../core/freezable'
+require_relative '../core/redacted_inspect'
 require_relative 'csp/policy'
 require_relative 'trusted_proxy_config'
 
@@ -29,6 +30,7 @@ class Otto
     #   config.max_param_depth = 16
     class Config
       include Otto::Core::Freezable
+      include Otto::Core::RedactedInspect
 
       # Otto accepts exactly one W3C Referrer Policy token for its
       # referrer_policy setting. The supported tokens are enumerated below:
@@ -1232,6 +1234,12 @@ class Otto
       end
 
       private
+
+      # #inspect (and so a native FrozenError message) shows the CSRF signing
+      # key as [REDACTED]. See Otto::Core::RedactedInspect.
+      def redacted_inspect_value(ivar, value)
+        ivar == :@csrf_secret ? redacted_placeholder(value) : super
+      end
 
       # Guard for mutators: refuse changes once the configuration is frozen.
       # Centralizes the repeated frozen-check so every setter shares one message.

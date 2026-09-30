@@ -9,6 +9,7 @@ require 'digest'
 require 'concurrent'
 
 require_relative '../core/freezable'
+require_relative '../core/redacted_inspect'
 require_relative '../optional_dependency'
 
 class Otto
@@ -31,6 +32,7 @@ class Otto
     # modules would hide the symmetry that makes them reviewable.
     class Config
       include Otto::Core::Freezable
+      include Otto::Core::RedactedInspect
 
       MAXMIND_DB_REQUIREMENT = '~> 1.2'
 
@@ -518,6 +520,12 @@ class Otto
       end
 
       private
+
+      # #inspect (and so a native FrozenError message) shows the correlation
+      # secret as [REDACTED]. See Otto::Core::RedactedInspect.
+      def redacted_inspect_value(ivar, value)
+        ivar == :@correlation_secret ? redacted_placeholder(value) : super
+      end
 
       # Profile-governed, so #profile= can assign it through a writer like the
       # other knobs. Public callers use #disable! and #enable!.

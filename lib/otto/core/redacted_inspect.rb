@@ -27,6 +27,43 @@ class Otto
       # Stands in for a redacted value in #inspect output.
       PLACEHOLDER = '[REDACTED]'
 
+      # A String whose #inspect is PLACEHOLDER. Content, #to_s, ==, eql? and
+      # hash are String's, so it compares, hashes and interpolates as the
+      # secret it holds. A write to a frozen one raises a FrozenError whose
+      # message shows the placeholder.
+      class SecretString < String
+        # @return [String] PLACEHOLDER
+        def inspect
+          PLACEHOLDER
+        end
+      end
+
+      # An Array of secrets whose #inspect (and #to_s, which Array aliases to
+      # its C inspect) shows PLACEHOLDER and the element count. Element access,
+      # ==, include? and iteration are Array's. A write to a frozen one raises
+      # a FrozenError whose message shows the placeholder.
+      class SecretList < Array
+        # @return [String] "[REDACTED] (N)"
+        def inspect
+          "#{PLACEHOLDER} (#{size})"
+        end
+        alias to_s inspect
+      end
+
+      # Wrap a secret so its #inspect is redacted: a String becomes a
+      # SecretString, an Array a SecretList of SecretStrings. Other values
+      # (nil, or something validation will reject) are returned as given.
+      #
+      # @param value [Object]
+      # @return [Object] a copy for a String or Array, value otherwise
+      def self.secret(value)
+        return value if value.is_a?(SecretString) || value.is_a?(SecretList)
+        return SecretString.new(value) if value.is_a?(String)
+        return SecretList.new(value.map { |item| secret(item) }) if value.is_a?(Array)
+
+        value
+      end
+
       # Per-fiber set of objects whose #inspect is running, so an object that
       # is reachable from its own instance variables prints as "...".
       IN_PROGRESS_KEY = :__otto_redacted_inspect_in_progress__

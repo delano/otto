@@ -75,7 +75,7 @@ class Otto
 
         @enabled               = true
         @http_endpoint         = options[:http_endpoint]
-        @auth_tokens           = options[:auth_tokens]
+        @auth_tokens           = Otto::Core::RedactedInspect.secret(options[:auth_tokens])
         @enable_validation     = options[:enable_validation]
         @enable_rate_limiting  = options[:enable_rate_limiting]
         @allow_unauthenticated = options[:allow_unauthenticated]

@@ -53,7 +53,6 @@ require_relative 'otto/logging_helpers'
 #   otto.enable_frame_protection!
 #
 class Otto
-  include Otto::Core::RedactedInspect
   include Otto::Core::Router
   include Otto::Core::FileSafety
   include Otto::Core::StaticMounts
@@ -231,30 +230,6 @@ class Otto
 
   private
 
-  # Option keys whose values are MCP bearer tokens, in both spellings a caller
-  # may use (see Otto::MCP::Options).
-  REDACTED_OPTION_KEYS = Otto::MCP::Options::OPTION_ALIASES.fetch(:auth_tokens)
-                                                           .flat_map { |key| [key, key.to_s] }.freeze
-  private_constant :REDACTED_OPTION_KEYS
-
-  # #inspect shows the MCP bearer tokens in @option as [REDACTED] with their
-  # count. See Otto::Core::RedactedInspect.
-  def redacted_inspect_value(ivar, value)
-    return super unless ivar == :@option && value.is_a?(Hash)
-
-    shown = value.to_h do |key, option|
-      [key, REDACTED_OPTION_KEYS.include?(key) ? RedactedValue.new(redacted_placeholder(option)) : option]
-    end
-    shown.inspect
-  end
-
-  # Prints its text verbatim from #inspect, so a redacted option value shows
-  # as [REDACTED] rather than "[REDACTED]".
-  RedactedValue = Struct.new(:text) do
-    def inspect = text
-  end
-  private_constant :RedactedValue
-
   def initialize_core_state
     @routes            = { GET: [] }
     @routes_literal    = { GET: {} }
@@ -321,10 +296,12 @@ class Otto
   end
 
   def initialize_options(_path, opts)
-    @option = {
+    # An OptionHash, so neither Otto#inspect nor the FrozenError from a write
+    # after the freeze prints the MCP bearer tokens.
+    @option = Otto::Core::OptionHash.build({
       public: nil,
       locale: 'en',
-    }.merge(opts)
+    }.merge(opts))
     @route_handler_factory = opts[:route_handler_factory] || Otto::RouteHandlers::HandlerFactory
   end
 

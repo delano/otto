@@ -126,6 +126,71 @@ RSpec.describe 'Secrets in #inspect output' do
       # Otto -> @mcp_server -> @otto_instance -> Otto
       expect(otto.inspect).to match(/#<Otto:0x\h+ \.\.\.>/)
     end
+
+    it 'keeps the tokens out of the server and TokenAuth copies' do
+      server_tokens = otto.mcp_server.instance_variable_get(:@auth_tokens)
+      auth_tokens   = otto.security_config.mcp_auth.instance_variable_get(:@tokens)
+
+      expect(server_tokens).not_to equal(otto.option[:mcp_auth_tokens])
+      expect(server_tokens.inspect).not_to include(mcp_token)
+      expect(auth_tokens.inspect).not_to include(mcp_token)
+    end
+  end
+
+  # freeze_configuration! deep-freezes @option and the token list in it. MCP is
+  # left disabled here so the freeze does not depend on the MCP middleware;
+  # @option keeps the tokens either way.
+  describe 'the frozen option Hash of an Otto instance' do
+    let(:otto) do
+      instance = Otto.new(nil, mcp_auth_tokens: [mcp_token])
+      instance.freeze_configuration!
+      instance
+    end
+
+    it 'keeps the tokens out of the FrozenError from a write to the Hash' do
+      message = frozen_error_message { otto.option[:x] = 1 }
+
+      expect(message).to start_with("can't modify frozen")
+      expect(message).not_to include(mcp_token)
+    end
+
+    it 'keeps the tokens out of the FrozenError from a write to the token list' do
+      message = frozen_error_message { otto.option[:mcp_auth_tokens] << 'y' }
+
+      expect(message).to start_with("can't modify frozen")
+      expect(message).not_to include(mcp_token)
+    end
+
+    it 'keeps the token out of the FrozenError from a write to one token' do
+      message = frozen_error_message { otto.option[:mcp_auth_tokens].first << 'y' }
+
+      expect(message).to start_with("can't modify frozen")
+      expect(message).not_to include(mcp_token)
+    end
+
+    it 'keeps a single String token out of the FrozenError from a write to it' do
+      single = Otto.new(nil, mcp_auth_tokens: mcp_token)
+      single.freeze_configuration!
+      message = frozen_error_message { single.option[:mcp_auth_tokens] << 'y' }
+
+      expect(message).not_to include(mcp_token)
+      expect(single.option[:mcp_auth_tokens]).to eq(mcp_token)
+      expect(single.option[:mcp_auth_tokens]).to be_a(String)
+    end
+
+    it 'still reads like the Hash and Array it was' do
+      tokens = otto.option[:mcp_auth_tokens]
+
+      expect(otto.option).to be_a(Hash)
+      expect(otto.option[:locale]).to eq('en')
+      expect(tokens).to be_a(Array)
+      expect(tokens).to eq([mcp_token])
+      expect([mcp_token]).to eq(tokens)
+      expect(tokens).to include(mcp_token)
+      expect(tokens.to_a).to eq([mcp_token])
+      expect(tokens.map(&:to_s)).to eq([mcp_token])
+      expect("#{tokens.first}").to eq(mcp_token) # rubocop:disable Style/RedundantInterpolation
+    end
   end
 
   describe Otto::Security::Authentication::Strategies::APIKeyStrategy do

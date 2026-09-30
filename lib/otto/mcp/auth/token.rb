@@ -16,7 +16,7 @@ class Otto
         include Otto::Core::RedactedInspect
 
         def initialize(tokens)
-          @tokens = Array(tokens).to_set
+          @tokens = Otto::Core::RedactedInspect.secret(Array(tokens)).to_set
         end
 
         def authenticate(env)

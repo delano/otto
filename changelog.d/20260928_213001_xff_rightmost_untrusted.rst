@@ -79,8 +79,10 @@ Security
   returned by ``Rack::Request#ip``. The result is re-read with
   ``Rack::Utils.forwarded_values``; if another ``for=`` value survives, or
   Rack cannot parse the header (Rack rejects parameters other than ``by``,
-  ``for``, ``host`` and ``proto``), the header is deleted and a warning
-  logged. (#292)
+  ``for``, ``host`` and ``proto``, so an RFC 7239 extension parameter is
+  enough), the header is deleted. The first deletion in a process is logged
+  at warn and later ones at debug, since a header like that arrives on every
+  request and any client can send one. (#292)
 
 - ``Otto::Utils.normalize_ip`` returns nil for a value written as a range,
   such as ``203.0.113.9/0`` or ``10.0.0.0/8``, so a forwarded entry written

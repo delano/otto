@@ -2092,6 +2092,7 @@ RSpec.describe 'IP Privacy Features' do
       end
 
       it 'deletes Forwarded and warns when the rewrite cannot be verified' do
+        Otto::Privacy::IPPrivacy.reset_forwarded_deletion_log!
         allow(Otto.logger).to receive(:warn)
         allow(Otto::Privacy::IPPrivacy).to receive(:mask_forwarded_for).and_return('for=198.51.100.7')
         unconfigured = Otto::Security::Middleware::IPPrivacyMiddleware.new(app, Otto::Security::Config.new)
@@ -2100,6 +2101,30 @@ RSpec.describe 'IP Privacy Features' do
 
         expect(env).not_to have_key('HTTP_FORWARDED')
         expect(Otto.logger).to have_received(:warn).with(/Forwarded/)
+      end
+
+      it 'warns about a deleted Forwarded header once per process, then logs at debug' do
+        # An RFC 7239 extension parameter makes Rack reject the whole header,
+        # so it is deleted on every request. One warning says so; repeating
+        # it per request would be noise a client can trigger at will.
+        Otto::Privacy::IPPrivacy.reset_forwarded_deletion_log!
+        allow(Otto.logger).to receive(:warn)
+        allow(Otto.logger).to receive(:debug)
+        allow(Otto).to receive(:debug).and_return(true)
+        depth = Otto::Security::Config.new.tap do |cfg|
+          cfg.trusted_proxy_depth = 1
+          cfg.trusted_proxy_header = 'Forwarded'
+        end
+        middleware = Otto::Security::Middleware::IPPrivacyMiddleware.new(app, depth)
+
+        envs = Array.new(3) do
+          { 'REMOTE_ADDR' => '10.0.0.1', 'HTTP_FORWARDED' => 'for=_hidden;proto=https;host=app.example;secret=abc' }
+        end
+        envs.each { |env| middleware.call(env) }
+
+        expect(envs).to all(satisfy { |env| !env.key?('HTTP_FORWARDED') })
+        expect(Otto.logger).to have_received(:warn).with(/Forwarded/).once
+        expect(Otto.logger).to have_received(:debug).with(/Deleted a Forwarded header/).twice
       end
 
       it 'rewrites a forwarded header behind a loopback peer with no proxy trust configured' do

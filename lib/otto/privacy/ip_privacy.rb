@@ -166,6 +166,44 @@ class Otto
         replacement ? mask_forwarded_for(value, replacement) : strip_forwarded_for(value)
       end
 
+      # Guards the once-per-process warning for a deleted Forwarded header.
+      FORWARDED_DELETION_LOCK = Mutex.new
+      @forwarded_deletion_logged = false
+
+      # Log that IPPrivacyMiddleware deleted a Forwarded header whose `for=`
+      # rewrite it could not verify: at warn the first time in the process,
+      # at debug (when Otto.debug is on) after that.
+      #
+      # A header with an RFC 7239 extension parameter, which Rack rejects, is
+      # deleted on every request that carries it, and any client can send
+      # one, so a warning per request would be noise. The message never
+      # includes the header value, which may hold an address.
+      #
+      # @return [void]
+      def self.log_forwarded_deletion
+        message = '[IPPrivacyMiddleware] Deleted a Forwarded header: a for= value survived the ' \
+                  'rewrite, or Rack cannot parse it (e.g. an extension parameter).'
+        first = FORWARDED_DELETION_LOCK.synchronize do
+          next false if @forwarded_deletion_logged
+
+          @forwarded_deletion_logged = true
+        end
+
+        if first
+          Otto.logger.warn("#{message} Later deletions in this process are logged at debug.")
+        elsif Otto.debug
+          Otto.logger.debug(message)
+        end
+      end
+
+      # Make the next Forwarded deletion warn again. Test support.
+      #
+      # @api private
+      # @return [void]
+      def self.reset_forwarded_deletion_log!
+        FORWARDED_DELETION_LOCK.synchronize { @forwarded_deletion_logged = false }
+      end
+
       # Whether every `for=` value in an RFC 7239 Forwarded value is
       # +replacement+ (or there is none, when +replacement+ is nil).
       #

@@ -621,11 +621,7 @@ class Otto
             env['HTTP_FORWARDED'] = rewritten
           else
             env.delete('HTTP_FORWARDED')
-            # No header value in the message: it may hold the address.
-            Otto.logger.warn(
-              '[IPPrivacyMiddleware] Forwarded still carried a for= value after ' \
-              'the rewrite, or could not be parsed; deleted the header.'
-            )
+            Otto::Privacy::IPPrivacy.log_forwarded_deletion
           end
         end
 

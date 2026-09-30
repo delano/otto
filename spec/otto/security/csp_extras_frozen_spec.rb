@@ -14,13 +14,13 @@ require 'tempfile'
 # still widens the policy while leaving csp_directive_overrides untouched.
 # Integration spec over a behaviour, not a class; same shape as
 # csp_reporting_frozen_spec.
-# rubocop:disable RSpec/DescribeClass
+# rubocop:disable-next RSpec/DescribeClass
 RSpec.describe 'Otto CSP request extras against a frozen configuration' do
   include Rack::Test::Methods
 
   # Routes-file controllers must be resolvable by name, hence a real constant
   # (the same pattern as FrozenCspApp in csp_reporting_frozen_spec).
-  # rubocop:disable Lint/ConstantDefinitionInBlock, RSpec/LeakyConstantDeclaration
+  # rubocop:disable-next Lint/ConstantDefinitionInBlock, RSpec/LeakyConstantDeclaration
   class FrozenCspExtrasApp
     # Controller ivars, not spec state.
     # rubocop:disable RSpec/InstanceVariable
@@ -37,7 +37,6 @@ RSpec.describe 'Otto CSP request extras against a frozen configuration' do
     end
     # rubocop:enable RSpec/InstanceVariable
   end
-  # rubocop:enable Lint/ConstantDefinitionInBlock, RSpec/LeakyConstantDeclaration
 
   let(:routes_file) do
     file = Tempfile.new(['frozen_csp_extras_routes', '.txt'])
@@ -96,4 +95,3 @@ RSpec.describe 'Otto CSP request extras against a frozen configuration' do
     expect(csp.scan('https://idp.tenant.example').length).to eq(1)
   end
 end
-# rubocop:enable RSpec/DescribeClass

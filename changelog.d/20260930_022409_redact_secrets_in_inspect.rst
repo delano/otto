@@ -23,7 +23,8 @@ Security
   It stores MCP bearer tokens as ``Otto::Core::RedactedInspect::SecretList``
   (an ``Array`` subclass) or ``SecretSet`` (a ``Set`` subclass) of frozen
   ``SecretString`` copies (a ``String`` subclass), or as one frozen
-  ``SecretString`` for a single token. The MCP server builds its own
+  ``SecretString`` for a single token, including tokens assigned with
+  ``[]=`` or ``store`` after construction. The MCP server builds its own
   ``SecretList``, and ``TokenAuth`` a frozen ``SecretSet`` holding the same
   frozen ``SecretString`` objects as the server; ``Otto#option`` holds
   separate copies. Writing to the frozen option Hash, to its token list or

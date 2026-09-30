@@ -310,6 +310,22 @@ RSpec.describe 'Secrets in #inspect output' do
       end
     end
 
+    it 'wraps tokens assigned with []= or store after construction' do
+      late = Otto.new(nil)
+      late.option[:mcp_auth_tokens] = ["#{mcp_token}-a"]
+      late.option.store('auth_tokens', "#{mcp_token}-b")
+      late.freeze_configuration!
+
+      messages = [
+        frozen_error_message { late.option[:mcp_auth_tokens] << 'y' },
+        frozen_error_message { late.option[:mcp_auth_tokens].first << 'y' },
+        frozen_error_message { late.option['auth_tokens'] << 'y' },
+      ]
+      expect(messages.join).not_to include(mcp_token)
+      expect(late.option[:mcp_auth_tokens]).to eq(["#{mcp_token}-a"])
+      expect(late.option['auth_tokens']).to eq("#{mcp_token}-b")
+    end
+
     it 'still reads like the Hash and Array it was' do
       tokens = otto.option[:mcp_auth_tokens]
 

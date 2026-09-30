@@ -11,12 +11,13 @@ class Otto
     # late write such as otto.option[:x] = 1 would print every option,
     # including the MCP bearer tokens.
     #
-    # .build stores the values of SECRET_KEYS as RedactedInspect secrets (a
-    # SecretList of SecretStrings, or a SecretString), so a write to the
-    # frozen token list or to one token cannot print them either. #inspect
-    # also redacts those keys whatever their value, which covers a plain value
-    # assigned after construction. It is still a Hash, and the token values
-    # are still an Array or a String.
+    # .build, #[]= and #store store the values of .secret_keys as
+    # RedactedInspect secrets (a SecretList or SecretSet of SecretStrings, or
+    # a SecretString), so a write to the frozen token collection or to one
+    # token cannot print them either. #inspect also redacts those keys
+    # whatever their value, which covers a value stored by #merge!. It is
+    # still a Hash, and the token values are still an Array, a Set or a
+    # String.
     class OptionHash < Hash
       # Option keys whose values are MCP bearer tokens, in both spellings a
       # caller may use (see Otto::MCP::Options::OPTION_ALIASES).
@@ -30,9 +31,18 @@ class Otto
       # @return [OptionHash] a copy with secret values wrapped
       def self.build(hash)
         hash.each_with_object(new) do |(key, value), options|
-          options[key] = secret_keys.include?(key) ? RedactedInspect.secret(value) : value
+          options[key] = value
         end
       end
+
+      # Stores value, wrapped by RedactedInspect.secret when key is one of
+      # .secret_keys, so a token assigned after construction is covered too.
+      # Hash#merge! and #update store without calling this; #inspect still
+      # redacts those keys.
+      def []=(key, value)
+        super(key, self.class.secret_keys.include?(key) ? RedactedInspect.secret(value) : value)
+      end
+      alias store []=
 
       # @return [String] Hash#inspect with each secret key's value redacted
       def inspect

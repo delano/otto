@@ -12,8 +12,9 @@ Security
   The resolved address is correct only when each trusted proxy appends to
   ``X-Forwarded-For``; see the `forwarded authority guide
   <docs/guides/forwarded-authority.md>`__.
-- A forwarded entry that is not a valid IP address (such as ``unknown``) no
-  longer falls back to ``REMOTE_ADDR``. In ``trusted_proxies`` mode the walk
+- A forwarded entry that is not a valid IP address (such as ``unknown``, or
+  an empty entry, including the one a trailing comma leaves) no longer falls
+  back to ``REMOTE_ADDR``. In ``trusted_proxies`` mode the walk
   ends there; in ``trusted_proxy_depth`` mode it applies when that entry is
   the selected hop. The request then has no client IP:
   ``env['otto.ip_match']`` denies every range, ``env['otto.client_ip']`` and

@@ -75,8 +75,9 @@ match a configured proxy and takes the first entry that does not as the client
 IP. Entries to the left of that one are never used. If every entry matches a
 configured proxy, Otto uses `REMOTE_ADDR`.
 
-If the walk reaches an entry that is not a valid IP address (such as `unknown`)
-before it finds one that does not match, the request has no client IP. A
+If the walk reaches an entry that is not a valid IP address (such as `unknown`,
+or an empty entry, including the one a trailing comma leaves) before it finds
+one that does not match, the request has no client IP. A
 proxy wrote that entry where the client belongs, and the proxy itself is not
 the client. `env['otto.ip_match']` returns false for every range,
 `env['otto.client_ip']` and `Otto::Request#client_ipaddress` are nil, and when

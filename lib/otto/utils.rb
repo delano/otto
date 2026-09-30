@@ -263,8 +263,11 @@ class Otto
       # Read one header: the first of FORWARDED_FOR_HEADERS that is not blank.
       # X-Real-IP and X-Client-IP carry a single address, so they are read only
       # when X-Forwarded-For is absent and never become positions in its chain.
+      # Split with xff_chain, as depth mode does: it keeps empty fields, a
+      # trailing one included, so an empty entry the proxy tier wrote stops
+      # the walk below like any other invalid entry instead of vanishing.
       header = FORWARDED_FOR_HEADERS.find { |name| !env[name].to_s.strip.empty? }
-      forwarded_ips = header ? env[header].split(/,\s*/) : []
+      forwarded_ips = header ? xff_chain(env[header]) : []
 
       # Walk from the right. A proxy that appends writes the address it received
       # the request from after whatever the client sent, so skip trusted proxies
@@ -357,7 +360,9 @@ class Otto
     end
 
     # Split X-Forwarded-For into raw positional entries. `-1` keeps trailing
-    # empty fields so a malformed/empty hop still counts as a position.
+    # empty fields so a malformed/empty hop still counts as a position (depth
+    # mode) and stops the walk (CIDR filter mode, which also splits the
+    # single-valued X-Real-IP / X-Client-IP fallback with it).
     #
     # @param value [String, nil] raw X-Forwarded-For header value
     # @return [Array<String>]

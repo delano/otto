@@ -43,6 +43,20 @@ RSpec.describe Otto::Utils, '.resolve_client_ip' do
       expect(resolve('HTTP_X_FORWARDED_FOR' => 'garbage, not-an-ip')).to be_nil
     end
 
+    it 'treats an empty entry as invalid, trailing included' do
+      # A trailing comma leaves an empty last entry, which only the proxy tier
+      # can write. It must stop the walk like any other invalid entry.
+      expect(resolve('HTTP_X_FORWARDED_FOR' => '203.0.113.50,')).to be_nil
+      expect(resolve('HTTP_X_FORWARDED_FOR' => '203.0.113.50, ')).to be_nil
+      expect(resolve('HTTP_X_FORWARDED_FOR' => '203.0.113.50, , 10.0.0.9')).to be_nil
+    end
+
+    it 'ignores empty entries left of the resolved address' do
+      # Client supplied, so never reached.
+      expect(resolve('HTTP_X_FORWARDED_FOR' => ',, 203.0.113.50')).to eq('203.0.113.50')
+      expect(resolve('HTTP_X_FORWARDED_FOR' => '9.9.9.9,, 203.0.113.50, 10.0.0.9')).to eq('203.0.113.50')
+    end
+
     it 'resolves nothing when the single-valued fallback header is not an address' do
       expect(resolve('HTTP_X_REAL_IP' => 'unknown')).to be_nil
     end

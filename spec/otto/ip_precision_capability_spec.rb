@@ -105,6 +105,13 @@ RSpec.describe 'IP precision capability and privacy profiles' do
       expect(Otto::Utils.ip_in_cidrs?('not-an-ip', ['203.0.113.0/24'])).to be false
     end
 
+    it 'fails closed on a range given as the client address' do
+      # The client is one address. A range string is malformed runtime data,
+      # even when it would sit inside the allowlist.
+      expect(Otto::Utils.ip_in_cidrs?('0.0.0.0/0', ['0.0.0.0/0'])).to be false
+      expect(Otto::Utils.ip_in_cidrs?('203.0.113.7/32', ['203.0.113.0/24'])).to be false
+    end
+
     it 'returns false for nil or empty range lists' do
       expect(Otto::Utils.ip_in_cidrs?('203.0.113.7', nil)).to be false
       expect(Otto::Utils.ip_in_cidrs?('203.0.113.7', [])).to be false

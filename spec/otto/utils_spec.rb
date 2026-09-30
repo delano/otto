@@ -256,6 +256,17 @@ RSpec.describe Otto::Utils do
       expect(Otto::Utils.normalize_ip("")).to be_nil
       expect(Otto::Utils.normalize_ip(nil)).to be_nil
     end
+
+    it "returns nil for a range, which IPAddr would otherwise accept" do
+      # Header values name one address. IPAddr.new parses "203.0.113.9/0" as
+      # 0.0.0.0/0, so accepting it let a forwarded entry resolve to 0.0.0.0.
+      expect(Otto::Utils.normalize_ip("203.0.113.9/0")).to be_nil
+      expect(Otto::Utils.normalize_ip("10.0.0.0/8")).to be_nil
+      expect(Otto::Utils.normalize_ip("203.0.113.9/32")).to be_nil
+      expect(Otto::Utils.normalize_ip("203.0.113.9/255.255.255.0")).to be_nil
+      expect(Otto::Utils.normalize_ip("2001:db8::/32")).to be_nil
+      expect(Otto::Utils.normalize_ip("[2001:db8::1/64]:443")).to be_nil
+    end
   end
 
   describe "#strip_ip_port" do
@@ -532,6 +543,11 @@ RSpec.describe Otto::Utils do
       # The proxy tier wrote a non-address where the client belongs. The peer
       # is a proxy, not the client, so REMOTE_ADDR is no answer either.
       env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_FORWARDED_FOR" => "not-an-ip" }
+      expect(Otto::Utils.resolve_client_ip(env, depth_config(1))).to be_nil
+    end
+
+    it "resolves nothing when the target entry is a range, not an address" do
+      env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_FORWARDED_FOR" => "203.0.113.9/0" }
       expect(Otto::Utils.resolve_client_ip(env, depth_config(1))).to be_nil
     end
 

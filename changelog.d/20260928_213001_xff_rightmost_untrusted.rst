@@ -24,3 +24,9 @@ Security
   left the client's address in ``X-Forwarded-For``, and let ``ip_match``
   test the proxy. Depth mode's short-chain fallback to ``REMOTE_ADDR`` is
   unchanged.
+- ``Otto::Utils.normalize_ip`` returns nil for a range (``203.0.113.9/0``,
+  ``10.0.0.0/8``, ``203.0.113.9/32``). A forwarded entry written as a range
+  is now invalid; before, it was returned as the client IP, masked to the
+  range's network address (``0.0.0.0`` for ``/0``), and matched by
+  ``ip_match(['0.0.0.0/0'])``. ``Otto::Utils.ip_in_cidrs?`` returns false when
+  the client address it is given is a range.

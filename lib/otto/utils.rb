@@ -186,13 +186,19 @@ class Otto
     # Strips an optional port (IPv6-safe), validates with IPAddr, and returns
     # the cleaned address string, or nil if the input is blank or malformed.
     #
+    # A range is malformed here. IPAddr.new also parses prefix and netmask
+    # notation ("203.0.113.9/0" is 0.0.0.0/0), but every caller hands this a
+    # value that must name one address: a forwarded header entry, or the
+    # runtime client address in ip_in_cidrs?. Configured ranges are parsed
+    # with IPAddr directly and never pass through here.
+    #
     # @param ip [String, nil] candidate address, optionally with a port
     # @return [String, nil] cleaned IP string, or nil if invalid
     def normalize_ip(ip)
       return nil if ip.nil? || ip.empty?
 
       candidate = strip_ip_port(ip.strip)
-      return nil if candidate.nil? || candidate.empty?
+      return nil if candidate.nil? || candidate.empty? || candidate.include?('/')
 
       # IPAddr validates both IPv4 and IPv6; raises for malformed input
       IPAddr.new(candidate)
@@ -464,8 +470,9 @@ class Otto
     # notation (::a.b.c.d) folds on the same terms, on both sides.
     #
     # Asymmetric strictness, on purpose:
-    # - `ip` is runtime data — nil, blank, or malformed input returns false
-    #   (fail-closed for allowlist callers).
+    # - `ip` is runtime data — nil, blank, or malformed input, a range such
+    #   as "203.0.113.7/32" included, returns false (fail-closed for
+    #   allowlist callers).
     # - `cidrs` entries are configuration — an invalid CIDR string raises
     #   IPAddr::InvalidAddressError, because silently skipping an entry
     #   narrows an allowlist or widens a denylist. Validate entries at

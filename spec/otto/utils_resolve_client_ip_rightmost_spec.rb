@@ -57,6 +57,13 @@ RSpec.describe Otto::Utils, '.resolve_client_ip' do
       expect(resolve('HTTP_X_FORWARDED_FOR' => '9.9.9.9,, 203.0.113.50, 10.0.0.9')).to eq('203.0.113.50')
     end
 
+    it 'treats a range as invalid instead of resolving it' do
+      # IPAddr.new parses "203.0.113.9/0" as 0.0.0.0/0; as a client IP that
+      # became 0.0.0.0, and ip_match(['0.0.0.0/0']) was true.
+      expect(resolve('HTTP_X_FORWARDED_FOR' => '9.9.9.9, 203.0.113.9/0')).to be_nil
+      expect(resolve('HTTP_X_REAL_IP' => '203.0.113.9/32')).to be_nil
+    end
+
     it 'resolves nothing when the single-valued fallback header is not an address' do
       expect(resolve('HTTP_X_REAL_IP' => 'unknown')).to be_nil
     end

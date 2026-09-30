@@ -29,6 +29,36 @@ RSpec.describe Otto::Security::Config, '#deep_freeze!' do
 
       expect(config.deep_freeze!).to be(config)
     end
+
+    # A frozen config cannot hold a stub or a counter, so a subclass records
+    # each validator call in a closure array that deep_freeze! never reaches.
+    it 'does not rerun the freeze-time validators' do
+      calls    = []
+      counting = Class.new(described_class) do
+        define_method(:validate_referrer_policy!) do |policy|
+          calls << :referrer_policy
+          super(policy)
+        end
+        define_method(:validate_trusted_proxy_config!) do
+          calls << :trusted_proxy
+          super()
+        end
+        define_method(:validate_csrf_secret_config!) do
+          calls << :csrf_secret
+          super()
+        end
+        private :validate_referrer_policy!, :validate_trusted_proxy_config!, :validate_csrf_secret_config!
+      end
+
+      config = counting.new
+      calls.clear # the constructor validates the default referrer policy
+      config.deep_freeze!
+      expect(calls).to eq(%i[referrer_policy trusted_proxy csrf_secret])
+
+      calls.clear
+      expect(config.deep_freeze!).to be(config)
+      expect(calls).to be_empty
+    end
   end
 
   describe 'Otto with MCP middleware after freeze_configuration!' do

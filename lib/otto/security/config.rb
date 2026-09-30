@@ -812,6 +812,42 @@ class Otto
         secure_compare(signature, expected_signature)
       end
 
+      # Cookie that carries the CSRF binding on plain HTTP requests.
+      CSRF_BINDING_COOKIE = '_otto_session'
+
+      # Cookie that carries the CSRF binding on HTTPS requests. Browsers accept
+      # a __Host- cookie only when it is set with Secure and Path=/, without a
+      # Domain, from a secure origin, so a sibling subdomain or a network
+      # attacker cannot plant one.
+      CSRF_HOST_BINDING_COOKIE = '__Host-otto_session'
+
+      # Name of the cookie that carries the CSRF binding for +request+:
+      # CSRF_HOST_BINDING_COOKIE when Rack reports the request as HTTPS,
+      # CSRF_BINDING_COOKIE otherwise. CSRFMiddleware sets the cookie under
+      # this name.
+      #
+      # @param request [Rack::Request]
+      # @return [String]
+      def csrf_binding_cookie_name(request)
+        request.scheme == 'https' ? CSRF_HOST_BINDING_COOKIE : CSRF_BINDING_COOKIE
+      end
+
+      # The cookie value used as the CSRF binding when the session provides
+      # none. On HTTPS only CSRF_HOST_BINDING_COOKIE is read: the plantable
+      # _otto_session, session_id and _session_id cookies are ignored there.
+      # On HTTP, where a __Host- cookie cannot be set, the legacy names are
+      # read in their old order.
+      #
+      # @param request [Rack::Request]
+      # @return [String, nil]
+      def csrf_binding_cookie(request)
+        cookies = request.cookies
+        return cookies[CSRF_HOST_BINDING_COOKIE] if request.scheme == 'https'
+
+        cookies[CSRF_BINDING_COOKIE] || cookies['session_id'] || cookies['_session_id']
+      end
+      private :csrf_binding_cookie
+
       # Enable HTTP Strict Transport Security (HSTS) header
       #
       # HSTS forces browsers to use HTTPS for all future requests to this domain.
@@ -1274,10 +1310,8 @@ class Otto
           # Fall through to cookies
         end
 
-        # Try cookies
-        request.cookies['_otto_session'] ||
-          request.cookies['session_id'] ||
-          request.cookies['_session_id']
+        # Then the binding cookie (see #csrf_binding_cookie)
+        csrf_binding_cookie(request)
       end
 
       def store_session_id(request, session_id)

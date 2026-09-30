@@ -70,26 +70,29 @@ class Otto
           end
         end
 
+        # Sets the binding cookie when its value differs from +session_id+.
+        # On HTTPS the cookie is __Host-otto_session (Secure, Path=/, no
+        # Domain); on HTTP it is _otto_session. See
+        # Otto::Security::Config#csrf_binding_cookie_name.
         def ensure_session_cookie(request, headers, session_id)
-          # Check if session ID already exists in cookies
-          existing_cookie = request.cookies['_otto_session']
-          return if existing_cookie == session_id
+          cookie_name = @config.csrf_binding_cookie_name(request)
+          return if request.cookies[cookie_name] == session_id
 
-          # Set the session cookie
           cookie_value  = "#{session_id}; Path=/; HttpOnly; SameSite=Lax"
           cookie_value += '; Secure' if request.scheme == 'https'
+          new_cookie    = "#{cookie_name}=#{cookie_value}"
 
           # Handle existing Set-Cookie headers
           existing_cookies = headers['set-cookie'] || headers['Set-Cookie']
           if existing_cookies
             # Append to existing cookies (handle both string and array formats)
             if existing_cookies.is_a?(Array)
-              existing_cookies << "_otto_session=#{cookie_value}"
+              existing_cookies << new_cookie
             else
-              headers['set-cookie'] = [existing_cookies, "_otto_session=#{cookie_value}"]
+              headers['set-cookie'] = [existing_cookies, new_cookie]
             end
           else
-            headers['set-cookie'] = "_otto_session=#{cookie_value}"
+            headers['set-cookie'] = new_cookie
           end
         end
 

@@ -357,11 +357,23 @@ Valid request tokens must come from `config.generate_csrf_token(session_id)` and
 must use the matching session ID; an arbitrary value copied into the session and
 header is not a valid token.
 
+When the session provides no binding (no session middleware, or a session with
+no id and no stored binding), the binding lives in a cookie that
+`CSRFMiddleware` sets on HTML responses. `Otto::Security::Config#csrf_binding_cookie_name`
+returns its name: `__Host-otto_session` when Rack reports the request as HTTPS
+(`request.scheme == 'https'`), set with `Secure`, `Path=/` and no `Domain`, and
+`_otto_session` otherwise. On HTTPS requests Otto reads only the `__Host-`
+cookie; `_otto_session`, `session_id` and `_session_id` cookies are ignored
+there, because a sibling subdomain or a network attacker could plant them and
+choose the binding. A test that drives a form over HTTPS must carry
+`__Host-otto_session` from the response to the next request.
+
 Use these maintained specs as executable examples:
 
 - [`spec/security_csrf_spec.rb`](../../spec/security_csrf_spec.rb) — response injection.
 - [`spec/otto/security/csrf_enforcement_wrapper_spec.rb`](../../spec/otto/security/csrf_enforcement_wrapper_spec.rb) — safe methods, unsafe methods, valid tokens, and `csrf=exempt`.
 - [`spec/otto/security/csrf_validation_spec.rb`](../../spec/otto/security/csrf_validation_spec.rb) — token and session extraction.
+- [`spec/otto/security/csrf_binding_cookie_spec.rb`](../../spec/otto/security/csrf_binding_cookie_spec.rb) — the binding cookie on HTTP and HTTPS.
 
 ## Test IP privacy with the application configuration
 

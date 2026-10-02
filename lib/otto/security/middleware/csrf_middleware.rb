@@ -88,11 +88,17 @@ class Otto
         # On HTTPS the cookie is __Host-otto_session (Secure, Path=/, no
         # Domain); on HTTP it is _otto_session. See
         # Otto::Security::Config#csrf_binding_cookie_name.
+        #
+        # The value is URL-encoded because Rack URL-decodes cookie values when
+        # it parses them (Rack::Utils.parse_cookies_header). A binding that is
+        # not a hex token, such as an app-set session_id cookie on HTTP or a
+        # value from the session, then reads back unchanged instead of being
+        # cut at a ';' or decoded a second time.
         def ensure_session_cookie(request, headers, session_id)
           cookie_name = @config.csrf_binding_cookie_name(request)
           return if request.cookies[cookie_name] == session_id
 
-          cookie_value  = "#{session_id}; Path=/; HttpOnly; SameSite=Lax"
+          cookie_value  = "#{Rack::Utils.escape(session_id.to_s)}; Path=/; HttpOnly; SameSite=Lax"
           cookie_value += '; Secure' if request.scheme == 'https'
           new_cookie    = "#{cookie_name}=#{cookie_value}"
 

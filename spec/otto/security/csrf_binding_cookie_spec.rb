@@ -166,6 +166,23 @@ RSpec.describe 'CSRF binding cookie' do
       expect(status).to eq(200)
     end
 
+    # Rack URL-decodes cookie values, so an app-set session_id sent as
+    # a%3Bb%2541 is the binding "a;b%41". Written unencoded, the browser would
+    # keep _otto_session=a and the next POST would carry another binding.
+    it 'encodes the binding cookie value so the next request reads the same binding' do
+      jar = { 'session_id' => 'a%3Bb%2541' }
+      _, body, set_cookies = call('GET', 'http://example.org/csrf', jar)
+
+      expect(set_cookies.grep(/\A_otto_session=/)).to all(start_with('_otto_session=a%3Bb%2541;'))
+      expect(set_cookies.grep(/\A_otto_session=/).size).to eq(1)
+      jar.merge!(cookie_jar(set_cookies))
+      token = JSON.parse(body)['token']
+
+      statuses = Array.new(2) { call('POST', 'http://example.org/login', jar, '_csrf_token' => token).first }
+
+      expect(statuses).to eq([200, 200])
+    end
+
     it 'does not set the binding cookie again once the request carries it' do
       _, _, set_cookies = call('GET', 'https://example.org/csrf', {})
       jar = cookie_jar(set_cookies)

@@ -44,3 +44,14 @@ Changed
   ``Config#get_or_create_session_id`` receives the cookie with the token and
   passes on its next POST. The request's resolved binding is recorded in
   ``env['otto.csrf_binding']``. (#302)
+
+Fixed
+-----
+
+- ``CSRFMiddleware`` now URL-encodes the value of the CSRF binding cookie,
+  because Rack URL-decodes cookie values when it reads them. Before, a binding
+  that was not a hex token was written as is, and the browser could store a
+  different value: an app-set ``session_id`` cookie sent as ``a%3Bb`` (the
+  binding ``a;b``) on plain HTTP came back as ``_otto_session=a``, and the
+  next CSRF-protected request got ``403``. Hex bindings, including the ones
+  Otto generates, are written unchanged. (#302)

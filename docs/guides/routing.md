@@ -236,10 +236,10 @@ otto.mount_static('/', root: 'public/root-files') # favicon.ico, robots.txt
   directory. Registering the same prefix twice on one instance raises
   `ArgumentError`; different Otto instances are fully independent.
 - Requests are matched on the decoded, trailing-slash-stripped path, the same
-  normalization every other dispatch stage uses. Only `GET` is served, the
-  prefix itself is not (mounts serve files, not directory listings), and a
-  request for a file the root does not contain falls through to the next
-  dispatch stage.
+  normalization every other dispatch stage uses. Only `GET` and `HEAD` are
+  served, the prefix itself is not (mounts serve files, not directory
+  listings), and a request for a file the root does not contain falls through
+  to the next dispatch stage.
 - `mount_static` must be called before the first request. After configuration
   freezing it raises `FrozenError`, and `otto.static_mounts` is a frozen,
   read-only table.

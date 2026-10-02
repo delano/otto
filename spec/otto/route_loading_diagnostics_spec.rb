@@ -122,7 +122,7 @@ RSpec.describe 'Route loading diagnostics (issue #191)' do
     end
   end
 
-  describe 'MCP and TOOL route handler options fail fast (security parity with normal routes)' do
+  describe 'MCP and TOOL route handler security options fail fast' do
     let(:mcp_app) { Otto.new }
 
     before do
@@ -142,11 +142,12 @@ RSpec.describe 'Route loading diagnostics (issue #191)' do
       end.to raise_error(Otto::RouteDefinitionError)
     end
 
-    it 'accepts well-formed security options on an MCP handler definition' do
-      expect(mcp_app.instance_variable_get(:@mcp_server)).to receive(:register_mcp_route)
-        .with(hash_including(options: { auth: 'session' }))
+    it 'rejects well-formed security options on an MCP handler definition' do
+      expect(mcp_app.instance_variable_get(:@mcp_server)).not_to receive(:register_mcp_route)
 
-      mcp_app.send(:handle_mcp_route, 'GET', '/resource', 'MCP files/test TestHandler.handle auth=session')
+      expect do
+        mcp_app.send(:handle_mcp_route, 'GET', '/resource', 'MCP files/test TestHandler.handle auth=session')
+      end.to raise_error(Otto::RouteDefinitionError, /not enforced on MCP or TOOL routes/)
     end
   end
 end

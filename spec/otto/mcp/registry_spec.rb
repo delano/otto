@@ -140,5 +140,35 @@ RSpec.describe Otto::MCP::Registry, 'tool and resource dispatch' do
       expect { registry.read_resource('docs/boom') }
         .to raise_error(RuntimeError, 'resource exploded')
     end
+
+    it 'passes the env to a handler that takes one argument' do
+      registry.register_resource('docs/env', 'env', 'Env', 'text/plain', ->(env) { env['REMOTE_ADDR'] })
+
+      expect(registry.read_resource('docs/env', { 'REMOTE_ADDR' => '203.0.113.9' }).dig(:contents, 0, :text))
+        .to eq('203.0.113.9')
+    end
+
+    it 'calls a zero-argument handler with no arguments when an env is given' do
+      registry.register_resource('docs/a', 'a', 'Resource a', 'text/plain', -> { TestMCPResource.content })
+
+      expect(registry.read_resource('docs/a', { 'REMOTE_ADDR' => '203.0.113.9' }).dig(:contents, 0, :text))
+        .to eq('resource contents')
+    end
+
+    # Only a positional parameter receives the env. Passing it to a handler
+    # whose only parameter is an optional keyword would raise ArgumentError.
+    it 'calls a handler that takes only an optional keyword with no arguments' do
+      registry.register_resource('docs/kw', 'kw', 'Kw', 'text/plain', ->(env: nil) { "env=#{env.inspect}" })
+
+      expect(registry.read_resource('docs/kw', { 'REMOTE_ADDR' => '203.0.113.9' }).dig(:contents, 0, :text))
+        .to eq('env=nil')
+    end
+
+    it 'raises ArgumentError for a handler that requires two arguments' do
+      registry.register_resource('docs/two', 'two', 'Two', 'text/plain', ->(_env, _extra) { 'x' })
+
+      expect { registry.read_resource('docs/two', {}) }
+        .to raise_error(ArgumentError, /must take no arguments or one \(the Rack env\)/)
+    end
   end
 end

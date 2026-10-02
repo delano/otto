@@ -62,15 +62,22 @@ The endpoint is `POST /_mcp` unless `mcp_endpoint:` (or `http_endpoint:`) sets
 another slash-prefixed path. `mcp_enabled?` returns `true` after MCP has been
 enabled.
 
-For multi-step boot configuration, call `enable_mcp!` instead:
+For multi-step boot configuration, construct Otto without a routes file, call
+`enable_mcp!`, then load the routes file:
 
 ```ruby
-otto = Otto.new('routes')
+otto = Otto.new
 otto.enable_mcp!(
   http_endpoint: '/api/mcp',
   auth_tokens: [ENV.fetch('MCP_TOKEN')],
 )
+otto.load('routes')
 ```
+
+Otto registers `MCP` and `TOOL` lines only while a routes file loads, and only
+if MCP is already enabled. `Otto.new('routes')` followed by `enable_mcp!` loads
+the file first: Otto logs an error for each `MCP` and `TOOL` line, skips it,
+and the endpoint serves no resources or tools.
 
 Enable MCP only once per `Otto` instance. A second call raises `ArgumentError`;
 provide all MCP settings in the first call.
@@ -89,8 +96,11 @@ POST /mcp/create-user  TOOL create_user AppMCP.create_user
 ```
 
 `MCP` registers a resource. Its resource URI is `users`: Otto removes one
-leading slash from the declaration. The handler must be a zero-argument class
-method. Otto returns its value as text with the `text/plain` MIME type.
+leading slash from the declaration. The handler is a class method that takes
+no arguments, or one argument: the Rack `env` of the MCP request. A handler
+that requires more than one argument, or a keyword argument, fails the read
+with a JSON-RPC internal error. Otto returns the handler's value as text with
+the `text/plain` MIME type.
 
 `TOOL` registers a tool. Its handler is a class method that receives
 `arguments` and the Rack `env`:
@@ -116,6 +126,32 @@ from the URI or tool name, and resources use `text/plain`. Tool declarations
 currently advertise an empty input schema. A tool still receives the
 `params.arguments` object supplied by the client, so validate its fields in the
 handler before using them.
+
+`MCP` and `TOOL` declarations cannot use the `auth=`, `role=`, or `csrf=` route
+options. Otto does not run route-level authentication, role, or CSRF checks
+for resources and tools. When MCP is enabled as the routes file loads, a line
+that sets any of these options raises `Otto::RouteDefinitionError` and the
+application fails to boot:
+
+```text
+# Rejected when the routes file loads with MCP enabled:
+POST /mcp/delete-user  TOOL delete_user AppMCP.delete_user auth=session role=admin
+```
+
+When MCP is not enabled as the file loads, Otto logs and skips every `MCP` and
+`TOOL` line, as described above, without checking its options.
+
+Any other `key=value` option on an `MCP` or `TOOL` line, such as
+`response=json`, still loads, but Otto logs a `MCP/tool route option not
+applied` warning for it. The MCP server reads only the resource URI or tool
+name and the handler, so these options have no effect.
+
+Use `mcp_auth_tokens` to require a token for the MCP endpoint (see
+[Authentication](#authentication)). A request that passes the token check can
+list, read, and call every registered resource and tool, so check permissions
+inside the handler of any resource or tool that needs them. Both receive the
+Rack `env` of the MCP request: a tool handler always, a resource handler when
+it takes one argument.
 
 ## Call the endpoint
 

@@ -1209,6 +1209,7 @@ class Otto
         @security_headers @rate_limiting_config @csp_directive_overrides
         @trusted_proxy_config @ip_privacy_config
       ].freeze
+      private_constant :DEEP_FREEZE_MARKERS
 
       # Raised by #deep_freeze! on a config frozen with Object#freeze.
       SHALLOW_FREEZE_MESSAGE = <<~MSG.gsub(/\s+/, ' ').strip.freeze

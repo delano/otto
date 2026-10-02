@@ -18,9 +18,9 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
     Class.new do
       attr_reader :id, :options
 
-      def initialize(data = {})
+      def initialize(data = {}, id = 'sid-0123456789')
         @data = data.transform_keys(&:to_s)
-        @id = 'sid-0123456789'
+        @id = id
         @options = { id: @id }
       end
 
@@ -184,6 +184,69 @@ RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
 
       expect(status).to eq(200)
       expect(env['rack.session']).to equal(session)
+    end
+
+    # A server-side session store in front of Otto, modeled on rack-session's
+    # Pool. Each request loads the client's stored data into a new session
+    # object; after the app returns, the store commits whatever
+    # env['rack.session'] then holds the way rack-session's commit_session
+    # does (#options, then #id and #to_hash) and hands the id back to the
+    # client. A handler's write reaches the next request only if it went into
+    # the object the store installed.
+    context 'with a session store that commits between requests' do
+      let(:store) { { 'sid-client' => { 'user_roles' => %w[admin], 'user_permissions' => %w[write] } } }
+
+      let(:otto) do
+        handlers = {
+          'visit' => lambda do |req, res, _extra|
+            req.session['visits'] = (req.session['visits'] || 0) + 1
+            res['content-type'] = 'text/plain'
+            res.write("visits=#{req.session['visits']}")
+          end,
+        }
+        route_lines = [
+          'GET /noauth &visit auth=noauth',
+          'GET /either &visit auth=session,noauth',
+          'GET /apikey &visit auth=apikey',
+          'GET /role &visit auth=role:admin',
+          'GET /permission &visit auth=permission:write',
+        ]
+        routes = create_test_routes_file('test_routes_session_store.txt', route_lines)
+        app = Otto.new(routes, lambda_handlers: handlers)
+        auth_config[:auth_strategies].each { |name, strategy| app.add_auth_strategy(name, strategy) }
+        app
+      end
+
+      def visit(path, client)
+        env = Rack::MockRequest.env_for(path)
+        env['HTTP_X_API_KEY'] = api_key
+        env['rack.session'] = session_hash_class.new(store.fetch(client[:sid], {}), client[:sid])
+        status, _headers, body = otto.call(env)
+        committed = env['rack.session']
+        committed.options
+        store[committed.id] = committed.to_hash
+        client[:sid] = committed.id
+        text = +''
+        body.each { |chunk| text << chunk }
+        [status, text]
+      end
+
+      {
+        '/noauth' => 'auth=noauth',
+        '/either' => 'auth=session,noauth',
+        '/apikey' => 'auth=apikey',
+        '/role' => 'auth=role:admin',
+        '/permission' => 'auth=permission:write',
+      }.each do |path, requirement|
+        it "keeps the handler's writes from one request to the next on #{requirement}" do
+          client = { sid: 'sid-client' }
+
+          responses = Array.new(3) { visit(path, client) }
+
+          expect(responses).to eq([[200, 'visits=1'], [200, 'visits=2'], [200, 'visits=3']])
+          expect(store['sid-client']).to include('visits' => 3)
+        end
+      end
     end
   end
 

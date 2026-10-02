@@ -223,4 +223,35 @@ RSpec.describe Otto::Core::Router do
       expect(handler_of(response)).to eq('search')
     end
   end
+
+  # A declared HEAD route runs with its own options. It does not inherit
+  # auth= or role= from the GET route for the same path.
+  context 'with a declared HEAD route next to a GET route that requires auth' do
+    let(:routes) do
+      [
+        'GET /secret HeadDispatchApp.search auth=apikey',
+        'HEAD /secret HeadDispatchApp.test',
+      ]
+    end
+
+    before do
+      app.add_auth_strategy('apikey',
+        Otto::Security::Authentication::Strategies::APIKeyStrategy.new(api_keys: ['head-key']))
+      app.freeze_configuration!
+    end
+
+    it 'serves the declared HEAD route without the GET route auth= gate' do
+      response = head('/secret')
+
+      expect(response[0]).to eq(200)
+      expect(handler_of(response)).to eq('test')
+    end
+
+    it 'keeps the auth= gate on the GET route' do
+      response = app.call(mock_rack_env(method: 'GET', path: '/secret',
+        headers: { 'Accept' => 'application/json' }))
+
+      expect(response[0]).to eq(401)
+    end
+  end
 end

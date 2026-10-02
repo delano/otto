@@ -25,27 +25,26 @@ are local to one report.
 
 Each critical and high finding has its own pull request. The fix in each PR was
 reproduced with a failing spec before it was written; the PR description holds
-that evidence. As of 2026-10-02 all of them are open.
+that evidence. States were last checked on 2026-10-02.
 
-| Finding | Severity | Pull request |
-| --- | --- | --- |
-| S1, C1: client IP resolved from the leftmost X-Forwarded-For entry | Critical | [#292](https://github.com/delano/otto/pull/292) |
-| S2: `Config#deep_freeze!` not idempotent with MCP middleware | High | [#293](https://github.com/delano/otto/pull/293) |
-| C2: HEAD dispatch mutates the route tables | High | [#294](https://github.com/delano/otto/pull/294) |
-| C3: generated CSRF secret warning writes to the frozen config | High | [#297](https://github.com/delano/otto/pull/297) |
-| C4: auth success replaces `rack.session` with `{}` | High | [#298](https://github.com/delano/otto/pull/298) |
-| C5: CSRF session binding changes between GET and POST | High | [#295](https://github.com/delano/otto/pull/295) |
-| C6, T1: `csrf_secret=` accepts `''` and `nil` | High | [#299](https://github.com/delano/otto/pull/299) |
-| D1: `auth=` and `role=` on MCP and TOOL routes not enforced | High | [#296](https://github.com/delano/otto/pull/296) |
+| Finding | Severity | Pull request | State |
+| --- | --- | --- | --- |
+| S1, C1: client IP resolved from the leftmost X-Forwarded-For entry | Critical | [#292](https://github.com/delano/otto/pull/292) | Open |
+| S2: `Config#deep_freeze!` not idempotent with MCP middleware | High | [#293](https://github.com/delano/otto/pull/293) | Open |
+| C2: HEAD dispatch mutates the route tables | High | [#294](https://github.com/delano/otto/pull/294) | Open |
+| C3: generated CSRF secret warning writes to the frozen config | High | [#297](https://github.com/delano/otto/pull/297) | Open |
+| C4: auth success replaces `rack.session` with `{}` | High | [#298](https://github.com/delano/otto/pull/298) | Open |
+| C5: CSRF session binding changes between GET and POST | High | [#295](https://github.com/delano/otto/pull/295) | Open |
+| C6, T1: `csrf_secret=` accepts `''` and `nil` | High | [#299](https://github.com/delano/otto/pull/299) | Open |
+| D1: `auth=` and `role=` on MCP and TOOL routes not enforced | High | [#296](https://github.com/delano/otto/pull/296) | Open |
 
 Two related pull requests are not findings from the report:
 
-- [#300](https://github.com/delano/otto/pull/300) redacts secrets from
-  `#inspect`. The exposure of the CSRF secret through `Security::Config#inspect`
-  and `FrozenError` messages was found while preparing #297.
-- [#302](https://github.com/delano/otto/pull/302) binds the CSRF fallback
-  cookie to a `__Host-` name on HTTPS.
+| Change | Origin | Pull request | State |
+| --- | --- | --- | --- |
+| Redact secrets from `#inspect` | The CSRF secret showed in `Security::Config#inspect` and `FrozenError` messages; found while preparing #297 | [#300](https://github.com/delano/otto/pull/300) | Open |
+| Bind the CSRF fallback cookie to a `__Host-` name on HTTPS | Changes the cookie fallback in the same CSRF binding lookup that #295 changes | [#302](https://github.com/delano/otto/pull/302) | Open |
 
 The medium and low findings have no pull request yet.
 
-When one of these pull requests merges or closes, update its row here.
+When one of these pull requests merges or closes, update its State cell.

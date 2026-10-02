@@ -87,6 +87,7 @@ docs/
 │   └── runtime-and-dependency-security.md
 ├── migrating/                        # release-specific upgrade guides
 ├── adr/                              # accepted architecture decision records
+├── audits/                           # point-in-time code audits; leads, not contracts
 └── maintainers/
     └── investigations/                # local working notes; untracked by design
 ```
@@ -111,6 +112,9 @@ docs/
   to infer the current contract from a proposal.
 - **Maintainer investigations** preserve unfinished exploration separately from
   accepted decisions and application documentation.
+- **Audits** record a review of the code at a named commit, with the follow-up
+  pull request for each finding. They are leads for maintainers and do not
+  define behavior; see [audits](audits/README.md).
 
 ## Migration plan for the current directory
 

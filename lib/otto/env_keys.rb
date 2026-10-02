@@ -192,18 +192,23 @@ class Otto
     # Canonical client IP, resolved once early by IPPrivacyMiddleware
     # ("resolve once, read everywhere"). Downstream code (client_ipaddress,
     # Request#ip) reads this instead of re-deriving from REMOTE_ADDR / XFF.
-    # Type: String
-    # Set by: IPPrivacyMiddleware (every request, all modes)
+    # Type: String, or nil when no client IP resolves
+    # Set by: IPPrivacyMiddleware (every request that resolves a client IP;
+    #         with privacy disabled it is also written, as nil, when none
+    #         resolves)
     # Value: masked IP when privacy enabled; resolved real IP when privacy
     #        disabled or the address is exempt (private/localhost)
-    # Note: presence also acts as the idempotency guard for the middleware
+    # Note: presence acts as the idempotency guard for the middleware. A pass
+    #       that resolved no client IP under privacy masking leaves this key
+    #       absent; the guard recognises that pass by IP_MATCH together with
+    #       otto.peer_relayed, which every pass writes before resolving.
     CLIENT_IP = 'otto.client_ip'
 
     # Verdict-only CIDR membership check over the resolved, UNMASKED client IP
     # Type: Proc — call with an Enumerable of CIDR strings or IPAddr objects,
     #       returns true/false
-    # Set by: IPPrivacyMiddleware (every path that resolves an IP, all
-    #         privacy profiles)
+    # Set by: IPPrivacyMiddleware (every request it processes, all privacy
+    #         profiles, including a request with no resolvable client IP)
     # Used by: Downstream IP policy code (allowlists, denylists, network
     #          zones) that needs full /32-/128 precision without changing the
     #          observability posture — CLIENT_IP is masked under the default
@@ -217,8 +222,12 @@ class Otto
     # Note: setting CLIENT_IP yourself is out of contract — it trips the
     #       middleware's idempotency guard, so the unmasked address is never
     #       captured and this capability degrades to a logged fail-closed
-    #       check that denies every range. Test harnesses build both keys
-    #       with Otto::Testing.env_for (require 'otto/testing').
+    #       check that denies every range. Setting IP_MATCH yourself is out of
+    #       contract too, but does not trip the guard: without
+    #       otto.peer_relayed it is not taken for a prior pass, so the
+    #       middleware logs a warning, replaces it, and resolves and masks as
+    #       usual. Test harnesses build both keys with Otto::Testing.env_for
+    #       (require 'otto/testing').
     IP_MATCH = 'otto.ip_match'
 
     # Privacy-safe masked IP address

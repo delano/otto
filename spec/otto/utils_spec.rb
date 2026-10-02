@@ -256,6 +256,17 @@ RSpec.describe Otto::Utils do
       expect(Otto::Utils.normalize_ip("")).to be_nil
       expect(Otto::Utils.normalize_ip(nil)).to be_nil
     end
+
+    it "returns nil for a range, which IPAddr would otherwise accept" do
+      # Header values name one address. IPAddr.new parses "203.0.113.9/0" as
+      # 0.0.0.0/0, so accepting it let a forwarded entry resolve to 0.0.0.0.
+      expect(Otto::Utils.normalize_ip("203.0.113.9/0")).to be_nil
+      expect(Otto::Utils.normalize_ip("10.0.0.0/8")).to be_nil
+      expect(Otto::Utils.normalize_ip("203.0.113.9/32")).to be_nil
+      expect(Otto::Utils.normalize_ip("203.0.113.9/255.255.255.0")).to be_nil
+      expect(Otto::Utils.normalize_ip("2001:db8::/32")).to be_nil
+      expect(Otto::Utils.normalize_ip("[2001:db8::1/64]:443")).to be_nil
+    end
   end
 
   describe "#strip_ip_port" do
@@ -451,15 +462,15 @@ RSpec.describe Otto::Utils do
       expect(Otto::Utils.resolve_client_ip(env, config_with("10.0.0.0/8"))).to eq("203.0.113.50")
     end
 
-    it "walks the forwarded chain and returns the first non-proxy address" do
+    it "walks the forwarded chain from the right and returns the first non-proxy address" do
       env = {
         "REMOTE_ADDR" => "10.0.0.1",
-        "HTTP_X_FORWARDED_FOR" => "203.0.113.50, 10.0.0.9, 10.0.0.1",
+        "HTTP_X_FORWARDED_FOR" => "198.51.100.7, 203.0.113.50, 10.0.0.9, 10.0.0.1",
       }
       expect(Otto::Utils.resolve_client_ip(env, config_with("10.0.0.0/8"))).to eq("203.0.113.50")
     end
 
-    it "honors X-Real-IP and X-Client-IP in addition to X-Forwarded-For" do
+    it "honors X-Real-IP and X-Client-IP when X-Forwarded-For is absent" do
       real = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_REAL_IP" => "203.0.113.7" }
       client = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_CLIENT_IP" => "203.0.113.8" }
       cfg = config_with("10.0.0.0/8")
@@ -528,9 +539,16 @@ RSpec.describe Otto::Utils do
       expect(Otto::Utils.resolve_client_ip(env, depth_config(1))).to eq("10.0.0.1")
     end
 
-    it "falls back to REMOTE_ADDR when the target entry is not a valid IP" do
+    it "resolves nothing when the target entry is not a valid IP" do
+      # The proxy tier wrote a non-address where the client belongs. The peer
+      # is a proxy, not the client, so REMOTE_ADDR is no answer either.
       env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_FORWARDED_FOR" => "not-an-ip" }
-      expect(Otto::Utils.resolve_client_ip(env, depth_config(1))).to eq("10.0.0.1")
+      expect(Otto::Utils.resolve_client_ip(env, depth_config(1))).to be_nil
+    end
+
+    it "resolves nothing when the target entry is a range, not an address" do
+      env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_X_FORWARDED_FOR" => "203.0.113.9/0" }
+      expect(Otto::Utils.resolve_client_ip(env, depth_config(1))).to be_nil
     end
 
     it "resolves an IPv6 client without truncation under depth" do
@@ -604,10 +622,10 @@ RSpec.describe Otto::Utils do
 
       it "does not truncate a quoted for= whose value contains a semicolon" do
         # The ';' is inside the DQUOTEs, so the value is '203.0.113.50;ext' — not
-        # a valid IP. It must fall back to REMOTE_ADDR, not be truncated to a
+        # a valid IP. It must resolve to nothing, not be truncated to a
         # valid-looking '203.0.113.50'.
         env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_FORWARDED" => 'for="203.0.113.50;ext"' }
-        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("10.0.0.1")
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to be_nil
       end
 
       it "parses a real ;-separated param following a quoted for=" do
@@ -617,10 +635,10 @@ RSpec.describe Otto::Utils do
 
       it "rejects a single-quoted for= value (RFC 7239 uses DQUOTE only)" do
         # Single quotes are not RFC 7239 quoted-string syntax, so the quotes stay
-        # on the value, which fails normalize_ip → REMOTE_ADDR. Deliberately
+        # on the value, which fails normalize_ip → nil. Deliberately
         # stricter than OTS (which strips both ['"]).
         env = { "REMOTE_ADDR" => "10.0.0.1", "HTTP_FORWARDED" => "for='203.0.113.50'" }
-        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("10.0.0.1")
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to be_nil
       end
 
       it "ignores a forged leftmost entry (padding-robust, counts from right)" do
@@ -639,12 +657,12 @@ RSpec.describe Otto::Utils do
         expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("203.0.113.50")
       end
 
-      it "falls back to REMOTE_ADDR when the selected entry is obfuscated/unknown" do
+      it "resolves nothing when the selected entry is obfuscated/unknown" do
         env = {
           "REMOTE_ADDR" => "10.0.0.1",
           "HTTP_FORWARDED" => "for=203.0.113.50, for=_hidden",
         }
-        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to eq("10.0.0.1")
+        expect(Otto::Utils.resolve_client_ip(env, depth_config(1, "Forwarded"))).to be_nil
       end
 
       it "falls back to REMOTE_ADDR on a short chain" do

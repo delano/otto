@@ -138,6 +138,73 @@ RSpec.describe 'IP Privacy Features' do
         expect(Otto::Privacy::IPPrivacy.mask_forwarded_for('for=1.2.3.4', nil)).to eq('for=1.2.3.4')
         expect(Otto::Privacy::IPPrivacy.mask_forwarded_for(nil, '1.2.3.0')).to be_nil
       end
+
+      it 'finds for= after every separator Rack 3.2.7 accepts' do
+        # Rack skips whitespace between pairs, including after a quoted value
+        # and before the first pair, and needs no separator after a quote.
+        {
+          'by="x" for=198.51.100.7' => 'by="x" for=203.0.113.0',
+          "\tfor=198.51.100.7" => "\tfor=203.0.113.0",
+          'by="x"for=198.51.100.7' => 'by="x"for=203.0.113.0',
+          "proto=https\nfor=198.51.100.7" => "proto=https\nfor=203.0.113.0",
+          'for="198.51.100.7\"x"' => 'for=203.0.113.0',
+        }.each do |value, masked|
+          expect(Otto::Privacy::IPPrivacy.mask_forwarded_for(value, '203.0.113.0')).to eq(masked)
+          expect(Rack::Utils.forwarded_values(masked)[:for]).to eq(['203.0.113.0'])
+        end
+      end
+    end
+
+    describe '.forwarded_for_only?' do
+      it 'is true when every for= Rack or Otto reads is the replacement' do
+        expect(Otto::Privacy::IPPrivacy.forwarded_for_only?('for=203.0.113.0;proto=https', '203.0.113.0')).to be true
+        expect(Otto::Privacy::IPPrivacy.forwarded_for_only?('for="[2001:db8::]"', '2001:db8::')).to be true
+        expect(Otto::Privacy::IPPrivacy.forwarded_for_only?('proto=https', nil)).to be true
+      end
+
+      it 'is false when another for= value survives' do
+        expect(Otto::Privacy::IPPrivacy.forwarded_for_only?('for=203.0.113.0, for=198.51.100.7', '203.0.113.0'))
+          .to be false
+        expect(Otto::Privacy::IPPrivacy.forwarded_for_only?('by="x" for=198.51.100.7', nil)).to be false
+      end
+
+      it 'is false when Rack cannot parse the header' do
+        expect(Otto::Privacy::IPPrivacy.forwarded_for_only?('secret=1;for=203.0.113.0', '203.0.113.0')).to be false
+      end
+    end
+
+    describe '.strip_forwarded_for' do
+      it 'removes for= and keeps proto/host/by' do
+        value = 'for=203.0.113.77;proto=https;host=example.com;by=10.0.0.1'
+        expect(Otto::Privacy::IPPrivacy.strip_forwarded_for(value))
+          .to eq('proto=https;host=example.com;by=10.0.0.1')
+      end
+
+      it 'removes a for= in the middle of an element without leaving empty pairs' do
+        expect(Otto::Privacy::IPPrivacy.strip_forwarded_for('proto=https;for="[2001:db8::1]:443";host=a'))
+          .to eq('proto=https;host=a')
+      end
+
+      it 'drops elements that are left empty' do
+        expect(Otto::Privacy::IPPrivacy.strip_forwarded_for('for=198.51.100.9, for=203.0.113.77;proto=https'))
+          .to eq('proto=https')
+        expect(Otto::Privacy::IPPrivacy.strip_forwarded_for('for=198.51.100.9, for=10.0.0.9')).to eq('')
+      end
+
+      it 'does not touch a parameter merely ending in "for"' do
+        expect(Otto::Privacy::IPPrivacy.strip_forwarded_for('secret_for=203.0.113.77;proto=https'))
+          .to eq('secret_for=203.0.113.77;proto=https')
+      end
+
+      it 'removes a for= that follows whitespace, as Rack reads it' do
+        expect(Otto::Privacy::IPPrivacy.strip_forwarded_for('by="x" for=198.51.100.7;proto=https'))
+          .to eq('by="x";proto=https')
+        expect(Otto::Privacy::IPPrivacy.strip_forwarded_for("\tfor=198.51.100.7;proto=https")).to eq('proto=https')
+      end
+
+      it 'returns nil for nil' do
+        expect(Otto::Privacy::IPPrivacy.strip_forwarded_for(nil)).to be_nil
+      end
     end
   end
 
@@ -565,14 +632,22 @@ RSpec.describe 'IP Privacy Features' do
           expect(env['HTTP_FORWARDED']).to eq('for=192.168.1.100')
         end
 
-        it 'deletes forwarded headers when there is no resolvable client IP' do
+        it 'removes forwarded addresses when there is no resolvable client IP' do
           # No REMOTE_ADDR to anchor resolution, but forwarded headers carry a
-          # raw client address. With no masked IP to rewrite them to, they must
-          # be dropped, not left to leak downstream.
-          env = { 'HTTP_X_FORWARDED_FOR' => '203.0.113.99', 'HTTP_FORWARDED' => 'for=203.0.113.99' }
+          # raw client address. With no masked IP to rewrite them to, the
+          # address headers are dropped and Forwarded loses its for= values,
+          # so nothing leaks downstream.
+          env = { 'HTTP_X_FORWARDED_FOR' => '203.0.113.99', 'HTTP_FORWARDED' => 'for=203.0.113.99;proto=https' }
           middleware.call(env)
 
           expect(env).not_to have_key('HTTP_X_FORWARDED_FOR')
+          expect(env['HTTP_FORWARDED']).to eq('proto=https')
+        end
+
+        it 'deletes Forwarded when removing for= leaves nothing' do
+          env = { 'HTTP_FORWARDED' => 'for=203.0.113.99, for=198.51.100.7' }
+          middleware.call(env)
+
           expect(env).not_to have_key('HTTP_FORWARDED')
         end
       end
@@ -1993,6 +2068,74 @@ RSpec.describe 'IP Privacy Features' do
         expect(env['REMOTE_ADDR']).to eq('192.168.1.100')
         expect(env['otto.original_ip']).to eq('192.168.1.100')
       end
+
+      it 'rewrites a forwarded header sent by an untrusted private peer' do
+        # The peer is not a trusted proxy, so it is the client and its
+        # X-Forwarded-For is ignored for resolution. Left as sent, the header
+        # would hand the public address to Rack::Request#ip, which trusts
+        # private peers by default.
+        env = { 'REMOTE_ADDR' => '192.168.1.100', 'HTTP_X_FORWARDED_FOR' => '203.0.113.50' }
+        middleware.call(env)
+
+        expect(env['HTTP_X_FORWARDED_FOR']).to eq('192.168.1.100')
+        expect(Rack::Request.new(env).ip).to eq('192.168.1.100')
+      end
+
+      it 'rewrites a Forwarded for= that follows whitespace behind a loopback peer' do
+        # Rack reads for= after the space; a rewrite that missed it left the
+        # client-chosen address for Rack::Request#ip to return.
+        unconfigured = Otto::Security::Middleware::IPPrivacyMiddleware.new(app, Otto::Security::Config.new)
+        env = { 'REMOTE_ADDR' => '127.0.0.1', 'HTTP_FORWARDED' => 'by="x" for=198.51.100.7' }
+        unconfigured.call(env)
+
+        expect(Rack::Utils.forwarded_values(env['HTTP_FORWARDED'])[:for]).to eq(['127.0.0.1'])
+      end
+
+      it 'deletes Forwarded and warns when the rewrite cannot be verified' do
+        Otto::Privacy::IPPrivacy.reset_forwarded_deletion_log!
+        allow(Otto.logger).to receive(:warn)
+        allow(Otto::Privacy::IPPrivacy).to receive(:mask_forwarded_for).and_return('for=198.51.100.7')
+        unconfigured = Otto::Security::Middleware::IPPrivacyMiddleware.new(app, Otto::Security::Config.new)
+        env = { 'REMOTE_ADDR' => '127.0.0.1', 'HTTP_FORWARDED' => 'for=198.51.100.7;proto=https' }
+        unconfigured.call(env)
+
+        expect(env).not_to have_key('HTTP_FORWARDED')
+        expect(Otto.logger).to have_received(:warn).with(/Forwarded/)
+      end
+
+      it 'warns about a deleted Forwarded header once per process, then logs at debug' do
+        # An RFC 7239 extension parameter makes Rack reject the whole header,
+        # so it is deleted on every request. One warning says so; repeating
+        # it per request would be noise a client can trigger at will.
+        Otto::Privacy::IPPrivacy.reset_forwarded_deletion_log!
+        allow(Otto.logger).to receive(:warn)
+        allow(Otto.logger).to receive(:debug)
+        allow(Otto).to receive(:debug).and_return(true)
+        depth = Otto::Security::Config.new.tap do |cfg|
+          cfg.trusted_proxy_depth = 1
+          cfg.trusted_proxy_header = 'Forwarded'
+        end
+        middleware = Otto::Security::Middleware::IPPrivacyMiddleware.new(app, depth)
+
+        envs = Array.new(3) do
+          { 'REMOTE_ADDR' => '10.0.0.1', 'HTTP_FORWARDED' => 'for=_hidden;proto=https;host=app.example;secret=abc' }
+        end
+        envs.each { |env| middleware.call(env) }
+
+        expect(envs).to all(satisfy { |env| !env.key?('HTTP_FORWARDED') })
+        expect(Otto.logger).to have_received(:warn).with(/Forwarded/).once
+        expect(Otto.logger).to have_received(:debug).with(/Deleted a Forwarded header/).twice
+      end
+
+      it 'rewrites a forwarded header behind a loopback peer with no proxy trust configured' do
+        unconfigured = Otto::Security::Middleware::IPPrivacyMiddleware.new(app, Otto::Security::Config.new)
+        env = { 'REMOTE_ADDR' => '127.0.0.1', 'HTTP_X_FORWARDED_FOR' => '203.0.113.50' }
+        unconfigured.call(env)
+
+        expect(env['otto.client_ip']).to eq('127.0.0.1')
+        expect(env['HTTP_X_FORWARDED_FOR']).to eq('127.0.0.1')
+        expect(Rack::Request.new(env).ip).to eq('127.0.0.1')
+      end
     end
 
     context 'request through trusted proxy' do
@@ -2036,13 +2179,16 @@ RSpec.describe 'IP Privacy Features' do
       it 'handles multiple IPs in X-Forwarded-For chain' do
         env = {
           'REMOTE_ADDR' => '10.0.0.1',  # Trusted proxy
-          'HTTP_X_FORWARDED_FOR' => '203.0.113.50, 172.16.0.10, 10.0.0.1'
+          # 198.51.100.7 is client supplied: a leftmost walk would pick it
+          'HTTP_X_FORWARDED_FOR' => '198.51.100.7, 203.0.113.50, 172.16.0.10, 10.0.0.1'
         }
         middleware.call(env)
 
-        # Should resolve to first non-trusted IP (203.0.113.50) and mask it
+        # Should resolve to the rightmost non-trusted IP (203.0.113.50) and mask it
         expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
         expect(env['HTTP_X_FORWARDED_FOR']).to eq('203.0.113.0')
+        expect(env['otto.ip_match'].call(['203.0.113.50/32'])).to be(true)
+        expect(env['otto.ip_match'].call(['198.51.100.7/32'])).to be(false)
       end
 
       it 'exempts private IP from X-Forwarded-For' do
@@ -2057,6 +2203,149 @@ RSpec.describe 'IP Privacy Features' do
         expect(env['otto.original_ip']).to eq('192.168.1.100')
         # Header should not be masked for private IPs
         expect(env['HTTP_X_FORWARDED_FOR']).to eq('192.168.1.100')
+      end
+
+      it 'rewrites forwarded addresses to the exempt client IP' do
+        # An unlisted private hop (192.168.1.5) appended after the client's
+        # public address. The rightmost untrusted entry is private, so the
+        # request is exempt from masking, but the public address to its left
+        # must not survive anywhere in env.
+        env = {
+          'REMOTE_ADDR' => '10.0.0.1',
+          'HTTP_X_FORWARDED_FOR' => '198.51.100.7, 192.168.1.5',
+          'HTTP_X_REAL_IP' => '198.51.100.7',
+          'HTTP_X_CLIENT_IP' => '198.51.100.7',
+          'HTTP_FORWARDED' => 'for=198.51.100.7;proto=https, for=192.168.1.5',
+        }
+        middleware.call(env)
+
+        expect(env['otto.client_ip']).to eq('192.168.1.5')
+        expect(env['REMOTE_ADDR']).to eq('192.168.1.5')
+        expect(env.values_at('HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'HTTP_X_CLIENT_IP'))
+          .to eq(%w[192.168.1.5 192.168.1.5 192.168.1.5])
+        expect(env['HTTP_FORWARDED']).to eq('for=192.168.1.5;proto=https, for=192.168.1.5')
+        expect(env.values.grep(String).join(' ')).not_to include('198.51.100.7')
+        expect(Rack::Request.new(env).ip).to eq(env['otto.client_ip'])
+      end
+
+      it 'leaves no client-chosen for= for Rack in depth mode on Forwarded' do
+        # The client sent 'by="x" for=198.51.100.7'; the LB appended its peer.
+        # Rack reads both for= values and, with the exempt client trusted by
+        # its default filter, would return the client-chosen one.
+        original = Rack::Request.forwarded_priority
+        Rack::Request.forwarded_priority = %i[forwarded]
+        depth = Otto::Security::Config.new.tap do |cfg|
+          cfg.trusted_proxy_depth = 1
+          cfg.trusted_proxy_header = 'Forwarded'
+        end
+        env = { 'REMOTE_ADDR' => '10.0.0.1', 'HTTP_FORWARDED' => 'by="x" for=198.51.100.7, for=192.168.1.5' }
+        Otto::Security::Middleware::IPPrivacyMiddleware.new(app, depth).call(env)
+
+        expect(env['otto.client_ip']).to eq('192.168.1.5')
+        expect(Rack::Utils.forwarded_values(env['HTTP_FORWARDED'])[:for]).to eq(%w[192.168.1.5 192.168.1.5])
+        expect(Rack::Request.new(env).ip).to eq('192.168.1.5')
+      ensure
+        Rack::Request.forwarded_priority = original
+      end
+
+      it 'resolves no client IP when the nearest forwarded entry is not an address' do
+        # The proxy wrote "unknown" where the client belongs. Resolving to the
+        # proxy would exempt the request from masking and let ip_match compare
+        # the proxy's own address, so the request carries no client IP at all.
+        env = {
+          'REMOTE_ADDR' => '10.0.0.1',
+          'HTTP_X_FORWARDED_FOR' => '203.0.113.50, unknown',
+          'HTTP_FORWARDED' => 'for=203.0.113.50;proto=https',
+        }
+        middleware.call(env)
+
+        expect(env).not_to have_key('otto.client_ip')
+        expect(env).not_to have_key('HTTP_X_FORWARDED_FOR')
+        # Forwarded keeps proto= (scheme authority); only for= is removed.
+        expect(env['HTTP_FORWARDED']).to eq('proto=https')
+        expect(env['otto.ip_match'].call(['10.0.0.0/8', '0.0.0.0/0'])).to be(false)
+        expect(env.values.grep(String).join(' ')).not_to include('203.0.113.50')
+        expect(env['REMOTE_ADDR']).to eq('10.0.0.1')
+      end
+
+      it 'keeps Forwarded proto= and host= when an obfuscated for= leaves no client IP' do
+        # Depth mode reading RFC 7239 Forwarded. The proxy hid the client
+        # (for=_hidden) but still asserts the scheme and host. Deleting the
+        # header would drop https and the public host along with the address.
+        depth = Otto::Security::Config.new.tap do |cfg|
+          cfg.trusted_proxy_depth = 1
+          cfg.trusted_proxy_header = 'Forwarded'
+        end
+        env = {
+          'REMOTE_ADDR' => '10.0.0.1',
+          'HTTP_X_REAL_IP' => '203.0.113.50',
+          'HTTP_FORWARDED' => 'for=_hidden;proto=https;host=app.example.com',
+        }
+        Otto::Security::Middleware::IPPrivacyMiddleware.new(app, depth).call(env)
+
+        expect(env['otto.ip_match'].call(['0.0.0.0/0'])).to be(false)
+        expect(env).not_to have_key('HTTP_X_REAL_IP')
+        expect(env['HTTP_FORWARDED']).to eq('proto=https;host=app.example.com')
+        expect(Rack::Utils.forwarded_values(env['HTTP_FORWARDED']))
+          .to eq(proto: ['https'], host: ['app.example.com'])
+      end
+
+      it 'drops the elements that removing for= leaves empty' do
+        depth = Otto::Security::Config.new.tap do |cfg|
+          cfg.trusted_proxy_depth = 2
+          cfg.trusted_proxy_header = 'Forwarded'
+        end
+        env = { 'REMOTE_ADDR' => '10.0.0.1', 'HTTP_FORWARDED' => 'for=_hidden;proto=https, for=10.0.0.9' }
+        Otto::Security::Middleware::IPPrivacyMiddleware.new(app, depth).call(env)
+
+        expect(env['HTTP_FORWARDED']).to eq('proto=https')
+      end
+
+      it 'lets Rack::Request#ip fall back to the peer, as Otto::Request#ip does' do
+        # A for=unknown left behind would make Rack return the string
+        # "unknown" whenever it reads Forwarded. With no for= at all, both
+        # request classes agree on REMOTE_ADDR.
+        original = Rack::Request.forwarded_priority
+        depth = Otto::Security::Config.new.tap do |cfg|
+          cfg.trusted_proxy_depth = 1
+          cfg.trusted_proxy_header = 'Forwarded'
+        end
+
+        [%i[forwarded x_forwarded], %i[forwarded]].each do |priority|
+          Rack::Request.forwarded_priority = priority
+          env = {
+            'REMOTE_ADDR' => '10.0.0.1',
+            'HTTP_FORWARDED' => 'for=_hidden;proto=https;host=app.example.com',
+          }
+          Otto::Security::Middleware::IPPrivacyMiddleware.new(app, depth).call(env)
+
+          expect(Rack::Request.new(env).ip).to eq('10.0.0.1')
+          expect(Otto::Request.new(env).ip).to eq('10.0.0.1')
+          expect(Rack::Request.new(env).scheme).to eq('https')
+        end
+      ensure
+        Rack::Request.forwarded_priority = original
+      end
+
+      it 'keeps the no-client verdict on a second middleware pass' do
+        # The first pass deleted the forwarded headers. A second pass that
+        # re-resolved would now see only the proxy and grant it as the client.
+        env = { 'REMOTE_ADDR' => '10.0.0.1', 'HTTP_X_FORWARDED_FOR' => '203.0.113.50, unknown' }
+        middleware.call(env)
+        middleware.call(env)
+
+        expect(env).not_to have_key('otto.client_ip')
+        expect(env['otto.ip_match'].call(['10.0.0.0/8'])).to be(false)
+      end
+
+      it 'resolves no client IP in depth mode when the selected entry is not an address' do
+        depth = Otto::Security::Config.new.tap { |cfg| cfg.trusted_proxy_depth = 1 }
+        env = { 'REMOTE_ADDR' => '10.0.0.1', 'HTTP_X_FORWARDED_FOR' => '203.0.113.50, unknown' }
+        Otto::Security::Middleware::IPPrivacyMiddleware.new(app, depth).call(env)
+
+        expect(env).not_to have_key('otto.client_ip')
+        expect(env).not_to have_key('HTTP_X_FORWARDED_FOR')
+        expect(env['otto.ip_match'].call(['10.0.0.0/8'])).to be(false)
       end
 
       it 'prefers X-Forwarded-For over X-Real-IP' do
@@ -2253,6 +2542,67 @@ RSpec.describe 'IP Privacy Features' do
         expect(env['REMOTE_ADDR']).to eq('192.168.1.100')
         expect(env['otto.original_ip']).to eq('192.168.1.100')
         expect(env['otto.privacy.fingerprint']).to be_nil
+      end
+    end
+
+    context 'vendor client-address headers' do
+      # CDN and proxy headers that carry the client address. Otto never
+      # resolves from them, but they hold the same address as REMOTE_ADDR.
+      let(:vendor_headers) do
+        %w[
+          HTTP_CF_CONNECTING_IP HTTP_CF_CONNECTING_IPV6 HTTP_TRUE_CLIENT_IP
+          HTTP_FASTLY_CLIENT_IP HTTP_FLY_CLIENT_IP HTTP_X_AZURE_CLIENTIP
+          HTTP_X_AZURE_SOCKETIP HTTP_CLOUDFRONT_VIEWER_ADDRESS
+          HTTP_X_VERCEL_FORWARDED_FOR HTTP_X_ORIGINAL_FORWARDED_FOR
+          HTTP_X_CLUSTER_CLIENT_IP HTTP_X_APPENGINE_USER_IP
+        ]
+      end
+
+      def with_vendor_headers(env, value)
+        vendor_headers.each_with_object(env.dup) { |key, out| out[key] = value }
+      end
+
+      it 'lists every header in Otto::Utils::VENDOR_CLIENT_ADDRESS_HEADERS' do
+        expect(Otto::Utils::VENDOR_CLIENT_ADDRESS_HEADERS).to match_array(vendor_headers)
+      end
+
+      it 'masks them with REMOTE_ADDR on the masking path' do
+        env = with_vendor_headers({ 'REMOTE_ADDR' => '198.51.100.7' }, '198.51.100.7')
+        Otto::Security::Middleware::IPPrivacyMiddleware.new(app, Otto::Security::Config.new).call(env)
+
+        expect(env.values_at(*vendor_headers)).to all(eq('198.51.100.0'))
+        expect(env.values.grep(String).join(' ')).not_to include('198.51.100.7')
+      end
+
+      it 'rewrites them to the resolved client IP on the private/loopback exemption' do
+        env = with_vendor_headers({ 'REMOTE_ADDR' => '127.0.0.1' }, '198.51.100.7')
+        Otto::Security::Middleware::IPPrivacyMiddleware.new(app, Otto::Security::Config.new).call(env)
+
+        expect(env.values_at(*vendor_headers)).to all(eq('127.0.0.1'))
+        expect(env.values.grep(String).join(' ')).not_to include('198.51.100.7')
+      end
+
+      it 'deletes them when no client IP resolves' do
+        env = with_vendor_headers({ 'REMOTE_ADDR' => '10.0.0.1', 'HTTP_X_FORWARDED_FOR' => '198.51.100.7, unknown' },
+                                  '198.51.100.7')
+        middleware.call(env)
+
+        expect(env.keys & vendor_headers).to be_empty
+        expect(env.values.grep(String).join(' ')).not_to include('198.51.100.7')
+      end
+
+      it 'leaves them alone with IP privacy disabled' do
+        security_config.ip_privacy_config.disable!
+        env = with_vendor_headers({ 'REMOTE_ADDR' => '198.51.100.7' }, '198.51.100.7')
+        middleware.call(env)
+
+        expect(env.values_at(*vendor_headers)).to all(eq('198.51.100.7'))
+      end
+
+      it 'does not read them when resolving the client IP' do
+        env = with_vendor_headers({ 'REMOTE_ADDR' => '10.0.0.1' }, '198.51.100.7')
+
+        expect(Otto::Utils.resolve_client_ip(env, security_config)).to eq('10.0.0.1')
       end
     end
 

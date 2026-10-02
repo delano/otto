@@ -95,6 +95,14 @@ the proxy's address, and both `req.ip` and a plain `Rack::Request#ip` return
 it, so rate limiters still have a key; see
 [the privacy guide](privacy.md#default-behavior) for why.
 
+A proxy can write `unknown` on purpose. RFC 7239 (section 6.2) defines it for
+`Forwarded`, for a proxy that does not know the identity of the preceding hop
+but still signals that it forwarded the request, and a proxy can write the same
+token into `X-Forwarded-For` for that reason or because it is set to withhold
+the client address. When a trusted proxy does this, every request through it
+has no client IP, so `ip_match` denies all of them. To resolve a client IP,
+configure that proxy to append the address it received the request from.
+
 The walk gives the right answer only when two things hold:
 
 - **Every proxy between the client and the application is listed** in

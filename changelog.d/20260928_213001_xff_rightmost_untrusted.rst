@@ -50,7 +50,10 @@ Security
   left the client's address in ``X-Forwarded-For``, and let ``ip_match``
   test the proxy. **Behavior change** for ``trusted_proxy_depth``, whose
   invalid-target fallback to ``REMOTE_ADDR`` was documented. Depth mode's
-  short-chain fallback to ``REMOTE_ADDR`` is unchanged. (#292)
+  short-chain fallback to ``REMOTE_ADDR`` is unchanged. **Migration:** a
+  trusted proxy that writes ``unknown`` where the client address belongs
+  now leaves every request through it without a client IP; configure it to
+  append the address it received the request from. (#292)
 
 - With IP privacy enabled, a request exempt from masking because its resolved
   client IP is private or loopback now has its ``X-Forwarded-For``,

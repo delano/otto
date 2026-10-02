@@ -155,6 +155,15 @@ RSpec.describe Otto::MCP::Registry, 'tool and resource dispatch' do
         .to eq('resource contents')
     end
 
+    # Only a positional parameter receives the env. Passing it to a handler
+    # whose only parameter is an optional keyword would raise ArgumentError.
+    it 'calls a handler that takes only an optional keyword with no arguments' do
+      registry.register_resource('docs/kw', 'kw', 'Kw', 'text/plain', ->(env: nil) { "env=#{env.inspect}" })
+
+      expect(registry.read_resource('docs/kw', { 'REMOTE_ADDR' => '203.0.113.9' }).dig(:contents, 0, :text))
+        .to eq('env=nil')
+    end
+
     it 'raises ArgumentError for a handler that requires two arguments' do
       registry.register_resource('docs/two', 'two', 'Two', 'text/plain', ->(_env, _extra) { 'x' })
 

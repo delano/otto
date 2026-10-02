@@ -53,10 +53,12 @@ RSpec.describe Otto::MCP::RouteParser do
       end.to raise_error(Otto::RouteDefinitionError, /TOOL route "delete_all".*"csrf=exempt"/)
     end
 
-    it 'raises regardless of the option key case' do
-      expect do
-        load_mcp_routes('POST /_x TOOL delete_all MCPRouteAuthRejectedApp.delete_all Auth=session')
-      end.to raise_error(Otto::RouteDefinitionError, /not enforced on MCP or TOOL routes/)
+    %w[Auth=session ROLE=admin Csrf=exempt].each do |option|
+      it "raises for #{option} regardless of the option key case" do
+        expect do
+          load_mcp_routes("POST /_x TOOL delete_all MCPRouteAuthRejectedApp.delete_all #{option}")
+        end.to raise_error(Otto::RouteDefinitionError, /not enforced on MCP or TOOL routes/)
+      end
     end
 
     it 'still loads MCP and TOOL routes that carry other options' do

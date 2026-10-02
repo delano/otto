@@ -112,8 +112,10 @@ GET /api/data  DataLogic#show  auth=session,apikey,oauth
 ```
 
 - Strategies execute left-to-right
-- First success wins (remaining strategies skipped)
-- Returns 401 only if all strategies fail
+- The first authenticated success (a result with a user) wins; remaining strategies are skipped
+- An anonymous success (no user, e.g. `noauth`) is held as a fallback while the chain continues, and wins only if the chain completes without an authenticated success or a terminal failure
+- A terminal failure (explicit credentials rejected, e.g. a bad API key) halts the chain; the fallback does not rescue it
+- A failed chain returns 403 if any strategy returned an `AuthorizationFailure`, else 401 for JSON (`response=json` or `Accept: application/json`) and a 302 to the login path otherwise
 - Put fastest/most-common strategies first
 
 ### Two-Layer Authorization

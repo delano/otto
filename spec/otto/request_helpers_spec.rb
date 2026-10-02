@@ -21,6 +21,39 @@ RSpec.describe Otto::Request do
     Otto::Request.new(request_env)
   end
 
+  # RouteAuthWrapper installs a strategy's session only over a session that
+  # no middleware put in env, so the Hash #session installs must be
+  # recognizable by class.
+  describe '#session' do
+    it 'installs an empty, writable DefaultSession when env has no session' do
+      session = request_object.session
+
+      expect(session).to be_an_instance_of(Otto::Request::DefaultSession)
+      expect(session).to eq({})
+      expect(session).not_to be_frozen
+      expect(request_env['rack.session']).to equal(session)
+    end
+
+    it 'returns the session already in env' do
+      installed = { 'user_id' => 7 }
+      request_env['rack.session'] = installed
+
+      expect(request_object.session).to equal(installed)
+    end
+  end
+
+  describe 'Otto::Request::DefaultSession.vacant?' do
+    it 'is true for nil and for a DefaultSession' do
+      expect(Otto::Request::DefaultSession.vacant?(nil)).to be(true)
+      expect(Otto::Request::DefaultSession.vacant?(Otto::Request::DefaultSession.new)).to be(true)
+    end
+
+    it 'is false for any other session, including a plain empty Hash' do
+      expect(Otto::Request::DefaultSession.vacant?({})).to be(false)
+      expect(Otto::Request::DefaultSession.vacant?(Object.new)).to be(false)
+    end
+  end
+
   describe '#check_locale!' do
     let(:available_locales) { { 'en' => 'English', 'es' => 'Spanish', 'fr' => 'French' } }
     let(:default_locale) { 'en' }

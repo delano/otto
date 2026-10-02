@@ -209,9 +209,16 @@ class Otto
           # Set environment variables for controllers/logic
           env['otto.strategy_result'] = result
 
-          # SESSION PERSISTENCE: Ensure env['rack.session'] and strategy_result.session
-          # reference the SAME object for proper session persistence
-          env['rack.session'] = result.session if result.is_a?(StrategyResult) && result.session
+          # SESSION PERSISTENCE: never replace a session a middleware installed
+          # (e.g. rack-session's SessionHash); the middleware commits the
+          # object it installed. result.session (nil and false are not
+          # sessions) goes into env only when env has none, or only the
+          # Otto::Request::DefaultSession that Otto::Request#session installs
+          # when no middleware did (Otto's CSRF check runs before this wrapper
+          # and reads the session that way). The check reads only the class,
+          # so it does not load a lazy session.
+          session = result.session
+          env['rack.session'] = session if session && Otto::Request::DefaultSession.vacant?(env['rack.session'])
 
           # Layer 1 Authorization: Check role requirements
           auth_check = @role_authorizer.check(result, env)

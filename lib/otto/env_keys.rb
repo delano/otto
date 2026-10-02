@@ -64,6 +64,14 @@ class Otto
     # Used by: All security middleware (CSRF, Headers, Validation)
     SECURITY_CONFIG = 'otto.security_config'
 
+    # The CSRF binding resolved for this request, as a String. Written on every
+    # call to Otto::Security::Config#get_or_create_session_id (the last call
+    # wins).
+    # Type: String
+    # Set by: Otto::Security::Config#get_or_create_session_id
+    # Used by: CSRFMiddleware (sets the binding cookie on non-HTML responses)
+    CSRF_BINDING = 'otto.csrf_binding'
+
     # Per-request CSP nonce, minted lazily on first access and memoized here.
     # Type: String (base64)
     # Set by: Otto::Security::CSP.nonce / Otto::Request#csp_nonce (first touch)

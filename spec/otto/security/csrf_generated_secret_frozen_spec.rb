@@ -11,6 +11,8 @@ require 'tempfile'
 # normal request path never generates a token through a genuinely frozen
 # config. These specs freeze explicitly: generating a token after the
 # freeze must not raise, and the warning must still be logged exactly once.
+# The examples without a freeze cover an unfrozen config, and both production
+# examples check that the raise comes before the warning.
 # Integration spec over a behaviour, not a class; same shape as
 # csp_extras_frozen_spec.
 # rubocop:disable-next RSpec/DescribeClass
@@ -36,6 +38,12 @@ RSpec.describe 'CSRF generated-secret warning against a frozen configuration' do
 
   let(:warning) { /CSRF tokens are signed with a randomly generated secret/ }
 
+  let(:config) do
+    cfg = Otto::Security::Config.new
+    cfg.enable_csrf_protection!
+    cfg
+  end
+
   around do |example|
     original_secret = ENV.fetch('OTTO_CSRF_SECRET', nil)
     original_env    = ENV.fetch('RACK_ENV', nil)
@@ -53,13 +61,24 @@ RSpec.describe 'CSRF generated-secret warning against a frozen configuration' do
     allow(Otto.logger).to receive(:warn)
   end
 
-  describe 'Otto::Security::Config#generate_csrf_token after deep_freeze!' do
-    let(:config) do
-      cfg = Otto::Security::Config.new
-      cfg.enable_csrf_protection!
-      cfg
+  describe 'Otto::Security::Config#generate_csrf_token without a freeze' do
+    it 'logs the warning once across repeated generation' do
+      3.times { |i| config.generate_csrf_token("session_#{i}") }
+
+      expect(config.frozen?).to be false
+      expect(Otto.logger).to have_received(:warn).with(warning).once
     end
 
+    it 'in production, raises before logging the warning' do
+      ENV['RACK_ENV'] = 'production'
+
+      expect { config.generate_csrf_token('session_a') }
+        .to raise_error(ArgumentError, Otto::Security::Config::CSRF_SECRET_REQUIRED_MESSAGE)
+      expect(Otto.logger).not_to have_received(:warn).with(warning)
+    end
+  end
+
+  describe 'Otto::Security::Config#generate_csrf_token after deep_freeze!' do
     it 'generates a verifiable token without raising' do
       config.deep_freeze!
 
@@ -88,6 +107,15 @@ RSpec.describe 'CSRF generated-secret warning against a frozen configuration' do
       config.deep_freeze!
       config.generate_csrf_token('session_a')
 
+      expect(Otto.logger).not_to have_received(:warn).with(warning)
+    end
+
+    # validate_csrf_secret_config! raises before it calls the warning.
+    it 'in production, raises at freeze time before logging the warning' do
+      ENV['RACK_ENV'] = 'production'
+
+      expect { config.deep_freeze! }
+        .to raise_error(ArgumentError, Otto::Security::Config::CSRF_SECRET_REQUIRED_MESSAGE)
       expect(Otto.logger).not_to have_received(:warn).with(warning)
     end
 

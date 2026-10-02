@@ -190,6 +190,7 @@ RSpec.describe Otto, 'request handling and routing' do
       expect(response[0]).to eq(200)
       # HEAD responses should have headers but empty body
       expect(response[1]).to be_a(Hash)
+      expect(response[2].to_enum(:each).to_a.join).to eq('')
     end
   end
 end

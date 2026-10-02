@@ -2,6 +2,8 @@
 #
 # frozen_string_literal: true
 
+require 'rack/utils'
+
 class Otto
   # Static response utilities for common HTTP responses
   module Static
@@ -37,6 +39,67 @@ class Otto
     def copy_response(response)
       status, headers, body = response
       [status, copy_headers(headers), body.is_a?(Array) ? body.dup : body]
+    end
+
+    # Replace the body of a response to a HEAD request with an empty one.
+    #
+    # Rack::Lint rejects a body for HEAD: "Response body was given for HEAD
+    # request, but should be empty" (rack/lint.rb). The status and headers,
+    # including any content-length the handler set, are kept.
+    #
+    # Puma and Rack::ContentLength derive content-length from an Array body
+    # through #to_ary, so an empty Array would advertise 0 for HEAD while GET
+    # advertises the real length, which RFC 9110 section 8.6 forbids. When the
+    # handler's body is a plain Array and the response has no content-length
+    # or transfer-encoding and a status that allows content, content-length is
+    # set from the Array here instead (a plain Array has no #close, so reading
+    # it has no side effect). The returned body has no #to_ary, so nothing
+    # downstream computes a length from it or closes it early; the handler's
+    # body is closed when the server closes the returned body, the same point
+    # at which a GET body is closed. A new triple is returned rather than
+    # writing into +response+, which may be frozen or shared.
+    #
+    # @param response [Array] a Rack triple +[status, headers, body]+
+    # @return [Array] +[status, headers, HeadBody]+
+    def head_response(response)
+      status, headers, body = response
+      if array_length_applies?(status, headers, body)
+        headers = copy_headers(headers)
+        headers['content-length'] = body.sum { |part| part.to_s.bytesize }.to_s
+      end
+      [status, headers, HeadBody.new(body)]
+    end
+
+    # Headers whose presence means #head_response leaves content-length alone.
+    HEAD_LENGTH_HEADERS = %w[content-length transfer-encoding].freeze
+
+    # Whether #head_response should set content-length from an Array body.
+    def array_length_applies?(status, headers, body)
+      return false unless body.is_a?(Array) && headers
+      return false if Rack::Utils::STATUS_WITH_NO_ENTITY_BODY.key?(status.to_i)
+
+      headers.each_key.none? { |key| HEAD_LENGTH_HEADERS.include?(key.to_s.downcase) }
+    end
+    private :array_length_applies?
+
+    # Empty body for a HEAD response. It yields nothing and has no #to_ary.
+    # Closing it closes the handler's body once.
+    class HeadBody
+      def initialize(original)
+        @original = original
+        @closed   = false
+      end
+
+      def each; end
+
+      def close
+        return if @closed
+
+        @closed = true
+        @original.close if @original.respond_to?(:close)
+      end
+
+      def closed? = @closed
     end
 
     # Copy a Rack headers container, keeping its class and copying Array values.

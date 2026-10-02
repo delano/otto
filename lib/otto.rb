@@ -198,20 +198,28 @@ class Otto
     start_time = Otto::Utils.now_in_μs
     request = @request_class.new(env)
     response_raw = nil
+    hook_raw     = nil
 
     begin
-      # Use pre-built middleware app (built once at initialization)
-      response_raw = @app.call(env)
-    rescue StandardError => e
-      response_raw = handle_error(e, env)
+      response_raw = begin
+        # Use pre-built middleware app (built once at initialization)
+        @app.call(env)
+      rescue StandardError => e
+        handle_error(e, env)
+      end
+      # After error handling, so every response source is covered, and before
+      # the completion hooks. The method is normalized the same way the router
+      # normalizes it for dispatch.
+      response_raw, hook_raw = head_response_pair(response_raw) if env['REQUEST_METHOD'].to_s.upcase == 'HEAD'
     ensure
       # Execute request completion hooks if any are registered
       unless @request_complete_callbacks.empty?
         begin
           duration = Otto::Utils.now_in_μs - start_time
+          hooked   = hook_raw || response_raw
           # Wrap response tuple in Otto::Response for developer-friendly API
           # Otto's hook API should provide nice abstractions like Otto::Request/Response
-          response = @response_class.new(response_raw[2], response_raw[0], response_raw[1])
+          response = @response_class.new(hooked[2], hooked[0], hooked[1])
           @request_complete_callbacks.each do |callback|
             callback.call(request, response, duration)
           end
@@ -423,7 +431,24 @@ class Otto
 
     args.first(params.count { |type, _name| POSITIONAL_PARAMETER_TYPES.include?(type) })
   end
-  private :validate_fallback_response!, :rack_triple?, :resolve_fallback_response, :fallback_call_args
+
+  # The two triples Otto#call needs for a HEAD request. HEAD is dispatched to
+  # the GET route when no HEAD route is declared, so the handler writes a
+  # body; Otto::Static.head_response replaces it for the server. It does not
+  # close the handler's body itself (the server's close of the returned body
+  # does), so this cannot raise. The completion hooks get a plain empty Array
+  # instead of that closing body, so nothing a hook does to the body can close
+  # the handler's body early.
+  #
+  # @param response [Array] the Rack triple from dispatch or error handling
+  # @return [Array(Array, Array)] the triple for the server and the one for the hooks
+  def head_response_pair(response)
+    served = Otto::Static.head_response(response)
+    [served, [served[0], served[1], []]]
+  end
+
+  private :validate_fallback_response!, :rack_triple?, :resolve_fallback_response, :fallback_call_args,
+          :head_response_pair
 
   # Class methods for Otto framework providing singleton access and configuration
   module ClassMethods

@@ -131,9 +131,10 @@ RSpec.describe Otto::Security::Config, '#deep_freeze!' do
     end
 
     shared_examples 'a frozen MCP app that keeps serving' do
-      it 'freezes the configuration' do
+      it 'freezes the configuration and the middleware stack' do
         expect(otto.frozen_configuration?).to be(true)
         expect(otto.security_config).to be_frozen
+        expect(otto.middleware).to be_frozen
       end
 
       it 'answers repeated authorized requests' do
@@ -183,6 +184,11 @@ RSpec.describe Otto::Security::Config, '#deep_freeze!' do
       let(:otto) do
         require_rate_limiting!
         build_frozen_otto(mcp_allow_unauthenticated: true, mcp_rate_limiting: true)
+      end
+
+      it 'freezes the configuration and the middleware stack' do
+        expect(otto.frozen_configuration?).to be(true)
+        expect(otto.middleware).to be_frozen
       end
 
       it 'answers repeated unauthenticated requests' do

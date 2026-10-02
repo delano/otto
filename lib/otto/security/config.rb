@@ -67,11 +67,6 @@ class Otto
           end
         end
 
-        # @return [Boolean]
-        def set?
-          @mutex.synchronize { @set }
-        end
-
         # @return [self] unfrozen, so #set! keeps working
         def deep_freeze!
           self

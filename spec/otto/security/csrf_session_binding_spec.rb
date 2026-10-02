@@ -7,16 +7,20 @@ require 'securerandom'
 
 # Minimal stand-in for rack-session 2.x, which is not a dependency of this gem.
 # It follows Rack::Session::Abstract::SessionHash and Rack::Session::Pool in the
-# three ways that matter for the CSRF binding:
+# four ways that matter for the CSRF binding:
 #
 # - The session loads lazily. Without a session cookie, #id is nil and a read
-#   loads nothing; the first write mints an id. With a cookie, the first read or
-#   write loads the stored data.
+#   loads nothing; the first write mints an id. With a cookie, #id is the
+#   cookie's id until the first read or write loads the session, which mints a
+#   new id when the pool holds no data for the cookie's id.
 # - The id is a SessionId object, not a String. Its #to_s is the cookie value.
 # - Setting :renew in env['rack.session.options'] moves the session data to a
 #   new id when the response is committed and deletes the old id, as
 #   Rack::Session::Pool#delete_session does. Apps do this at login to defeat
 #   session fixation.
+# - Setting :drop deletes the session data when the response is committed and
+#   sets no cookie, so the next request still carries the dropped id, as
+#   Rack::Session::Pool#delete_session and commit_session do.
 module CsrfSessionBindingSpec
   class SessionId
     attr_reader :public_id
@@ -51,7 +55,7 @@ module CsrfSessionBindingSpec
     end
 
     def [](key)
-      load! if !@loaded && @pool.key?(@cookie_sid)
+      load! if !@loaded && @cookie_sid
       (@data || {})[key.to_s]
     end
 
@@ -109,6 +113,11 @@ module CsrfSessionBindingSpec
     private
 
     def commit(session, cookie_sid, options, headers)
+      if options[:drop]
+        @pool.delete(session.id&.public_id)
+        return
+      end
+
       return unless session.loaded?
 
       if options[:renew]
@@ -152,6 +161,13 @@ RSpec.describe 'CSRF session binding with a lazily loaded session' do
         res.write('accepted')
       end
 
+      # Drops the session on logout and renders the login form in the same
+      # response.
+      def self.logout(req, res)
+        req.env['rack.session.options'][:drop] = true
+        form(req, res)
+      end
+
       # Renews the session id on login, the usual session fixation defence.
       def self.login(req, res)
         req.env['rack.session.options'][:renew] = true
@@ -163,6 +179,7 @@ RSpec.describe 'CSRF session binding with a lazily loaded session' do
     route_lines = [
       'GET /form CsrfBindingApp.form',
       'GET /touch CsrfBindingApp.touch',
+      'GET /logout CsrfBindingApp.logout',
       'POST /submit CsrfBindingApp.submit',
       'POST /login CsrfBindingApp.login',
     ]
@@ -273,6 +290,22 @@ RSpec.describe 'CSRF session binding with a lazily loaded session' do
       get '/form'
 
       expect(submit(issued_token).status).to eq(200)
+    end
+  end
+
+  context 'when the app drops the session and renders a login form' do
+    # The token is bound to the dropped id, which stays in the client's cookie.
+    # On the POST, session.id returns that id until the session loads; loading
+    # it mints a new id because the data is gone. Reading session data before
+    # session.id would load it and reject the token.
+    it 'accepts the POST that carries the token from that page' do
+      get '/touch'
+      get '/logout'
+      logout_token = issued_token
+      expect(session_store.pool).to be_empty # the drop deleted the data
+
+      post '/login', '_csrf_token' => logout_token
+      expect(last_response.status).to eq(200)
     end
   end
 

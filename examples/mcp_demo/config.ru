@@ -22,8 +22,8 @@ class DemoRateLimitStore
     value
   end
 
-  # Returns nil for a missing key, as ActiveSupport cache stores do; Rack::Attack
-  # then writes the first count itself.
+  # Returns nil for a missing or expired key. Rack::Attack::Cache#do_count
+  # accepts nil from a store and writes the first count itself.
   def increment(key, amount = 1, **)
     @mutex.synchronize do
       value = live_value(key)

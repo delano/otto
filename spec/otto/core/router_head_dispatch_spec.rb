@@ -115,6 +115,11 @@ RSpec.describe Otto::Core::Router do
       expect(body_of(response)).to eq('Hello World')
     end
 
+    it 'does not fall back to the GET route for other methods' do
+      expect(app.call(mock_rack_env(method: 'POST', path: '/other'))[0]).to eq(404)
+      expect(app.call(mock_rack_env(method: 'POST', path: '/show/1'))[0]).to eq(404)
+    end
+
     it 'answers repeated HEAD requests without error' do
       statuses = Array.new(3) { %w[/health /other /show/1].map { |path| head(path)[0] } }
 
@@ -168,6 +173,13 @@ RSpec.describe Otto::Core::Router do
 
       expect(response[0]).to eq(200)
       expect(handler_of(response)).to eq('search')
+    end
+
+    it 'does not use the GET /404 route for an unmatched POST request' do
+      response = app.call(mock_rack_env(method: 'POST', path: '/missing'))
+
+      expect(response[0]).to eq(404)
+      expect(handler_of(response)).to be_nil
     end
   end
 

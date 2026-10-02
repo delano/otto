@@ -132,17 +132,20 @@ class Otto
         respond(req, res, allowed ? 200 : 403, allowed ? 'OK' : 'Forbidden')
       end
 
-      # @param req [Otto::Request]
+      # The body is set for HEAD too. Otto#call empties it for HEAD
+      # (Otto::Static.head_response) and sets content-length from this Array,
+      # so a HEAD response advertises the length a GET would send. An empty
+      # Array here would make that content-length 0.
+      #
+      # @param _req [Otto::Request] unused; kept for the existing signature
       # @param res [Otto::Response]
       # @param status [Integer]
       # @param body [String]
       # @return [Otto::Response]
-      def self.respond(req, res, status, body)
+      def self.respond(_req, res, status, body)
         res.status          = status
         res['content-type'] = 'text/plain'
-        # Rack::Lint rejects a HEAD body ("Response body was given for HEAD request,
-        # but should be empty"); headers still apply.
-        res.body            = req.head? ? [] : [body]
+        res.body            = [body]
         res
       end
     end

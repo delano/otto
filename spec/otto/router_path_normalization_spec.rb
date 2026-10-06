@@ -54,8 +54,8 @@ RSpec.describe Otto, 'router path normalization (issue #187)' do
     end
 
     it 'applies the same normalization to HEAD (which is served by the GET dynamic route)' do
-      # match_dynamic_route folds :GET routes into :HEAD, so a HEAD with a
-      # trailing slash must normalize and match exactly like the GET route.
+      # match_dynamic_route falls back to the :GET routes for HEAD, so a HEAD
+      # with a trailing slash must normalize and match exactly like the GET route.
       env = mock_rack_env(method: 'HEAD', path: '/show/123/')
       response = app.call(env)
 

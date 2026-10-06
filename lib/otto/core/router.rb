@@ -8,6 +8,9 @@ class Otto
   module Core
     # Router module providing route loading and request dispatching functionality
     module Router
+      # Request methods the static-mount and public-directory stages answer.
+      STATIC_VERBS = %i[GET HEAD].freeze
+
       def load(path)
         path = File.expand_path(path)
         raise ArgumentError, "Bad path: #{path}" unless File.exist?(path)
@@ -116,9 +119,7 @@ class Otto
         # path.
         path_info_clean = Otto::Utils.routing_path(env)
 
-        http_verb      = env['REQUEST_METHOD'].upcase.to_sym
-        literal_routes = routes_literal[http_verb] || {}
-        literal_routes.merge! routes_literal[:GET] if http_verb == :HEAD
+        http_verb = env['REQUEST_METHOD'].upcase.to_sym
 
         # Dynamic-route and static-file dispatch match against the SAME
         # normalized path the literal table and the LocalhostGuard use, so all
@@ -134,7 +135,10 @@ class Otto
         # for them. Literal lookup keeps '' — it already keys root that way.
         dispatch_path = path_info_clean.empty? ? '/' : path_info_clean
 
-        static_candidate = !static_route.nil? && http_verb == :GET
+        # The static stages answer GET and HEAD. Rack::Files returns the GET
+        # headers with an empty body for HEAD.
+        static_verb      = STATIC_VERBS.include?(http_verb)
+        static_candidate = !static_route.nil? && static_verb
 
         # Dispatch precedence is fixed: literal routes, then explicit static
         # mounts (longest prefix first), then the implicit public directory,
@@ -142,8 +146,7 @@ class Otto
         # containment validation before it is served (issues #257, #260 and
         # #267). A mount or the public directory claims files, not paths: when
         # the file is absent the request falls through to the next stage.
-        if literal_routes.has_key?(path_info_clean)
-          route = literal_routes[path_info_clean]
+        if (route = find_literal_route(http_verb, path_info_clean))
           Otto.structured_log(:debug, 'Route matched',
             Otto::LoggingHelpers.request_context(env).merge(
               type: 'literal',
@@ -155,7 +158,7 @@ class Otto
             @route_matched_callbacks.each { |cb| cb.call(env, route.route_definition) }
           end
           route.call(env)
-        elsif http_verb == :GET && (mounted = resolve_mounted_file(dispatch_path))
+        elsif static_verb && (mounted = resolve_mounted_file(dispatch_path))
           mount, static_file = mounted
           Otto.structured_log(:debug, 'Route matched',
             Otto::LoggingHelpers.request_context(env).merge(
@@ -167,7 +170,7 @@ class Otto
             Otto::LoggingHelpers.request_context(env).merge(type: 'static'))
           serve_static_file(env, static_file)
         else
-          match_dynamic_route(env, dispatch_path, http_verb, literal_routes)
+          match_dynamic_route(env, dispatch_path, http_verb)
         end
       end
 
@@ -244,15 +247,33 @@ class Otto
         root && Rack::Files.new(root)
       end
 
+      # Look up a literal route for +http_verb+ without building or mutating a
+      # table. A HEAD request uses the declared HEAD route when there is one
+      # and falls back to the GET route for the same path.
+      #
+      # @param http_verb [Symbol] request method, e.g. +:GET+ or +:HEAD+
+      # @param path [String] normalized routing path
+      # @return [Otto::Route, nil]
+      def find_literal_route(http_verb, path)
+        route = routes_literal[http_verb]&.[](path)
+        route ||= routes_literal[:GET]&.[](path) if http_verb == :HEAD
+        route
+      end
+
       # +dispatch_path+ is the normalized path from #handle_request (see the
       # +dispatch_path+ comment there): +Otto::Utils.routing_path+ output with
       # root's empty string mapped back to '/' so the anchored route regexes can
       # match. It is deliberately NOT the raw +routing_path+ value.
-      def match_dynamic_route(env, dispatch_path, http_verb, literal_routes)
+      #
+      # HEAD tries the declared HEAD routes first, then the GET routes. The two
+      # tables are chained rather than merged, so no request copies or mutates
+      # the registered tables (the configuration freeze makes them read-only
+      # after the first request).
+      def match_dynamic_route(env, dispatch_path, http_verb)
         extra_params  = {}
         found_route   = nil
         valid_routes  = routes[http_verb] || []
-        valid_routes.push(*routes[:GET]) if http_verb == :HEAD
+        valid_routes  = valid_routes.chain(routes[:GET] || []) if http_verb == :HEAD
 
         valid_routes.each do |route|
           next unless (match = route.pattern.match(dispatch_path))
@@ -276,10 +297,11 @@ class Otto
           break
         end
 
-        found_route ||= literal_routes['/404']
+        not_found_route = find_literal_route(http_verb, '/404')
+        found_route ||= not_found_route
         if found_route
           # Log 404 route usage if we fell back to it
-          if found_route == literal_routes['/404']
+          if found_route == not_found_route
             Otto.structured_log(:info, 'Route not found',
               Otto::LoggingHelpers.request_context(env).merge(
                 fallback_to: '404_route'

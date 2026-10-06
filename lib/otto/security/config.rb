@@ -896,6 +896,43 @@ class Otto
         secure_compare(signature, expected_signature)
       end
 
+      # Cookie that carries the CSRF binding on plain HTTP requests.
+      CSRF_BINDING_COOKIE = '_otto_session'
+
+      # Cookie that carries the CSRF binding on HTTPS requests. Browsers that
+      # enforce cookie name prefixes accept a __Host- cookie only when it is
+      # set with Secure and Path=/, without a Domain, from a secure origin, so
+      # in those browsers a sibling subdomain or a network attacker cannot
+      # plant one.
+      CSRF_HOST_BINDING_COOKIE = '__Host-otto_session'
+
+      # Name of the cookie that carries the CSRF binding for +request+:
+      # CSRF_HOST_BINDING_COOKIE when Rack reports the request as HTTPS,
+      # CSRF_BINDING_COOKIE otherwise. CSRFMiddleware sets the cookie under
+      # this name.
+      #
+      # @param request [Rack::Request]
+      # @return [String]
+      def csrf_binding_cookie_name(request)
+        request.scheme == 'https' ? CSRF_HOST_BINDING_COOKIE : CSRF_BINDING_COOKIE
+      end
+
+      # The cookie value used as the CSRF binding when the session provides
+      # none. On HTTPS only CSRF_HOST_BINDING_COOKIE is read: the plantable
+      # _otto_session, session_id and _session_id cookies are ignored there.
+      # On HTTP, where a __Host- cookie cannot be set, the legacy names are
+      # read in their old order.
+      #
+      # @param request [Rack::Request]
+      # @return [String, nil]
+      def csrf_binding_cookie(request)
+        cookies = request.cookies
+        return cookies[CSRF_HOST_BINDING_COOKIE] if request.scheme == 'https'
+
+        cookies[CSRF_BINDING_COOKIE] || cookies['session_id'] || cookies['_session_id']
+      end
+      private :csrf_binding_cookie
+
       # Enable HTTP Strict Transport Security (HSTS) header
       #
       # HSTS forces browsers to use HTTPS for all future requests to this domain.
@@ -1361,6 +1398,13 @@ class Otto
           session_id = minted_id if minted_id
         end
 
+        # CSRFMiddleware sets the binding cookie from this on responses that
+        # are not HTML (see EnvKeys::CSRF_BINDING). The session store's own id
+        # is left out: the store's cookie already carries it, and a copy would
+        # sit in a second cookie whose lifetime and attributes the application
+        # does not configure.
+        record_binding = request.respond_to?(:env) && !session_store_id?(request, session_id)
+        request.env['otto.csrf_binding'] = session_id.to_s if record_binding
         session_id
       end
 
@@ -1432,10 +1476,8 @@ class Otto
           # Fall through to cookies
         end
 
-        # Try cookies
-        request.cookies['_otto_session'] ||
-          request.cookies['session_id'] ||
-          request.cookies['_session_id']
+        # Then the binding cookie (see #csrf_binding_cookie)
+        csrf_binding_cookie(request)
       end
 
       # Whether secret is nil or blank per BLANK_CSRF_SECRET. The string is
@@ -1485,6 +1527,23 @@ class Otto
         session[csrf_session_key] = session_id if session
       rescue StandardError
         # Cookie fallback handled in inject_csrf_token
+      end
+
+      # Whether +binding+ is the session store's own id: session.id, or
+      # session['session_id'], for which rack-session's Pool and Cookie
+      # stores return the session's public id.
+      def session_store_id?(request, binding)
+        session = request.session
+        return false unless session
+
+        binding  = binding.to_s
+        store_id = session.id if session.respond_to?(:id)
+        return true if store_id && store_id.to_s == binding
+
+        legacy_id = session['session_id']
+        !legacy_id.nil? && legacy_id.to_s == binding
+      rescue StandardError
+        false
       end
 
       # The session id a lazy store minted while #store_session_id wrote to the

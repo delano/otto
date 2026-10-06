@@ -476,6 +476,37 @@ and revocation policy in the application. Otto supplies the route boundary and
 result contract; it does not provide a user database or a universal session
 store.
 
+## Protect the cookie that carries the CSRF binding
+
+With CSRF protection enabled, Otto binds each token to a value it reads from the
+session first (`session.id`, a binding it stored in the session, or
+`session['session_id']`) and, only when the session provides none, from its
+own binding cookie. On HTTPS requests
+that cookie is `__Host-otto_session`, set with `Secure`, `Path=/` and no
+`Domain`, so in browsers that enforce cookie name prefixes a sibling subdomain
+or a network attacker cannot plant it; on HTTP it is `_otto_session`.
+`CSRFMiddleware` sets it on HTML responses, and on any other response to a
+request that resolved a binding other than the session store's own id.
+
+Behind a session middleware the session's id is the binding, so the session
+cookie is the one an attacker would plant: an attacker who can set cookies for
+the victim's browser plants their own session cookie, requests a form with it,
+and uses the token to forge a login. Otto's `__Host-` cookie does not cover
+that. Over HTTPS, give the session cookie the same protection:
+
+```ruby
+use Rack::Session::Cookie,
+    key: '__Host-rack.session',
+    secure: true,
+    secrets: [ENV.fetch('SESSION_SECRET')]
+```
+
+rack-session sets `Path=/` and no `Domain` unless told otherwise, so with
+`secure: true` the cookie meets the `__Host-` requirements; `Rack::Session::Pool`
+takes the same `key:` and `secure:` options. Also renew the session id in the
+login handler (`req.env['rack.session.options'][:renew] = true`), so a session
+that existed before login does not carry over.
+
 ## Related contracts
 
 - [Route syntax](../reference/route-syntax.md) — `auth=`, `role=`, and route

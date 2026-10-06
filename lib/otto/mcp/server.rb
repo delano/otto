@@ -10,11 +10,14 @@ require_relative 'schema_validation'
 require_relative 'rate_limiting'
 require_relative 'options'
 require_relative '../security/constant_resolver'
+require_relative '../core/redacted_inspect'
 
 class Otto
   module MCP
     # MCP server implementation providing Model Context Protocol endpoints
     class Server
+      include Otto::Core::RedactedInspect
+
       attr_reader :protocol, :otto_instance
 
       # Normalize raw options into the canonical MCP option hash.
@@ -72,7 +75,7 @@ class Otto
 
         @enabled               = true
         @http_endpoint         = options[:http_endpoint]
-        @auth_tokens           = options[:auth_tokens]
+        @auth_tokens           = Otto::Core::RedactedInspect.secret(options[:auth_tokens])
         @enable_validation     = options[:enable_validation]
         @enable_rate_limiting  = options[:enable_rate_limiting]
         @allow_unauthenticated = options[:allow_unauthenticated]
@@ -104,6 +107,11 @@ class Otto
       end
 
       private
+
+      # #inspect shows the bearer tokens as [REDACTED] with their count.
+      def redacted_inspect_value(ivar, value)
+        ivar == :@auth_tokens ? redacted_placeholder(value) : super
+      end
 
       # Publish the per-minute limits under the keys RateLimitMiddleware /
       # RateLimiter.configure_rack_attack! already read, via Otto's sanctioned
@@ -222,15 +230,15 @@ class Otto
         klass_name   = klass_method[0..-2].join('::')
         method_name  = klass_method.last
 
-        # Create resource handler
-        handler = lambda do
+        # Create resource handler. It receives the Rack env of the MCP request
+        # from Registry#read_resource and passes it on when the class method
+        # takes one argument, so a resource can check permissions per request.
+        handler = lambda do |env|
           klass = Otto::Security::ConstantResolver.safe_const_get(klass_name)
-          method = klass.method(method_name)
-          if method.arity != 0
-            raise ArgumentError, "Handler #{klass_name}.#{method_name} must be a zero-arity method for resource #{uri}"
-          end
-
-          klass.public_send(method_name)
+          args  = Otto::MCP::Registry.resource_handler_args(
+            klass.method(method_name), env, "Handler #{klass_name}.#{method_name} for resource #{uri}"
+          )
+          klass.public_send(method_name, *args)
         rescue StandardError => e
           Otto.logger.error "[MCP] Resource handler error for #{uri}: #{e.message}"
           raise

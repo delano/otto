@@ -25,10 +25,15 @@ RSpec.describe Otto::MCP::RouteParser, 'MCP and TOOL route definitions' do
     end
 
     it 'carries option tokens through to :options' do
-      result = described_class.parse_mcp_route('MCP', '/', 'MCP docs App.readme auth=role:admin')
+      result = described_class.parse_mcp_route('MCP', '/', 'MCP docs App.readme response=json')
 
-      expect(result[:handler]).to eq('App.readme auth=role:admin')
-      expect(result[:options]).to eq(auth: 'role:admin')
+      expect(result[:handler]).to eq('App.readme response=json')
+      expect(result[:options]).to eq(response: 'json')
+    end
+
+    it 'rejects auth, role and csrf option tokens' do
+      expect { described_class.parse_mcp_route('MCP', '/', 'MCP docs App.readme auth=role:admin') }
+        .to raise_error(Otto::RouteDefinitionError, /not enforced on MCP or TOOL routes/)
     end
 
     it 'raises on a malformed line missing the handler' do
@@ -39,6 +44,34 @@ RSpec.describe Otto::MCP::RouteParser, 'MCP and TOOL route definitions' do
     it 'raises when the keyword is not MCP' do
       expect { described_class.parse_mcp_route('MCP', '/', 'TOOL docs App.readme') }
         .to raise_error(ArgumentError, /Expected MCP keyword/)
+    end
+  end
+
+  # Nothing reads the options of an MCP or TOOL route, so a well-formed option
+  # other than auth/role/csrf still loads but is reported as not applied.
+  describe 'options that are not applied' do
+    before { allow(Otto).to receive(:structured_log) }
+
+    it 'warns for each option on a TOOL line' do
+      described_class.parse_tool_route('TOOL', '/', 'TOOL search App.search response=json scope=canonical')
+
+      %w[response=json scope=canonical].each do |option|
+        expect(Otto).to have_received(:structured_log)
+          .with(:warn, 'MCP/tool route option not applied', { option: option, route: 'TOOL route "search"' })
+      end
+    end
+
+    it 'warns for an option on an MCP line' do
+      described_class.parse_mcp_route('MCP', '/', 'MCP docs App.readme response=json')
+
+      expect(Otto).to have_received(:structured_log)
+        .with(:warn, 'MCP/tool route option not applied', { option: 'response=json', route: 'MCP route "docs"' })
+    end
+
+    it 'does not warn for a line without options' do
+      described_class.parse_tool_route('TOOL', '/', 'TOOL search App.search')
+
+      expect(Otto).not_to have_received(:structured_log)
     end
   end
 
@@ -53,9 +86,14 @@ RSpec.describe Otto::MCP::RouteParser, 'MCP and TOOL route definitions' do
     end
 
     it 'carries option tokens through to :options' do
-      result = described_class.parse_tool_route('TOOL', '/', 'TOOL search App.search auth=role:admin')
+      result = described_class.parse_tool_route('TOOL', '/', 'TOOL search App.search response=json')
 
-      expect(result[:options]).to eq(auth: 'role:admin')
+      expect(result[:options]).to eq(response: 'json')
+    end
+
+    it 'rejects auth, role and csrf option tokens' do
+      expect { described_class.parse_tool_route('TOOL', '/', 'TOOL search App.search auth=role:admin') }
+        .to raise_error(Otto::RouteDefinitionError, /not enforced on MCP or TOOL routes/)
     end
 
     it 'raises on a malformed line missing the handler' do

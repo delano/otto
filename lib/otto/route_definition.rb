@@ -121,8 +121,9 @@ class Otto
     end
 
     # Parse a single whitespace-delimited `key=value` option token, applying
-    # the security-gating fail-fast rule shared by normal routes and the MCP
-    # RouteParser (issue #191 and its MCP/TOOL follow-up).
+    # the security-gating fail-fast rule for normal routes (issue #191). The
+    # MCP RouteParser also calls this, after rejecting auth/role/csrf tokens
+    # outright because MCP and TOOL routes do not enforce them.
     # @param part [String] a single option token, e.g. "auth=session"
     # @param context [String] human-readable source description for the
     #   raised error message, e.g. "route definition \"GET /admin ...\""

@@ -6,14 +6,20 @@ require 'json'
 require 'rack/utils'
 
 require_relative '../endpoint'
+require_relative '../../core/redacted_inspect'
 
 class Otto
   module MCP
     module Auth
       # Token-based authentication for MCP protocol endpoints
       class TokenAuth
+        include Otto::Core::RedactedInspect
+
         def initialize(tokens)
-          @tokens = Array(tokens).to_set
+          # A frozen SecretSet of frozen SecretStrings. Otto::Core::Freezable
+          # only shallow-freezes a TokenAuth, and nothing here mutates the
+          # tokens after construction, so they are frozen now.
+          @tokens = Otto::Core::RedactedInspect.secret(Array(tokens).to_set).freeze
         end
 
         def authenticate(env)
@@ -24,6 +30,11 @@ class Otto
         end
 
         private
+
+        # #inspect shows the tokens as [REDACTED] with their count.
+        def redacted_inspect_value(ivar, value)
+          ivar == :@tokens ? redacted_placeholder(value) : super
+        end
 
         def valid_token?(candidate)
           # Constant-time membership: compare against every configured token without

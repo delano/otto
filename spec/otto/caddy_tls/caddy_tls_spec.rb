@@ -112,6 +112,13 @@ RSpec.describe Otto::CaddyTLS do
       expect(status).to eq(200)
       expect(body_of([status, _headers, body])).to eq('')
     end
+
+    it 'advertises the GET body length on a HEAD request' do
+      env = mock_rack_env(method: 'HEAD', path: endpoint, params: { domain: 'verified.example.com' })
+      env['REMOTE_ADDR'] = '127.0.0.1'
+      _status, headers, _body = otto.call(env)
+      expect(headers['content-length']).to eq('OK'.bytesize.to_s)
+    end
   end
 
   describe 'multi-instance isolation' do

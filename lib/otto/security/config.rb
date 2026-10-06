@@ -45,6 +45,34 @@ class Otto
       ].freeze
       DEFAULT_REFERRER_POLICY = 'strict-origin-when-cross-origin'
 
+      # Thread-safe one-shot flag for a log line that must appear once per
+      # config, including after the config is deep-frozen. #deep_freeze! is a
+      # no-op, so Otto::Core::Freezable leaves the flag usable when it freezes
+      # the config around it. It holds no configuration, only whether the line
+      # was logged.
+      class OnceFlag
+        def initialize
+          @mutex = Mutex.new
+          @set   = false
+        end
+
+        # Sets the flag.
+        #
+        # @return [Boolean] true for the first caller only
+        def set!
+          @mutex.synchronize do
+            return false if @set
+
+            @set = true
+          end
+        end
+
+        # @return [self] unfrozen, so #set! keeps working
+        def deep_freeze!
+          self
+        end
+      end
+
       # Hash-compatible storage that keeps the generic security-header API and
       # the dedicated referrer_policy setting on one validated code path.
       # Existing callers may continue to mutate Config#security_headers like a
@@ -384,14 +412,30 @@ class Otto
       CSP_REPORTING_GROUP = Otto::Security::CSP::Policy::REPORTING_GROUP
 
       # Error raised when CSRF protection is enabled in production without an
-      # explicitly configured secret. A randomly-generated per-process secret
-      # silently breaks token verification across workers and restarts, so we
-      # refuse it in production rather than serve intermittently-failing tokens.
+      # explicitly configured secret. A generated secret lives in the memory of
+      # the process that built the config and of workers forked from it
+      # afterwards. Workers that build their own app (cluster mode without
+      # preload), processes started separately, other hosts and restarts each
+      # generate a different one and reject each other's tokens. We refuse it
+      # in production rather than serve intermittently-failing tokens.
       CSRF_SECRET_REQUIRED_MESSAGE = <<~MSG.gsub(/\s+/, ' ').strip.freeze
         CSRF protection is enabled in production without a configured secret.
         Set OTTO_CSRF_SECRET (or config.csrf_secret=) to a stable random value
-        (e.g. SecureRandom.hex(32)); a per-process random secret is not valid
-        across workers or restarts.
+        (e.g. SecureRandom.hex(32)); a generated secret is not shared with
+        workers that load the app themselves (cluster mode without preload),
+        processes started separately, other hosts or a restart.
+      MSG
+
+      # Logged once per config when a generated secret signs CSRF tokens or
+      # is frozen into a config with CSRF protection enabled.
+      CSRF_GENERATED_SECRET_WARNING = <<~MSG.gsub(/\s+/, ' ').strip.freeze
+        [Otto::Security::Config] CSRF tokens are signed with a randomly
+        generated secret. Workers forked after the secret was generated (a
+        preloaded app) share it, but workers that load the app themselves
+        (cluster mode without preload), processes started separately, other
+        hosts and restarts each generate their own secret and reject each
+        other's tokens. Set OTTO_CSRF_SECRET (or config.csrf_secret=) to a
+        stable random value.
       MSG
 
       attr_accessor :input_validation, :max_param_depth, :csrf_token_key,
@@ -433,6 +477,7 @@ class Otto
         @csp_directive_overrides = {}
         @csp_request_extras_enabled = false
         @csp_script_src_override_warned = false
+        @csrf_secret_warning            = OnceFlag.new
         @rate_limiting_config   = { custom_rules: {} }
         @ip_privacy_config      = Otto::Privacy::Config.new
 
@@ -1407,21 +1452,18 @@ class Otto
         OpenSSL::HMAC.hexdigest('SHA256', @csrf_secret, "#{session_id}:#{token}")
       end
 
-      # Warn once per config instance when CSRF tokens are being signed with a
-      # randomly-generated per-process secret. Such tokens do not survive process
-      # restarts and are not shared across workers; set OTTO_CSRF_SECRET (or
-      # config.csrf_secret=) for stable multi-process behavior.
+      # Log CSRF_GENERATED_SECRET_WARNING once per config instance when the
+      # secret was generated rather than configured.
+      #
+      # Called from #validate_csrf_secret_config! while #deep_freeze! runs with
+      # CSRF enabled, and from #generate_csrf_token, frozen or not. The
+      # once-only state is a OnceFlag, which stays writable after the freeze
+      # and lets one thread log when several generate the first tokens at once.
       def warn_generated_csrf_secret
         return unless @csrf_secret_generated
-        return if @csrf_secret_warning_emitted
+        return unless @csrf_secret_warning.set!
 
-        @csrf_secret_warning_emitted = true
-        Otto.logger.warn(<<~MSG.gsub(/\s+/, ' ').strip)
-          [Otto::Security::Config] CSRF tokens are signed with a randomly
-          generated per-process secret; they will not survive restarts or be
-          valid across workers. Set OTTO_CSRF_SECRET (or config.csrf_secret=)
-          for stable CSRF tokens in multi-process deployments.
-        MSG
+        Otto.logger.warn(CSRF_GENERATED_SECRET_WARNING)
       end
 
       # Warn once per config instance when a `script-src` override is stored for
@@ -1451,13 +1493,20 @@ class Otto
       # enables CSRF with a generated (non-configured) secret. Mirrors
       # #validate_trusted_proxy_config! so the failure surfaces at boot, before
       # serving traffic, for apps that deep-freeze their config.
+      #
+      # Outside production, a generated secret is allowed, so the generated-secret
+      # warning is logged here, at boot for an app that freezes its config then.
       def validate_csrf_secret_config!
         raise ArgumentError, CSRF_SECRET_REQUIRED_MESSAGE if csrf_secret_unsafe_for_production?
+
+        warn_generated_csrf_secret if @csrf_protection
       end
 
       # Generation-time guard for apps that never freeze their config: never
-      # mint a CSRF token signed with a generated per-process secret in
-      # production (fail loud instead of serving tokens that won't verify).
+      # mint a CSRF token signed with a generated secret in production, where
+      # workers that load the app themselves, separately started processes,
+      # other hosts and restarts would reject each other's tokens (fail loud
+      # instead of serving tokens that won't verify).
       def reject_generated_secret_in_production!
         raise ArgumentError, CSRF_SECRET_REQUIRED_MESSAGE if csrf_secret_unsafe_for_production?
       end

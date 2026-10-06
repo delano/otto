@@ -140,7 +140,8 @@ class Otto
     initialize_options(path, opts)
     initialize_configurations(opts)
 
-    Otto.logger.debug "new Otto: #{opts}" if Otto.debug
+    # @option, not opts: OptionHash#to_s redacts the MCP bearer tokens.
+    Otto.logger.debug "new Otto: #{@option}" if Otto.debug
     load(path) unless path.nil?
     super()
 
@@ -304,10 +305,12 @@ class Otto
   end
 
   def initialize_options(_path, opts)
-    @option = {
+    # An OptionHash, so neither Otto#inspect nor the FrozenError from a write
+    # after the freeze prints the MCP bearer tokens.
+    @option = Otto::Core::OptionHash.build({
       public: nil,
       locale: 'en',
-    }.merge(opts)
+    }.merge(opts))
     @route_handler_factory = opts[:route_handler_factory] || Otto::RouteHandlers::HandlerFactory
   end
 

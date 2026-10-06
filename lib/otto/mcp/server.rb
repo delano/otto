@@ -222,15 +222,15 @@ class Otto
         klass_name   = klass_method[0..-2].join('::')
         method_name  = klass_method.last
 
-        # Create resource handler
-        handler = lambda do
+        # Create resource handler. It receives the Rack env of the MCP request
+        # from Registry#read_resource and passes it on when the class method
+        # takes one argument, so a resource can check permissions per request.
+        handler = lambda do |env|
           klass = Otto::Security::ConstantResolver.safe_const_get(klass_name)
-          method = klass.method(method_name)
-          if method.arity != 0
-            raise ArgumentError, "Handler #{klass_name}.#{method_name} must be a zero-arity method for resource #{uri}"
-          end
-
-          klass.public_send(method_name)
+          args  = Otto::MCP::Registry.resource_handler_args(
+            klass.method(method_name), env, "Handler #{klass_name}.#{method_name} for resource #{uri}"
+          )
+          klass.public_send(method_name, *args)
         rescue StandardError => e
           Otto.logger.error "[MCP] Resource handler error for #{uri}: #{e.message}"
           raise

@@ -365,8 +365,13 @@ class Otto
         @mcp_server.register_mcp_route(route_info)
         Otto.logger.debug "[MCP] Registered resource route: #{definition}" if Otto.debug
       rescue Otto::RouteDefinitionError
-        # Same fail-fast contract as the normal route loader: a malformed
-        # security-gating option must abort boot, not just log-and-drop.
+        # Must abort boot, not log-and-drop. RouteParser raises this for any
+        # auth, role or csrf token on an MCP or TOOL line, well formed or not,
+        # because the MCP server never enforces them: registering the route
+        # would make it look protected while any caller of the endpoint can
+        # reach it. handle_tool_route re-raises for the same reason. The
+        # "not enabled" RuntimeError above is still logged and dropped, so a
+        # file loaded before enable_mcp! skips these lines unchecked.
         raise
       rescue StandardError => e
         Otto.logger.error "[MCP] Failed to parse MCP route: #{definition} - #{e.message}"

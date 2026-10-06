@@ -76,7 +76,7 @@ class Otto
         when 'resources/list'
           handle_resources_list(data)
         when 'resources/read'
-          handle_resources_read(data)
+          handle_resources_read(data, env)
         when 'tools/list'
           handle_tools_list(data)
         when 'tools/call'
@@ -119,14 +119,14 @@ class Otto
         success_response(data['id'], { resources: resources })
       end
 
-      def handle_resources_read(data)
+      def handle_resources_read(data, env)
         params = data['params'] || {}
         uri    = params['uri']
 
         return error_response(data['id'], -32_602, 'Invalid params', 'Missing uri parameter') unless uri
 
         begin
-          resource = @registry.read_resource(uri)
+          resource = @registry.read_resource(uri, env)
         rescue StandardError => e
           # Detail stays in the log: handler exceptions (Errno::*, constant
           # resolution) can carry absolute paths and internals.

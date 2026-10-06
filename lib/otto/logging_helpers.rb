@@ -40,7 +40,7 @@ class Otto
     #
     #   custom_base = Otto::LoggingHelpers.request_context(env).merge(
     #     transaction_id: Thread.current[:transaction_id],
-    #     user_id: env['otto.user']&.id,
+    #     user_id: env['otto.strategy_result']&.user_id,
     #     tenant_id: env['tenant_id']
     #   )
     #

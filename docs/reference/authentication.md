@@ -28,10 +28,24 @@ GET /api/data  DataLogic#show  auth=session,apikey,oauth
 ```
 
 **Execution Flow:**
-1. Strategies execute left-to-right in order
-2. **First success wins** - remaining strategies are not executed
-3. Returns 401 only if **all** strategies fail
-4. Unknown strategies cause immediate 401 (strict mode)
+1. Unknown strategy names fail the request with 401 before any strategy runs
+   (strict mode)
+2. Strategies execute left-to-right in order
+3. The first **authenticated** success (a result with a user) wins; the
+   remaining strategies are not executed
+4. An **anonymous** success (a result without a user, e.g. from `noauth`)
+   does not win yet. It is held as a fallback and the chain continues; only
+   the first anonymous success is held
+5. A plain failure is recorded and the next strategy runs
+6. A terminal failure (`AuthFailure` with `terminal: true`, e.g. an API key
+   that was presented and rejected) halts the chain, and a held anonymous
+   fallback does not rescue the request
+7. If the chain completes without an authenticated success or a terminal
+   failure, the held anonymous fallback wins
+8. Otherwise the request fails: 403 if any strategy returned an
+   `AuthorizationFailure`, else 401 when the route is `response=json` or the
+   request accepts `application/json`, and a 302 redirect to the login path
+   for other requests
 
 **Performance Tip:** Put fastest/most-common strategies first (e.g., `auth=session,apikey`)
 
@@ -39,13 +53,21 @@ GET /api/data  DataLogic#show  auth=session,apikey,oauth
 ```ruby
 # Route: auth=session,apikey,oauth
 # 1. Tries 'session' strategy
-# 2. If session succeeds → call handler (apikey/oauth not executed)
+# 2. If session authenticates → call handler (apikey/oauth not executed)
 # 3. If session fails → try 'apikey' strategy
-# 4. If apikey succeeds → call handler (oauth not executed)
+# 4. If apikey authenticates → call handler (oauth not executed)
 # 5. If apikey fails → try 'oauth' strategy
-# 6. If oauth succeeds → call handler
-# 7. If all fail → return 401
+# 6. If oauth authenticates → call handler
+# 7. If all fail → 401, 403 or 302 (Execution Flow, step 8)
 ```
+
+Declaration order does not let an anonymous strategy win early. On
+`auth=noauth,session`, a request whose session holds a user is
+authenticated by `session`, and `noauth` wins only when `session` fails. On
+`auth=noauth,apikey`, a request that presents an invalid API key is refused:
+the key's terminal failure halts the chain, and the response follows step 8
+(401 when the route is `response=json` or the request accepts
+`application/json`, otherwise a 302 redirect to the login path).
 
 ## Strategy Pattern Matching
 
@@ -72,14 +94,25 @@ GET /profile         ProfileLogic         auth=session
 - Use `auth=` for authentication strategies
 - Use `role=` for role-based route access (OR logic for multiple roles)
 - Fast execution (no database queries)
-- Returns 401 (Unauthorized) for authentication failures
+- Returns 401 (Unauthorized) for authentication failures, or a 302 redirect to
+  the login path for requests that do not want JSON
 - Returns 403 (Forbidden) for authorization failures
 
-**Role Extraction Order:**
-1. `result.user_roles` (direct accessor)
-2. `result.user[:roles]` (user hash with symbol key)
-3. `result.user['roles']` (user hash with string key)
-4. `result.metadata[:user_roles]` (metadata)
+**Role Extraction Order** (checked in order; the first source that is set is
+used):
+1. `result.user_roles`, if the result responds to it (`StrategyResult` does
+   not define it)
+2. For a Hash user: `result.user[:roles]`, then `result.user['roles']`. A set
+   value is used even when it is empty
+3. For any other user object (ORM model, PORO, `Data`/`Struct`):
+   `result.user.roles`, stringified; if the user does not respond to `#roles`
+   or it yields no roles, `result.user.role`
+4. `result.metadata[:user_roles]` (metadata; `RoleStrategy` puts the session's
+   roles here)
+
+A user object that is not a Hash and responds to neither `#roles` nor `#role`
+contributes no roles instead of raising `NoMethodError`; the metadata source
+is still checked.
 
 ### Layer 2: Resource-Level Authorization
 
@@ -264,21 +297,36 @@ end
 When a route has authentication requirements:
 
 1. Looks up strategies from `auth_config[:auth_strategies]`
-2. Executes `strategy.authenticate(env, requirement)` for each strategy
-3. On first success:
-   - Sets `env['rack.session']` (if provided)
-   - Sets `env['otto.strategy_result']`
-   - Sets `env['otto.user']` (extracted from result)
+2. Executes `strategy.authenticate(env, requirement)` for each strategy in
+   order, until one authenticates or a terminal failure halts the chain
+3. On the winning success (the first authenticated success, or the held
+   anonymous fallback once the chain completes; see Execution Flow above):
+   - Sets `env['rack.session']` to `result.session` (unless that is `nil` or
+     `false`) when env holds no session a middleware installed: the key is
+     absent, or it holds the `Otto::Request::DefaultSession` that
+     `Otto::Request#session` installs when no session middleware ran. A
+     session a middleware installed is never replaced
+   - Sets `env['otto.strategy_result']`; the user is
+     `env['otto.strategy_result'].user`
    - Checks role requirements (if `role=` specified)
    - Calls wrapped handler
-4. If all strategies fail: Returns 401/302
+4. If the chain fails (every strategy failed, or a terminal failure halted
+   it): Returns 403, 401 or 302, as in Execution Flow step 8
 5. If role check fails: Returns 403
 
 ## Compatibility Notes
 
-- `enable_authentication!` is a no-op kept for API compatibility
+- `enable_authentication!` was removed; calling it raises `NoMethodError`.
+  `RouteAuthWrapper` wraps every route handler without it
 - AuthenticationMiddleware was removed (architecturally broken - ran before routing)
-- `auth=role:admin` syntax removed in favor of separate `role=admin` option
+- `env['otto.user']` is not set; read the user from
+  `env['otto.strategy_result'].user`
+- `auth=role:admin` is a strategy requirement, not the route-level role check.
+  It resolves to a strategy registered under the exact name `role:admin`, or
+  else to the one registered as `role` (prefix match). A `RoleStrategy`
+  checks `admin` against the session's roles (`user_roles` by default).
+  `role=admin` is the separate route-level check (Layer 1) against the
+  successful strategy result
 
 ## Best Practices
 

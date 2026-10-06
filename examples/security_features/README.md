@@ -51,9 +51,9 @@ curl -i -X POST http://127.0.0.1:10770/feedback -d 'message=test'
 
 The feedback handler rejects script-like input and limits messages to 1,000 characters; profile fields have their own limits and the email field must match the example's basic format check. The upload form demonstrates filename sanitization and request handling. It displays metadata and does **not** permanently store uploaded files; it does not implement a file-type allowlist.
 
-### Current limitation
+### CSRF secret
 
-The home page generates a CSRF token during its first request. Otto freezes configuration at that point, and the generated-secret warning then attempts to modify the frozen security configuration. As a result, `GET /` currently fails with `FrozenError`, so browser-based valid-form verification is unavailable until that example or the initialization sequence is corrected.
+`config.ru` does not set a CSRF secret. Without `OTTO_CSRF_SECRET`, Otto signs tokens with a secret generated for the process and logs a warning about it once, when it freezes the configuration on the first request. The forms on the home page include a token, so submitting the feedback form exercises the valid-token path.
 
 ## Files to inspect
 

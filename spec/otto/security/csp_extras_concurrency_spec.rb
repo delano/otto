@@ -13,7 +13,7 @@ require 'spec_helper'
 # Behavioural concurrency spec (not one class under test); the threads and the
 # example length are the point — deterministic interleaving needs the whole
 # choreography in one example, exactly like route_class_otto_accessor_spec.
-# rubocop:disable RSpec/DescribeClass, RSpec/ExampleLength, ThreadSafety/NewThread
+# rubocop:disable-next RSpec/DescribeClass, RSpec/ExampleLength, ThreadSafety/NewThread
 RSpec.describe 'CSP request extras under concurrent requests' do
   it 'gives two interleaved requests exactly their own extras (no bleed)' do
     config = Otto::Security::Config.new
@@ -79,4 +79,3 @@ RSpec.describe 'CSP request extras under concurrent requests' do
     end
   end
 end
-# rubocop:enable RSpec/DescribeClass, RSpec/ExampleLength, ThreadSafety/NewThread

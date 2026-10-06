@@ -128,7 +128,7 @@ RSpec.describe Otto::Core::StaticMounts do
       expect(get(app, '/assets2/x.txt').first).to eq(404)
     end
 
-    it 'serves only GET requests' do
+    it 'does not serve requests with methods other than GET and HEAD' do
       expect(get(app, '/assets/app.css', method: 'POST').first).to eq(404)
       expect(get(app, '/assets/app.css', method: 'PUT').first).to eq(404)
     end

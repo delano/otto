@@ -22,6 +22,33 @@ class Otto
   #
   # @see Otto#register_request_helpers
   class Request < Rack::Request
+    # The Hash that #session installs in env['rack.session'] when no session
+    # middleware provided one. It is an ordinary, writable Hash; the class
+    # marks it as a stand-in, so RouteAuthWrapper can install a strategy's
+    # session over it while never replacing a session a middleware installed.
+    class DefaultSession < ::Hash
+      # Whether +session+ is no session a middleware installed: nil, or a
+      # DefaultSession. Checks the class only, so a lazy session object (for
+      # example rack-session's SessionHash) is not loaded.
+      #
+      # @param session [Object, nil] the value of env['rack.session']
+      # @return [Boolean]
+      def self.vacant?(session)
+        session.nil? || session.instance_of?(self)
+      end
+    end
+
+    # Rack::Request#session installs the value of this private hook in
+    # env['rack.session'] when env has no session (rack 3.1 and 3.2:
+    # request.rb, `def default_session; {}; end`). Otto installs a
+    # {DefaultSession} instead of a plain Hash.
+    #
+    # @return [DefaultSession]
+    def default_session
+      DefaultSession.new
+    end
+    private :default_session
+
     def user_agent
       env['HTTP_USER_AGENT']
     end
@@ -207,6 +234,13 @@ class Otto
       # forwarded headers to trust and how to walk a proxy chain.
       canonical = env['otto.client_ip']
       return canonical if canonical && !canonical.empty?
+
+      # otto.ip_match and otto.peer_relayed without a usable otto.client_ip
+      # mean the middleware ran and found no client IP (every pass writes
+      # otto.peer_relayed; otto.ip_match alone may be a stub). It deleted the
+      # forwarded address headers on that path, so re-resolving here would
+      # see only the peer and return a proxy as the client.
+      return canonical if env.key?('otto.ip_match') && env.key?('otto.peer_relayed')
 
       Otto::Utils.resolve_client_ip(env, otto_security_config)
     end

@@ -329,10 +329,118 @@ result.metadata
 result.strategy_name
 ```
 
+`result.session` is the session the strategy passed to the result. When a
+strategy passes no `session:`, `StrategyResult.anonymous` and
+`AuthStrategy#success` use a new, empty Hash.
+
+After a strategy succeeds, the route auth wrapper sets `env['rack.session']` to
+`result.session`, unless that value is `nil` or `false`, when env holds no
+session that a middleware installed: the key is absent, or it holds the
+`Otto::Request::DefaultSession` that `Otto::Request#session` installs when no
+session middleware ran. (Otto's CSRF check reads the session that way before
+authentication runs.) A session that a middleware installed is never replaced,
+so the handler receives that object. Any other value already in
+`env['rack.session']` counts as installed too, including the plain Hash that
+`Rack::Request#session` creates when upstream Rack middleware or a handler
+wrapper calls it before the route auth wrapper runs; the strategy's session is
+then not placed in env.
+
+The built-in `SessionStrategy` passes the object from env. `NoAuthStrategy` and
+`APIKeyStrategy` pass no session. Without a session middleware, their empty
+Hash becomes `env['rack.session']`, so `result.session` and
+`env['rack.session']` are the same object. Behind a session middleware,
+`result.session` on those routes is a separate Hash, and a controller handler
+reads and writes the session through `req.session` (or `env['rack.session']`).
+`RoleStrategy` and `PermissionStrategy` also pass no session, but they read
+roles and permissions from `env['rack.session']` and fail with
+`No session available` when env has none, so their routes need a session
+middleware. On a route without `auth=`, the anonymous result's session is never
+placed in env.
+
+Logic classes receive the result as `@context` and get no env. Behind a session
+middleware on those routes, and on any route without `auth=`, `@context.session`
+is therefore a separate Hash, and nothing written to it is persisted. For a
+Logic class to see the middleware's session, the route's strategy has to pass
+`session: env['rack.session']` to `success`, as `SessionStrategy` does.
+Otherwise, make the endpoint a controller handler.
+
+With CSRF protection enabled and no session middleware, a strategy session that
+responds to `id` or holds a `'session_id'` key becomes the CSRF binding for code
+that runs after authentication: a token the handler generates, and the token
+`CSRFMiddleware` injects into an HTML response. On an HTML response the
+middleware also sets the binding cookie to that value, so the next request's
+CSRF check, which runs before authentication and reads the cookie, accepts the
+injected token. A token the handler generates for a response that is not HTML
+is bound to the strategy's value while the cookie keeps the old one, so the next
+CSRF-protected request rejects it with `403`.
+
 Application code should read the result created by Otto rather than constructing
 its own `StrategyResult`. The `Data` record does not allow member reassignment,
 but contained `session`, `user`, and `metadata` objects are not deep-frozen;
 their mutability remains the application's responsibility.
+
+## Renew the session id at login
+
+Otto never changes the session id. `SessionStrategy` authenticates any request
+whose session holds the configured key, whatever the session's id. If the login
+handler writes the user id into the session without renewing the id, the
+session keeps the id it had before login. That is session fixation. Its effect
+depends on the session store:
+
+- With a server-side store such as rack-session's `Rack::Session::Pool`, an
+  attacker who obtained the session id before the victim logged in, for
+  example by planting the session cookie in the victim's browser, is
+  authenticated as the victim once the victim logs in.
+- With `Rack::Session::Cookie`, the session data travels in the cookie, so the
+  attacker's copy of the cookie stays anonymous. The session id inside it does
+  not change, though, so with CSRF protection enabled a token issued for the
+  attacker's copy still validates on the victim's requests (see below).
+
+Renew the id in the handler that completes the login. With rack-session, set
+the `:renew` option for the request:
+
+```ruby
+class Session
+  def self.create(req, res)
+    account = Account.authenticate(req.params['email'], req.params['password'])
+    return res.redirect('/signin') unless account
+
+    req.env['rack.session.options'][:renew] = true
+    req.session['user_id'] = account.id
+    res.redirect('/dashboard')
+  end
+end
+```
+
+rack-session 2.1.2 documents the option in the comment above
+`Rack::Session::Abstract::Persisted`, an ancestor of its `Pool` and `Cookie`
+stores ([lib/rack/session/abstract/id.rb, lines 223-225](https://github.com/rack/rack-session/blob/v2.1.2/lib/rack/session/abstract/id.rb#L223-L225)):
+
+> :renew (implementation dependent) will prompt the generation of a new
+> session id, and migration of data to be referenced at the new id. If
+> :defer is set, it will be overridden and the cookie will be set.
+
+The same comment
+([lines 229-230](https://github.com/rack/rack-session/blob/v2.1.2/lib/rack/session/abstract/id.rb#L229-L230))
+says where to set it: "These options can be set on a per request basis, at the
+location of <tt>env['rack.session.options']</tt>." rack-session sets that key
+on each request it handles, so the handler must run behind a rack-session
+middleware. For another session store, see its documentation on renewing the
+id.
+
+With CSRF protection enabled, Otto binds CSRF tokens to `session.id` when the
+session has one (see `Otto::Security::Config#get_or_create_session_id`). After
+the id is renewed, a token issued before login no longer validates and the
+request gets `403`. rack-session renews the id when it commits the session,
+after the response is built, so a form rendered in the login response itself
+also carries a token bound to the old id. Respond to the login with a redirect
+and render forms on the page it redirects to (post/redirect/get); those carry a
+token that validates.
+
+This CSRF behavior assumes the session-binding change in delano/otto#295.
+Without it, a new visitor's first token is bound to a random value rather than
+to `session.id`, and that visitor's first CSRF-protected POST, such as the
+login form itself, gets `403` whether or not the id is renewed.
 
 ## Failure and response behavior
 

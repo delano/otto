@@ -105,6 +105,24 @@ RSpec.describe 'IP precision capability and privacy profiles' do
       expect(Otto::Utils.ip_in_cidrs?('not-an-ip', ['203.0.113.0/24'])).to be false
     end
 
+    it 'fails closed on an IPAddr range given as the client address' do
+      # IPAddr#include? is true for a range wholly inside the entry, so a
+      # range would pass as if it were one address.
+      expect(Otto::Utils.ip_in_cidrs?(IPAddr.new('203.0.113.0/24'), ['203.0.0.0/16'])).to be false
+      expect(Otto::Utils.ip_in_cidrs?(IPAddr.new('2001:db8::/64'), ['2001:db8::/32'])).to be false
+      expect(Otto::Utils.ip_in_cidrs?(IPAddr.new('::ffff:203.0.113.0/120'), ['203.0.0.0/16'])).to be false
+      # A host address stays accepted, in either notation.
+      expect(Otto::Utils.ip_in_cidrs?(IPAddr.new('203.0.113.7/32'), ['203.0.0.0/16'])).to be true
+      expect(Otto::Utils.ip_in_cidrs?(IPAddr.new('::ffff:203.0.113.7'), ['203.0.0.0/16'])).to be true
+    end
+
+    it 'fails closed on a range given as the client address' do
+      # The client is one address. A range string is malformed runtime data,
+      # even when it would sit inside the allowlist.
+      expect(Otto::Utils.ip_in_cidrs?('0.0.0.0/0', ['0.0.0.0/0'])).to be false
+      expect(Otto::Utils.ip_in_cidrs?('203.0.113.7/32', ['203.0.113.0/24'])).to be false
+    end
+
     it 'returns false for nil or empty range lists' do
       expect(Otto::Utils.ip_in_cidrs?('203.0.113.7', nil)).to be false
       expect(Otto::Utils.ip_in_cidrs?('203.0.113.7', [])).to be false
@@ -523,6 +541,37 @@ RSpec.describe 'IP precision capability and privacy profiles' do
         expect(env['otto.ip_match'].call(['203.0.113.7/32'])).to be false
         expect(env['otto.ip_match'].call(['0.0.0.0/0', '::/0'])).to be false
         expect(Otto.logger).to have_received(:warn).with(/otto.client_ip was set outside/)
+      end
+
+      it 'resolves and masks when otto.ip_match was set out-of-contract' do
+        # A spec or app stubbed the capability. Taking it for a prior pass
+        # would skip resolution and masking and pass the raw address through.
+        allow(Otto.logger).to receive(:warn)
+        env = {
+          'REMOTE_ADDR' => '203.0.113.7',
+          'HTTP_X_FORWARDED_FOR' => '203.0.113.7',
+          'otto.ip_match' => ->(_cidrs) { true },
+        }
+        middleware.call(env)
+
+        expect(env['REMOTE_ADDR']).to eq('203.0.113.0')
+        expect(env['HTTP_X_FORWARDED_FOR']).to eq('203.0.113.0')
+        expect(env['otto.client_ip']).to eq('203.0.113.0')
+        expect(env['otto.ip_match'].call(['10.0.0.0/8'])).to be false
+        expect(Otto.logger).to have_received(:warn).with(/otto.ip_match was set outside/)
+      end
+
+      it 'keeps a no-client-IP verdict from a prior pass without warning' do
+        allow(Otto.logger).to receive(:warn)
+        cfg = Otto::Security::Config.new.tap { |c| c.add_trusted_proxy('10.0.0.1') }
+        stacked = Otto::Security::Middleware::IPPrivacyMiddleware.new(app, cfg)
+        env = { 'REMOTE_ADDR' => '10.0.0.1', 'HTTP_X_FORWARDED_FOR' => '203.0.113.7, unknown' }
+        stacked.call(env)
+        stacked.call(env)
+
+        expect(env).not_to have_key('otto.client_ip')
+        expect(env['otto.ip_match'].call(['10.0.0.0/8'])).to be false
+        expect(Otto.logger).not_to have_received(:warn)
       end
     end
 

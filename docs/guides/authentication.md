@@ -483,9 +483,10 @@ session first (`session.id`, a binding it stored in the session, or
 `session['session_id']`) and, only when the session provides none, from its
 own binding cookie. On HTTPS requests
 that cookie is `__Host-otto_session`, set with `Secure`, `Path=/` and no
-`Domain`, so a sibling subdomain or a network attacker cannot plant it; on HTTP
-it is `_otto_session`. `CSRFMiddleware` sets it on the response to any request
-that resolved a binding.
+`Domain`, so in browsers that enforce cookie name prefixes a sibling subdomain
+or a network attacker cannot plant it; on HTTP it is `_otto_session`.
+`CSRFMiddleware` sets it on HTML responses, and on any other response to a
+request that resolved a binding other than the session store's own id.
 
 Behind a session middleware the session's id is the binding, so the session
 cookie is the one an attacker would plant: an attacker who can set cookies for

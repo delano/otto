@@ -41,6 +41,8 @@ class Otto
         # needs the binding cookie, or a client that never loads an HTML page
         # would get a new binding, and a 403, on every request. The cookie
         # follows the same rules as on HTML responses (#ensure_session_cookie).
+        # A binding that is the session store's own id is not recorded in
+        # otto.csrf_binding, so it is not copied into the cookie here.
         def apply_binding_cookie(request, response)
           binding_id = request.env['otto.csrf_binding']
           return response unless binding_id && response.is_a?(Array) && response.length >= 2

@@ -66,7 +66,8 @@ class Otto
 
     # The CSRF binding resolved for this request, as a String. Written on every
     # call to Otto::Security::Config#get_or_create_session_id (the last call
-    # wins).
+    # wins), except when the binding is the session store's own id, which the
+    # store's cookie already carries.
     # Type: String
     # Set by: Otto::Security::Config#get_or_create_session_id
     # Used by: CSRFMiddleware (sets the binding cookie on non-HTML responses)

@@ -3,17 +3,17 @@ Security
 
 - On HTTPS requests, Otto's own CSRF binding cookie is now
   ``__Host-otto_session``, set with ``Secure``, ``Path=/`` and no ``Domain``.
-  Browsers accept such a cookie only from a secure origin with those
-  attributes, so a sibling subdomain or a network attacker can no longer plant
-  it. Before, when the session provided no binding, a planted
-  ``_otto_session`` (or ``session_id`` or ``_session_id``) cookie became the
-  binding, and an attacker holding a token for it could forge a login. This
-  covers only Otto's fallback cookie. Behind a session middleware the binding
-  is the session's id, so the session cookie can still be planted unless it is
-  protected the same way: over HTTPS, configure rack-session with a
-  ``__Host-`` key and ``secure: true`` (for example
-  ``use Rack::Session::Cookie, key: '__Host-rack.session', secure: true,
-  secrets: [...]``), and renew the session id at login with
+  Browsers that enforce cookie name prefixes accept such a cookie only from a
+  secure origin with those attributes, so in those browsers a sibling subdomain
+  or a network attacker can no longer plant it. Before, when the session
+  provided no binding, a planted ``_otto_session`` (or ``session_id`` or
+  ``_session_id``) cookie became the binding, and an attacker holding a token
+  for it could forge a login. This covers only Otto's fallback cookie. Behind a
+  session middleware the binding is the session's id, so the session cookie can
+  still be planted unless it is protected the same way: over HTTPS, configure
+  rack-session with a ``__Host-`` key and ``secure: true`` (for example ``use
+  Rack::Session::Cookie, key: '__Host-rack.session', secure: true, secrets:
+  [...]``), and renew the session id at login with
   ``env['rack.session.options'][:renew] = true``. See
   ``docs/guides/authentication.md``. (#302)
 
@@ -43,7 +43,11 @@ Changed
   client that fetches a token from an endpoint calling
   ``Config#get_or_create_session_id`` receives the cookie with the token and
   passes on its next POST. The request's resolved binding is recorded in
-  ``env['otto.csrf_binding']``. (#302)
+  ``env['otto.csrf_binding']``, except when it is the session store's own id
+  (``session.id``, or ``session['session_id']``): the store's cookie already
+  carries that, so it is not copied into the binding cookie on these
+  responses. HTML responses still set the binding cookie from any binding, as
+  before. (#302)
 
 Fixed
 -----

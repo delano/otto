@@ -899,10 +899,11 @@ class Otto
       # Cookie that carries the CSRF binding on plain HTTP requests.
       CSRF_BINDING_COOKIE = '_otto_session'
 
-      # Cookie that carries the CSRF binding on HTTPS requests. Browsers accept
-      # a __Host- cookie only when it is set with Secure and Path=/, without a
-      # Domain, from a secure origin, so a sibling subdomain or a network
-      # attacker cannot plant one.
+      # Cookie that carries the CSRF binding on HTTPS requests. Browsers that
+      # enforce cookie name prefixes accept a __Host- cookie only when it is
+      # set with Secure and Path=/, without a Domain, from a secure origin, so
+      # in those browsers a sibling subdomain or a network attacker cannot
+      # plant one.
       CSRF_HOST_BINDING_COOKIE = '__Host-otto_session'
 
       # Name of the cookie that carries the CSRF binding for +request+:
@@ -1398,8 +1399,12 @@ class Otto
         end
 
         # CSRFMiddleware sets the binding cookie from this on responses that
-        # are not HTML (see EnvKeys::CSRF_BINDING).
-        request.env['otto.csrf_binding'] = session_id.to_s if request.respond_to?(:env)
+        # are not HTML (see EnvKeys::CSRF_BINDING). The session store's own id
+        # is left out: the store's cookie already carries it, and a copy would
+        # sit in a second cookie whose lifetime and attributes the application
+        # does not configure.
+        record_binding = request.respond_to?(:env) && !session_store_id?(request, session_id)
+        request.env['otto.csrf_binding'] = session_id.to_s if record_binding
         session_id
       end
 
@@ -1522,6 +1527,23 @@ class Otto
         session[csrf_session_key] = session_id if session
       rescue StandardError
         # Cookie fallback handled in inject_csrf_token
+      end
+
+      # Whether +binding+ is the session store's own id: session.id, or
+      # session['session_id'], for which rack-session's Pool and Cookie
+      # stores return the session's public id.
+      def session_store_id?(request, binding)
+        session = request.session
+        return false unless session
+
+        binding  = binding.to_s
+        store_id = session.id if session.respond_to?(:id)
+        return true if store_id && store_id.to_s == binding
+
+        legacy_id = session['session_id']
+        !legacy_id.nil? && legacy_id.to_s == binding
+      rescue StandardError
+        false
       end
 
       # The session id a lazy store minted while #store_session_id wrote to the

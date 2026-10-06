@@ -438,6 +438,16 @@ class Otto
         stable random value.
       MSG
 
+      # A CSRF secret made only of these characters is blank: Unicode
+      # whitespace ([[:space:]]), the Unicode Default_Ignorable_Code_Point
+      # property (characters that render as nothing, such as zero-width
+      # spaces and joiners, U+00AD soft hyphen, U+2060 word joiner, U+FEFF,
+      # bidirectional marks, variation selectors and Hangul fillers) and NUL.
+      BLANK_CSRF_SECRET = /\A[[:space:]\p{Default_Ignorable_Code_Point}\u0000]*\z/
+
+      # A configured CSRF secret shorter than this many bytes logs a warning.
+      CSRF_SECRET_MIN_BYTES = 32
+
       attr_accessor :input_validation, :max_param_depth, :csrf_token_key,
                     :rate_limiting_config, :csrf_session_key, :max_request_size,
                     :max_param_keys
@@ -481,9 +491,8 @@ class Otto
         @rate_limiting_config   = { custom_rules: {} }
         @ip_privacy_config      = Otto::Privacy::Config.new
 
-        configured_secret      = ENV.fetch('OTTO_CSRF_SECRET', nil)
-        @csrf_secret_generated = configured_secret.nil? || configured_secret.empty?
-        @csrf_secret           = @csrf_secret_generated ? SecureRandom.hex(32) : configured_secret
+        # Unset or blank falls back to a generated secret (see #csrf_secret=).
+        self.csrf_secret = ENV.fetch('OTTO_CSRF_SECRET', nil)
       end
 
       # Enable CSRF (Cross-Site Request Forgery) protection
@@ -822,11 +831,39 @@ class Otto
       #
       # Write-only by design: the signing key has no public reader, so it is not
       # exposed to inspection/logging/serialization via the config object.
+      #
+      # nil or a blank String (see BLANK_CSRF_SECRET) is not used as the key.
+      # A non-blank OTTO_CSRF_SECRET is used instead, read when the setter
+      # runs. If that is unset or blank too, a fresh random per-process secret
+      # is generated and marked as generated, so the production guard
+      # (CSRF_SECRET_REQUIRED_MESSAGE) still applies. The constructor assigns
+      # OTTO_CSRF_SECRET through this setter.
+      #
+      # A configured secret shorter than CSRF_SECRET_MIN_BYTES bytes is used
+      # as given and logs a warning, without raising.
+      #
+      # Each generated secret gets a fresh once-only flag, so the
+      # generated-secret warning is logged for it even if it was already
+      # logged for an earlier one (generate_csrf_token on an unfrozen config
+      # logs it before this setter can run again).
+      #
+      # @param secret [String, nil] stable signing secret, or nil/blank for
+      #   OTTO_CSRF_SECRET or a generated per-process secret
+      # @raise [FrozenError] if configuration is frozen
+      # @raise [ArgumentError] if secret is neither a String nor nil
       def csrf_secret=(secret)
         ensure_not_frozen!
 
-        @csrf_secret           = secret
-        @csrf_secret_generated = false
+        unless secret.nil? || secret.is_a?(String)
+          raise ArgumentError,
+                "CSRF secret must be a String or nil, got: #{secret.class}"
+        end
+
+        secret                 = ENV.fetch('OTTO_CSRF_SECRET', nil) if blank_csrf_secret?(secret)
+        @csrf_secret_generated = blank_csrf_secret?(secret)
+        @csrf_secret           = @csrf_secret_generated ? SecureRandom.hex(32) : secret
+        @csrf_secret_warning   = OnceFlag.new if @csrf_secret_generated
+        warn_short_csrf_secret unless @csrf_secret_generated
       end
 
       # Generate a CSRF token bound to the given session id and signed (HMAC-SHA256)
@@ -1380,6 +1417,48 @@ class Otto
         request.cookies['_otto_session'] ||
           request.cookies['session_id'] ||
           request.cookies['_session_id']
+      end
+
+      # Whether secret is nil or blank per BLANK_CSRF_SECRET. The string is
+      # checked in UTF-8: converted from its own encoding, or else its bytes
+      # read as UTF-8, which is how a non-ASCII OTTO_CSRF_SECRET arrives under
+      # LANG=C (tagged ASCII-8BIT). A string that fits neither is blank only
+      # if it holds nothing but ASCII whitespace and NUL, the characters
+      # String#strip removes; such bytes still work as an HMAC key.
+      def blank_csrf_secret?(secret)
+        return true if secret.nil?
+
+        utf8 = transcoded_utf8(secret) || relabelled_utf8(secret)
+        utf8 ? BLANK_CSRF_SECRET.match?(utf8) : secret.b.strip.empty?
+      end
+
+      # secret converted to valid UTF-8 from its own encoding, or nil.
+      def transcoded_utf8(secret)
+        utf8 = secret.encode(Encoding::UTF_8)
+        utf8 if utf8.valid_encoding?
+      rescue EncodingError
+        nil
+      end
+
+      # secret's bytes read as UTF-8 if they are valid UTF-8, or nil.
+      def relabelled_utf8(secret)
+        utf8 = secret.dup.force_encoding(Encoding::UTF_8)
+        utf8 if utf8.valid_encoding?
+      end
+
+      # Warn, without raising, when the configured secret is shorter than
+      # CSRF_SECRET_MIN_BYTES. Logs the length, never the secret. Raising
+      # would stop deploys that already run with a short secret from booting.
+      def warn_short_csrf_secret
+        bytes = @csrf_secret.bytesize
+        return if bytes >= CSRF_SECRET_MIN_BYTES
+
+        Otto.logger.warn(
+          '[Otto::Security::Config] The configured CSRF secret is shorter than ' \
+          "#{CSRF_SECRET_MIN_BYTES} bytes (#{bytes} bytes). A short secret is " \
+          'easier to guess from a token the app issued. Set a stable random value ' \
+          "of at least #{CSRF_SECRET_MIN_BYTES} bytes, e.g. SecureRandom.hex(32)."
+        )
       end
 
       def store_session_id(request, session_id)

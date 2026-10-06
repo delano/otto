@@ -2,7 +2,8 @@
 
 Point-in-time audits of the Otto codebase. Each report names the commit it
 examined. Line numbers, quoted code and reproduction results refer to that
-commit, not to the current tree.
+commit, not to the current tree. A report can open with a status section
+rechecked against a later commit; that section names its own commit.
 
 ## Status of these documents
 
@@ -25,7 +26,7 @@ are local to one report.
 
 Each critical and high finding has its own pull request. The fix in each PR was
 reproduced with a failing spec before it was written; the PR description holds
-that evidence. States were last checked on 2026-10-06.
+that evidence. States were last checked on 2026-10-06, with main at `4e2758c`.
 
 | Finding | Severity | Pull request | State |
 | --- | --- | --- | --- |
@@ -42,9 +43,11 @@ Two related pull requests are not findings from the report:
 
 | Change | Origin | Pull request | State |
 | --- | --- | --- | --- |
-| Redact secrets from `#inspect` | The CSRF secret showed in `Security::Config#inspect` and `FrozenError` messages; found while preparing #297 | [#300](https://github.com/delano/otto/pull/300) | Open |
+| Redact secrets from `#inspect` | The CSRF secret showed in `Security::Config#inspect` and `FrozenError` messages; found while preparing #297 | [#300](https://github.com/delano/otto/pull/300) | Merged 2026-10-06 |
 | Bind the CSRF fallback cookie to a `__Host-` name on HTTPS | Changes the cookie fallback in the same CSRF binding lookup that #295 changes | [#302](https://github.com/delano/otto/pull/302) | Open |
 
-The medium and low findings have no pull request yet.
+The medium and low findings have no pull request yet. All 23 are still present
+at `4e2758c`; the report's [status section](2026-09-28-v2.12.0-code-audit.md#status-on-main)
+gives each one's location on main and a second raise site for C9.
 
 When one of these pull requests merges or closes, update its State cell.

@@ -67,11 +67,17 @@ class Otto
           # Client-IP resolution is idempotent, but proxy TRUST is not: the
           # prior pass may have run under a different (or no) configuration,
           # so this instance still enforces its own trust posture below.
-          if env.key?('otto.client_ip')
+          #
+          # otto.ip_match without otto.client_ip also marks a prior pass: the
+          # no-resolvable-IP path installs it alone. That path deletes the
+          # forwarded address headers, so re-resolving would see only the peer
+          # and could turn "client unknown" into "the proxy is the client".
+          if env.key?('otto.client_ip') || prior_no_client_ip_pass?(env)
             ensure_ip_match_present(env)
             enforce_proxy_trust_after_prior_pass(env)
             return @app.call(env)
           end
+          discard_out_of_contract_ip_match(env)
 
           # Record the connecting peer's trust decision BEFORE any masking, so
           # secure? can authorize X-Forwarded-Proto canonically even after
@@ -203,16 +209,51 @@ class Otto
           end
         end
 
+        # Whether a prior pass of this middleware resolved no client IP.
+        #
+        # That pass leaves otto.ip_match without otto.client_ip. otto.ip_match
+        # alone is not enough to tell: a spec or app may have stubbed it, and
+        # taking a stub for a verdict would skip resolution and masking. Every
+        # pass writes otto.peer_relayed before resolving, so the pair is the
+        # marker.
+        #
+        # @param env [Hash] Rack environment
+        # @return [Boolean]
+        def prior_no_client_ip_pass?(env)
+          env.key?('otto.ip_match') && env.key?('otto.peer_relayed')
+        end
+
+        # Drop an otto.ip_match this middleware did not install, and say so.
+        #
+        # Reached only when #call found no prior pass. Resolution below
+        # installs the real capability; the warning makes the overwrite
+        # diagnosable, as #ensure_ip_match_present does for a hand-set
+        # otto.client_ip.
+        #
+        # @param env [Hash] Rack environment
+        def discard_out_of_contract_ip_match(env)
+          return unless env.key?('otto.ip_match')
+
+          Otto.logger.warn(
+            '[IPPrivacyMiddleware] otto.ip_match was set outside this ' \
+            'middleware and is being replaced: resolving and masking the ' \
+            'client IP as usual. Test harnesses can build the env with ' \
+            'Otto::Testing.env_for.'
+          )
+          env.delete('otto.ip_match')
+        end
+
         # Guarantee env['otto.ip_match'] exists on the idempotent-return path.
         #
         # Every path in this middleware that sets otto.client_ip installs the
         # capability first, so a second IPPrivacyMiddleware pass that reaches
         # this guard finds both keys and leaves the precise closure in place.
         # (The no-resolvable-IP path installs the capability but never sets
-        # otto.client_ip, so a second pass re-runs apply_privacy and reinstalls
-        # an equivalent fail-closed closure — idempotent, since there is nothing
-        # to double-mask.) The gap is out-of-contract writes: otto.client_ip is
-        # documented as "Set by: IPPrivacyMiddleware" (see Otto::EnvKeys), but
+        # otto.client_ip; #call recognises that pass by otto.ip_match plus
+        # otto.peer_relayed, so its fail-closed closure is kept too.) The gap
+        # is out-of-contract
+        # writes: otto.client_ip is documented as "Set by: IPPrivacyMiddleware"
+        # (see Otto::EnvKeys), but
         # an app or test harness that sets it directly trips the idempotency
         # guard and leaves the advertised capability nil — downstream policy
         # code then raises NoMethodError on nil.
@@ -260,8 +301,10 @@ class Otto
           # its own outcome. To trace resolution here, log a derived value (the
           # masked IP, the family, the trusted-proxy verdict) — never the address.
 
-          # No resolvable client IP (REMOTE_ADDR absent or blank, and no trusted
-          # forwarded value). There is nothing to mask, and masking would derive
+          # No resolvable client IP: REMOTE_ADDR absent or blank with no trusted
+          # forwarded value, or a trusted proxy chain whose walk reached an
+          # entry that is not an address (Otto::Utils.resolve_client_ip returns
+          # nil there). There is nothing to mask, and masking would derive
           # a nil masked IP (IPPrivacy.mask_ip returns nil for nil/empty input).
           # Writing that nil back to REMOTE_ADDR / forwarded headers would leave
           # present-but-nil CGI keys, which violate the Rack SPEC and trip
@@ -279,7 +322,9 @@ class Otto
           # Likewise, forwarded headers may still carry raw client addresses
           # (e.g. an X-Forwarded-For / Forwarded value with no usable REMOTE_ADDR
           # to anchor resolution). There is no masked IP to rewrite them to, so
-          # DELETE them — leaving them would leak the raw address downstream.
+          # the address headers are DELETED and Forwarded loses its for= pairs
+          # (its proto=/host=/by= stay) — leaving them would leak the raw
+          # address downstream.
           if client_ip.to_s.empty?
             Otto.logger.debug '[IPPrivacyMiddleware] No resolvable client IP; skipping IP masking' if Otto.debug
             scrub_sensitive_headers(
@@ -299,7 +344,14 @@ class Otto
               env['otto.original_ip'] = client_ip
               # Canonical client IP downstream reads (exempt: not masked)
               env['otto.client_ip'] = client_ip
-              # Don't mask forwarded headers for private IPs
+              # Rewrite the forwarded address headers to the exempt client IP
+              # rather than leaving them as received. They can carry public
+              # addresses: entries left of client_ip in the chain (an unlisted
+              # private hop appended after the real client), or a header an
+              # untrusted private peer sent. Rack::Request#ip trusts private
+              # and loopback peers by default and would read those raw values;
+              # rewritten, it returns client_ip.
+              rewrite_forwarded_addresses(env, client_ip)
               #
               # This early return also means NONE of the privacy fingerprint
               # values are produced for exempt IPs — no otto.privacy.fingerprint,
@@ -364,7 +416,7 @@ class Otto
 
           # Mask X-Forwarded-For headers to prevent leakage
           # Replace with masked IP so proxy resolution logic finds the masked IP
-          mask_forwarded_headers(env, fingerprint.masked_ip)
+          rewrite_forwarded_addresses(env, fingerprint.masked_ip)
 
           Otto.logger.debug "[IPPrivacyMiddleware] Masked IP: #{fingerprint.masked_ip}" if Otto.debug
 
@@ -491,50 +543,87 @@ class Otto
           UNTRUSTED_FORWARDING_METADATA_HEADERS.each { |key| env.delete(key) }
         end
 
-        # Delete forwarded IP headers outright.
+        # Remove the client addresses from the forwarded headers.
         #
         # Used on the no-resolvable-client-IP path, where there is no masked IP
-        # to rewrite these to. Leaving them would leak a raw client address (in
-        # X-Forwarded-For / X-Real-IP / X-Client-IP / RFC 7239 Forwarded)
-        # downstream. Deleting is Rack-SPEC-safe: an absent CGI key is valid.
+        # to rewrite these to. Leaving them would leak a raw client address
+        # downstream. X-Forwarded-For, X-Real-IP, X-Client-IP and the vendor
+        # client-address headers carry nothing but addresses, so they are
+        # deleted (an absent CGI key is Rack-SPEC-safe). RFC 7239 Forwarded
+        # also carries the scheme (proto=)
+        # and host (host=) a trusted proxy asserts, which Rack reads for
+        # #scheme, #ssl? and #host; deleting it would turn an https request
+        # into http and hand the host to the proxy. Its for= pairs are removed
+        # instead (see IPPrivacy.strip_forwarded_for for why not `unknown`),
+        # and the header is deleted only if nothing else remains.
         #
         # @param env [Hash] Rack environment
         def scrub_forwarded_headers(env)
-          Otto::Utils::CLIENT_ADDRESS_HEADERS.each { |key| env.delete(key) }
+          Otto::Utils::ADDRESS_ONLY_HEADERS.each { |key| env.delete(key) }
+          rewrite_forwarded_for(env, nil)
         end
 
-        # Mask X-Forwarded-For and related proxy headers
+        # Rewrite X-Forwarded-For and related proxy headers to one address
         #
-        # Replaces forwarded IP headers with the masked IP to prevent leakage
-        # when downstream code (including Rack's request.ip) parses these headers.
+        # Replaces every present forwarded IP header with +address+ so
+        # downstream code (including Rack's request.ip) that parses these
+        # headers finds only that address. The masking path passes the masked
+        # IP; the private/localhost exemption passes the resolved client IP.
+        # Absent headers stay absent.
         #
         # @param env [Hash] Rack environment
-        # @param masked_ip [String] The masked IP to use as replacement
-        def mask_forwarded_headers(env, masked_ip)
+        # @param address [String] The address to use as replacement
+        def rewrite_forwarded_addresses(env, address)
           # Defensive: never write a nil replacement into these CGI-style headers
           # (the Rack SPEC requires String values; a nil trips Rack::Lint — see
           # issue #167). apply_privacy's early "no client IP" guard already
-          # guarantees a non-nil masked_ip here, but keep this method
+          # guarantees a non-nil address here, but keep this method
           # self-contained so a future caller change can't reintroduce a
           # present-but-nil HTTP_X_FORWARDED_FOR.
-          return if masked_ip.nil?
+          return if address.nil?
 
-          # Replace X-Forwarded-For with masked IP
-          # This prevents Rack::Request#ip from finding the real IP
-          env['HTTP_X_FORWARDED_FOR'] = masked_ip if env['HTTP_X_FORWARDED_FOR']
-          env['HTTP_X_REAL_IP'] = masked_ip if env['HTTP_X_REAL_IP']
-          env['HTTP_X_CLIENT_IP'] = masked_ip if env['HTTP_X_CLIENT_IP']
+          # Replace X-Forwarded-For, X-Real-IP, X-Client-IP and the vendor
+          # client-address headers (CF-Connecting-IP, True-Client-IP, ...)
+          # with the address. This prevents Rack::Request#ip, or code reading
+          # a vendor header, from finding any other address.
+          Otto::Utils::ADDRESS_ONLY_HEADERS.each { |key| env[key] = address if env[key] }
 
-          # RFC 7239 Forwarded carries the client IP in a structured `for=`
-          # token, and Otto reads it as an authoritative client-IP source in
-          # count-based depth mode (trusted_proxy_header 'Forwarded'/'Both').
-          # Left as-is it would leak the real IP to downstream code. Redact only
-          # the `for=` value(s) so proto=/host=/by= metadata survives.
-          if env['HTTP_FORWARDED']
-            env['HTTP_FORWARDED'] = Otto::Privacy::IPPrivacy.mask_forwarded_for(env['HTTP_FORWARDED'], masked_ip)
+          rewrite_forwarded_for(env, address)
+
+          Otto.logger.debug "[IPPrivacyMiddleware] Rewrote forwarded headers" if Otto.debug
+        end
+
+        # Replace every `for=` value in RFC 7239 Forwarded with +replacement+,
+        # or remove the `for=` pairs when +replacement+ is nil.
+        #
+        # Forwarded carries the client IP in a structured `for=` token, and Otto
+        # reads it as an authoritative client-IP source in count-based depth
+        # mode (trusted_proxy_header 'Forwarded'/'Both'). Left as-is it would
+        # leak the real IP to downstream code. Only the `for=` value(s) are
+        # redacted, so proto=/host=/by= metadata survives. A header left with
+        # nothing but separators is deleted.
+        #
+        # The rewrite is a pattern match, so the result is re-read with Rack's
+        # parser (and Otto's). If any `for=` other than +replacement+ survives,
+        # or Rack cannot parse the result, the header is deleted and the
+        # deletion logged: losing proto=/host= is recoverable, a client-chosen
+        # address reaching Rack::Request#ip is not.
+        #
+        # @param env [Hash] Rack environment
+        # @param replacement [String, nil] an address, or nil to remove `for=`
+        def rewrite_forwarded_for(env, replacement)
+          value = env['HTTP_FORWARDED']
+          return unless value
+
+          rewritten = Otto::Privacy::IPPrivacy.redact_forwarded_for(value, replacement)
+          if rewritten.empty?
+            env.delete('HTTP_FORWARDED')
+          elsif Otto::Privacy::IPPrivacy.forwarded_for_only?(rewritten, replacement)
+            env['HTTP_FORWARDED'] = rewritten
+          else
+            env.delete('HTTP_FORWARDED')
+            Otto::Privacy::IPPrivacy.log_forwarded_deletion
           end
-
-          Otto.logger.debug "[IPPrivacyMiddleware] Masked forwarded headers" if Otto.debug
         end
 
         # Check if the connecting peer counts as a trusted proxy

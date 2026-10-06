@@ -66,6 +66,80 @@ forwarded host, scheme, port, and IP values directly.
 Configure these options before the first request, when Otto freezes its
 configuration.
 
+## How enumerated proxy trust resolves the client IP
+
+With `trusted_proxies: [...]`, Otto reads `X-Forwarded-For` only when
+`REMOTE_ADDR` matches a configured proxy. It then reads the header from the
+right: starting with the entry nearest the application, it skips entries that
+match a configured proxy and takes the first entry that does not as the client
+IP. Entries to the left of that one are never used. If every entry matches a
+configured proxy, Otto uses `REMOTE_ADDR`.
+
+For example, with `trusted_proxies: ['10.0.0.0/8']` and a request from
+`10.0.0.5` carrying `X-Forwarded-For: 198.51.100.7, 203.0.113.9, 10.0.0.9`,
+the client IP is `203.0.113.9`. The `198.51.100.7` entry is whatever the client
+sent.
+
+If the walk reaches an entry that is not a valid IP address (such as `unknown`,
+an empty entry, including the one a trailing comma leaves, or a range such as
+`203.0.113.9/0`) before it finds one that does not match, the request has no
+client IP. A proxy wrote that entry where the client belongs, and the proxy
+itself is not the client. `env['otto.ip_match']` returns false for every range,
+`env['otto.client_ip']` and `Otto::Request#client_ipaddress` are nil, and when
+IP privacy is enabled (the `:masked` and `:anonymous` profiles) Otto deletes
+`X-Forwarded-For`, `X-Real-IP`, `X-Client-IP` and the vendor headers in
+`Otto::Utils::VENDOR_CLIENT_ADDRESS_HEADERS` and removes every `for=` pair
+from `Forwarded`, keeping its `proto=`, `host=` and `by=` fields (an element
+left empty is dropped, and a header left empty is deleted). `REMOTE_ADDR` keeps
+the proxy's address, and both `req.ip` and a plain `Rack::Request#ip` return
+it, so rate limiters still have a key; see
+[the privacy guide](privacy.md#default-behavior) for why.
+
+A proxy can write `unknown` on purpose. RFC 7239 (section 6.2) defines it for
+`Forwarded`, for a proxy that does not know the identity of the preceding hop
+but still signals that it forwarded the request, and a proxy can write the same
+token into `X-Forwarded-For` for that reason or because it is set to withhold
+the client address. When a trusted proxy does this, every request through it
+has no client IP, so `ip_match` denies all of them. To resolve a client IP,
+configure that proxy to append the address it received the request from.
+
+The walk gives the right answer only when two things hold:
+
+- **Every proxy between the client and the application is listed** in
+  `trusted_proxies`, together with any address a proxy appends about itself.
+  Google Cloud's external Application Load Balancer, for example, appends the
+  client's address and then its forwarding rule's address, so the forwarding
+  rule's address has to be listed as well as the load balancer's own ranges.
+  An unlisted address is an untrusted entry: the one nearest the application
+  becomes the client IP for every request through it. Rate-limit keys and
+  `otto.privacy.hashed_ip` then collapse onto that address, `ip_match` tests
+  it, and if it is private or loopback the request is exempt from masking.
+  A CDN in front of a listed load balancer is the common case: list the CDN's
+  edge ranges too.
+- **Every listed proxy appends** the address it received the request from to
+  `X-Forwarded-For`. nginx does this with
+  `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`. A trusted
+  proxy that passes the client's `X-Forwarded-For` through unchanged lets the
+  client choose the rightmost entry, and with it the resolved client IP, the
+  value `env['otto.ip_match']` checks, and every key derived from it.
+  Configure each trusted proxy to append to the header, or to replace a
+  client-supplied value with the address it observed.
+
+Releases through 2.12.0 took the leftmost untrusted entry instead, which the
+client controls behind an appending proxy. Under that walk a missing inner
+proxy did not change the result for a client that sent no `X-Forwarded-For`,
+so a deployment that worked on 2.12.0 can need more `trusted_proxies` entries
+after upgrading.
+
+`X-Real-IP` and `X-Client-IP` each carry one address. Otto reads them only when
+`X-Forwarded-For` is absent or blank, `X-Real-IP` first and then `X-Client-IP`,
+and never adds them to the `X-Forwarded-For` chain. A proxy that sets
+`X-Real-IP` but passes a client's `X-Forwarded-For` through still lets that
+header decide the client IP. When `X-Forwarded-For` is present and every entry
+in it is a trusted proxy, Otto uses `REMOTE_ADDR`, not `X-Real-IP`. A proxy
+that sets only `X-Real-IP` should also append to or replace
+`X-Forwarded-For`.
+
 ## How Otto handles each trust state
 
 The decision is made by `IPPrivacyMiddleware` from the connecting peer
@@ -74,7 +148,7 @@ The decision is made by `IPPrivacyMiddleware` from the connecting peer
 
 | Trust state | `otto.via_trusted_proxy` | Forwarded host, scheme, and port carriers |
 | --- | --- | --- |
-| `REMOTE_ADDR` matches a configured trusted-proxy CIDR | `true` | Kept. When privacy masking applies, `Forwarded` keeps its `proto=`, `host=`, and `by=` fields while its `for=` value is replaced with the masked IP. |
+| `REMOTE_ADDR` matches a configured trusted-proxy CIDR | `true` | Kept. When IP privacy is enabled, `Forwarded` keeps its `proto=`, `host=`, and `by=` fields while its `for=` value is replaced with the masked IP, or with the resolved client IP when that IP is private or loopback and exempt from masking. When no client IP resolves, the `for=` pairs are removed instead. Otto re-reads the result with Rack's parser; if any other `for=` value survives, or Rack cannot parse the header (an RFC 7239 extension parameter is enough), Otto deletes the header. The first deletion in a process is logged at warn, later ones at debug. |
 | Depth mode is enabled | `true` for every peer | Kept, subject to the same privacy masking. |
 | Proxy trust is configured, but the peer does not match a configured CIDR | `false` | Deleted. |
 | `trusted_proxies: :none` is configured | `false` for every peer | Deleted. |
@@ -209,9 +283,11 @@ registers the family for the process, even under `trusted_proxies: :none`.
 `trusted_proxy_header` accepts `X-Forwarded-For` (the default), `Forwarded`, or
 `Both`. When configuring proxy trust, `Forwarded` and `Both` require depth mode.
 CIDR filter mode resolves client IPs from the `X-Forwarded-For` family only
-(`X-Forwarded-For`, then `X-Real-IP`, then `X-Client-IP`) and never from RFC
-7239 `Forwarded`, so a non-default family would make Rack read a header that
-Otto ignores:
+(`X-Forwarded-For`, or `X-Real-IP` then `X-Client-IP` when it is absent or
+blank; see
+[How enumerated proxy trust resolves the client IP](#how-enumerated-proxy-trust-resolves-the-client-ip))
+and never from RFC 7239 `Forwarded`, so a non-default family would make Rack
+read a header that Otto ignores:
 
 ```text
 Cannot configure trusted_proxy_header 'Forwarded' or 'Both' together with

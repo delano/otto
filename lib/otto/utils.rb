@@ -10,8 +10,9 @@ class Otto
   module Utils
     extend self
 
-    # Forwarded-for style headers consulted (in order) when resolving the real
-    # client IP from behind a trusted proxy. Shared by IPPrivacyMiddleware and
+    # Forwarded-for style headers consulted when resolving the real client IP
+    # from behind a trusted proxy. The resolver reads only the first one that
+    # is not blank, in this order. Shared by IPPrivacyMiddleware and
     # Otto::Request so the two resolvers cannot drift.
     FORWARDED_FOR_HEADERS = %w[
       HTTP_X_FORWARDED_FOR
@@ -49,9 +50,45 @@ class Otto
     # forwarded-for family (the CIDR walk, and X-Forwarded-For in depth mode)
     # and RFC 7239 Forwarded (depth mode with trusted_proxy_header 'Forwarded'
     # or 'Both'). A header resolve_client_ip starts reading belongs here, so
-    # that IPPrivacyMiddleware deletes it when no client IP resolves and
-    # Otto::Testing.env_for refuses it in a request it builds as direct.
+    # that IPPrivacyMiddleware removes its address when no client IP resolves
+    # (deleting it, or for Forwarded its for= pairs) and Otto::Testing.env_for
+    # refuses it in a request it builds as direct.
     CLIENT_ADDRESS_HEADERS = (FORWARDED_FOR_HEADERS + %w[HTTP_FORWARDED]).freeze
+
+    # Vendor headers in which a CDN or proxy passes on the client address it
+    # observed: Cloudflare (CF-Connecting-IP, CF-Connecting-IPv6), Akamai and
+    # Cloudflare Enterprise (True-Client-IP), Fastly (Fastly-Client-IP), Fly
+    # (Fly-Client-IP), Azure Front Door (X-Azure-ClientIP, X-Azure-SocketIP),
+    # CloudFront (CloudFront-Viewer-Address), Vercel (X-Vercel-Forwarded-For),
+    # ingress-nginx (X-Original-Forwarded-For), and the older
+    # X-Cluster-Client-IP and X-AppEngine-User-IP. The resolver never reads
+    # them: Otto cannot tell which vendor, if any, set one, and a client can
+    # send any of them. They are listed because they hold the address
+    # REMOTE_ADDR holds, so with IP privacy enabled IPPrivacyMiddleware
+    # rewrites them alongside X-Forwarded-For (masked IP, or the resolved
+    # client IP on the private/loopback exemption) and deletes them when no
+    # client IP resolves.
+    VENDOR_CLIENT_ADDRESS_HEADERS = %w[
+      HTTP_CF_CONNECTING_IP
+      HTTP_CF_CONNECTING_IPV6
+      HTTP_TRUE_CLIENT_IP
+      HTTP_FASTLY_CLIENT_IP
+      HTTP_FLY_CLIENT_IP
+      HTTP_X_AZURE_CLIENTIP
+      HTTP_X_AZURE_SOCKETIP
+      HTTP_CLOUDFRONT_VIEWER_ADDRESS
+      HTTP_X_VERCEL_FORWARDED_FOR
+      HTTP_X_ORIGINAL_FORWARDED_FOR
+      HTTP_X_CLUSTER_CLIENT_IP
+      HTTP_X_APPENGINE_USER_IP
+    ].freeze
+
+    # Headers that carry nothing but client addresses: the forwarded-for
+    # family and the vendor headers. IPPrivacyMiddleware rewrites every one
+    # present to a single address, or deletes them when no client IP
+    # resolves. (Forwarded also carries proto=/host=/by= and is handled
+    # separately.)
+    ADDRESS_ONLY_HEADERS = (FORWARDED_FOR_HEADERS + VENDOR_CLIENT_ADDRESS_HEADERS).freeze
 
     # Special-use IPv4/IPv6 ranges that IPAddr's #private?/#loopback?/#link_local?
     # predicates do not cover but that should still be treated as non-public
@@ -185,13 +222,19 @@ class Otto
     # Strips an optional port (IPv6-safe), validates with IPAddr, and returns
     # the cleaned address string, or nil if the input is blank or malformed.
     #
+    # A range is malformed here. IPAddr.new also parses prefix and netmask
+    # notation ("203.0.113.9/0" is 0.0.0.0/0), but every caller hands this a
+    # value that must name one address: a forwarded header entry, or the
+    # runtime client address in ip_in_cidrs?. Configured ranges are parsed
+    # with IPAddr directly and never pass through here.
+    #
     # @param ip [String, nil] candidate address, optionally with a port
     # @return [String, nil] cleaned IP string, or nil if invalid
     def normalize_ip(ip)
       return nil if ip.nil? || ip.empty?
 
       candidate = strip_ip_port(ip.strip)
-      return nil if candidate.nil? || candidate.empty?
+      return nil if candidate.nil? || candidate.empty? || candidate.include?('/')
 
       # IPAddr validates both IPv4 and IPv6; raises for malformed input
       IPAddr.new(candidate)
@@ -225,13 +268,26 @@ class Otto
     # This is the single canonical resolver shared by IPPrivacyMiddleware
     # ("resolve once") and Otto::Request#client_ipaddress (its no-middleware
     # fallback), so both paths agree on which headers to trust and how to walk
-    # a proxy chain. It walks the forwarded chain left-to-right and returns the
-    # first address that is not itself a trusted proxy; if the peer is not a
-    # trusted proxy (or there is no config) it returns REMOTE_ADDR unchanged.
+    # a proxy chain. It walks the forwarded chain from the right (nearest proxy
+    # first, the direction Rack::Request#ip also walks), skips trusted proxies,
+    # and returns the first address that is not one. Entries left of that
+    # address were supplied by the client and are never selected. If the peer
+    # is not a trusted proxy (or there is no config) it returns REMOTE_ADDR
+    # unchanged.
+    #
+    # Returns nil when the walk reaches an entry that is not a valid address
+    # before it finds an untrusted one. The proxy tier wrote that entry where
+    # the client belongs, so the client is unknown: the entries to its left
+    # are client supplied, and REMOTE_ADDR is a proxy. Falling back to the
+    # proxy would make a private or loopback peer the client, which exempts
+    # the request from masking and lets otto.ip_match test the proxy's own
+    # address. Depth mode returns nil for an invalid selected entry for the
+    # same reason.
     #
     # @param env [Hash] Rack environment
     # @param security_config [Otto::Security::Config, nil] config exposing #trusted_proxy?
-    # @return [String, nil] resolved client IP (the raw REMOTE_ADDR when no proxy applies)
+    # @return [String, nil] resolved client IP (the raw REMOTE_ADDR when no
+    #   proxy applies), or nil when the walk reaches an invalid entry
     def resolve_client_ip(env, security_config)
       remote_addr = env['REMOTE_ADDR']
 
@@ -246,19 +302,29 @@ class Otto
       # is the client. Don't honor forwarded headers from untrusted sources.
       return remote_addr unless security_config&.trusted_proxy?(remote_addr)
 
-      forwarded_ips = FORWARDED_FOR_HEADERS
-                      .filter_map { |header| env[header] }
-                      .flat_map { |value| value.split(/,\s*/) }
+      # Read one header: the first of FORWARDED_FOR_HEADERS that is not blank.
+      # X-Real-IP and X-Client-IP carry a single address, so they are read only
+      # when X-Forwarded-For is absent or blank and never become positions in
+      # its chain.
+      # Split with xff_chain, as depth mode does: it keeps empty fields, a
+      # trailing one included, so an empty entry the proxy tier wrote stops
+      # the walk below like any other invalid entry instead of vanishing.
+      header = FORWARDED_FOR_HEADERS.find { |name| !env[name].to_s.strip.empty? }
+      forwarded_ips = header ? xff_chain(env[header]) : []
 
-      forwarded_ips.each do |candidate|
+      # Walk from the right. A proxy that appends writes the address it received
+      # the request from after whatever the client sent, so skip trusted proxies
+      # and stop at the first entry that is not one: everything left of it came
+      # from the client. An entry that is not a valid address (for example
+      # "unknown") ends the walk with no answer: reading past it would reach
+      # client-supplied values, and the peer is a proxy, not the client.
+      forwarded_ips.reverse_each do |candidate|
         clean_ip = normalize_ip(candidate.strip)
-        next unless clean_ip
-
-        # First address in the chain that isn't a known proxy is the client.
+        return nil unless clean_ip
         return clean_ip unless security_config.trusted_proxy?(clean_ip)
       end
 
-      # Whole chain was trusted proxies (or empty): fall back to the peer.
+      # Whole chain was trusted proxies, or empty: fall back to the peer.
       remote_addr
     end
 
@@ -286,12 +352,16 @@ class Otto
     # consulted in depth mode. Positions are counted raw (never dropped), so junk
     # padding cannot shift the index; only the selected entry is validated. If
     # the chain is shorter than N+1 (a request that may have bypassed the proxy
-    # tier) or the selected entry is invalid, REMOTE_ADDR is returned rather than
-    # a spoofable forwarded value.
+    # tier), REMOTE_ADDR is returned rather than a spoofable forwarded value.
+    # If the selected entry is not a valid address (blank, `unknown`, an
+    # obfuscated `_hidden` token), nil is returned: the proxy tier wrote that
+    # entry where the client belongs, so the client is unknown, and the peer
+    # is a proxy.
     #
     # @param env [Hash] Rack environment
     # @param security_config [Otto::Security::Config] config exposing #trusted_proxy_depth and #trusted_proxy_header
-    # @return [String, nil] resolved client IP (REMOTE_ADDR on short chain / invalid target)
+    # @return [String, nil] resolved client IP (REMOTE_ADDR on a short chain,
+    #   nil on an invalid target)
     def resolve_client_ip_by_depth(env, security_config)
       remote_addr = env['REMOTE_ADDR']
       depth       = security_config.trusted_proxy_depth.to_i
@@ -306,7 +376,7 @@ class Otto
       index = chain.length - (depth + 1)
       return remote_addr if index.negative? # chain shorter than depth + 1
 
-      normalize_ip(chain[index].to_s.strip) || remote_addr
+      normalize_ip(chain[index].to_s.strip)
     end
 
     # Positional forwarded-hop chain for depth resolution, selected by header
@@ -333,7 +403,9 @@ class Otto
     end
 
     # Split X-Forwarded-For into raw positional entries. `-1` keeps trailing
-    # empty fields so a malformed/empty hop still counts as a position.
+    # empty fields so a malformed/empty hop still counts as a position (depth
+    # mode) and stops the walk (CIDR filter mode, which also splits the
+    # single-valued X-Real-IP / X-Client-IP fallback with it).
     #
     # @param value [String, nil] raw X-Forwarded-For header value
     # @return [Array<String>]
@@ -347,7 +419,7 @@ class Otto
     # (raw position counting). The extracted token is only unquoted here; port
     # and IPv6 brackets are left for normalize_ip when the entry is selected.
     # Obfuscated (`for=_hidden`) and `for=unknown` identifiers are preserved as
-    # positions but normalize to nil (→ REMOTE_ADDR fallback if selected).
+    # positions but normalize to nil (the resolver returns nil if selected).
     # Commas separate forwarded-elements (and join multiple Forwarded headers).
     # A nil/blank header splits to [] (not ['']), so an absent Forwarded header
     # yields an empty chain and depth's explicit short-chain guard returns
@@ -366,8 +438,8 @@ class Otto
     # like for="1.2.3.4;junk" would be truncated to a valid-looking IP instead of
     # being rejected. Only DQUOTE wrappers are stripped: RFC 7239 quoted-strings
     # use DQUOTE exclusively, so a value like for='1.2.3.4' keeps its quotes,
-    # fails normalize_ip, and safely falls back to REMOTE_ADDR rather than being
-    # permissively accepted. This is deliberately stricter than OTS (which strips
+    # fails normalize_ip, and resolves to nil rather than being permissively
+    # accepted. This is deliberately stricter than OTS (which strips
     # both ['"]), consistent with depth's other intentionally-not-reconciled-down
     # safety properties. The raw value (port / IPv6 brackets intact) is left for
     # normalize_ip when the entry is selected. Returns '' when the element carries
@@ -435,8 +507,9 @@ class Otto
     # notation (::a.b.c.d) folds on the same terms, on both sides.
     #
     # Asymmetric strictness, on purpose:
-    # - `ip` is runtime data — nil, blank, or malformed input returns false
-    #   (fail-closed for allowlist callers).
+    # - `ip` is runtime data — nil, blank, or malformed input, a range such
+    #   as "203.0.113.7/32" or an IPAddr with a prefix shorter than a host
+    #   address included, returns false (fail-closed for allowlist callers).
     # - `cidrs` entries are configuration — an invalid CIDR string raises
     #   IPAddr::InvalidAddressError, because silently skipping an entry
     #   narrows an allowlist or widens a denylist. Validate entries at
@@ -460,6 +533,10 @@ class Otto
 
           IPAddr.new(candidate).native
         end
+      # An IPAddr can hold a range, and IPAddr#include? accepts a range wholly
+      # inside the entry. The client is one address: anything shorter than a
+      # host prefix is malformed runtime data.
+      return false unless client.prefix == (client.ipv4? ? 32 : 128)
 
       cidrs.any? do |entry|
         range = entry.is_a?(IPAddr) ? entry : IPAddr.new(entry.to_s)

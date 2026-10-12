@@ -525,19 +525,32 @@ response header field [COOKIE] does not inhibit caching; a cacheable response
 with a Set-Cookie header field can be (and often is) used to satisfy subsequent
 requests to caches." A shared cache that stored such a response would hand one
 client's binding cookie, or a token bound to one client's session, to other
-clients. The middleware therefore adds `Cache-Control: private` to these
-responses. RFC 9111, section 5.2.2.7: "The unqualified private response
-directive indicates that a shared cache MUST NOT store the response (i.e., the
-response is intended for a single user)." The browser's own cache may still
-store it.
+clients. The middleware therefore adds
+`Cache-Control: private, stale-if-error=0` to these responses. RFC 9111,
+section 5.2.2.7: "The unqualified private response directive indicates that a
+shared cache MUST NOT store the response (i.e., the response is intended for a
+single user)." The browser's own cache may still store it.
+
+`stale-if-error=0` (RFC 5861) is for a cache that stores the response despite
+`private`. CloudFront does when the cache policy's minimum TTL is above 0, as
+in the managed CachingOptimized policy (1 second). The CloudFront developer
+guide: "If your minimum TTL is greater than 0, CloudFront uses the cache
+policy’s minimum TTL, even if the Cache-Control: no-cache, no-store, and/or
+private directives are present in the origin headers. If the origin is
+reachable, CloudFront gets the object from the origin and returns it to the
+viewer. If the origin is unreachable and the minimum or maximum TTL value is
+greater than 0, CloudFront will serve the object that it got from the origin
+previously. To avoid this behavior, include the Cache-Control:
+stale-if-error=0 directive with the object returned from the origin."
 
 When the application sets `Cache-Control` or `Expires` on the response, Otto
 adds nothing, even when the application's value lets shared caches store the
 response (for example `public, max-age=60`); a page that carries a token then
-needs `private` or `no-store` from the application. Otto also adds nothing to a
-response it did not change: a token the application writes itself, for example
-from a JSON token endpoint behind a session middleware, needs its own header,
-such as `res['cache-control'] = 'private'` or `res.no_cache!`. A cache that is
+needs `private` or `no-store` from the application, and `stale-if-error=0` for
+the CloudFront case above. Otto also adds nothing to a response it did not
+change: a token the application writes itself, for example from a JSON token
+endpoint behind a session middleware, needs its own header, such as
+`res['cache-control'] = 'private, stale-if-error=0'`. A cache that is
 configured to ignore `Cache-Control` stores these responses anyway, so keep
 pages that carry tokens out of such rules.
 

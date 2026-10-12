@@ -187,12 +187,21 @@ class Otto
         # cache MUST NOT store the response (i.e., the response is intended
         # for a single user)." The browser's own cache may still store it.
         #
+        # stale-if-error=0 (RFC 5861) is for a cache that stores the
+        # response anyway. CloudFront does when the cache policy's minimum
+        # TTL is above 0, and its documentation says: "If the origin is
+        # unreachable and the minimum or maximum TTL value is greater than
+        # 0, CloudFront will serve the object that it got from the origin
+        # previously. To avoid this behavior, include the Cache-Control:
+        # stale-if-error=0 directive with the object returned from the
+        # origin."
+        #
         # A response on which the app set Cache-Control or Expires keeps the
         # app's choice, and gets nothing added.
         def keep_out_of_shared_caches(headers)
           return if headers.each_key.any? { |key| key.casecmp?('cache-control') || key.casecmp?('expires') }
 
-          headers['cache-control'] = 'private'
+          headers['cache-control'] = 'private, stale-if-error=0'
         end
 
         def html_response?(response)

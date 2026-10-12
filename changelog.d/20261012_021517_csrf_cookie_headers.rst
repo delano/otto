@@ -1,28 +1,36 @@
 Security
 --------
 
-- ``CSRFMiddleware`` now adds ``Cache-Control: private`` to a response on
-  which it sets the CSRF binding cookie or injects a token, unless the
-  application set ``Cache-Control`` or ``Expires`` on it. Both are meant for
-  one client, and RFC 9111, section 7.3, notes that "the Set-Cookie response
-  header field [COOKIE] does not inhibit caching". A shared cache that stored
-  such a response could hand one client's binding cookie, with the token bound
-  to it, to other clients, or serve a page with a token bound to one user's
-  session to everyone. Section 5.2.2.7 says of ``private`` that "a shared cache
-  MUST NOT store the response". The browser's own cache may still store it. An
+- ``CSRFMiddleware`` now adds ``Cache-Control: private, stale-if-error=0`` to
+  a response on which it sets the CSRF binding cookie or injects a token,
+  unless the application set ``Cache-Control`` or ``Expires`` on it. Both are
+  meant for one client, and RFC 9111, section 7.3, notes that "the Set-Cookie
+  response header field [COOKIE] does not inhibit caching". A shared cache
+  that stored such a response could hand one client's binding cookie, with the
+  token bound to it, to other clients, or serve a page with a token bound to
+  one user's session to everyone. Section 5.2.2.7 says of ``private`` that "a
+  shared cache MUST NOT store the response". The browser's own cache may still
+  store it. ``stale-if-error=0`` (RFC 5861) is for CloudFront, which stores
+  such a response when the cache policy's minimum TTL is above 0, as in the
+  managed CachingOptimized policy. For that case the CloudFront developer
+  guide says: "If the origin is unreachable and the minimum or maximum TTL
+  value is greater than 0, CloudFront will serve the object that it got from
+  the origin previously. To avoid this behavior, include the Cache-Control:
+  stale-if-error=0 directive with the object returned from the origin." An
   application value, including one that lets shared caches store the response
-  such as ``public, max-age=60``, is kept as is. A token the application writes
-  into a response itself, which Otto does not change, needs its own
+  such as ``public, max-age=60``, is kept as is. A token the application
+  writes into a response itself, which Otto does not change, needs its own
   ``Cache-Control``. See ``docs/guides/authentication.md``. (#PR)
 
 Changed
 -------
 
 - With CSRF protection enabled, HTML pages with a ``<head>`` element, and HTML
-  responses that set the binding cookie, now carry ``Cache-Control: private``
-  when the application sets neither ``Cache-Control`` nor ``Expires``. A shared
-  cache that honors ``private`` no longer stores them, including one that
-  stored them before under a default TTL. (#PR)
+  responses that set the binding cookie, now carry
+  ``Cache-Control: private, stale-if-error=0`` when the application sets
+  neither ``Cache-Control`` nor ``Expires``. A shared cache that honors
+  ``private`` no longer stores them, including one that stored them before
+  under a default TTL. (#PR)
 
 Fixed
 -----

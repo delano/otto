@@ -71,7 +71,7 @@ RSpec.describe 'CSRFMiddleware and the Rack specification' do
       _, headers, content = lint_call(app)
 
       expect(content).to include('<meta name="csrf-token"')
-      expect(headers['cache-control']).to eq('private')
+      expect(headers['cache-control']).to eq('private, stale-if-error=0')
     end
 
     # Rack::Lint on both sides also checks how the middleware treats the
@@ -119,7 +119,7 @@ RSpec.describe 'CSRFMiddleware and the Rack specification' do
       expect(status).to eq(200)
       expect(content).to eq(html)
       expect(binding_cookies(headers).size).to eq(1)
-      expect(headers['cache-control']).to eq('private')
+      expect(headers['cache-control']).to eq('private, stale-if-error=0')
     end
 
     it 'passes on a streaming body unread' do
@@ -175,7 +175,7 @@ RSpec.describe 'CSRFMiddleware and the Rack specification' do
       _, headers, = lint_call(app)
 
       expect(binding_cookies(headers).size).to eq(1)
-      expect(headers['cache-control']).to eq('private')
+      expect(headers['cache-control']).to eq('private, stale-if-error=0')
     end
 
     [204, 304].each do |status|
@@ -280,7 +280,7 @@ RSpec.describe 'CSRFMiddleware and the Rack specification' do
       expect(status).to eq(200)
       expect(content).to eq(html)
       expect(binding_cookies(headers).size).to eq(1)
-      expect(headers['cache-control']).to eq('private')
+      expect(headers['cache-control']).to eq('private, stale-if-error=0')
     end
 
     it 'is served unchanged, with no cookie or Cache-Control once the client sends the cookie' do

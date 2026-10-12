@@ -11,8 +11,8 @@ require 'spec_helper'
 # used to satisfy subsequent requests to caches." Without Cache-Control, a
 # shared cache that stores such a response hands one client's binding, or a
 # token bound to one client's session, to others. CSRFMiddleware marks those
-# responses Cache-Control: private unless the app set Cache-Control or
-# Expires itself.
+# responses Cache-Control: private, stale-if-error=0 unless the app set
+# Cache-Control or Expires itself.
 # rubocop:disable-next RSpec/DescribeClass
 RSpec.describe 'CSRF responses and shared caches' do
   include OttoTestHelpers
@@ -49,7 +49,7 @@ RSpec.describe 'CSRF responses and shared caches' do
       _, headers, = middleware_call({ 'content-type' => 'text/html' })
 
       expect(cookie_lines(headers).grep(/\A__Host-otto_session=/).size).to eq(1)
-      expect(headers['cache-control']).to eq('private')
+      expect(headers['cache-control']).to eq('private, stale-if-error=0')
     end
 
     # The binding comes from the request (here the binding cookie, or the
@@ -60,7 +60,7 @@ RSpec.describe 'CSRF responses and shared caches' do
 
       expect(cookie_lines(headers)).to be_empty
       expect(body.join).to include('<meta name="csrf-token"')
-      expect(headers['cache-control']).to eq('private')
+      expect(headers['cache-control']).to eq('private, stale-if-error=0')
     end
 
     it 'is private when the binding cookie is set on a page without <head>' do
@@ -68,7 +68,7 @@ RSpec.describe 'CSRF responses and shared caches' do
 
       expect(body.join).not_to include('csrf-token')
       expect(cookie_lines(headers).grep(/\A__Host-otto_session=/).size).to eq(1)
-      expect(headers['cache-control']).to eq('private')
+      expect(headers['cache-control']).to eq('private, stale-if-error=0')
     end
 
     it 'gets no Cache-Control when Otto neither set the cookie nor injected a token' do
@@ -105,7 +105,7 @@ RSpec.describe 'CSRF responses and shared caches' do
 
       _, headers, body = middleware_call(app_headers)
 
-      expect(headers['cache-control']).to eq('private')
+      expect(headers['cache-control']).to eq('private, stale-if-error=0')
       expect(headers['content-length']).to eq(body.join.bytesize.to_s)
       expect(app_headers).to eq('content-type' => 'text/html', 'content-length' => html.bytesize.to_s)
     end
@@ -131,7 +131,7 @@ RSpec.describe 'CSRF responses and shared caches' do
       _, headers, = middleware_call(json, body: ['{}'], binding_id: 'minted')
 
       expect(cookie_lines(headers)).to eq(['__Host-otto_session=minted; Path=/; HttpOnly; SameSite=Lax; Secure'])
-      expect(headers['cache-control']).to eq('private')
+      expect(headers['cache-control']).to eq('private, stale-if-error=0')
     end
 
     it 'gets no Cache-Control without a binding to set' do
@@ -158,8 +158,25 @@ RSpec.describe 'CSRF responses and shared caches' do
 
       _, headers, = middleware_call(app_headers, body: ['{}'], binding_id: 'minted')
 
-      expect(headers['cache-control']).to eq('private')
+      expect(headers['cache-control']).to eq('private, stale-if-error=0')
       expect(app_headers).to eq(json)
+    end
+  end
+
+  # CloudFront stores a response marked private when the cache policy's
+  # minimum TTL is above 0, and serves that copy when the origin is
+  # unreachable, unless the response carries stale-if-error=0.
+  describe 'a cache that stores the response despite private' do
+    it 'is told not to serve an HTML response stale when the origin fails' do
+      _, headers, = middleware_call({ 'content-type' => 'text/html' })
+
+      expect(headers['cache-control']).to eq('private, stale-if-error=0')
+    end
+
+    it 'is told not to serve a response that is not HTML stale when the origin fails' do
+      _, headers, = middleware_call({ 'content-type' => 'application/json' }, body: ['{}'], binding_id: 'minted')
+
+      expect(headers['cache-control']).to eq('private, stale-if-error=0')
     end
   end
 
@@ -182,7 +199,7 @@ RSpec.describe 'CSRF responses and shared caches' do
     it 'adds cache-control in lowercase to a plain Hash with mixed-case names' do
       _, headers, = middleware_call({ 'Content-Type' => 'application/json' }, body: ['{}'], binding_id: 'minted')
 
-      expect(headers['cache-control']).to eq('private')
+      expect(headers['cache-control']).to eq('private, stale-if-error=0')
     end
 
     it "keeps Rack::Headers' Cache-Control" do
@@ -199,7 +216,7 @@ RSpec.describe 'CSRF responses and shared caches' do
 
       _, headers, = middleware_call(app_headers)
 
-      expect(headers['Cache-Control']).to eq('private')
+      expect(headers['Cache-Control']).to eq('private, stale-if-error=0')
       expect(app_headers).not_to have_key('cache-control')
     end
   end
@@ -235,7 +252,7 @@ RSpec.describe 'CSRF responses and shared caches' do
     it 'marks an HTML page private' do
       _, headers, = get('/page')
 
-      expect(headers['cache-control']).to eq('private')
+      expect(headers['cache-control']).to eq('private, stale-if-error=0')
     end
 
     it "keeps a handler's no_cache! headers" do

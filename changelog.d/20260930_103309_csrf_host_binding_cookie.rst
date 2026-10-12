@@ -25,14 +25,15 @@ Changed
   or ``_session_id`` cookies as a CSRF binding. Accepting them as a fallback
   would keep the planting vector, so there is no transition period. After the
   upgrade, a token bound to one of those cookies is rejected once over HTTPS;
-  the next token the client fetches is bound to ``__Host-otto_session``.
-  Plain HTTP requests keep using ``_otto_session`` as before. The name follows
-  Rack's ``request.scheme``: behind a TLS-terminating proxy, Otto must see the
-  request as HTTPS (for example ``HTTPS=on``, ``rack.url_scheme``, or a
-  forwarded header Rack honors, such as ``X-Forwarded-Proto``) for the
-  hardening to apply. If Otto sees HTTPS while
-  the browser uses HTTP, the browser rejects the cookie and CSRF-protected
-  requests get ``403``. (#302)
+  the next token the client fetches is bound to ``__Host-otto_session``. Plain
+  HTTP requests keep using ``_otto_session`` as before. The name follows Rack's
+  ``request.scheme``: behind a TLS-terminating proxy, Otto must see the request
+  as HTTPS (for example ``HTTPS=on``, ``rack.url_scheme``, or a forwarded
+  header Rack honors, such as ``X-Forwarded-Proto``) for the hardening to
+  apply; once proxy trust is configured, ``IPPrivacyMiddleware`` drops a
+  forwarded scheme sent by a peer that fails it. If Otto sees HTTPS while the
+  browser uses HTTP, the browser rejects the cookie and CSRF-protected requests
+  get ``403``. (#302)
 
 - A form rendered over HTTP that posts to HTTPS now gets ``403`` on every
   attempt when its binding lives in the cookie: the HTTP page sets

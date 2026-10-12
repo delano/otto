@@ -65,6 +65,13 @@ RSpec.describe 'CSRF binding cookie' do
       expect(config.get_or_create_session_id(request)).to eq('hostbound')
     end
 
+    it 'reads only __Host-otto_session when Rack sees HTTPS through X-Forwarded-Proto' do
+      request = request_for('http://example.org/', '_otto_session' => 'planted', '__Host-otto_session' => 'hostbound')
+      request.env['HTTP_X_FORWARDED_PROTO'] = 'https'
+
+      expect(config.get_or_create_session_id(request)).to eq('hostbound')
+    end
+
     it 'still reads _otto_session on HTTP' do
       request = request_for('http://example.org/', '_otto_session' => 'legacy')
 
@@ -214,6 +221,31 @@ RSpec.describe 'CSRF binding cookie' do
       expect(attributes).to include('Secure', 'Path=/', 'HttpOnly', 'SameSite=Lax')
       expect(attributes.grep(/\ADomain=/i)).to be_empty
       expect(set_cookies.grep(/\A_otto_session=/)).to be_empty
+    end
+
+    # Behind a TLS-terminating proxy the app sees http, and Rack reports
+    # the scheme the proxy forwards.
+    context 'when behind a proxy that forwards X-Forwarded-Proto: https' do
+      def forwarded(env) = env['HTTP_X_FORWARDED_PROTO'] = 'https'
+
+      it 'sets __Host-otto_session with Secure' do
+        _, _, set_cookies = call('GET', 'http://example.org/form', {}) { |env| forwarded(env) }
+
+        binding_cookie = set_cookies.find { |cookie| cookie.start_with?('__Host-otto_session=') }
+        expect(binding_cookie).not_to be_nil
+        expect(binding_cookie.split(';').drop(1).map(&:strip)).to include('Secure', 'Path=/')
+      end
+
+      it 'refuses a login forged with a planted _otto_session' do
+        planted = { '_otto_session' => 'attackerchosen' }
+        _, attacker_html, = call('GET', 'http://example.org/form', planted) { |env| forwarded(env) }
+
+        status, = call('POST', 'http://example.org/login', planted, '_csrf_token' => token_in(attacker_html)) do |env|
+          forwarded(env)
+        end
+
+        expect(status).to eq(403)
+      end
     end
 
     it 'sets _otto_session on HTTP as before' do

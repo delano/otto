@@ -10,7 +10,7 @@ Fixed
   logged an unhandled error. The request was refused either way; only the
   status was wrong. A body that Rack cannot parse, such as
   ``_csrf_token=%ZZ``, still gets ``500``, with or without CSRF
-  protection. (#PR)
+  protection. (#307)
 
 - ``Otto::Security::Config#verify_csrf_token`` now returns ``false`` for a
   token that is not a ``String`` or that holds non-ASCII bytes, since a valid
@@ -18,4 +18,4 @@ Fixed
   which compares lengths in bytes, in place of a loop that compared lengths in
   characters. ``CSRFEnforcementWrapper`` rejects such a token before it
   resolves the CSRF binding, as it already did for a blank one, so the check
-  does not create a session or a binding for it. (#PR)
+  does not create a session or a binding for it. (#307)

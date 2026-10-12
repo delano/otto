@@ -1603,11 +1603,15 @@ class Otto
       end
 
       # Compare two Strings by their bytes with Rack::Utils.secure_compare.
-      # Rack documents it as a constant time comparison for values of fixed
-      # length, such as HMAC output, and it returns false straight away when
-      # the byte lengths differ. The expected value here is a hex
-      # HMAC-SHA256. A presented value with multibyte characters is unequal
-      # rather than an error, as lengths are compared in bytes.
+      # It returns false when the byte sizes differ. Otherwise it calls
+      # OpenSSL.fixed_length_secure_compare if OpenSSL was loaded before
+      # rack/utils, or runs a Ruby loop that XORs every byte if not. Rack's
+      # comment on the OpenSSL version, in lib/rack/utils.rb, reads "Constant
+      # time string comparison." and "the values compared should be of fixed
+      # length, such as strings that have already been processed by HMAC."
+      # The expected value here is a hex HMAC-SHA256. A presented value with
+      # multibyte characters is unequal rather than an error, as sizes are
+      # counted in bytes.
       #
       # @param a [Object] presented value; false unless it is a String
       # @param b [Object] expected value; false unless it is a String

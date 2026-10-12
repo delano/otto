@@ -7,9 +7,11 @@ require 'spec_helper'
 # A presented CSRF token is whatever the client sends. Rack parses
 # _csrf_token[]=v into an Array and _csrf_token[k]=v into a Hash, and decodes
 # percent escapes into a UTF-8 String that may hold multibyte characters or
-# invalid bytes. The Rack SPEC asks servers to pass header values that hold
-# non-ASCII characters as ASCII-8BIT. Each of these must fail the CSRF check
-# with a 403. If the check raises, Otto answers 500 instead.
+# invalid bytes. A header value may arrive as ASCII-8BIT: the Rack SPEC
+# (SPEC.rdoc) says "If the values for CGI keys contain non-ASCII characters,
+# they should use <tt>ASCII-8BIT</tt> encoding." These examples expect each
+# such token to fail the CSRF check with a 403. If the check raises, Otto
+# answers 500 instead.
 # rubocop:disable-next RSpec/DescribeClass
 RSpec.describe 'CSRF enforcement with a malformed token' do
   include OttoTestHelpers

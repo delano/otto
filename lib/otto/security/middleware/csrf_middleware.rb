@@ -146,10 +146,31 @@ class Otto
         end
 
         # Adds the binding cookie to +headers+ and keeps the response out of
-        # shared caches (#keep_out_of_shared_caches).
+        # shared caches (#keep_out_of_shared_caches), unless the response
+        # already sets a cookie of that name (#sets_cookie?).
         def append_binding_cookie(headers, cookie)
+          return if sets_cookie?(headers, cookie[/\A[^=]+/])
+
           append_set_cookie(headers, cookie)
           keep_out_of_shared_caches(headers)
+        end
+
+        # Whether +headers+ already set a cookie named +name+, as they do when
+        # this middleware runs more than once for a request: added again by
+        # the app, or in nested CSRF-enabled Ottos. RFC 6265, section 4.1.1:
+        # "Servers SHOULD NOT include more than one Set-Cookie header field in
+        # the same response with the same cookie-name."
+        #
+        # The first, innermost, middleware's cookie is kept. When the configs
+        # differ (csrf_session_key without session middleware), so do the
+        # bindings, and a browser keeps the last cookie of a name. Keeping
+        # the outer one would make the inner Otto, which checks the requests
+        # its routes receive, reject the tokens it issued.
+        def sets_cookie?(headers, name)
+          pattern = /\A\s*#{Regexp.escape(name)}\s*=/
+          headers.any? do |key, value|
+            key.casecmp?('set-cookie') && Array(value).any? { |lines| lines.split("\n").any?(pattern) }
+          end
         end
 
         # Marks a response that carries the binding cookie or an injected

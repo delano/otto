@@ -32,3 +32,18 @@ Fixed
   frozen headers raised ``FrozenError``, and an application that returned the
   same headers object for every response carried each client's binding cookie
   into the responses for later clients. (#PR)
+
+- ``CSRFMiddleware`` no longer adds the binding cookie to a response that
+  already sets a cookie of that name, as one does when the middleware runs
+  more than once for a request: added again around an Otto with CSRF
+  protection, or in nested CSRF-enabled Ottos (for example an Otto whose
+  ``not_found=`` is another Otto). The first, innermost, middleware's cookie
+  is kept. With one configuration the two cookies were identical. Without
+  session middleware, Ottos with different ``csrf_session_key`` values mint
+  different bindings; the browser kept the outer Otto's, and the inner Otto,
+  which checks the requests its routes receive, rejected the tokens it issued
+  on that page with ``403``. Those tokens now pass. The outer Otto still
+  injects its own ``csrf-token`` meta tag, ahead of the inner Otto's, and its
+  token now fails on the page that set the cookie in that case; it passes
+  only when the two Ottos share ``csrf_secret`` and resolve the same binding,
+  as they do once the client sends the cookie back. (#PR)

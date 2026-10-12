@@ -294,17 +294,18 @@ RSpec.describe 'CSRF binding cookie' do
       expect(status).to eq(200)
     end
 
-    # Rack URL-decodes cookie values, so an app-set session_id sent as
-    # a%3Bb%2541 is the binding "a;b%41". An HTML response copies it into
-    # _otto_session; written unencoded, the browser would keep
-    # _otto_session=a and the next POST would carry another binding.
+    # Rack URL-decodes cookie values. A binding "a;b%41" stored under
+    # csrf_session_key (here in a session that does not persist, as a
+    # strategy's might not) is set on the HTML response; written unencoded,
+    # the browser would keep _otto_session=a and the next POST would carry
+    # another binding.
     it 'encodes the binding cookie value so the next request reads the same binding' do
-      jar = { 'session_id' => 'a%3Bb%2541' }
-      _, html, set_cookies = call('GET', 'http://example.org/form', jar)
+      session = { otto.security_config.csrf_session_key => 'a;b%41' }
+      _, html, set_cookies = call('GET', 'http://example.org/form', {}) { |env| env['rack.session'] = session }
 
       expect(set_cookies.grep(/\A_otto_session=/)).to all(start_with('_otto_session=a%3Bb%2541;'))
       expect(set_cookies.grep(/\A_otto_session=/).size).to eq(1)
-      jar.merge!(cookie_jar(set_cookies))
+      jar = cookie_jar(set_cookies)
       token = token_in(html)
 
       statuses = Array.new(2) { call('POST', 'http://example.org/login', jar, '_csrf_token' => token).first }
@@ -312,9 +313,35 @@ RSpec.describe 'CSRF binding cookie' do
       expect(statuses).to eq([200, 200])
     end
 
+    # The same rule as on other responses: a binding the client already
+    # sends is not copied into the binding cookie.
+    it "does not copy the app's session_id cookie into _otto_session on an HTML response" do
+      jar = { 'session_id' => 'appsid123' }
+      _, html, set_cookies = call('GET', 'http://example.org/form', jar)
+
+      expect(set_cookies.grep(/\A_otto_session=/)).to be_empty
+
+      status, = call('POST', 'http://example.org/login', jar, '_csrf_token' => token_in(html))
+
+      expect(status).to eq(200)
+    end
+
     # Behind a session middleware the store's cookie carries the binding.
     # The same session object stands in for one the store persisted.
     context 'with a session that has an id' do
+      it 'does not copy the session id into a binding cookie on an HTML response' do
+        session = Class.new(Hash) { attr_accessor :id }.new.tap { |s| s.id = 'store-sid' }
+        _, html, set_cookies = call('GET', 'https://example.org/form', {}) { |env| env['rack.session'] = session }
+
+        expect(set_cookies.grep(/\A(?:__Host-otto_session|_otto_session)=/)).to be_empty
+
+        status, = call('POST', 'https://example.org/login', {}, '_csrf_token' => token_in(html)) do |env|
+          env['rack.session'] = session
+        end
+
+        expect(status).to eq(200)
+      end
+
       it 'does not copy the session id into a binding cookie on a JSON response' do
         session = Class.new(Hash) { attr_accessor :id }.new.tap { |s| s.id = 'store-sid' }
         _, body, set_cookies = call('GET', 'https://example.org/csrf', {}) { |env| env['rack.session'] = session }

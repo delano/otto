@@ -72,8 +72,8 @@ class Otto
     # call that records none leaves it.
     # Type: String
     # Set by: Otto::Security::Config#get_or_create_session_id
-    # Used by: CSRFMiddleware (sets the binding cookie on non-HTML responses
-    # to safe requests)
+    # Used by: CSRFMiddleware (sets the binding cookie from it on responses,
+    # HTML or not, to safe requests; it is the only source of that cookie)
     CSRF_BINDING = 'otto.csrf_binding'
 
     # Per-request CSP nonce, minted lazily on first access and memoized here.

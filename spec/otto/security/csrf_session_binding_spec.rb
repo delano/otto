@@ -231,9 +231,10 @@ RSpec.describe 'CSRF session binding with a lazily loaded session' do
       expect(submit(first_token).status).to eq(200)
     end
 
-    it 'does not set the _otto_session cookie again once it matches the binding' do
+    # The store's cookie carries the session id the token is bound to.
+    it 'does not copy the minted session id into the _otto_session cookie' do
       get '/form'
-      expect(otto_session_cookies.size).to eq(1)
+      expect(otto_session_cookies).to be_empty
 
       get '/form'
       expect(otto_session_cookies).to be_empty
@@ -260,9 +261,9 @@ RSpec.describe 'CSRF session binding with a lazily loaded session' do
       expect(submit(issued_token).status).to eq(200)
     end
 
-    it 'does not set the _otto_session cookie again when it already holds the session id' do
+    it 'does not copy the session id into the _otto_session cookie' do
       get '/touch'
-      expect(otto_session_cookies.size).to eq(1)
+      expect(otto_session_cookies).to be_empty
 
       get '/touch'
       expect(otto_session_cookies).to be_empty

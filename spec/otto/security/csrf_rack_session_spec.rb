@@ -80,9 +80,11 @@ RSpec.describe 'CSRF binding behind rack-session' do
   def cookie_names(set_cookies) = set_cookies.map { |cookie| cookie.split('=', 2).first }
 
   {
-    'Rack::Session::Pool' => ->(inner) { Rack::Session::Pool.new(inner) },
+    'Rack::Session::Pool' => ->(inner, **options) { Rack::Session::Pool.new(inner, **options) },
     # Rack::Session::Cookie raises on a secret shorter than 64 bytes.
-    'Rack::Session::Cookie' => ->(inner) { Rack::Session::Cookie.new(inner, secrets: ['s' * 64]) },
+    'Rack::Session::Cookie' => lambda do |inner, **options|
+      Rack::Session::Cookie.new(inner, secrets: ['s' * 64], **options)
+    end,
   }.each do |store_name, build_store|
     context "with #{store_name}" do
       let(:app) { build_store.call(otto) }
@@ -95,6 +97,51 @@ RSpec.describe 'CSRF binding behind rack-session' do
         status, body, = call('POST', 'https://example.org/submit', jar, '_csrf_token' => token_in(html))
 
         expect([status, body]).to eq([200, 'accepted'])
+      end
+
+      # The store's cookie carries the binding. A copy in Otto's binding
+      # cookie would outlive the session cookie with a lifetime and
+      # attributes the application does not configure.
+      it "does not copy the session id into Otto's binding cookie" do
+        jar = {}
+        _, _, first = call('GET', 'https://example.org/form', jar)
+        call('GET', 'https://example.org/touch', jar)
+        _, _, returning = call('GET', 'https://example.org/form', jar.except('__Host-otto_session'))
+
+        expect(cookie_names(first + returning)).not_to include('__Host-otto_session')
+      end
+
+      # An attacker who can set cookies for the victim's browser plants a
+      # copy of their own session cookie. A copy of that session's id in
+      # __Host-otto_session would stay the binding after the session cookie
+      # is gone, and the attacker holds tokens for it.
+      it "does not carry a planted session's id past the session cookie" do
+        attacker = {}
+        _, attacker_html, = call('GET', 'https://example.org/touch', attacker)
+        victim = { 'rack.session' => attacker['rack.session'] }
+        call('GET', 'https://example.org/form', victim)
+        victim.delete('rack.session')
+
+        status, = call('POST', 'https://example.org/submit', victim, '_csrf_token' => token_in(attacker_html))
+
+        expect(status).to eq(403)
+      end
+
+      # With secure: true, rack-session sets its cookie only when Rack sees
+      # the request as HTTPS, so over HTTP no session survives between
+      # requests. The binding cookie no longer stands in for it.
+      context 'when the store sets secure: true and Rack sees HTTP' do
+        let(:app) { build_store.call(otto, secure: true) }
+
+        it 'rejects the token, because the session does not come back' do
+          jar = {}
+          _, html, set_cookies = call('GET', 'http://example.org/form', jar)
+          expect(set_cookies).to be_empty
+
+          status, = call('POST', 'http://example.org/submit', jar, '_csrf_token' => token_in(html))
+
+          expect(status).to eq(403)
+        end
       end
 
       it 'accepts the token from a page that wrote to the session' do

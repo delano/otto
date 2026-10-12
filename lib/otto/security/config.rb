@@ -1398,8 +1398,8 @@ class Otto
           session_id = minted_id if minted_id
         end
 
-        # CSRFMiddleware sets the binding cookie from this on responses that
-        # are not HTML (see EnvKeys::CSRF_BINDING).
+        # CSRFMiddleware sets the binding cookie from this on responses to
+        # safe requests (see EnvKeys::CSRF_BINDING).
         request.env['otto.csrf_binding'] = session_id.to_s if record_binding?(request, session_id)
         session_id
       end

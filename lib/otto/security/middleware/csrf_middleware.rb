@@ -32,12 +32,20 @@ class Otto
 
           request  = Otto::Request.new(env)
           response = @app.call(env)
-          return inject_csrf_token(request, response) if html_response?(response)
+          return inject_csrf_token(request, with_copied_headers(response)) if html_response?(response)
 
           apply_binding_cookie(request, response)
         end
 
         private
+
+        # +response+ with a copy of its headers, so #inject_csrf_token can add
+        # the binding cookie, Cache-Control and Content-Length without
+        # changing the app's headers, which the app may freeze or share
+        # between responses.
+        def with_copied_headers(response)
+          response.dup.tap { |copy| copy[1] = response[1].dup }
+        end
 
         # A safe request that resolved a CSRF binding (a JSON token endpoint)
         # but got a response that is not HTML still needs the binding cookie,
@@ -62,7 +70,7 @@ class Otto
           return response unless new_cookie
 
           headers = response[1].dup
-          append_set_cookie(headers, new_cookie)
+          append_binding_cookie(headers, new_cookie)
           response.dup.tap { |copy| copy[1] = headers }
         end
 
@@ -94,6 +102,7 @@ class Otto
             # Update content length if present
             content_length_key          = headers.keys.find { |k| k.downcase == 'content-length' }
             headers[content_length_key] = body_content.bytesize.to_s if content_length_key
+            keep_out_of_shared_caches(headers)
 
             [status, headers, [body_content]]
           else
@@ -104,7 +113,7 @@ class Otto
         # Sets the binding cookie when its value differs from +session_id+.
         def ensure_session_cookie(request, headers, session_id)
           new_cookie = binding_cookie(request, session_id)
-          append_set_cookie(headers, new_cookie) if new_cookie
+          append_binding_cookie(headers, new_cookie) if new_cookie
         end
 
         # The Set-Cookie value for the binding cookie, or nil when the request
@@ -134,6 +143,29 @@ class Otto
           key          = !headers.key?('set-cookie') && headers.key?('Set-Cookie') ? 'Set-Cookie' : 'set-cookie'
           existing     = headers[key]
           headers[key] = existing ? [*existing, cookie] : cookie
+        end
+
+        # Adds the binding cookie to +headers+ and keeps the response out of
+        # shared caches (#keep_out_of_shared_caches).
+        def append_binding_cookie(headers, cookie)
+          append_set_cookie(headers, cookie)
+          keep_out_of_shared_caches(headers)
+        end
+
+        # Marks a response that carries the binding cookie or an injected
+        # token, both meant for one client, with Cache-Control: private.
+        # RFC 9111, section 7.3: "the Set-Cookie response header field
+        # [COOKIE] does not inhibit caching". Section 5.2.2.7: "The
+        # unqualified private response directive indicates that a shared
+        # cache MUST NOT store the response (i.e., the response is intended
+        # for a single user)." The browser's own cache may still store it.
+        #
+        # A response on which the app set Cache-Control or Expires keeps the
+        # app's choice, and gets nothing added.
+        def keep_out_of_shared_caches(headers)
+          return if headers.each_key.any? { |key| key.casecmp?('cache-control') || key.casecmp?('expires') }
+
+          headers['cache-control'] = 'private'
         end
 
         def html_response?(response)

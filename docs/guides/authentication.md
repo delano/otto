@@ -517,6 +517,30 @@ renew the session id in the login handler
 (`req.env['rack.session.options'][:renew] = true`), so a session that existed
 before login does not carry over.
 
+## Keep CSRF responses out of shared caches
+
+A response on which `CSRFMiddleware` sets the binding cookie or injects a token
+is meant for one client. RFC 9111, section 7.3: "Note that the Set-Cookie
+response header field [COOKIE] does not inhibit caching; a cacheable response
+with a Set-Cookie header field can be (and often is) used to satisfy subsequent
+requests to caches." A shared cache that stored such a response would hand one
+client's binding cookie, or a token bound to one client's session, to other
+clients. The middleware therefore adds `Cache-Control: private` to these
+responses. RFC 9111, section 5.2.2.7: "The unqualified private response
+directive indicates that a shared cache MUST NOT store the response (i.e., the
+response is intended for a single user)." The browser's own cache may still
+store it.
+
+When the application sets `Cache-Control` or `Expires` on the response, Otto
+adds nothing, even when the application's value lets shared caches store the
+response (for example `public, max-age=60`); a page that carries a token then
+needs `private` or `no-store` from the application. Otto also adds nothing to a
+response it did not change: a token the application writes itself, for example
+from a JSON token endpoint behind a session middleware, needs its own header,
+such as `res['cache-control'] = 'private'` or `res.no_cache!`. A cache that is
+configured to ignore `Cache-Control` stores these responses anyway, so keep
+pages that carry tokens out of such rules.
+
 ## Related contracts
 
 - [Route syntax](../reference/route-syntax.md) — `auth=`, `role=`, and route

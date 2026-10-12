@@ -494,9 +494,13 @@ own binding cookie. On HTTPS requests
 that cookie is `__Host-otto_session`, set with `Secure`, `Path=/` and no
 `Domain`, so in browsers that enforce cookie name prefixes a sibling subdomain
 or a network attacker cannot plant it; on HTTP it is `_otto_session`.
-`CSRFMiddleware` sets it on HTML responses, and on any other response to a
-safe request (`GET`, `HEAD`, `OPTIONS`, `TRACE`) whose binding the client does
-not already send. On plain HTTP, and wherever Otto sees an HTTPS request as
+`CSRFMiddleware` sets it only on responses to safe requests (`GET`, `HEAD`,
+`OPTIONS`, `TRACE`): on HTML responses, and on other responses whose binding
+the client does not already send. On an unsafe request Otto creates no
+binding: a request that fails the CSRF check gets its `403` without one, and an
+HTML response to an unsafe request (for example a `csrf=exempt` route that
+another site posts to) carries a token only when the request already has a
+binding. On plain HTTP, and wherever Otto sees an HTTPS request as
 HTTP (for example behind a TLS-terminating proxy that does not send
 `X-Forwarded-Proto`), the cookie is `_otto_session` and can still be planted.
 Cookies are not isolated by port, so a service on another port of the same

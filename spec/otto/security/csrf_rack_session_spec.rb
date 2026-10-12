@@ -34,6 +34,12 @@ RSpec.describe 'CSRF binding behind rack-session' do
         res['content-type'] = 'text/plain'
         res.write('accepted')
       end,
+      # A csrf=exempt route that answers a POST with HTML, such as a callback
+      # another site posts to.
+      'hook' => lambda do |_req, res, _extra|
+        res['content-type'] = 'text/html'
+        res.write('<html><head></head><body><form method="post"></form></body></html>')
+      end,
       # Drops the session and renders a form in the same response.
       'logout' => lambda do |req, res, _extra|
         req.env['rack.session.options'][:drop] = true
@@ -46,6 +52,7 @@ RSpec.describe 'CSRF binding behind rack-session' do
                                        'GET /touch &touch',
                                        'POST /submit &submit',
                                        'GET /logout &logout',
+                                       'POST /hook &hook csrf=exempt',
                                      ])
     holder[:otto] = Otto.new(routes, lambda_handlers: handlers, csrf_protection: true).tap do |app|
       app.security_config.csrf_secret = 'd' * 64
@@ -106,6 +113,40 @@ RSpec.describe 'CSRF binding behind rack-session' do
         _, html, = call('GET', 'https://example.org/form', jar)
 
         status, = call('POST', 'https://example.org/submit', jar, '_csrf_token' => token_in(html))
+
+        expect(status).to eq(200)
+      end
+
+      # A failed check has no binding to verify against, so it must not
+      # create one: a binding minted here is written to the session, which
+      # the store then commits with a new session cookie.
+      it 'rejects a POST with a junk token and no cookies without setting a cookie' do
+        status, _, set_cookies = call('POST', 'https://example.org/submit', {}, '_csrf_token' => 'junk')
+
+        expect(status).to eq(403)
+        expect(set_cookies).to be_empty
+      end
+
+      # A cross-site POST arrives without the victim's SameSite=Lax cookies,
+      # but the browser keeps cookies set on the response to it.
+      it 'sets no cookie and issues no token on a cross-site POST to an exempt HTML route' do
+        victim = {}
+        _, html, = call('GET', 'https://example.org/form', victim)
+
+        status, page, set_cookies = call('POST', 'https://example.org/hook', {}.freeze)
+
+        expect(status).to eq(200)
+        expect(set_cookies).to be_empty
+        expect(token_in(page)).to be_nil
+        expect(call('POST', 'https://example.org/submit', victim, '_csrf_token' => token_in(html)).first).to eq(200)
+      end
+
+      it 'issues a token that validates on a same-site POST to an exempt HTML route' do
+        jar = {}
+        call('GET', 'https://example.org/form', jar)
+        _, page, = call('POST', 'https://example.org/hook', jar)
+
+        status, = call('POST', 'https://example.org/submit', jar, '_csrf_token' => token_in(page))
 
         expect(status).to eq(200)
       end

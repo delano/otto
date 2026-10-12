@@ -34,9 +34,8 @@ class Otto
 
       def valid_csrf_token?(request)
         token = extract_csrf_token(request)
-        # Reject nil / blank / whitespace-only tokens up front, before creating
-        # a session or running HMAC verification — obviously-malformed input
-        # should not cause session churn (#186 review).
+        # Reject nil / blank / whitespace-only tokens up front, before reading
+        # the session or running HMAC verification (#186 review).
         return false if token.nil? || token.strip.empty?
 
         session_id = extract_session_id(request)
@@ -56,8 +55,11 @@ class Otto
         token
       end
 
+      # The binding to verify against, or nil. A request that has none
+      # cannot pass, so none is created for it: behind a session store that
+      # write would commit a new session and set its cookie on the 403.
       def extract_session_id(request)
-        @config.get_or_create_session_id(request)
+        @config.existing_session_id(request)
       end
 
       def csrf_error_response

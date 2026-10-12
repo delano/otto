@@ -359,8 +359,10 @@ header is not a valid token.
 
 When the session provides no binding (no session middleware, or a session with
 no id and no stored binding), the binding lives in a cookie that
-`CSRFMiddleware` sets on HTML responses, and on other responses to a safe
-request whose binding the client does not already send.
+`CSRFMiddleware` sets only on responses to safe requests: HTML responses, and
+other responses whose binding the client does not already send. An unsafe
+request never creates a binding, so a test that posts without one gets `403`
+and no cookie, and an HTML response to it carries no token.
 `Otto::Security::Config#csrf_binding_cookie_name`
 returns its name: `__Host-otto_session` when Rack reports the request as HTTPS
 (`request.scheme == 'https'`), set with `Secure`, `Path=/` and no `Domain`, and

@@ -1404,6 +1404,23 @@ class Otto
         session_id
       end
 
+      # Returns the CSRF binding the request already has, from the same
+      # sources and in the same order as #get_or_create_session_id, or nil.
+      # Unlike #get_or_create_session_id it never mints a binding, writes to
+      # the session or sets otto.csrf_binding.
+      #
+      # Use it where a new binding could not reach the client: a token can
+      # verify only against a binding that exists, and CSRFMiddleware sets the
+      # binding cookie only on safe requests. CSRF validation and token
+      # injection on unsafe requests read the binding this way.
+      #
+      # @param request [Rack::Request]
+      # @return [String, nil] the binding, or nil when there is none
+      def existing_session_id(request)
+        session_id = extract_existing_session_id(request)
+        session_id.nil? || session_id.empty? ? nil : session_id
+      end
+
       private
 
       # #inspect (and so a native FrozenError message) shows the CSRF signing

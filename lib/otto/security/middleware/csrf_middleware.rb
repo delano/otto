@@ -74,11 +74,11 @@ class Otto
 
           return response unless content_type&.include?('text/html')
 
-          # Get or create session ID
-          session_id = @config.get_or_create_session_id(request)
+          session_id = token_binding(request)
+          return response unless session_id
 
           # Ensure session ID is saved to cookie if it was newly created
-          ensure_session_cookie(request, headers, session_id)
+          ensure_session_cookie(request, headers, session_id) if safe_method?(request.request_method)
 
           # Generate new CSRF token
           csrf_token = @config.generate_csrf_token(session_id)
@@ -99,6 +99,18 @@ class Otto
           else
             response
           end
+        end
+
+        # The binding the injected token is bound to. A safe request gets one
+        # minted when it has none. An unsafe request uses only the binding it
+        # already has: a cross-site POST to a csrf=exempt route arrives
+        # without the SameSite=Lax binding cookie, and a binding minted for
+        # it would replace the victim's (or, behind a session store, commit a
+        # new session over theirs). Without a binding the page gets no token.
+        def token_binding(request)
+          return @config.get_or_create_session_id(request) if safe_method?(request.request_method)
+
+          @config.existing_session_id(request)
         end
 
         # Sets the binding cookie when its value differs from +session_id+.

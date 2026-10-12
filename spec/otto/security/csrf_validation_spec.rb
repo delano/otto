@@ -75,12 +75,16 @@ RSpec.describe Otto::Security::CSRFValidation do
       expect(host.send(:extract_session_id, Rack::Request.new(env))).to eq('alt_session_test')
     end
 
-    it 'creates a session ID when none is found' do
-      env = mock_rack_env(method: 'GET', path: '/')
+    # No token can verify without a binding, so a failed check must not
+    # create one.
+    it 'returns nil when none is found, without writing the session or the env' do
+      env = mock_rack_env(method: 'POST', path: '/')
+      env['rack.session'] = {}
       extracted = host.send(:extract_session_id, Rack::Request.new(env))
 
-      expect(extracted).to be_a(String)
-      expect(extracted).not_to be_empty
+      expect(extracted).to be_nil
+      expect(env['rack.session']).to be_empty
+      expect(env).not_to have_key('otto.csrf_binding')
     end
   end
 
@@ -134,6 +138,7 @@ RSpec.describe Otto::Security::CSRFValidation do
 
       # The guard must reject before any session creation or verification runs.
       expect(config).not_to receive(:get_or_create_session_id)
+      expect(config).not_to receive(:existing_session_id)
       expect(config).not_to receive(:verify_csrf_token)
       expect(host.send(:valid_csrf_token?, Rack::Request.new(env))).to be false
     end

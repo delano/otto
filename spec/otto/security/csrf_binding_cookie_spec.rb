@@ -178,6 +178,10 @@ RSpec.describe 'CSRF binding cookie' do
           res['content-type'] = 'text/plain'
           res.write('logged in')
         end,
+        'hook' => lambda do |_req, res, _extra|
+          res['content-type'] = 'text/html'
+          res.write('<html><head></head><body></body></html>')
+        end,
         # A token endpoint for a JSON client: no HTML, so no injected token.
         'csrf_json' => lambda do |req, res, _extra|
           config = holder[:otto].security_config
@@ -187,7 +191,8 @@ RSpec.describe 'CSRF binding cookie' do
         end,
       }
       routes = create_test_routes_file('test_routes_csrf_binding_cookie.txt',
-                                       ['GET /form &form', 'POST /login &login', 'GET /csrf &csrf_json'])
+                                       ['GET /form &form', 'POST /login &login', 'GET /csrf &csrf_json',
+                                        'POST /hook &hook csrf=exempt'])
       holder[:otto] = Otto.new(routes, lambda_handlers: handlers, csrf_protection: true).tap do |app|
         app.security_config.csrf_secret = 'c' * 64
       end
@@ -359,6 +364,62 @@ RSpec.describe 'CSRF binding cookie' do
       status, = call('POST', 'https://example.org/login', jar, '_csrf_token' => token_in(html))
 
       expect(status).to eq(200)
+    end
+
+    # The same cross-site POST to a csrf=exempt route that returns HTML
+    # reaches the token injection, which must not mint a binding either.
+    it 'sets no binding cookie and issues no token on a cross-site POST to an exempt HTML route' do
+      _, html, set_cookies = call('GET', 'https://example.org/form', {})
+      jar = cookie_jar(set_cookies)
+
+      status, page, hook_cookies = call('POST', 'https://example.org/hook', {})
+
+      expect(status).to eq(200)
+      expect(hook_cookies).to be_empty
+      expect(token_in(page)).to be_nil
+      jar.merge!(cookie_jar(hook_cookies))
+      expect(call('POST', 'https://example.org/login', jar, '_csrf_token' => token_in(html)).first).to eq(200)
+    end
+
+    it 'issues a token for the existing binding on a POST to an exempt HTML route' do
+      _, _, set_cookies = call('GET', 'https://example.org/form', {})
+      jar = cookie_jar(set_cookies)
+
+      _, page, hook_cookies = call('POST', 'https://example.org/hook', jar)
+
+      expect(hook_cookies).to be_empty
+      expect(call('POST', 'https://example.org/login', jar, '_csrf_token' => token_in(page)).first).to eq(200)
+    end
+  end
+
+  describe 'Otto::Security::Config#existing_session_id' do
+    it 'returns the binding from the session' do
+      request = request_for('https://example.org/')
+      request.env['rack.session'] = { config.csrf_session_key => 'stored' }
+
+      expect(config.existing_session_id(request)).to eq('stored')
+    end
+
+    it 'returns the binding from the binding cookie' do
+      request = request_for('https://example.org/', '__Host-otto_session' => 'hostbound')
+
+      expect(config.existing_session_id(request)).to eq('hostbound')
+    end
+
+    it 'returns nil without minting, storing or recording a binding' do
+      session = {}
+      request = request_for('https://example.org/')
+      request.env['rack.session'] = session
+
+      expect(config.existing_session_id(request)).to be_nil
+      expect(session).to be_empty
+      expect(request.env).not_to have_key('otto.csrf_binding')
+    end
+
+    it 'returns nil for an empty binding cookie' do
+      request = request_for('http://example.org/', '_otto_session' => '')
+
+      expect(config.existing_session_id(request)).to be_nil
     end
   end
 

@@ -13,8 +13,34 @@ Security
   does hold still works, as before; see "Protect the cookie that carries the
   CSRF binding" in ``docs/guides/authentication.md``. (#PR)
 
+- A cross-site POST to a ``csrf=exempt`` route that returns HTML no longer
+  replaces the victim's CSRF binding. Such a POST arrives without the
+  ``SameSite=Lax`` binding cookie, but the browser keeps a cookie set on the
+  response to it. ``CSRFMiddleware`` minted a binding for it, set it as the
+  binding cookie and injected a token, so the forms the victim had open got
+  ``403``. Behind rack-session, when the browser did not send the session
+  cookie either, a new session was committed over the victim's. On an unsafe
+  request Otto now neither creates a binding nor sets the binding cookie, and
+  injects a token only when the request already has a binding. (#PR)
+
+Added
+-----
+
+- ``Otto::Security::Config#existing_session_id(request)`` returns the CSRF
+  binding the request already has, from the same sources as
+  ``get_or_create_session_id``, or ``nil``. It never mints a binding, writes
+  to the session or sets ``env['otto.csrf_binding']``. (#PR)
+
 Changed
 -------
+
+- An HTML response to an unsafe request that has no binding, such as a
+  ``csrf=exempt`` callback that another site posts to, now carries no CSRF
+  token, and ``CSRFHelpers#csrf_token`` returns ``nil`` there instead of
+  minting a binding. Behind a session middleware, a handler that writes to the
+  session first still gets a token bound to the new session. Migration: answer
+  the POST with a redirect and render the form on the page it redirects to.
+  (#PR)
 
 - With ``Rack::Session::Pool``, a logout that drops the session (``:drop``)
   and renders a form in the same response now issues a token that the next
@@ -28,3 +54,13 @@ Changed
   responses, re-encrypted with the same data, and a store configured with
   ``expire_after`` renews the cookie's expiry. ``Pool`` sets its cookie only
   when the id changed. (#PR)
+
+Fixed
+-----
+
+- A request that fails the CSRF check no longer creates a binding. Validation
+  called ``get_or_create_session_id``, so a request without one had a binding
+  minted and written to the session, though no token can verify against a new
+  binding. Behind rack-session the rejected POST then committed a new session
+  and set its cookie on the ``403``. Validation now reads the binding with
+  ``existing_session_id``. (#PR)

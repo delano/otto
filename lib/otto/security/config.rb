@@ -1470,17 +1470,9 @@ class Otto
 
       # Returns the existing CSRF binding as a String, or nil.
       #
-      # session.id is used first, so the binding follows the store's session
+      # session.id is read first, so the binding follows the store's session
       # id and changes when the store renews it. The value stored under
       # csrf_session_key is used only by sessions without an id.
-      #
-      # csrf_session_key is read before session.id because the read loads a
-      # lazy session. Until a rack-session SessionHash loads, its id is the
-      # raw value of the session cookie, and Rack::Session::Pool replaces an
-      # id it holds no session for only when the session loads; read first,
-      # an invented cookie value would be the binding. Once loaded, the id is
-      # one the store found or generated. A request without a session cookie
-      # has nothing to load, so the read does not create a session.
       #
       # Values are coerced with to_s because session ids may be objects
       # (rack-session returns a Rack::Session::SessionId).
@@ -1489,12 +1481,9 @@ class Otto
         begin
           session = request.session
           if session
-            stored_id = read_session_value(session, csrf_session_key)
             return session.id.to_s if session.respond_to?(:id) && session.id
-            return stored_id.to_s if stored_id
-
-            legacy_id = read_session_value(session, 'session_id')
-            return legacy_id.to_s if legacy_id
+            return session[csrf_session_key].to_s if session[csrf_session_key]
+            return session['session_id'].to_s if session['session_id']
           end
         rescue StandardError
           # Fall through to cookies
@@ -1502,14 +1491,6 @@ class Otto
 
         # Then the binding cookie (see #csrf_binding_cookie)
         csrf_binding_cookie(request)
-      end
-
-      # session[key], or nil when the session raises on the read, so a
-      # session that cannot be read still yields its id as before.
-      def read_session_value(session, key)
-        session[key]
-      rescue StandardError
-        nil
       end
 
       # Whether secret is nil or blank per BLANK_CSRF_SECRET. The string is

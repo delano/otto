@@ -5,9 +5,10 @@
 require 'spec_helper'
 
 # CSRFMiddleware's responses checked against Rack::Lint, for HTML and other
-# responses, 204 and 304 responses and HEAD requests, and a binding that is
-# not a hex token. Rack::Lint raises Rack::Lint::LintError on any violation
-# of the Rack specification.
+# responses, HTML bodies it may not read (files and streams), 204 and 304
+# responses and HEAD requests, and a binding that is not a hex token.
+# Rack::Lint raises Rack::Lint::LintError on any violation of the Rack
+# specification.
 # rubocop:disable-next RSpec/DescribeClass
 RSpec.describe 'CSRFMiddleware and the Rack specification' do
   include OttoTestHelpers
@@ -104,8 +105,43 @@ RSpec.describe 'CSRFMiddleware and the Rack specification' do
       expect(binding_cookies(headers).size).to eq(1)
     end
 
+    # Middleware may not read a body that lacks #to_ary, so such a body gets
+    # no token and is passed on unread. It still gets the binding cookie.
+    it 'passes on a body without #to_ary unread' do
+      each_only = Class.new do
+        def initialize(content) = @content = content
+        def each = yield(@content)
+      end
+      app = Rack::Lint.new(->(_env) { [200, { 'content-type' => 'text/html' }, each_only.new(html)] })
+
+      status, headers, content = lint_call(app)
+
+      expect(status).to eq(200)
+      expect(content).to eq(html)
+      expect(binding_cookies(headers).size).to eq(1)
+      expect(headers['cache-control']).to eq('private')
+    end
+
+    it 'passes on a streaming body unread' do
+      stream_body = lambda do |stream|
+        stream.write(html)
+        stream.close
+      end
+      app   = Rack::Lint.new(->(_env) { [200, { 'content-type' => 'text/html' }, stream_body] })
+      stack = Rack::Lint.new(Otto::Security::Middleware::CSRFMiddleware.new(app, config))
+
+      status, headers, body = stack.call(env_for('https://example.org/'))
+      stream = StringIO.new
+      body.call(stream)
+
+      expect(status).to eq(200)
+      expect(stream.string).to eq(html)
+      expect(binding_cookies(headers).size).to eq(1)
+    end
+
     # A HEAD response has an empty body, so there is no <head> to inject
-    # into; the binding cookie is still set, as HEAD is a safe method.
+    # into. The binding cookie is still set, as on any HTML response,
+    # whatever the request method.
     it 'passes Rack::Lint on a HEAD request' do
       app = Rack::Lint.new(lambda do |_env|
         [200, { 'content-type' => 'text/html', 'content-length' => html.bytesize.to_s }, []]
@@ -211,6 +247,50 @@ RSpec.describe 'CSRFMiddleware and the Rack specification' do
       expect(status).to eq(204)
       expect(content).to be_empty
       expect(binding_cookies(headers).size).to eq(1)
+    end
+  end
+
+  # Rack::Files, which serves public: and mount_static, returns a body that
+  # does not respond to #to_ary, and its responses pass through
+  # CSRFMiddleware.
+  describe 'an HTML file from the public directory' do
+    let(:public_dir) { Dir.mktmpdir('otto_csrf_public') }
+    let(:otto) do
+      routes = create_test_routes_file('test_routes_csrf_middleware_public.txt', ['GET /dynamic &dynamic'])
+      handlers = { 'dynamic' => ->(_req, res, _extra) { res.write('dynamic') } }
+      Otto.new(routes, public: public_dir, lambda_handlers: handlers, csrf_protection: true).tap do |app|
+        app.security_config.csrf_secret = '9' * 64
+      end
+    end
+
+    before { File.write(File.join(public_dir, 'page.html'), html) }
+    after { FileUtils.rm_rf(public_dir) }
+
+    def get_page(cookie: nil)
+      status, headers, body = Rack::Lint.new(otto).call(env_for('https://example.org/page.html', cookie: cookie))
+      content = +''
+      body.each { |chunk| content << chunk }
+      body.close
+      [status, headers, content]
+    end
+
+    it 'is served unchanged, with the binding cookie on a first visit' do
+      status, headers, content = get_page
+
+      expect(status).to eq(200)
+      expect(content).to eq(html)
+      expect(binding_cookies(headers).size).to eq(1)
+      expect(headers['cache-control']).to eq('private')
+    end
+
+    it 'is served unchanged, with no cookie or Cache-Control once the client sends the cookie' do
+      _, first, = get_page
+      status, headers, content = get_page(cookie: binding_cookies(first).first.split(';').first)
+
+      expect(status).to eq(200)
+      expect(content).to eq(html)
+      expect(binding_cookies(headers)).to be_empty
+      expect(headers['cache-control']).to be_nil
     end
   end
 

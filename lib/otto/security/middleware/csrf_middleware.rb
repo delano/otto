@@ -31,9 +31,10 @@ class Otto
         def call(env)
           return @app.call(env) unless @config.csrf_enabled?
 
-          request  = Otto::Request.new(env)
-          response = @app.call(env)
-          response = inject_csrf_token(request, response) if html_response?(response)
+          request       = Otto::Request.new(env)
+          outer_session = env['rack.session']
+          response      = @app.call(env)
+          response      = inject_csrf_token(request, response, outer_session) if html_response?(response)
 
           apply_binding_cookie(request, response)
         end
@@ -44,15 +45,16 @@ class Otto
         # request that resolved a binding the client does not already send:
         # one minted, or read from csrf_session_key, which
         # Otto::Security::Config#get_or_create_session_id records in
-        # otto.csrf_binding. A JSON client that never loads an HTML page
-        # needs it too, or it would get a new binding, and a 403, on every
-        # request.
+        # otto.csrf_binding (as does #record_store_minted_binding for a store
+        # that runs inside this middleware). A JSON client that never loads an
+        # HTML page needs it too, or it would get a new binding, and a 403, on
+        # every request.
         #
-        # The session store's own id and a binding read from a cookie are
-        # not recorded, so they are never copied: the client sends them
-        # again, and a copy would sit in a second cookie whose lifetime and
-        # attributes the application does not configure. A session id read
-        # from a cookie someone planted would outlive the session cookie
+        # A session id the request already had and a binding read from a
+        # cookie are not recorded, so they are never copied: the client sends
+        # them again, and a copy would sit in a second cookie whose lifetime
+        # and attributes the application does not configure. A session id
+        # read from a cookie someone planted would outlive the session cookie
         # there.
         #
         # An unsafe request does not set it: one that passes the CSRF check
@@ -74,7 +76,7 @@ class Otto
           response.dup.tap { |copy| copy[1] = headers }
         end
 
-        def inject_csrf_token(request, response)
+        def inject_csrf_token(request, response, outer_session)
           return response unless response.is_a?(Array) && response.length >= 3
 
           status, headers, body = response
@@ -82,7 +84,7 @@ class Otto
 
           return response unless content_type&.include?('text/html')
 
-          session_id = token_binding(request)
+          session_id = token_binding(request, outer_session)
           return response unless session_id
 
           # Generate new CSRF token
@@ -112,10 +114,36 @@ class Otto
         # without the SameSite=Lax binding cookie, and a binding minted for
         # it would replace the victim's (or, behind a session store, commit a
         # new session over theirs). Without a binding the page gets no token.
-        def token_binding(request)
-          return @config.get_or_create_session_id(request) if safe_method?(request.request_method)
+        def token_binding(request, outer_session)
+          return @config.existing_session_id(request) unless safe_method?(request.request_method)
 
-          @config.existing_session_id(request)
+          existing_id = @config.existing_session_id(request)
+          binding_id  = @config.get_or_create_session_id(request)
+          record_store_minted_binding(request, binding_id, outer_session) unless existing_id
+          binding_id
+        end
+
+        # Records a binding minted here in otto.csrf_binding when it is the id
+        # a session store created for Otto's write and that store will not
+        # send it. get_or_create_session_id does not record a store's id,
+        # because the store sends it in its own cookie when it commits. That
+        # holds for +outer_session+, set up by a store that wraps this
+        # middleware and commits after it returns. A store added inside this
+        # middleware (with otto.use before CSRF protection is enabled) has
+        # committed before the token is injected, so it never stores or sends
+        # the id it creates here, and only the binding cookie can carry it.
+        # The id is new, so this copies nothing a client could have planted.
+        def record_store_minted_binding(request, binding_id, outer_session)
+          return if session_id_of?(outer_session, binding_id)
+
+          request.env['otto.csrf_binding'] = binding_id
+        end
+
+        # Whether +binding_id+ is the id of +session+.
+        def session_id_of?(session, binding_id)
+          session.respond_to?(:id) && session.id.to_s == binding_id
+        rescue StandardError
+          false
         end
 
         # The Set-Cookie value for the binding cookie, or nil when the request

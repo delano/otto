@@ -15,10 +15,8 @@ require 'rack/session'
 RSpec.describe 'CSRF binding behind rack-session' do
   include OttoTestHelpers
 
-  let(:holder) { {} }
-
-  let(:otto) do
-    handlers = {
+  let(:handlers) do
+    {
       'form' => lambda do |_req, res, _extra|
         res['content-type'] = 'text/html'
         res.write('<html><head></head><body><form method="post"></form></body></html>')
@@ -34,6 +32,12 @@ RSpec.describe 'CSRF binding behind rack-session' do
         res['content-type'] = 'text/plain'
         res.write('accepted')
       end,
+      # A token endpoint for a JSON client: no HTML, so no injected token.
+      'csrf_json' => lambda do |req, res, _extra|
+        config = req.env['otto.security_config']
+        res['content-type'] = 'application/json'
+        res.write(JSON.generate(token: config.generate_csrf_token(config.get_or_create_session_id(req))))
+      end,
       # A csrf=exempt route that answers a POST with HTML, such as a callback
       # another site posts to.
       'hook' => lambda do |_req, res, _extra|
@@ -41,13 +45,20 @@ RSpec.describe 'CSRF binding behind rack-session' do
         res.write('<html><head></head><body><form method="post"></form></body></html>')
       end,
     }
-    routes = create_test_routes_file('test_routes_csrf_rack_session.txt', [
-                                       'GET /form &form',
-                                       'GET /touch &touch',
-                                       'POST /submit &submit',
-                                       'POST /hook &hook csrf=exempt',
-                                     ])
-    holder[:otto] = Otto.new(routes, lambda_handlers: handlers, csrf_protection: true).tap do |app|
+  end
+
+  let(:routes) do
+    create_test_routes_file('test_routes_csrf_rack_session.txt', [
+                              'GET /form &form',
+                              'GET /touch &touch',
+                              'POST /submit &submit',
+                              'GET /csrf &csrf_json',
+                              'POST /hook &hook csrf=exempt',
+                            ])
+  end
+
+  let(:otto) do
+    Otto.new(routes, lambda_handlers: handlers, csrf_protection: true).tap do |app|
       app.security_config.csrf_secret = 'd' * 64
     end
   end
@@ -197,6 +208,69 @@ RSpec.describe 'CSRF binding behind rack-session' do
 
         status, = call('POST', 'https://example.org/submit', jar)
 
+        expect(status).to eq(403)
+      end
+    end
+  end
+
+  # Otto runs the middleware registered first innermost, so a store added
+  # with otto.use before CSRF protection is enabled runs inside
+  # CSRFMiddleware. It has committed the session by the time CSRFMiddleware
+  # injects the token, so the id it creates for Otto's write is neither
+  # stored nor sent in its cookie.
+  {
+    'Rack::Session::Pool' => [Rack::Session::Pool, {}],
+    'Rack::Session::Cookie' => [Rack::Session::Cookie, { secrets: ['s' * 64] }],
+  }.each do |store_name, (store, options)|
+    context "with #{store_name} added through otto.use before enable_csrf_protection!" do
+      let(:otto) do
+        Otto.new(routes, lambda_handlers: handlers).tap do |app|
+          app.use(store, **options)
+          app.enable_csrf_protection!
+          app.security_config.csrf_secret = 'd' * 64
+        end
+      end
+      let(:app) { otto }
+
+      it 'runs the store inside CSRFMiddleware' do
+        order = otto.middleware.execution_order
+
+        expect(order.index(store)).to be > order.index(Otto::Security::Middleware::CSRFMiddleware)
+      end
+
+      # The binding cookie carries the id the store created for Otto's write.
+      it "accepts the POST that carries the token from a new visitor's form" do
+        jar = {}
+        _, html, set_cookies = call('GET', 'https://example.org/form', jar)
+        expect(cookie_names(set_cookies)).to eq(['__Host-otto_session'])
+
+        status, = call('POST', 'https://example.org/submit', jar, '_csrf_token' => token_in(html))
+
+        expect(status).to eq(200)
+      end
+
+      # The handler mints the binding before the store commits, so the
+      # store's cookie carries it.
+      it "accepts a new JSON client's token without a copy in the binding cookie" do
+        jar = {}
+        _, json, set_cookies = call('GET', 'https://example.org/csrf', jar)
+        expect(cookie_names(set_cookies)).to eq(['rack.session'])
+
+        status, = call('POST', 'https://example.org/submit', jar, '_csrf_token' => JSON.parse(json)['token'])
+
+        expect(status).to eq(200)
+      end
+
+      it "does not carry a planted session's id past the session cookie" do
+        attacker = {}
+        _, attacker_html, = call('GET', 'https://example.org/touch', attacker)
+        victim = { 'rack.session' => attacker['rack.session'] }
+        _, _, set_cookies = call('GET', 'https://example.org/form', victim)
+        victim.delete('rack.session')
+
+        status, = call('POST', 'https://example.org/submit', victim, '_csrf_token' => token_in(attacker_html))
+
+        expect(cookie_names(set_cookies)).not_to include('__Host-otto_session')
         expect(status).to eq(403)
       end
     end

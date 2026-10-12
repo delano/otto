@@ -5,7 +5,8 @@
 require 'spec_helper'
 require 'securerandom'
 
-# Minimal stand-in for rack-session 2.x, which is not a dependency of this gem.
+# Minimal stand-in for rack-session 2.x, which is only a test dependency of
+# this gem (csrf_rack_session_spec.rb runs the real Pool and Cookie stores).
 # It follows Rack::Session::Abstract::SessionHash and Rack::Session::Pool in the
 # four ways that matter for the CSRF binding:
 #

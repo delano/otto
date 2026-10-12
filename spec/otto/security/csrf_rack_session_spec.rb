@@ -179,12 +179,15 @@ RSpec.describe 'CSRF binding behind rack-session' do
       end
 
       # A cross-site POST arrives without the victim's SameSite=Lax cookies,
-      # but the browser keeps cookies set on the response to it.
+      # but the browser keeps cookies set on the response to it, so they are
+      # merged into the victim's jar before the victim's own POST.
       it 'sets no cookie and issues no token on a cross-site POST to an exempt HTML route' do
         victim = {}
         _, html, = call('GET', 'https://example.org/form', victim)
 
-        status, page, set_cookies = call('POST', 'https://example.org/hook', {}.freeze)
+        cross_site = {}
+        status, page, set_cookies = call('POST', 'https://example.org/hook', cross_site)
+        victim.merge!(cross_site)
 
         expect(status).to eq(200)
         expect(set_cookies).to be_empty

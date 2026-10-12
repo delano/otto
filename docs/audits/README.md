@@ -26,7 +26,7 @@ are local to one report.
 
 Each critical and high finding has its own pull request. The fix in each PR was
 reproduced with a failing spec before it was written; the PR description holds
-that evidence. States were last checked on 2026-10-06, with main at `4e2758c`.
+that evidence. States were last checked on 2026-10-12, with main at `d78b9b4`.
 
 | Finding | Severity | Pull request | State |
 | --- | --- | --- | --- |
@@ -39,15 +39,25 @@ that evidence. States were last checked on 2026-10-06, with main at `4e2758c`.
 | C6, T1: `csrf_secret=` accepts `''` and `nil` | High | [#299](https://github.com/delano/otto/pull/299) | Merged 2026-10-06 |
 | D1: `auth=` and `role=` on MCP and TOOL routes not enforced | High | [#296](https://github.com/delano/otto/pull/296) | Merged 2026-10-06 |
 
-Two related pull requests are not findings from the report:
+These related pull requests are not findings from the report:
 
 | Change | Origin | Pull request | State |
 | --- | --- | --- | --- |
 | Redact secrets from `#inspect` | The CSRF secret showed in `Security::Config#inspect` and `FrozenError` messages; found while preparing #297 | [#300](https://github.com/delano/otto/pull/300) | Merged 2026-10-06 |
-| Bind the CSRF fallback cookie to a `__Host-` name on HTTPS | Changes the cookie fallback in the same CSRF binding lookup that #295 changes | [#302](https://github.com/delano/otto/pull/302) | Open |
+| Bind the CSRF fallback cookie to a `__Host-` name on HTTPS | Changes the cookie fallback in the same CSRF binding lookup that #295 changes | [#302](https://github.com/delano/otto/pull/302) | Merged 2026-10-12 |
+| Resolve the CSRF binding without minting on failures or copying store ids | Left after #302: a failed CSRF check created a binding, and HTML responses copied the session store's id into the binding cookie | [#308](https://github.com/delano/otto/pull/308) | Open |
+| Keep CSRF responses out of shared caches and set the binding cookie once | Left after #302: no `Cache-Control` on responses that set the binding cookie, and a duplicate `Set-Cookie` when the middleware runs twice; also fixes C8 | [#309](https://github.com/delano/otto/pull/309) | Open |
 
-The medium and low findings have no pull request yet. All 23 are still present
-at `4e2758c`; the report's [status section](2026-09-28-v2.12.0-code-audit.md#status-on-main)
-gives each one's location on main and a second raise site for C9.
+Three medium and low findings have a pull request:
+
+| Finding | Severity | Pull request | State |
+| --- | --- | --- | --- |
+| S3, C11: a non-String `_csrf_token` parameter returns 500 instead of 403 | Low | [#307](https://github.com/delano/otto/pull/307) | Open |
+| C8: CSRF token injection replaces the response body without closing the original | Medium | [#309](https://github.com/delano/otto/pull/309) | Open |
+
+The other medium and low findings have no pull request yet. All 23 are still
+present at `4e2758c`; the report's
+[status section](2026-09-28-v2.12.0-code-audit.md#status-on-main) gives each
+one's location on main and a second raise site for C9.
 
 When one of these pull requests merges or closes, update its State cell.

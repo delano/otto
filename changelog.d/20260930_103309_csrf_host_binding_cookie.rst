@@ -13,9 +13,10 @@ Security
   still be planted unless it is protected the same way: over HTTPS, configure
   rack-session with a ``__Host-`` key and ``secure: true`` (for example ``use
   Rack::Session::Cookie, key: '__Host-rack.session', secure: true, secrets:
-  [...]``), and renew the session id at login with
-  ``env['rack.session.options'][:renew] = true``. See
-  ``docs/guides/authentication.md``. (#302)
+  [...]``). Renewing the session id at login
+  (``env['rack.session.options'][:renew] = true``) also keeps a session that
+  existed before login from carrying over, though it does not stop a forged
+  login. See ``docs/guides/authentication.md``. (#302)
 
 Changed
 -------
@@ -27,8 +28,9 @@ Changed
   the next token the client fetches is bound to ``__Host-otto_session``.
   Plain HTTP requests keep using ``_otto_session`` as before. The name follows
   Rack's ``request.scheme``: behind a TLS-terminating proxy, Otto must see the
-  request as HTTPS (``HTTPS=on``, ``rack.url_scheme``, or
-  ``X-Forwarded-Proto``) for the hardening to apply. If Otto sees HTTPS while
+  request as HTTPS (for example ``HTTPS=on``, ``rack.url_scheme``, or a
+  forwarded header Rack honors, such as ``X-Forwarded-Proto``) for the
+  hardening to apply. If Otto sees HTTPS while
   the browser uses HTTP, the browser rejects the cookie and CSRF-protected
   requests get ``403``. (#302)
 
@@ -38,14 +40,21 @@ Changed
   pages with forms over HTTPS, for example by redirecting HTTP to HTTPS and
   enabling HSTS (``Otto::Security::Config#enable_hsts!``). (#302)
 
-- ``CSRFMiddleware`` now sets the binding cookie on every response to a
-  request that resolved a CSRF binding, not only on HTML responses. A JSON
-  client that fetches a token from an endpoint calling
+- ``CSRFMiddleware`` now also sets the binding cookie on responses that are
+  not HTML, when the request used a safe method (``GET``, ``HEAD``,
+  ``OPTIONS``, ``TRACE``) and resolved a binding the client does not already
+  send. A JSON client that fetches a token from an endpoint calling
   ``Config#get_or_create_session_id`` receives the cookie with the token and
-  passes on its next POST. The request's resolved binding is recorded in
-  ``env['otto.csrf_binding']``, except when it is the session store's own id
-  (``session.id``, or ``session['session_id']``): the store's cookie already
-  carries that, so it is not copied into the binding cookie on these
+  passes on its next POST. Two such fetches made in parallel before the client
+  holds the cookie get different bindings, and only the token whose cookie the
+  client kept is accepted. An unsafe request never sets the cookie this way,
+  so a cross-site POST, which arrives without the ``SameSite=Lax`` cookie,
+  cannot replace the victim's binding with one minted for its ``403``. The
+  binding is recorded in ``env['otto.csrf_binding']`` only when it was minted
+  or read from ``csrf_session_key``. The session store's own id
+  (``session.id``, or ``session['session_id']``), which the store's cookie
+  carries when the store sets one, and a binding read from a cookie, which the
+  client sends again, are not copied into the binding cookie on these
   responses. HTML responses still set the binding cookie from any binding, as
   before. (#302)
 

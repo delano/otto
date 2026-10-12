@@ -3,6 +3,7 @@
 # frozen_string_literal: true
 
 require_relative '../config'
+require_relative '../csrf_validation'
 
 class Otto
   module Security
@@ -19,6 +20,8 @@ class Otto
       # forms and meta tags can carry it — which is method/content-type based
       # and correctly stays global.
       class CSRFMiddleware
+        include Otto::Security::CSRFValidation
+
         def initialize(app, config = nil)
           @app    = app
           @config = config || Otto::Security::Config.new
@@ -36,19 +39,31 @@ class Otto
 
         private
 
-        # A request that resolved a CSRF binding (a JSON token endpoint, a
-        # CSRF-checked API call) but got a response that is not HTML still
-        # needs the binding cookie, or a client that never loads an HTML page
-        # would get a new binding, and a 403, on every request. The cookie
-        # follows the same rules as on HTML responses (#ensure_session_cookie).
-        # A binding that is the session store's own id is not recorded in
-        # otto.csrf_binding, so it is not copied into the cookie here.
+        # A safe request that resolved a CSRF binding (a JSON token endpoint)
+        # but got a response that is not HTML still needs the binding cookie,
+        # or a client that never loads an HTML page would get a new binding,
+        # and a 403, on every request. The cookie follows the same rules as on
+        # HTML responses (#ensure_session_cookie). Only a binding the client
+        # does not already send is recorded in otto.csrf_binding (see
+        # Otto::Security::Config#get_or_create_session_id).
+        #
+        # An unsafe request does not set it: one that passes the CSRF check
+        # already carries its binding, and a cross-site one arrives without
+        # the SameSite=Lax cookie, so a binding minted for its 403 (or for a
+        # csrf=exempt route) would replace the victim's and void their open
+        # forms. The app's headers are copied rather than changed, as the app
+        # may freeze them or share them between responses.
         def apply_binding_cookie(request, response)
           binding_id = request.env['otto.csrf_binding']
-          return response unless binding_id && response.is_a?(Array) && response.length >= 2
+          return response unless binding_id && safe_method?(request.request_method)
+          return response unless response.is_a?(Array) && response.length >= 2
 
-          ensure_session_cookie(request, response[1], binding_id)
-          response
+          new_cookie = binding_cookie(request, binding_id)
+          return response unless new_cookie
+
+          headers = response[1].dup
+          append_set_cookie(headers, new_cookie)
+          response.dup.tap { |copy| copy[1] = headers }
         end
 
         def inject_csrf_token(request, response)
@@ -87,35 +102,38 @@ class Otto
         end
 
         # Sets the binding cookie when its value differs from +session_id+.
-        # On HTTPS the cookie is __Host-otto_session (Secure, Path=/, no
-        # Domain); on HTTP it is _otto_session. See
-        # Otto::Security::Config#csrf_binding_cookie_name.
+        def ensure_session_cookie(request, headers, session_id)
+          new_cookie = binding_cookie(request, session_id)
+          append_set_cookie(headers, new_cookie) if new_cookie
+        end
+
+        # The Set-Cookie value for the binding cookie, or nil when the request
+        # already carries +session_id+ in it. On HTTPS the cookie is
+        # __Host-otto_session (Secure, Path=/, no Domain); on HTTP it is
+        # _otto_session. See Otto::Security::Config#csrf_binding_cookie_name.
         #
         # The value is URL-encoded because Rack URL-decodes cookie values when
         # it parses them (Rack::Utils.parse_cookies_header). A binding that is
         # not a hex token, such as an app-set session_id cookie on HTTP or a
         # value from the session, then reads back unchanged instead of being
         # cut at a ';' or decoded a second time.
-        def ensure_session_cookie(request, headers, session_id)
+        def binding_cookie(request, session_id)
           cookie_name = @config.csrf_binding_cookie_name(request)
           return if request.cookies[cookie_name] == session_id
 
           cookie_value  = "#{Rack::Utils.escape(session_id.to_s)}; Path=/; HttpOnly; SameSite=Lax"
           cookie_value += '; Secure' if request.scheme == 'https'
-          new_cookie    = "#{cookie_name}=#{cookie_value}"
+          "#{cookie_name}=#{cookie_value}"
+        end
 
-          # Handle existing Set-Cookie headers
-          existing_cookies = headers['set-cookie'] || headers['Set-Cookie']
-          if existing_cookies
-            # Append to existing cookies (handle both string and array formats)
-            if existing_cookies.is_a?(Array)
-              existing_cookies << new_cookie
-            else
-              headers['set-cookie'] = [existing_cookies, new_cookie]
-            end
-          else
-            headers['set-cookie'] = new_cookie
-          end
+        # Adds +cookie+ to the Set-Cookie header. An existing value, String or
+        # Array, is replaced by a new Array rather than appended to in place,
+        # since the app may freeze it or share it between responses. A plain
+        # Hash that spells the header Set-Cookie keeps that key.
+        def append_set_cookie(headers, cookie)
+          key          = !headers.key?('set-cookie') && headers.key?('Set-Cookie') ? 'Set-Cookie' : 'set-cookie'
+          existing     = headers[key]
+          headers[key] = existing ? [*existing, cookie] : cookie
         end
 
         def html_response?(response)

@@ -1399,12 +1399,8 @@ class Otto
         end
 
         # CSRFMiddleware sets the binding cookie from this on responses that
-        # are not HTML (see EnvKeys::CSRF_BINDING). The session store's own id
-        # is left out: the store's cookie already carries it, and a copy would
-        # sit in a second cookie whose lifetime and attributes the application
-        # does not configure.
-        record_binding = request.respond_to?(:env) && !session_store_id?(request, session_id)
-        request.env['otto.csrf_binding'] = session_id.to_s if record_binding
+        # are not HTML (see EnvKeys::CSRF_BINDING).
+        request.env['otto.csrf_binding'] = session_id.to_s if record_binding?(request, session_id)
         session_id
       end
 
@@ -1527,6 +1523,20 @@ class Otto
         session[csrf_session_key] = session_id if session
       rescue StandardError
         # Cookie fallback handled in inject_csrf_token
+      end
+
+      # Whether #get_or_create_session_id records +binding+ in
+      # otto.csrf_binding: only when the client does not already send it, that
+      # is when it was minted here or read from csrf_session_key. The session
+      # store's own id travels in the store's cookie when the store sets one,
+      # and a binding read from a cookie comes back with the next request; a
+      # copy of either would sit in a second cookie whose lifetime and
+      # attributes the application does not configure.
+      def record_binding?(request, binding)
+        return false unless request.respond_to?(:env)
+        return false if binding.to_s == csrf_binding_cookie(request).to_s
+
+        !session_store_id?(request, binding)
       end
 
       # Whether +binding+ is the session store's own id: session.id, or

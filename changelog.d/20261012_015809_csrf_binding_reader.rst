@@ -22,7 +22,11 @@ Security
   lifetime, that id was the binding again and a token the attacker held for
   it was accepted. Both paths now share one rule and one code path: the
   binding cookie is set only on responses to safe requests, and only to a
-  binding Otto minted or read from ``csrf_session_key``. (#PR)
+  binding Otto minted or read from ``csrf_session_key``. A minted binding
+  includes the id that a session store added with ``otto.use`` before CSRF
+  protection is enabled creates when ``CSRFMiddleware`` mints a binding: that
+  store runs inside the middleware, has already committed and never sends
+  the id, so the binding cookie carries it. (#PR)
 
 Added
 -----
@@ -54,8 +58,10 @@ Changed
 
 - Without a session middleware, a token bound to an auth strategy's session
   that responds to ``id`` or holds a ``'session_id'`` key is now rejected with
-  ``403`` on the next request. The CSRF check runs before authentication, so
-  it read the copy of that id in the binding cookie, which HTML responses no
+  ``403`` on the next request, unless that request also sends the same value
+  in a cookie the CSRF check reads (on plain HTTP, the app's ``session_id``
+  or ``_session_id`` cookie). The check runs before authentication, so it
+  read the copy of that id in the binding cookie, which HTML responses no
   longer set. Migration: run a session middleware, or return a strategy
   session without an id, in which Otto stores its own binding under
   ``csrf_session_key``. (#PR)
@@ -69,3 +75,16 @@ Fixed
   binding. Behind rack-session the rejected POST then committed a new session
   and set its cookie on the ``403``. Validation now reads the binding with
   ``existing_session_id``. (#PR)
+
+Documentation
+-------------
+
+- The authentication guide now describes a limitation that predates this
+  change: behind ``Rack::Session::Pool``, Otto reads ``session.id`` without
+  loading the session, so the CSRF binding is the id the session cookie names
+  even when the store holds no session for it, and a planted session cookie
+  does not have to name a real session. Otto does not load the session to
+  check, since rack-session commits a session that was loaded. The guide
+  recommends protecting the session cookie itself (a ``__Host-`` key with
+  ``secure: true``), as it already did, and quotes the rack-session 2.1.2
+  code it relies on. (#PR)

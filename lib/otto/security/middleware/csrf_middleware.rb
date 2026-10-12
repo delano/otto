@@ -130,8 +130,8 @@ class Otto
         # holds for +outer_session+, set up by a store that wraps this
         # middleware and commits after it returns. A store added inside this
         # middleware (with otto.use before CSRF protection is enabled) has
-        # committed before the token is injected, so it never stores or sends
-        # the id it creates here, and only the binding cookie can carry it.
+        # committed before the token is injected, so it never sends the id it
+        # creates here, and only the binding cookie can carry it.
         # The id is new, so this copies nothing a client could have planted.
         def record_store_minted_binding(request, binding_id, outer_session)
           return if session_id_of?(outer_session, binding_id)

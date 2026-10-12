@@ -361,11 +361,14 @@ When the session provides no binding (no session middleware, or a session with
 no id and no stored binding), the binding lives in a cookie that
 `CSRFMiddleware` sets only on responses to safe requests, HTML or not, whose
 binding the client does not already send: one Otto minted, or one stored under
-`csrf_session_key`. A session's id, or a binding read from a cookie, is never
-copied into it, so a test behind a session middleware carries the store's
-cookie, not `_otto_session`. An unsafe request never creates a binding, so a
-test that posts without one gets `403` and no cookie, and an HTML response to
-it carries no token. `spec/otto/security/csrf_rack_session_spec.rb` runs
+`csrf_session_key`. A session id the request already had, or a binding read
+from a cookie, is never copied into it, so a test behind a session middleware
+that wraps `CSRFMiddleware` carries the store's cookie, not `_otto_session`. A
+store added with `otto.use` before CSRF protection is enabled runs inside
+`CSRFMiddleware`; there the binding cookie carries the id the store creates
+when the middleware mints a binding. An unsafe request never creates a
+binding, so a test that posts without one gets `403` and no cookie, and an
+HTML response to it carries no token. `spec/otto/security/csrf_rack_session_spec.rb` runs
 these flows behind rack-session's `Pool` and `Cookie` stores.
 `Otto::Security::Config#csrf_binding_cookie_name`
 returns its name: `__Host-otto_session` when Rack reports the request as HTTPS

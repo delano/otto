@@ -9,7 +9,7 @@ Security
   ``403``. Behind rack-session, when the browser did not send the session
   cookie either, a new session was committed over the victim's. On an unsafe
   request Otto now neither creates a binding nor sets the binding cookie, and
-  injects a token only when the request already has a binding. (#PR)
+  injects a token only when the request already has a binding. (#308)
 
 - ``CSRFMiddleware`` no longer copies the session's id into the binding
   cookie on HTML responses. #302 stopped the copy on other responses; HTML
@@ -26,7 +26,7 @@ Security
   includes the id that a session store added with ``otto.use`` before CSRF
   protection is enabled creates when ``CSRFMiddleware`` mints a binding: that
   store runs inside the middleware, has already committed and never sends
-  the id, so the binding cookie carries it. (#PR)
+  the id, so the binding cookie carries it. (#308)
 
 Added
 -----
@@ -34,7 +34,7 @@ Added
 - ``Otto::Security::Config#existing_session_id(request)`` returns the CSRF
   binding the request already has, from the same sources as
   ``get_or_create_session_id``, or ``nil``. It never mints a binding, writes
-  to the session or sets ``env['otto.csrf_binding']``. (#PR)
+  to the session or sets ``env['otto.csrf_binding']``. (#308)
 
 Changed
 -------
@@ -45,7 +45,7 @@ Changed
   minting a binding. Behind a session middleware, a handler that writes to the
   session first still gets a token bound to the new session. Migration: answer
   the POST with a redirect and render the form on the page it redirects to.
-  (#PR)
+  (#308)
 
 - HTML responses no longer set ``_otto_session`` or ``__Host-otto_session``
   to the session's id, ``session['session_id']``, or a binding read from the
@@ -54,7 +54,7 @@ Changed
   back, such as rack-session with ``secure: true`` while Rack sees the request
   as HTTP, kept no session between requests, but the copy kept CSRF tokens
   valid; CSRF-protected requests now get ``403`` too. Fix the store's
-  configuration so its cookie is set (see the authentication guide). (#PR)
+  configuration so its cookie is set (see the authentication guide). (#308)
 
 - Without a session middleware, a token bound to an auth strategy's session
   that responds to ``id`` or holds a ``'session_id'`` key is now rejected with
@@ -64,7 +64,7 @@ Changed
   read the copy of that id in the binding cookie, which HTML responses no
   longer set. Migration: run a session middleware, or return a strategy
   session without an id, in which Otto stores its own binding under
-  ``csrf_session_key``. (#PR)
+  ``csrf_session_key``. (#308)
 
 Fixed
 -----
@@ -74,7 +74,7 @@ Fixed
   minted and written to the session, though no token can verify against a new
   binding. Behind rack-session the rejected POST then committed a new session
   and set its cookie on the ``403``. Validation now reads the binding with
-  ``existing_session_id``. (#PR)
+  ``existing_session_id``. (#308)
 
 Documentation
 -------------
@@ -87,4 +87,4 @@ Documentation
   check, since rack-session commits a session that was loaded. The guide
   recommends protecting the session cookie itself (a ``__Host-`` key with
   ``secure: true``), as it already did, and quotes the rack-session 2.1.2
-  code it relies on. (#PR)
+  code it relies on. (#308)

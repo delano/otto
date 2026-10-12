@@ -245,6 +245,68 @@ RSpec.describe Otto::Security::Config do
           expect(config.verify_csrf_token(token, 'session')).to be(false)
         end
       end
+
+      # The token comes from a request parameter or header, so it may be any
+      # value Rack produces. Verification returns false for each of these;
+      # raising would turn the request into a 500.
+      describe 'with a token that is not an ASCII String' do
+        let(:session_id) { 'test_session_123' }
+        let(:token) { config.generate_csrf_token(session_id) }
+        let(:token_part) { token.split(':', 2).first }
+
+        # As many characters as a hex HMAC-SHA256 signature, but 128 bytes.
+        it 'rejects a signature of 64 multibyte characters' do
+          expect(config.verify_csrf_token("#{token_part}:#{'é' * 64}", session_id)).to be false
+        end
+
+        it 'rejects an Array or a Hash holding a valid token' do
+          expect(config.verify_csrf_token([token], session_id)).to be false
+          expect(config.verify_csrf_token({ 'k' => token }, session_id)).to be false
+        end
+
+        it 'rejects a token with invalid UTF-8 bytes' do
+          expect(config.verify_csrf_token("#{token_part}:#{"\xFF" * 64}", session_id)).to be false
+          expect(config.verify_csrf_token("\xFF#{token}", session_id)).to be false
+        end
+
+        it 'rejects an ASCII-8BIT token with non-ASCII bytes against a non-ASCII binding' do
+          expect(config.verify_csrf_token("#{'é' * 32}:#{'0' * 64}".b, 'é-session')).to be false
+        end
+
+        it 'accepts a valid token in ASCII-8BIT' do
+          expect(config.verify_csrf_token(token.b, session_id)).to be true
+        end
+      end
+    end
+
+    describe '#secure_compare' do
+      let(:hex) { 'a' * 64 }
+
+      def secure_compare(left, right)
+        config.send(:secure_compare, left, right)
+      end
+
+      it 'is true for Strings with the same bytes, whatever their encoding' do
+        expect(secure_compare(hex, hex.dup)).to be true
+        expect(secure_compare(hex.b, hex)).to be true
+      end
+
+      it 'is false for Strings with different bytes of the same length' do
+        expect(secure_compare(hex, 'b' * 64)).to be false
+      end
+
+      # Same number of characters, different number of bytes.
+      it 'is false for 64 multibyte characters against 64 ASCII characters' do
+        expect(secure_compare('é' * 64, hex)).to be false
+        expect(secure_compare(hex, 'é' * 64)).to be false
+      end
+
+      it 'is false when either side is not a String' do
+        expect(secure_compare(nil, hex)).to be false
+        expect(secure_compare(hex, nil)).to be false
+        expect(secure_compare([hex], hex)).to be false
+        expect(secure_compare(64, hex)).to be false
+      end
     end
   end
 

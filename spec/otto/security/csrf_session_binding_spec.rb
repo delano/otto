@@ -295,17 +295,37 @@ RSpec.describe 'CSRF session binding with a lazily loaded session' do
 
   context 'when the app drops the session and renders a login form' do
     # The token is bound to the dropped id, which stays in the client's cookie.
-    # On the POST, session.id returns that id until the session loads; loading
-    # it mints a new id because the data is gone. Reading session data before
-    # session.id would load it and reject the token.
-    it 'accepts the POST that carries the token from that page' do
+    # On the POST, Otto loads the session before it trusts session.id, and
+    # loading mints a new id because the data is gone. A dropped id is then
+    # treated like any id the store holds no session for, such as an invented
+    # one, so the token is rejected.
+    it 'rejects the POST that carries the token from that page' do
       get '/touch'
       get '/logout'
       logout_token = issued_token
       expect(session_store.pool).to be_empty # the drop deleted the data
 
       post '/login', '_csrf_token' => logout_token
+      expect(last_response.status).to eq(403)
+    end
+
+    it 'accepts a token from the page loaded after the logout' do
+      get '/touch'
+      get '/logout'
+      get '/form'
+
+      post '/login', '_csrf_token' => issued_token
       expect(last_response.status).to eq(200)
+    end
+  end
+
+  context 'with a session cookie the store holds no session for' do
+    it 'binds the token to the id the store creates when the session loads' do
+      set_cookie 'rack.session=invented'
+      get '/form'
+
+      expect(otto.security_config.verify_csrf_token(issued_token, 'invented')).to be(false)
+      expect(submit(issued_token).status).to eq(200)
     end
   end
 
@@ -319,6 +339,41 @@ RSpec.describe 'CSRF session binding with a lazily loaded session' do
 
       expect(session_id).to eq('abc123')
       expect(session_id).to be_a(String)
+    end
+
+    def request_with_session(session, cookie: nil)
+      env = mock_rack_env(method: 'GET', path: '/')
+      env['rack.session'] = session
+      env['HTTP_COOKIE'] = cookie if cookie
+      Rack::Request.new(env)
+    end
+
+    it "uses session['session_id'] from a plain Hash session" do
+      request = request_with_session({ 'session_id' => 'hash-sid' })
+
+      expect(otto.security_config.get_or_create_session_id(request)).to eq('hash-sid')
+    end
+
+    it 'uses the binding stored in a session that has no #id' do
+      request = request_with_session({ otto.security_config.csrf_session_key => 'stored' })
+
+      expect(otto.security_config.get_or_create_session_id(request)).to eq('stored')
+    end
+
+    it 'still uses the id of a session whose #[] raises' do
+      session = Class.new do
+        def id = 'raising-sid'
+        def [](_key) = raise(KeyError, 'unreadable')
+      end.new
+
+      expect(otto.security_config.get_or_create_session_id(request_with_session(session))).to eq('raising-sid')
+    end
+
+    it 'falls back to the binding cookie when a session without an id raises on #[]' do
+      session = Class.new { def [](_key) = raise(KeyError, 'unreadable') }.new
+      request = request_with_session(session, cookie: '_otto_session=from-cookie')
+
+      expect(otto.security_config.get_or_create_session_id(request)).to eq('from-cookie')
     end
   end
 end

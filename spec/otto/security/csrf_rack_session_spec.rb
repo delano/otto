@@ -34,11 +34,18 @@ RSpec.describe 'CSRF binding behind rack-session' do
         res['content-type'] = 'text/plain'
         res.write('accepted')
       end,
+      # Drops the session and renders a form in the same response.
+      'logout' => lambda do |req, res, _extra|
+        req.env['rack.session.options'][:drop] = true
+        res['content-type'] = 'text/html'
+        res.write('<html><head></head><body><form method="post"></form></body></html>')
+      end,
     }
     routes = create_test_routes_file('test_routes_csrf_rack_session.txt', [
                                        'GET /form &form',
                                        'GET /touch &touch',
                                        'POST /submit &submit',
+                                       'GET /logout &logout',
                                      ])
     holder[:otto] = Otto.new(routes, lambda_handlers: handlers, csrf_protection: true).tap do |app|
       app.security_config.csrf_secret = 'd' * 64
@@ -111,6 +118,100 @@ RSpec.describe 'CSRF binding behind rack-session' do
 
         expect(status).to eq(403)
       end
+    end
+  end
+
+  # Before a rack-session SessionHash loads, its #id is the raw cookie value
+  # (Rack::Session::Abstract::Persisted#extract_session_id). Rack::Session::Pool
+  # replaces an id it holds no session for only when the session loads, so a
+  # binding read from the unloaded #id is whatever the cookie says.
+  context 'with Rack::Session::Pool and a session cookie the store does not know' do
+    let(:app) { Rack::Session::Pool.new(otto) }
+    let(:invented) { 'attacker-invented-value' }
+
+    it 'does not bind the token to the cookie value' do
+      _, html, = call('GET', 'https://example.org/form', { 'rack.session' => invented }.freeze)
+
+      expect(config.verify_csrf_token(token_in(html), invented)).to be(false)
+    end
+
+    it 'rejects a POST forged with a token issued for a planted value' do
+      _, attacker_html, = call('GET', 'https://example.org/form', { 'rack.session' => invented }.freeze)
+
+      status, = call('POST', 'https://example.org/submit', { 'rack.session' => invented }.freeze,
+                     '_csrf_token' => token_in(attacker_html))
+
+      expect(status).to eq(403)
+    end
+
+    it 'binds the token to the session the store creates in its place' do
+      jar = { 'rack.session' => invented }
+      _, html, = call('GET', 'https://example.org/form', jar)
+      expect(jar['rack.session']).not_to eq(invented)
+
+      status, = call('POST', 'https://example.org/submit', jar, '_csrf_token' => token_in(html))
+
+      expect(status).to eq(200)
+    end
+  end
+
+  context 'with Rack::Session::Pool and a session cookie the store knows' do
+    let(:app) { Rack::Session::Pool.new(otto) }
+
+    # Otto loads the session to check its id. Pool commits a loaded session
+    # but sets its cookie only when the id changed.
+    it 'binds the token to that id and does not set the session cookie again' do
+      jar = {}
+      call('GET', 'https://example.org/touch', jar)
+      known_id = jar['rack.session']
+
+      _, html, set_cookies = call('GET', 'https://example.org/form', jar)
+
+      expect(cookie_names(set_cookies)).not_to include('rack.session')
+      expect(config.verify_csrf_token(token_in(html), known_id)).to be(true)
+    end
+  end
+
+  context 'with Rack::Session::Cookie and a tampered session cookie' do
+    let(:app) { Rack::Session::Cookie.new(otto, secrets: ['s' * 64]) }
+
+    it 'binds the token to a new session and accepts it' do
+      jar = { 'rack.session' => 'tampered' }
+      _, html, = call('GET', 'https://example.org/form', jar)
+      expect(config.verify_csrf_token(token_in(html), 'tampered')).to be(false)
+
+      status, = call('POST', 'https://example.org/submit', jar, '_csrf_token' => token_in(html))
+
+      expect(status).to eq(200)
+    end
+  end
+
+  # A logout that drops the session leaves the dropped id in the client's
+  # cookie. To Pool it is then an id it holds no session for, like an
+  # invented one, so a token bound to it is rejected. Rendering the login form
+  # on the page the logout redirects to gives a token that validates.
+  context 'with Rack::Session::Pool and a logout that drops the session' do
+    let(:app) { Rack::Session::Pool.new(otto) }
+
+    it 'rejects the token from a form rendered in the logout response' do
+      jar = {}
+      call('GET', 'https://example.org/touch', jar)
+      _, html, = call('GET', 'https://example.org/logout', jar)
+
+      status, = call('POST', 'https://example.org/submit', jar, '_csrf_token' => token_in(html))
+
+      expect(status).to eq(403)
+    end
+
+    it 'accepts the token from a form on the page after the logout' do
+      jar = {}
+      call('GET', 'https://example.org/touch', jar)
+      call('GET', 'https://example.org/logout', jar)
+      _, html, = call('GET', 'https://example.org/form', jar)
+
+      status, = call('POST', 'https://example.org/submit', jar, '_csrf_token' => token_in(html))
+
+      expect(status).to eq(200)
     end
   end
 end

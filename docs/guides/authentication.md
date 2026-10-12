@@ -437,6 +437,15 @@ also carries a token bound to the old id. Respond to the login with a redirect
 and render forms on the page it redirects to (post/redirect/get); those carry a
 token that validates.
 
+Otto loads the session before it uses `session.id` as the binding. Until a
+rack-session session loads, its id is the raw value of the session cookie, and
+`Rack::Session::Pool` replaces an id it holds no session for only when the
+session loads. A logout that drops the session (`:drop`) leaves the dropped id
+in the client's cookie, so with `Pool` a form rendered in the logout response
+carries a token that the next request rejects with `403`. Respond to the
+logout with a redirect as well, and render the login form on the page it
+redirects to.
+
 This CSRF behavior assumes the session-binding change in delano/otto#295.
 Without it, a new visitor's first token is bound to a random value rather than
 to `session.id`, and that visitor's first CSRF-protected POST, such as the
@@ -496,7 +505,11 @@ host can also set `__Host-otto_session`.
 Behind a session middleware the session's id is the binding, so the session
 cookie is the one an attacker would plant: an attacker who can set cookies for
 the victim's browser plants their own session cookie, requests a form with it,
-and uses the token to forge a login. Otto's `__Host-` cookie does not cover
+and uses the token to forge a login. Otto loads the session before it uses its
+id, so the planted cookie has to name a session the store holds: with
+`Rack::Session::Pool`, a value the attacker made up is replaced by a new
+session, and with `Rack::Session::Cookie` a cookie that fails decryption
+carries no id. Otto's `__Host-` cookie does not cover
 that. Over HTTPS, give the session cookie the same protection:
 
 ```ruby

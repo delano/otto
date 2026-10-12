@@ -550,9 +550,21 @@ needs `private` or `no-store` from the application, and `stale-if-error=0` for
 the CloudFront case above. Otto also adds nothing to a response it did not
 change: a token the application writes itself, for example from a JSON token
 endpoint behind a session middleware, needs its own header, such as
-`res['cache-control'] = 'private, stale-if-error=0'`. A cache that is
-configured to ignore `Cache-Control` stores these responses anyway, so keep
-pages that carry tokens out of such rules.
+`res['cache-control'] = 'private, stale-if-error=0'`.
+
+Otto reads only `Cache-Control` and `Expires`. Some caches give their own
+fields precedence, and Otto does not inspect those: a cache that implements
+`CDN-Cache-Control` (RFC 9213, section 2.2) "MUST ignore the Cache-Control and
+Expires header fields in that response" when one of its targeted fields has a
+valid, non-empty value; the nginx proxy module documentation says "If the
+header does not include the “X-Accel-Expires” field, parameters of caching may
+be set in the header fields “Expires” or “Cache-Control”"; and Varnish's
+built-in VCL checks `Cache-Control` for `private` only when the response has no
+`Surrogate-Control`. An application that sends one of these fields on a page
+that carries a token needs to keep shared caches out in that field as well. A
+cache that is configured to ignore `Cache-Control`, such as a Cloudflare rule
+that sets an edge TTL and ignores cache headers, stores these responses anyway,
+so keep pages that carry tokens out of such rules.
 
 ## Related contracts
 

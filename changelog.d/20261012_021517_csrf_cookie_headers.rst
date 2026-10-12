@@ -20,17 +20,24 @@ Security
   application value, including one that lets shared caches store the response
   such as ``public, max-age=60``, is kept as is. A token the application
   writes into a response itself, which Otto does not change, needs its own
-  ``Cache-Control``. See ``docs/guides/authentication.md``. (#PR)
+  ``Cache-Control``. Otto does not read fields that some caches give
+  precedence over ``Cache-Control``, such as ``CDN-Cache-Control``,
+  ``Surrogate-Control`` or ``X-Accel-Expires``. See
+  ``docs/guides/authentication.md``. (#PR)
 
 Changed
 -------
 
-- With CSRF protection enabled, HTML pages with a ``<head>`` element, and HTML
-  responses that set the binding cookie, now carry
-  ``Cache-Control: private, stale-if-error=0`` when the application sets
-  neither ``Cache-Control`` nor ``Expires``. A shared cache that honors
-  ``private`` no longer stores them, including one that stored them before
-  under a default TTL. (#PR)
+- With CSRF protection enabled, responses on which ``CSRFMiddleware`` sets the
+  binding cookie, HTML or not, and HTML pages into which it injects a token
+  now carry ``Cache-Control: private, stale-if-error=0`` when the application
+  sets neither ``Cache-Control`` nor ``Expires``. An HTML file served from
+  ``public:`` or ``mount_static`` gets no token, so it carries the header only
+  on a response that sets the binding cookie. A shared cache that honors
+  ``private`` no longer stores these responses, including one that stored
+  them before under a default TTL. ``Rack::ETag`` mounted outside Otto adds
+  its default ``Cache-Control``, ``max-age=0, private, must-revalidate``,
+  only when the response has none, so these responses no longer get it. (#PR)
 
 Fixed
 -----

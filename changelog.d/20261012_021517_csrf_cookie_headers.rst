@@ -47,3 +47,12 @@ Fixed
   token now fails on the page that set the cookie in that case; it passes
   only when the two Ottos share ``csrf_secret`` and resolve the same binding,
   as they do once the client sends the cookie back. (#PR)
+
+- ``CSRFMiddleware`` now reads an HTML body through ``#to_ary``. The Rack
+  specification says "middleware can only process the Body directly if it
+  responds to +to_ary+", and that "If the Body responds to both +to_ary+ and
+  +close+, its implementation of +to_ary+ must call +close+." Before, the
+  middleware injected the token only into a body that responds to ``join``: a
+  body wrapped by ``Rack::Lint`` got no token, and a ``Rack::BodyProxy`` was
+  replaced without being closed, so its close callback never ran. Other
+  bodies, such as files and streams, are still returned unread. (#PR)

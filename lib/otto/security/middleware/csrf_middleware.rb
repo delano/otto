@@ -91,8 +91,14 @@ class Otto
           # Generate new CSRF token
           csrf_token = @config.generate_csrf_token(session_id)
 
-          # Inject meta tag into HTML head
-          body_content = body.respond_to?(:join) ? body.join : body.to_s
+          # Inject meta tag into HTML head. Rack lets middleware read a body
+          # itself only through #to_ary, which also closes it, so the parts
+          # it returns replace the body. Any other body, such as a file or a
+          # stream, is returned unread.
+          return response unless body.respond_to?(:to_ary)
+
+          parts        = body.to_ary
+          body_content = parts.join
 
           head_open_tag = /<head(?:\s[^>]*)?>/i
           if body_content.match?(head_open_tag)
@@ -106,7 +112,7 @@ class Otto
 
             [status, headers, [body_content]]
           else
-            response
+            [status, headers, parts]
           end
         end
 

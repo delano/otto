@@ -378,6 +378,7 @@ Use these maintained specs as executable examples:
 - [`spec/otto/security/csrf_binding_cookie_spec.rb`](../../spec/otto/security/csrf_binding_cookie_spec.rb) — the binding cookie on HTTP and HTTPS.
 - [`spec/otto/security/csrf_cache_control_spec.rb`](../../spec/otto/security/csrf_cache_control_spec.rb): `Cache-Control: private` on responses that carry the binding cookie or an injected token.
 - [`spec/otto/security/csrf_nested_middleware_spec.rb`](../../spec/otto/security/csrf_nested_middleware_spec.rb): one binding cookie when `CSRFMiddleware` runs more than once, including nested Ottos.
+- [`spec/otto/security/csrf_middleware_rack_spec.rb`](../../spec/otto/security/csrf_middleware_rack_spec.rb): `CSRFMiddleware` under `Rack::Lint`, including 204, 304 and HEAD responses, and a binding that is not a hex token.
 
 ## Test IP privacy with the application configuration
 

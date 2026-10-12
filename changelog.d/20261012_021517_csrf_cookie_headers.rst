@@ -23,7 +23,7 @@ Security
   ``Cache-Control``. Otto does not read fields that some caches give
   precedence over ``Cache-Control``, such as ``CDN-Cache-Control``,
   ``Surrogate-Control`` or ``X-Accel-Expires``. See
-  ``docs/guides/authentication.md``. (#PR)
+  ``docs/guides/authentication.md``. (#309)
 
 Changed
 -------
@@ -37,7 +37,7 @@ Changed
   ``private`` no longer stores these responses, including one that stored
   them before under a default TTL. ``Rack::ETag`` mounted outside Otto adds
   its default ``Cache-Control``, ``max-age=0, private, must-revalidate``,
-  only when the response has none, so these responses no longer get it. (#PR)
+  only when the response has none, so these responses no longer get it. (#309)
 
 Fixed
 -----
@@ -46,7 +46,7 @@ Fixed
   responses; it works on a copy, as it already did on other responses. Before,
   frozen headers raised ``FrozenError``, and an application that returned the
   same headers object for every response carried each client's binding cookie
-  into the responses for later clients. (#PR)
+  into the responses for later clients. (#309)
 
 - ``CSRFMiddleware`` no longer adds the binding cookie to a response that
   already sets a cookie of that name, as one does when the middleware runs
@@ -61,7 +61,7 @@ Fixed
   injects its own ``csrf-token`` meta tag, ahead of the inner Otto's, and its
   token now fails on the page that set the cookie in that case; it passes
   only when the two Ottos share ``csrf_secret`` and resolve the same binding,
-  as they do once the client sends the cookie back. (#PR)
+  as they do once the client sends the cookie back. (#309)
 
 - ``CSRFMiddleware`` now reads an HTML body through ``#to_ary``. The Rack
   specification says "middleware can only process the Body directly if it
@@ -70,4 +70,4 @@ Fixed
   middleware injected the token only into a body that responds to ``join``: a
   body wrapped by ``Rack::Lint`` got no token, and a ``Rack::BodyProxy`` was
   replaced without being closed, so its close callback never ran. Other
-  bodies, such as files and streams, are still returned unread. (#PR)
+  bodies, such as files and streams, are still returned unread. (#309)

@@ -8,7 +8,8 @@ require_relative '../csrf_validation'
 class Otto
   module Security
     module Middleware
-      # Global middleware that injects CSRF tokens into HTML responses.
+      # Global middleware that injects CSRF tokens into HTML responses and
+      # sets the CSRF binding cookie on responses to safe requests.
       #
       # Token *enforcement* deliberately does NOT live here. This middleware
       # runs ahead of route matching, so it cannot see per-route options like
@@ -30,9 +31,10 @@ class Otto
         def call(env)
           return @app.call(env) unless @config.csrf_enabled?
 
-          request  = Otto::Request.new(env)
-          response = @app.call(env)
-          return inject_csrf_token(request, with_copied_headers(response)) if html_response?(response)
+          request       = Otto::Request.new(env)
+          outer_session = env['rack.session']
+          response      = @app.call(env)
+          response      = inject_csrf_token(request, with_copied_headers(response), outer_session) if html_response?(response)
 
           apply_binding_cookie(request, response)
         end
@@ -40,27 +42,34 @@ class Otto
         private
 
         # +response+ with a copy of its headers, so #inject_csrf_token can add
-        # the binding cookie, Cache-Control and Content-Length without
-        # changing the app's headers, which the app may freeze or share
-        # between responses.
+        # Cache-Control and Content-Length without changing the app's
+        # headers, which the app may freeze or share between responses.
         def with_copied_headers(response)
           response.dup.tap { |copy| copy[1] = response[1].dup }
         end
 
-        # A safe request that resolved a CSRF binding (a JSON token endpoint)
-        # but got a response that is not HTML still needs the binding cookie,
-        # or a client that never loads an HTML page would get a new binding,
-        # and a 403, on every request. The cookie follows the same rules as on
-        # HTML responses (#ensure_session_cookie). Only a binding the client
-        # does not already send is recorded in otto.csrf_binding (see
-        # Otto::Security::Config#get_or_create_session_id).
+        # Sets the binding cookie on any response, HTML or not, to a safe
+        # request that resolved a binding the client does not already send:
+        # one minted, or read from csrf_session_key, which
+        # Otto::Security::Config#get_or_create_session_id records in
+        # otto.csrf_binding (as does #record_store_minted_binding for a store
+        # that runs inside this middleware). A JSON client that never loads an
+        # HTML page needs it too, or it would get a new binding, and a 403, on
+        # every request.
+        #
+        # A session id the request already had and a binding read from a
+        # cookie are not recorded, so they are never copied: the client sends
+        # them again, and a copy would sit in a second cookie whose lifetime
+        # and attributes the application does not configure. A session id
+        # read from a cookie someone planted would outlive the session cookie
+        # there.
         #
         # An unsafe request does not set it: one that passes the CSRF check
         # already carries its binding, and a cross-site one arrives without
-        # the SameSite=Lax cookie, so a binding minted for its 403 (or for a
-        # csrf=exempt route) would replace the victim's and void their open
-        # forms. The app's headers are copied rather than changed, as the app
-        # may freeze them or share them between responses.
+        # the SameSite=Lax cookie, so a binding set on its response would
+        # replace the victim's and void their open forms. The app's headers
+        # are copied rather than changed, as the app may freeze them or share
+        # them between responses.
         def apply_binding_cookie(request, response)
           binding_id = request.env['otto.csrf_binding']
           return response unless binding_id && safe_method?(request.request_method)
@@ -74,7 +83,7 @@ class Otto
           response.dup.tap { |copy| copy[1] = headers }
         end
 
-        def inject_csrf_token(request, response)
+        def inject_csrf_token(request, response, outer_session)
           return response unless response.is_a?(Array) && response.length >= 3
 
           status, headers, body = response
@@ -82,11 +91,8 @@ class Otto
 
           return response unless content_type&.include?('text/html')
 
-          # Get or create session ID
-          session_id = @config.get_or_create_session_id(request)
-
-          # Ensure session ID is saved to cookie if it was newly created
-          ensure_session_cookie(request, headers, session_id)
+          session_id = token_binding(request, outer_session)
+          return response unless session_id
 
           # Generate new CSRF token
           csrf_token = @config.generate_csrf_token(session_id)
@@ -116,10 +122,42 @@ class Otto
           end
         end
 
-        # Sets the binding cookie when its value differs from +session_id+.
-        def ensure_session_cookie(request, headers, session_id)
-          new_cookie = binding_cookie(request, session_id)
-          append_binding_cookie(headers, new_cookie) if new_cookie
+        # The binding the injected token is bound to. A safe request gets one
+        # minted when it has none. An unsafe request uses only the binding it
+        # already has: a cross-site POST to a csrf=exempt route arrives
+        # without the SameSite=Lax binding cookie, and a binding minted for
+        # it would replace the victim's (or, behind a session store, commit a
+        # new session over theirs). Without a binding the page gets no token.
+        def token_binding(request, outer_session)
+          return @config.existing_session_id(request) unless safe_method?(request.request_method)
+
+          existing_id = @config.existing_session_id(request)
+          binding_id  = @config.get_or_create_session_id(request)
+          record_store_minted_binding(request, binding_id, outer_session) unless existing_id
+          binding_id
+        end
+
+        # Records a binding minted here in otto.csrf_binding when it is the id
+        # a session store created for Otto's write and that store will not
+        # send it. get_or_create_session_id does not record a store's id,
+        # because the store sends it in its own cookie when it commits. That
+        # holds for +outer_session+, set up by a store that wraps this
+        # middleware and commits after it returns. A store added inside this
+        # middleware (with otto.use before CSRF protection is enabled) has
+        # committed before the token is injected, so it never sends the id it
+        # creates here, and only the binding cookie can carry it.
+        # The id is new, so this copies nothing a client could have planted.
+        def record_store_minted_binding(request, binding_id, outer_session)
+          return if session_id_of?(outer_session, binding_id)
+
+          request.env['otto.csrf_binding'] = binding_id
+        end
+
+        # Whether +binding_id+ is the id of +session+.
+        def session_id_of?(session, binding_id)
+          session.respond_to?(:id) && session.id.to_s == binding_id
+        rescue StandardError
+          false
         end
 
         # The Set-Cookie value for the binding cookie, or nil when the request
@@ -129,9 +167,9 @@ class Otto
         #
         # The value is URL-encoded because Rack URL-decodes cookie values when
         # it parses them (Rack::Utils.parse_cookies_header). A binding that is
-        # not a hex token, such as an app-set session_id cookie on HTTP or a
-        # value from the session, then reads back unchanged instead of being
-        # cut at a ';' or decoded a second time.
+        # not a hex token, such as a value an app stored under
+        # csrf_session_key, then reads back unchanged instead of being cut at
+        # a ';' or decoded a second time.
         def binding_cookie(request, session_id)
           cookie_name = @config.csrf_binding_cookie_name(request)
           return if request.cookies[cookie_name] == session_id

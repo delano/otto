@@ -260,7 +260,7 @@ RSpec.describe Otto::Security::CSRFHelpers do
   describe 'CSRF helper methods' do
     let(:mock_session) { { 'session_id' => 'helper_test_session' } }
     let(:mock_request) do
-      req = double('request')
+      req = double('request', request_method: 'GET')
       allow(req).to receive(:session).and_return(mock_session)
       allow(req).to receive(:cookies).and_return({})
       req
@@ -287,6 +287,33 @@ RSpec.describe Otto::Security::CSRFHelpers do
         token1 = response.csrf_token
         token2 = response.csrf_token
         expect(token1).to eq(token2)
+      end
+
+      # A binding minted on an unsafe request never reaches the client:
+      # CSRFMiddleware sets the binding cookie only on safe requests, and a
+      # cross-site POST arrives without the session cookie, so a write would
+      # make the store commit a new session over the victim's.
+      context 'with an unsafe request' do
+        let(:post_session) { {} }
+        let(:post_request) do
+          req = double('request', request_method: 'POST', session: post_session, cookies: {}, env: {})
+          allow(req).to receive(:scheme).and_return('https')
+          req
+        end
+
+        it 'returns nil without minting a binding when the request has none' do
+          expect(mock_response.new(mock_otto, post_request).csrf_token).to be_nil
+          expect(post_session).to be_empty
+          expect(post_request.env).to be_empty
+        end
+
+        it 'issues a token for the binding the request has' do
+          post_session[config.csrf_session_key] = 'existing'
+
+          token = mock_response.new(mock_otto, post_request).csrf_token
+
+          expect(config.verify_csrf_token(token, 'existing')).to be(true)
+        end
       end
 
       it 'handles missing otto gracefully' do

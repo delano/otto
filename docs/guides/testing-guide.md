@@ -359,8 +359,17 @@ header is not a valid token.
 
 When the session provides no binding (no session middleware, or a session with
 no id and no stored binding), the binding lives in a cookie that
-`CSRFMiddleware` sets on HTML responses, and on other responses to a safe
-request whose binding the client does not already send.
+`CSRFMiddleware` sets only on responses to safe requests, HTML or not, whose
+binding the client does not already send: one Otto minted, or one stored under
+`csrf_session_key`. A session id the request already had, or a binding read
+from a cookie, is never copied into it, so a test behind a session middleware
+that wraps `CSRFMiddleware` carries the store's cookie, not `_otto_session`. A
+store added with `otto.use` before CSRF protection is enabled runs inside
+`CSRFMiddleware`; there the binding cookie carries the id the store creates
+when the middleware mints a binding. An unsafe request never creates a
+binding, so a test that posts without one gets `403` and no cookie, and an
+HTML response to it carries no token. `spec/otto/security/csrf_rack_session_spec.rb` runs
+these flows behind rack-session's `Pool` and `Cookie` stores.
 `Otto::Security::Config#csrf_binding_cookie_name`
 returns its name: `__Host-otto_session` when Rack reports the request as HTTPS
 (`request.scheme == 'https'`), set with `Secure`, `Path=/` and no `Domain`, and
@@ -376,6 +385,7 @@ Use these maintained specs as executable examples:
 - [`spec/otto/security/csrf_enforcement_wrapper_spec.rb`](../../spec/otto/security/csrf_enforcement_wrapper_spec.rb) — safe methods, unsafe methods, valid tokens, and `csrf=exempt`.
 - [`spec/otto/security/csrf_validation_spec.rb`](../../spec/otto/security/csrf_validation_spec.rb) — token and session extraction.
 - [`spec/otto/security/csrf_binding_cookie_spec.rb`](../../spec/otto/security/csrf_binding_cookie_spec.rb) — the binding cookie on HTTP and HTTPS.
+- [`spec/otto/security/csrf_rack_session_spec.rb`](../../spec/otto/security/csrf_rack_session_spec.rb): the binding behind rack-session's `Pool` and `Cookie` stores.
 - [`spec/otto/security/csrf_cache_control_spec.rb`](../../spec/otto/security/csrf_cache_control_spec.rb): `Cache-Control: private, stale-if-error=0` on responses that carry the binding cookie or an injected token.
 - [`spec/otto/security/csrf_nested_middleware_spec.rb`](../../spec/otto/security/csrf_nested_middleware_spec.rb): one binding cookie when `CSRFMiddleware` runs more than once, including nested Ottos.
 - [`spec/otto/security/csrf_middleware_rack_spec.rb`](../../spec/otto/security/csrf_middleware_rack_spec.rb): `CSRFMiddleware` under `Rack::Lint`, including bodies it may not read (files from `public:` and streams), 204, 304 and HEAD responses, and a binding that is not a hex token.

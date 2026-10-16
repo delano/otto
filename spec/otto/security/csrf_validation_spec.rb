@@ -142,6 +142,24 @@ RSpec.describe Otto::Security::CSRFValidation do
       expect(config).not_to receive(:verify_csrf_token)
       expect(host.send(:valid_csrf_token?, Rack::Request.new(env))).to be false
     end
+
+    # MockRequest encodes these params into a form body, and Rack parses
+    # _csrf_token[]= back into an Array, _csrf_token[k]= into a Hash, and %FF
+    # into a UTF-8 String with an invalid byte.
+    {
+      'an Array' => ['a:b'],
+      'a Hash' => { 'k' => 'a:b' },
+      'a String with invalid UTF-8 bytes' => "\xFF:\xFF",
+      'a String with non-ASCII characters' => 'é:é',
+    }.each do |description, token|
+      it "short-circuits #{description} without touching session or HMAC" do
+        env = mock_rack_env(method: 'POST', path: '/', params: { '_csrf_token' => token })
+
+        expect(config).not_to receive(:get_or_create_session_id)
+        expect(config).not_to receive(:verify_csrf_token)
+        expect(host.send(:valid_csrf_token?, Rack::Request.new(env))).to be false
+      end
+    end
   end
 
   describe '#csrf_error_response' do

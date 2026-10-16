@@ -6,6 +6,7 @@ require 'securerandom'
 require 'digest'
 require 'openssl'
 require 'rack/request'
+require 'rack/utils'
 require_relative '../core/freezable'
 require_relative '../core/redacted_inspect'
 require_relative 'csp/policy'
@@ -884,7 +885,13 @@ class Otto
       # Verify a CSRF token against its session binding using a constant-time
       # comparison. Returns false (never raises) for blank/malformed input.
       def verify_csrf_token(token, session_id = nil)
-        return false if token.nil? || token.empty?
+        # A token is two hex strings joined by ':', so a value that is not an
+        # ASCII String cannot match. Rejecting it here also keeps it from
+        # #split and the HMAC input below, which raise for the Array or Hash
+        # Rack parses from _csrf_token[]= or _csrf_token[k]=, for invalid
+        # bytes, and for non-ASCII bytes next to a non-ASCII binding.
+        return false unless token.is_a?(String) && token.ascii_only?
+        return false if token.empty?
 
         binding_id = session_id.to_s
         return false if binding_id.empty?
@@ -1612,21 +1619,24 @@ class Otto
           "Invalid referrer_policy #{policy.inspect}; expected one of: #{REFERRER_POLICIES.join(', ')}"
       end
 
-      # Perform constant-time string comparison to prevent timing attacks
+      # Compare two Strings by their bytes with Rack::Utils.secure_compare.
+      # It returns false when the byte sizes differ. Otherwise it calls
+      # OpenSSL.fixed_length_secure_compare if OpenSSL was loaded before
+      # rack/utils, or runs a Ruby loop that XORs every byte if not. Rack's
+      # comment on the OpenSSL version, in lib/rack/utils.rb, reads "Constant
+      # time string comparison." and "the values compared should be of fixed
+      # length, such as strings that have already been processed by HMAC."
+      # The expected value here is a hex HMAC-SHA256. A presented value with
+      # multibyte characters is unequal rather than an error, as sizes are
+      # counted in bytes.
       #
-      # This method compares two strings in constant time regardless of where
-      # they differ, preventing attackers from using timing differences to
-      # deduce information about secret values.
-      #
-      # @param a [String, nil] First string to compare
-      # @param b [String, nil] Second string to compare
-      # @return [Boolean] true if strings are equal
+      # @param a [Object] presented value; false unless it is a String
+      # @param b [Object] expected value; false unless it is a String
+      # @return [Boolean] true only when both are Strings with the same bytes
       def secure_compare(a, b)
-        return false if a.nil? || b.nil? || a.length != b.length
+        return false unless a.is_a?(String) && b.is_a?(String)
 
-        result                                = 0
-        a.bytes.zip(b.bytes) { |x, y| result |= x ^ y }
-        result == 0
+        Rack::Utils.secure_compare(a, b)
       end
 
       # HMAC-SHA256 signature binding a token's random component to a session id

@@ -34,9 +34,13 @@ class Otto
 
       def valid_csrf_token?(request)
         token = extract_csrf_token(request)
-        # Reject nil / blank / whitespace-only tokens up front, before reading
-        # the session or running HMAC verification (#186 review).
-        return false if token.nil? || token.strip.empty?
+        # Reject a token that cannot be valid before reading the binding or
+        # running HMAC verification (#186 review): a missing value, anything
+        # that is not an ASCII String (a valid token is hex), and a blank or
+        # whitespace-only String. Rack parses _csrf_token[]= into an Array
+        # and _csrf_token[k]= into a Hash, and #strip raises on invalid bytes.
+        return false unless token.is_a?(String) && token.ascii_only?
+        return false if token.strip.empty?
 
         session_id = extract_session_id(request)
         @config.verify_csrf_token(token, session_id)

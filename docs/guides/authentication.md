@@ -367,12 +367,16 @@ Otherwise, make the endpoint a controller handler.
 With CSRF protection enabled and no session middleware, a strategy session that
 responds to `id` or holds a `'session_id'` key becomes the CSRF binding for code
 that runs after authentication: a token the handler generates, and the token
-`CSRFMiddleware` injects into an HTML response. On an HTML response the
-middleware also sets the binding cookie to that value, so the next request's
-CSRF check, which runs before authentication and reads the cookie, accepts the
-injected token. A token the handler generates for a response that is not HTML
-is bound to the strategy's value while the cookie keeps the old one, so the next
-CSRF-protected request rejects it with `403`.
+`CSRFMiddleware` injects into an HTML response. The next request's CSRF check
+runs before authentication, so it does not see that session; it reads the
+binding cookie instead. `CSRFMiddleware` does not copy a session's id into the
+binding cookie, so the check rejects those tokens with `403` unless the request
+also carries the same value in a cookie the check reads: on plain HTTP, the
+app's `session_id` or `_session_id` cookie. To keep such tokens valid, run a
+session middleware, whose session the check reads, or return a strategy session
+that neither responds to `id` nor holds a `'session_id'` key: Otto then stores
+its own binding in that session under `csrf_session_key` and sets the binding
+cookie to it on responses to safe requests.
 
 Application code should read the result created by Otto rather than constructing
 its own `StrategyResult`. The `Data` record does not allow member reassignment,
@@ -485,13 +489,25 @@ own binding cookie. On HTTPS requests
 that cookie is `__Host-otto_session`, set with `Secure`, `Path=/` and no
 `Domain`, so in browsers that enforce cookie name prefixes a sibling subdomain
 or a network attacker cannot plant it; on HTTP it is `_otto_session`.
-`CSRFMiddleware` sets it on HTML responses, and on any other response to a
-safe request (`GET`, `HEAD`, `OPTIONS`, `TRACE`) whose binding the client does
-not already send. On plain HTTP, and wherever Otto sees an HTTPS request as
-HTTP (for example behind a TLS-terminating proxy that does not send
+`CSRFMiddleware` sets it only on responses to safe requests (`GET`, `HEAD`,
+`OPTIONS`, `TRACE`), HTML or not, and only to a binding the client does not
+already send: one Otto minted, or one stored in the session under
+`csrf_session_key`. It never copies a session id the request already had, or a
+binding read from a cookie, into it; the client sends those again with its next
+request, and a session id copied from a planted session cookie would outlive
+that cookie in `__Host-otto_session`. A session store added with `otto.use`
+before CSRF protection is enabled runs inside `CSRFMiddleware` and has
+committed the session by the time the middleware injects a token. When the
+middleware mints the binding there, the store never sends the id it creates
+for Otto's write, so the binding cookie carries that id instead. On an unsafe
+request Otto creates no binding: a request that fails the CSRF check gets its
+`403` without one, and an HTML response to an unsafe request (for example a
+`csrf=exempt` route that another site posts to) carries a token only when the
+request already has a binding. On plain HTTP, and wherever Otto sees an HTTPS
+request as HTTP (for example behind a TLS-terminating proxy that does not send
 `X-Forwarded-Proto`), the cookie is `_otto_session` and can still be planted.
-Cookies are not isolated by port, so a service on another port of the same
-host can also set `__Host-otto_session`.
+Cookies are not isolated by port, so a service on another port of the same host
+can also set `__Host-otto_session`.
 
 Behind a session middleware the session's id is the binding, so the session
 cookie is the one an attacker would plant: an attacker who can set cookies for
@@ -511,11 +527,166 @@ rack-session sets `Path=/` and no `Domain` unless told otherwise, so with
 takes the same `key:` and `secure:` options. With `secure: true`, rack-session
 sets the cookie only when Rack sees the request as HTTPS (`request.ssl?`), so
 behind a TLS-terminating proxy Rack must see the forwarded scheme, or no
-session survives between requests. `Rack::Session::Cookie` raises
-`ArgumentError` when it is built with a secret shorter than 64 bytes. Also
-renew the session id in the login handler
+session survives between requests; rack-session 2.1.2 also takes
+`assume_ssl: true`, which its `security_matches?` treats as HTTPS
+([lines 371-374](https://github.com/rack/rack-session/blob/v2.1.2/lib/rack/session/abstract/id.rb#L371-L374)):
+`request.ssl? || @assume_ssl == true`. Otto's binding cookie does not stand in
+for the missing session cookie, so CSRF-protected requests then get `403` as
+well. The same holds for a request whose `rack.session.options` set `skip` or
+`defer`: the store sets no cookie, and unless the application sets one the
+binding read from `session.id` never reaches the client.
+`Rack::Session::Cookie` raises `ArgumentError` when it is built with a secret
+shorter than 64 bytes. Also renew the session id in the login handler
 (`req.env['rack.session.options'][:renew] = true`), so a session that existed
 before login does not carry over.
+
+The planted session cookie does not have to name a session the store holds.
+Otto reads `session.id` without loading the session, and in rack-session 2.1.2
+an unloaded session's id is whatever the store extracts from the request
+([lib/rack/session/abstract/id.rb, lines 74-77](https://github.com/rack/rack-session/blob/v2.1.2/lib/rack/session/abstract/id.rb#L74-L77)):
+
+```ruby
+def id
+  return @id if @loaded or instance_variable_defined?(:@id)
+  @id = @store.send(:extract_session_id, @req)
+end
+```
+
+For `Rack::Session::Pool` that is the value of the session cookie. `Persisted`
+reads it
+([lines 328-332](https://github.com/rack/rack-session/blob/v2.1.2/lib/rack/session/abstract/id.rb#L328-L332)):
+
+```ruby
+def extract_session_id(request)
+  sid = request.cookies[@key]
+  sid ||= request.params[@key] unless @cookie_only
+  sid
+end
+```
+
+and `PersistedSecure`, the class `Pool` inherits from, wraps it in a
+`SessionId`
+([lines 483-486](https://github.com/rack/rack-session/blob/v2.1.2/lib/rack/session/abstract/id.rb#L483-L486)):
+
+```ruby
+def extract_session_id(*)
+  public_id = super
+  public_id && SessionId.new(public_id)
+end
+```
+
+`Pool` replaces an id it holds no session for only when the session loads
+([lib/rack/session/pool.rb, lines 44-52](https://github.com/rack/rack-session/blob/v2.1.2/lib/rack/session/pool.rb#L44-L52)):
+
+```ruby
+def find_session(req, sid)
+  @mutex.synchronize do
+    unless sid and session = get_session_with_fallback(sid)
+      sid, session = generate_sid(use_mutex: false), {}
+      @pool.store sid.private_id, session
+    end
+    [sid, session]
+  end
+end
+```
+
+So behind `Pool`, until something loads the session, the binding is the id the
+session cookie names, and an attacker can plant a value they made up instead of
+a copy of their own session cookie. This is a known limitation. Otto does not
+load the session to check the id. rack-session commits a session that was
+loaded
+([lines 350-357](https://github.com/rack/rack-session/blob/v2.1.2/lib/rack/session/abstract/id.rb#L350-L357)):
+
+```ruby
+def commit_session?(req, session, options)
+  if options[:skip]
+    false
+  else
+    has_session = loaded_session?(session) || forced_session_update?(session, options)
+    has_session && security_matches?(req, options)
+  end
+end
+```
+
+Our reading of `commit_session?` is that loading on every CSRF-checked request
+would make each such request commit the copy it loaded before the handler ran,
+over any session write an overlapping request made in the meantime. Loading
+would also not stop the attack: an attacker who can plant a cookie can as easily
+plant the id of a real session they started, which a load accepts. In both
+cases, protect the session cookie itself as described above.
+
+`Rack::Session::Cookie` differs: its `extract_session_id` reads `session_id`
+from the decrypted cookie
+([lib/rack/session/cookie.rb, lines 209-211](https://github.com/rack/rack-session/blob/v2.1.2/lib/rack/session/cookie.rb#L209-L211)),
+so a value that does not decrypt yields no id.
+
+## Keep CSRF responses out of shared caches
+
+A response on which `CSRFMiddleware` sets the binding cookie or injects a token
+is meant for one client. RFC 9111, section 7.3: "Note that the Set-Cookie
+response header field [COOKIE] does not inhibit caching; a cacheable response
+with a Set-Cookie header field can be (and often is) used to satisfy subsequent
+requests to caches." A shared cache that stored such a response would hand one
+client's binding cookie, or a token bound to one client's session, to other
+clients. The middleware therefore adds
+`Cache-Control: private, stale-if-error=0` to these responses. RFC 9111,
+section 5.2.2.7: "The unqualified private response directive indicates that a
+shared cache MUST NOT store the response (i.e., the response is intended for a
+single user)." The browser's own cache may still store it.
+
+`stale-if-error=0` (RFC 5861) is for a cache that stores the response despite
+`private`. CloudFront does when the cache policy's minimum TTL is above 0, as
+in the managed CachingOptimized policy (1 second). The CloudFront developer
+guide: "If your minimum TTL is greater than 0, CloudFront uses the cache
+policy’s minimum TTL, even if the Cache-Control: no-cache, no-store, and/or
+private directives are present in the origin headers. If the origin is
+reachable, CloudFront gets the object from the origin and returns it to the
+viewer. If the origin is unreachable and the minimum or maximum TTL value is
+greater than 0, CloudFront will serve the object that it got from the origin
+previously. To avoid this behavior, include the Cache-Control:
+stale-if-error=0 directive with the object returned from the origin."
+
+When the application sets `Cache-Control` or `Expires` on the response, Otto
+adds nothing, even when the application's value lets shared caches store the
+response (for example `public, max-age=60`); a page that carries a token then
+needs `private` or `no-store` from the application, and `stale-if-error=0` for
+the CloudFront case above. Otto also adds nothing to a response it did not
+change: a token the application writes itself, for example from a JSON token
+endpoint behind a session middleware, needs its own header, such as
+`res['cache-control'] = 'private, stale-if-error=0'`.
+
+Otto reads only `Cache-Control` and `Expires`. Some caches give their own
+fields precedence, and Otto does not inspect those: a cache that implements
+`CDN-Cache-Control` (RFC 9213, section 2.2) "MUST ignore the Cache-Control and
+Expires header fields in that response" when one of its targeted fields has a
+valid, non-empty value; the
+[nginx proxy module documentation](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_cache_valid)
+says "If the header does not include the “X-Accel-Expires” field, parameters
+of caching may be set in the header fields “Expires” or “Cache-Control”"; and
+Varnish's built-in VCL checks `Cache-Control` for `private` only when the
+response has no `Surrogate-Control`
+([bin/varnishd/builtin.vcl in Varnish 7.6](https://github.com/varnishcache/varnish-cache/blob/7.6/bin/varnishd/builtin.vcl#L235-L241)):
+
+```vcl
+sub vcl_beresp_control {
+	if (beresp.http.Surrogate-control ~ "(?i)no-store" ||
+	    (!beresp.http.Surrogate-Control &&
+	      beresp.http.Cache-Control ~ "(?i:no-cache|no-store|private)")) {
+		call vcl_beresp_hitmiss;
+	}
+}
+```
+
+Both keep a response that carries `Set-Cookie` out of the cache on their own:
+the same nginx page says "If the header includes the “Set-Cookie” field, such
+a response will not be cached", and the built-in VCL's `vcl_beresp_cookie`
+calls `vcl_beresp_hitmiss` when `beresp.http.Set-Cookie` is set. A response
+that carries only an injected token has no such cookie and depends on
+`Cache-Control`. An application that sends one of these fields on a page that
+carries a token needs to keep shared caches out in that field as well. A cache
+that is configured to ignore `Cache-Control`, such as a Cloudflare rule that
+sets an edge TTL and ignores cache headers, stores these responses anyway, so
+keep pages that carry tokens out of such rules.
 
 ## Related contracts
 

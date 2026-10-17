@@ -156,6 +156,7 @@ RSpec.describe Otto::Security::CSRFValidation do
         env = mock_rack_env(method: 'POST', path: '/', params: { '_csrf_token' => token })
 
         expect(config).not_to receive(:get_or_create_session_id)
+        expect(config).not_to receive(:existing_session_id)
         expect(config).not_to receive(:verify_csrf_token)
         expect(host.send(:valid_csrf_token?, Rack::Request.new(env))).to be false
       end

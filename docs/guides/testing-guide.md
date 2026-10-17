@@ -368,8 +368,9 @@ store added with `otto.use` before CSRF protection is enabled runs inside
 `CSRFMiddleware`; there the binding cookie carries the id the store creates
 when the middleware mints a binding. An unsafe request never creates a
 binding, so a test that posts without one gets `403` and no cookie, and an
-HTML response to it carries no token. `spec/otto/security/csrf_rack_session_spec.rb` runs
-these flows behind rack-session's `Pool` and `Cookie` stores.
+HTML response to it carries no token.
+`spec/otto/security/csrf_rack_session_spec.rb` runs these flows behind
+rack-session's `Pool` and `Cookie` stores.
 `Otto::Security::Config#csrf_binding_cookie_name`
 returns its name: `__Host-otto_session` when Rack reports the request as HTTPS
 (`request.scheme == 'https'`), set with `Secure`, `Path=/` and no `Domain`, and
@@ -381,10 +382,10 @@ choose the binding. A test that drives a form over HTTPS must carry
 
 Use these maintained specs as executable examples:
 
-- [`spec/security_csrf_spec.rb`](../../spec/security_csrf_spec.rb) — response injection.
-- [`spec/otto/security/csrf_enforcement_wrapper_spec.rb`](../../spec/otto/security/csrf_enforcement_wrapper_spec.rb) — safe methods, unsafe methods, valid tokens, and `csrf=exempt`.
-- [`spec/otto/security/csrf_validation_spec.rb`](../../spec/otto/security/csrf_validation_spec.rb) — token and session extraction.
-- [`spec/otto/security/csrf_binding_cookie_spec.rb`](../../spec/otto/security/csrf_binding_cookie_spec.rb) — the binding cookie on HTTP and HTTPS.
+- [`spec/security_csrf_spec.rb`](../../spec/security_csrf_spec.rb): response injection.
+- [`spec/otto/security/csrf_enforcement_wrapper_spec.rb`](../../spec/otto/security/csrf_enforcement_wrapper_spec.rb): safe methods, unsafe methods, valid tokens, and `csrf=exempt`.
+- [`spec/otto/security/csrf_validation_spec.rb`](../../spec/otto/security/csrf_validation_spec.rb): token and session extraction.
+- [`spec/otto/security/csrf_binding_cookie_spec.rb`](../../spec/otto/security/csrf_binding_cookie_spec.rb): the binding cookie on HTTP and HTTPS.
 - [`spec/otto/security/csrf_rack_session_spec.rb`](../../spec/otto/security/csrf_rack_session_spec.rb): the binding behind rack-session's `Pool` and `Cookie` stores.
 
 ## Test IP privacy with the application configuration

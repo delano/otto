@@ -15,8 +15,8 @@ class Otto
     # carried, or how a rejection is shaped. The including object must expose a
     # +@config+ (an +Otto::Security::Config+).
     module CSRFValidation
-      # HTTP methods that never mutate state and so are exempt from token
-      # validation (RFC 7231 safe methods plus TRACE).
+      # The request methods RFC 9110, section 9.2.1 defines as safe. They are
+      # exempt from token validation.
       SAFE_METHODS = %w[GET HEAD OPTIONS TRACE].freeze
 
       # Static 403 body. Frozen once so a rejected request does not re-serialize

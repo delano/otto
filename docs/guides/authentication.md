@@ -491,21 +491,23 @@ that cookie is `__Host-otto_session`, set with `Secure`, `Path=/` and no
 or a network attacker cannot plant it; on HTTP it is `_otto_session`.
 `CSRFMiddleware` sets it only on responses to safe requests (`GET`, `HEAD`,
 `OPTIONS`, `TRACE`), HTML or not, and only to a binding the client does not
-already send: one Otto minted, or one stored in the session under
-`csrf_session_key`. It never copies a session id the request already had, or a
-binding read from a cookie, into it; the client sends those again with its next
-request, and a session id copied from a planted session cookie would outlive
-that cookie in `__Host-otto_session`. A session store added with `otto.use`
-before CSRF protection is enabled runs inside `CSRFMiddleware` and has
-committed the session by the time the middleware injects a token. When the
+already send: one Otto minted, one stored in the session under
+`csrf_session_key`, or (see below) the id a store inside `CSRFMiddleware`
+created for Otto's write. It never copies a session id the request already had,
+or a binding read from a cookie, into it; the client sends those again with its
+next request, and a session id copied from a planted session cookie would
+outlive that cookie in `__Host-otto_session`. A session store added with
+`otto.use` before CSRF protection is enabled runs inside `CSRFMiddleware` and
+has committed the session by the time the middleware injects a token. When the
 middleware mints the binding there, the store never sends the id it creates
 for Otto's write, so the binding cookie carries that id instead. On an unsafe
-request Otto creates no binding: a request that fails the CSRF check gets its
-`403` without one, and an HTML response to an unsafe request (for example a
-`csrf=exempt` route that another site posts to) carries a token only when the
-request already has a binding. On plain HTTP, and wherever Otto sees an HTTPS
-request as HTTP (for example behind a TLS-terminating proxy that does not send
-`X-Forwarded-Proto`), the cookie is `_otto_session` and can still be planted.
+request neither the CSRF check nor `CSRFMiddleware` creates a binding: a request
+that fails the CSRF check gets its `403` without one, and an HTML response to an
+unsafe request (for example a `csrf=exempt` route that another site posts to)
+carries a token only when the request already has a binding. On plain HTTP,
+and wherever Otto sees an HTTPS request as HTTP (for example behind a
+TLS-terminating proxy that does not send `X-Forwarded-Proto`), the cookie is
+`_otto_session` and can still be planted.
 Cookies are not isolated by port, so a service on another port of the same host
 can also set `__Host-otto_session`.
 
@@ -618,7 +620,11 @@ cases, protect the session cookie itself as described above.
 `Rack::Session::Cookie` differs: its `extract_session_id` reads `session_id`
 from the decrypted cookie
 ([lib/rack/session/cookie.rb, lines 209-211](https://github.com/rack/rack-session/blob/v2.1.2/lib/rack/session/cookie.rb#L209-L211)),
-so a value that does not decrypt yields no id.
+so with `secrets:` configured a value that does not decrypt yields no id.
+Without `secrets:` the cookie is decoded with the `coder` instead
+([lines 240-244](https://github.com/rack/rack-session/blob/v2.1.2/lib/rack/session/cookie.rb#L240-L244),
+"Use the coder option, which has the potential to be very unsafe."), and a
+planted cookie can carry any `session_id`.
 
 ## Related contracts
 

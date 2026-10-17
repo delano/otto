@@ -889,7 +889,8 @@ class Otto
         # ASCII String cannot match. Rejecting it here also keeps it from
         # #split and the HMAC input below, which raise for the Array or Hash
         # Rack parses from _csrf_token[]= or _csrf_token[k]=, for invalid
-        # bytes, and for non-ASCII bytes next to a non-ASCII binding.
+        # bytes, and for an ASCII-8BIT token with non-ASCII bytes next to a
+        # non-ASCII binding.
         return false unless token.is_a?(String) && token.ascii_only?
 
         binding_id = session_id.to_s

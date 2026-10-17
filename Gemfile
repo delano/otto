@@ -21,7 +21,7 @@ group :development, :test, optional: true do
   gem 'json_schemer', '~> 2.0'
   gem 'maxmind-db', '~> 1.5' # Optional geo DB reader; exercised by geo specs
   gem 'rack-attack', '~> 6.7'
-  gem 'reek', '~> 6.5'
+  gem 'reek', '~> 6.6'
 end
 
 group :development do

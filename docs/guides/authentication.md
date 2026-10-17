@@ -372,12 +372,11 @@ runs before authentication, so it does not see that session; it reads the
 binding cookie instead. `CSRFMiddleware` does not copy a session's id into the
 binding cookie, so the check rejects those tokens with `403` unless the request
 also carries the same value in a cookie the check reads: on plain HTTP, the
-app's `session_id` or `_session_id` cookie. To keep such
-tokens valid, run a session middleware, whose session the check reads, or
-return a strategy session that neither responds to `id` nor holds a
-`'session_id'` key: Otto then stores its own binding in that session under
-`csrf_session_key` and sets the binding cookie to it on responses to safe
-requests.
+app's `session_id` or `_session_id` cookie. To keep such tokens valid, run a
+session middleware, whose session the check reads, or return a strategy session
+that neither responds to `id` nor holds a `'session_id'` key: Otto then stores
+its own binding in that session under `csrf_session_key` and sets the binding
+cookie to it on responses to safe requests.
 
 Application code should read the result created by Otto rather than constructing
 its own `StrategyResult`. The `Data` record does not allow member reassignment,
@@ -501,15 +500,14 @@ before CSRF protection is enabled runs inside `CSRFMiddleware` and has
 committed the session by the time the middleware injects a token. When the
 middleware mints the binding there, the store never sends the id it creates
 for Otto's write, so the binding cookie carries that id instead. On an unsafe
-request Otto creates no
-binding: a request that fails the CSRF check gets its `403` without one, and an
-HTML response to an unsafe request (for example a `csrf=exempt` route that
-another site posts to) carries a token only when the request already has a
-binding. On plain HTTP, and wherever Otto sees an HTTPS request as
-HTTP (for example behind a TLS-terminating proxy that does not send
+request Otto creates no binding: a request that fails the CSRF check gets its
+`403` without one, and an HTML response to an unsafe request (for example a
+`csrf=exempt` route that another site posts to) carries a token only when the
+request already has a binding. On plain HTTP, and wherever Otto sees an HTTPS
+request as HTTP (for example behind a TLS-terminating proxy that does not send
 `X-Forwarded-Proto`), the cookie is `_otto_session` and can still be planted.
-Cookies are not isolated by port, so a service on another port of the same
-host can also set `__Host-otto_session`.
+Cookies are not isolated by port, so a service on another port of the same host
+can also set `__Host-otto_session`.
 
 Behind a session middleware the session's id is the binding, so the session
 cookie is the one an attacker would plant: an attacker who can set cookies for
@@ -529,11 +527,16 @@ rack-session sets `Path=/` and no `Domain` unless told otherwise, so with
 takes the same `key:` and `secure:` options. With `secure: true`, rack-session
 sets the cookie only when Rack sees the request as HTTPS (`request.ssl?`), so
 behind a TLS-terminating proxy Rack must see the forwarded scheme, or no
-session survives between requests. Otto's binding cookie does not stand in for
-the missing session cookie, so CSRF-protected requests then get `403` as
-well. `Rack::Session::Cookie` raises
-`ArgumentError` when it is built with a secret shorter than 64 bytes. Also
-renew the session id in the login handler
+session survives between requests; rack-session 2.1.2 also takes
+`assume_ssl: true`, which its `security_matches?` treats as HTTPS
+([lines 371-374](https://github.com/rack/rack-session/blob/v2.1.2/lib/rack/session/abstract/id.rb#L371-L374)):
+`request.ssl? || @assume_ssl == true`. Otto's binding cookie does not stand in
+for the missing session cookie, so CSRF-protected requests then get `403` as
+well. The same holds for a request whose `rack.session.options` set `skip` or
+`defer`: the store sets no cookie, and unless the application sets one the
+binding read from `session.id` never reaches the client.
+`Rack::Session::Cookie` raises `ArgumentError` when it is built with a secret
+shorter than 64 bytes. Also renew the session id in the login handler
 (`req.env['rack.session.options'][:renew] = true`), so a session that existed
 before login does not carry over.
 
@@ -595,13 +598,20 @@ loaded
 ([lines 350-357](https://github.com/rack/rack-session/blob/v2.1.2/lib/rack/session/abstract/id.rb#L350-L357)):
 
 ```ruby
-has_session = loaded_session?(session) || forced_session_update?(session, options)
+def commit_session?(req, session, options)
+  if options[:skip]
+    false
+  else
+    has_session = loaded_session?(session) || forced_session_update?(session, options)
+    has_session && security_matches?(req, options)
+  end
+end
 ```
 
-Our reading of that line is that loading on every CSRF-checked request would
-make each such request commit the copy it loaded before the handler ran, over
-any session write an overlapping request made in the meantime. Loading would
-also not stop the attack: an attacker who can plant a cookie can as easily
+Our reading of `commit_session?` is that loading on every CSRF-checked request
+would make each such request commit the copy it loaded before the handler ran,
+over any session write an overlapping request made in the meantime. Loading
+would also not stop the attack: an attacker who can plant a cookie can as easily
 plant the id of a real session they started, which a load accepts. In both
 cases, protect the session cookie itself as described above.
 

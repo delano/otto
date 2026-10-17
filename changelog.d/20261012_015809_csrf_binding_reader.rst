@@ -22,11 +22,12 @@ Security
   lifetime, that id was the binding again and a token the attacker held for
   it was accepted. Both paths now share one rule and one code path: the
   binding cookie is set only on responses to safe requests, and only to a
-  binding Otto minted or read from ``csrf_session_key``. A minted binding
-  includes the id that a session store added with ``otto.use`` before CSRF
-  protection is enabled creates when ``CSRFMiddleware`` mints a binding: that
-  store runs inside the middleware, has already committed and never sends
-  the id, so the binding cookie carries it. (#308)
+  binding Otto minted or read from ``csrf_session_key``. When
+  ``CSRFMiddleware`` mints a binding behind a session store added with
+  ``otto.use`` before CSRF protection is enabled, the id that store creates
+  is the binding: the store runs inside the middleware, has already
+  committed, and never sends that id, so the binding cookie carries it.
+  (#308)
 
 Added
 -----
@@ -42,7 +43,9 @@ Changed
 - An HTML response to an unsafe request that has no binding, such as a
   ``csrf=exempt`` callback that another site posts to, now carries no CSRF
   token, and ``CSRFHelpers#csrf_token`` returns ``nil`` there instead of
-  minting a binding. Behind a session middleware, a handler that writes to the
+  minting a binding; ``csrf_meta_tag`` and ``csrf_form_tag`` then render an
+  empty ``content`` or ``value``, which the next request's CSRF check rejects
+  with ``403``. Behind a session middleware, a handler that writes to the
   session first still gets a token bound to the new session. Migration: answer
   the POST with a redirect and render the form on the page it redirects to.
   (#308)
@@ -54,7 +57,9 @@ Changed
   back, such as rack-session with ``secure: true`` while Rack sees the request
   as HTTP, kept no session between requests, but the copy kept CSRF tokens
   valid; CSRF-protected requests now get ``403`` too. Fix the store's
-  configuration so its cookie is set (see the authentication guide). (#308)
+  configuration so its cookie is set: make Rack see the forwarded scheme, or
+  pass rack-session's ``assume_ssl: true`` (see the authentication guide).
+  (#308)
 
 - Without a session middleware, a token bound to an auth strategy's session
   that responds to ``id`` or holds a ``'session_id'`` key is now rejected with
@@ -88,3 +93,7 @@ Documentation
   recommends protecting the session cookie itself (a ``__Host-`` key with
   ``secure: true``), as it already did, and quotes the rack-session 2.1.2
   code it relies on. (#308)
+
+- The lambda handlers example no longer says ``csrf=exempt`` is recorded but
+  not enforced. It has been enforced at the handler layer since 2.6.0 (#186).
+  (#308)

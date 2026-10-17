@@ -35,6 +35,8 @@ class Otto
         @csrf_token
       end
 
+      # The tags below render an empty content or value when #csrf_token is
+      # nil, and a request that sends that value fails the CSRF check.
       def csrf_meta_tag
         %(<meta name="csrf-token" content="#{csrf_token}">)
       end

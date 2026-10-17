@@ -48,11 +48,10 @@ module LambdaHandlers
     { greeting: "Hello, #{name}!" }
   end
 
-  # A webhook-style POST handler. The matching route declares `csrf=exempt`,
-  # intended to let external callers (which cannot present a CSRF token) reach
-  # it. Note: CSRFMiddleware does not yet honor per-route csrf=exempt (issue
-  # #186), so the option is currently advisory. When enforcement lands, exempt
-  # CSRF only for endpoints authenticated another way (signature header, shared
+  # A webhook-style POST handler. The matching route declares `csrf=exempt`
+  # so external callers, which cannot present a CSRF token, can reach it.
+  # Otto enforces the option at the handler layer (issue #186), so exempt CSRF
+  # only for endpoints authenticated another way (signature header, shared
   # secret, etc.).
   WEBHOOK = lambda do |req, _res, _extra|
     # Rewind first: upstream middleware may already have read the input stream.

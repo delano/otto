@@ -891,7 +891,6 @@ class Otto
         # Rack parses from _csrf_token[]= or _csrf_token[k]=, for invalid
         # bytes, and for non-ASCII bytes next to a non-ASCII binding.
         return false unless token.is_a?(String) && token.ascii_only?
-        return false if token.empty?
 
         binding_id = session_id.to_s
         return false if binding_id.empty?

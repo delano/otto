@@ -46,9 +46,9 @@ Changed
   minting a binding; ``csrf_meta_tag`` and ``csrf_form_tag`` then render an
   empty ``content`` or ``value``, which the next request's CSRF check rejects
   with ``403``. Behind a session middleware, a handler that writes to the
-  session first still gets a token bound to the new session. Migration: answer
-  the POST with a redirect and render the form on the page it redirects to.
-  (#308)
+  session first still gets a token bound to the new session, and the store
+  sets its session cookie on that response. Migration: answer the POST with a
+  redirect and render the form on the page it redirects to. (#308)
 
 - HTML responses no longer set ``_otto_session`` or ``__Host-otto_session``
   to the session's id, ``session['session_id']``, or a binding read from the

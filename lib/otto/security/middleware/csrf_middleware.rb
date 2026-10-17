@@ -213,7 +213,7 @@ class Otto
         def sets_cookie?(headers, name)
           pattern = /\A\s*#{Regexp.escape(name)}\s*=/
           headers.any? do |key, value|
-            key.casecmp?('set-cookie') && Array(value).any? { |lines| lines.split("\n").any?(pattern) }
+            key.casecmp?('set-cookie') && Array(value).any? { |lines| lines.to_s.split("\n").any?(pattern) }
           end
         end
 

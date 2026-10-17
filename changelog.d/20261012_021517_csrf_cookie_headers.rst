@@ -45,7 +45,8 @@ Fixed
 - ``CSRFMiddleware`` no longer changes the application's headers on HTML
   responses; it works on a copy, as it already did on other responses. Before,
   frozen headers raised ``FrozenError``, and an application that returned the
-  same headers object for every response carried each client's binding cookie
+  same headers object for every response had the injected page's
+  ``Content-Length``, and until #308 each client's binding cookie, carried
   into the responses for later clients. (#309)
 
 - ``CSRFMiddleware`` no longer adds the binding cookie to a response that

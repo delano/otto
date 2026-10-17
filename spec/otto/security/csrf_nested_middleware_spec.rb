@@ -106,6 +106,12 @@ RSpec.describe 'CSRFMiddleware run more than once' do
 
       expect(cookie_lines(headers)).to eq([*others, '__Host-otto_session=minted; Path=/; HttpOnly; SameSite=Lax; Secure'])
     end
+
+    it 'passes over an element of a Set-Cookie Array that is not a String' do
+      _, headers, = json_call('set-cookie' => [nil, 'app=1'])
+
+      expect(headers['set-cookie']).to eq([nil, 'app=1', '__Host-otto_session=minted; Path=/; HttpOnly; SameSite=Lax; Secure'])
+    end
   end
 
   # Two CSRF-enabled Ottos, the outer one handing unmatched requests to the

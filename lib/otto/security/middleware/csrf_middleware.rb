@@ -32,6 +32,8 @@ class Otto
           return @app.call(env) unless @config.csrf_enabled?
 
           request       = Otto::Request.new(env)
+          # Read before @app.call: a session store inside this middleware
+          # replaces rack.session there (see #record_store_minted_binding).
           outer_session = env['rack.session']
           response      = @app.call(env)
           response      = inject_csrf_token(request, response, outer_session) if html_response?(response)
@@ -80,9 +82,7 @@ class Otto
           return response unless response.is_a?(Array) && response.length >= 3
 
           status, headers, body = response
-          content_type          = headers.find { |k, _v| k.downcase == 'content-type' }&.last
-
-          return response unless content_type&.include?('text/html')
+          return response unless html_content_type?(headers)
 
           session_id = token_binding(request, outer_session)
           return response unless session_id
@@ -178,7 +178,12 @@ class Otto
         def html_response?(response)
           return false unless response.is_a?(Array) && response.length >= 2
 
-          headers      = response[1]
+          html_content_type?(response[1])
+        end
+
+        # Whether +headers+ declare a text/html Content-Type, under any case
+        # of the key.
+        def html_content_type?(headers)
           content_type = headers.find { |k, _v| k.downcase == 'content-type' }&.last
           content_type&.include?('text/html')
         end

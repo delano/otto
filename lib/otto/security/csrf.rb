@@ -14,14 +14,29 @@ class Otto
 
     # Helper methods for CSRF token handling in views and controllers
     module CSRFHelpers
+      # A CSRF token for the request's binding. On a safe request a binding
+      # is minted when there is none. On an unsafe request only an existing
+      # binding is used, as CSRFMiddleware does: a binding minted there never
+      # reaches the client, because the binding cookie is set only on safe
+      # requests.
+      #
+      # @return [String, nil] the token, or nil when an unsafe request has no
+      #   binding or the security config is unavailable
       def csrf_token
         if @csrf_token.nil? && otto.respond_to?(:security_config)
-          session_id  = otto.security_config.get_or_create_session_id(req)
-          @csrf_token = otto.security_config.generate_csrf_token(session_id)
+          config      = otto.security_config
+          session_id  = if CSRFValidation::SAFE_METHODS.include?(req.request_method.to_s.upcase)
+                          config.get_or_create_session_id(req)
+                        else
+                          config.existing_session_id(req)
+                        end
+          @csrf_token = config.generate_csrf_token(session_id) if session_id
         end
         @csrf_token
       end
 
+      # The tags below render an empty content or value when #csrf_token is
+      # nil, and a request that sends that value fails the CSRF check.
       def csrf_meta_tag
         %(<meta name="csrf-token" content="#{csrf_token}">)
       end

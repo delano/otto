@@ -10,6 +10,7 @@ source 'https://rubygems.org'
 gemspec
 
 group :test do
+  gem 'rack-session', '~> 2.1' # Real session stores for the CSRF binding specs
   gem 'rack-test'
   gem 'rspec', '~> 3.13'
   gem 'user_agent_parser', '~> 2.18' # Validate anonymized UAs preserve semantic info

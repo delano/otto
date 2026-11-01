@@ -289,6 +289,21 @@ RSpec.describe Otto::Security::CSRFHelpers do
         expect(token1).to eq(token2)
       end
 
+      # CSRFMiddleware sets the binding cookie on a response to a safe
+      # request, so a binding minted here reaches the client.
+      it 'mints a binding for a safe request that has none' do
+        get_session = {}
+        get_request = double('request', request_method: 'GET', session: get_session, cookies: {}, env: {})
+        allow(get_request).to receive(:scheme).and_return('https')
+
+        token = mock_response.new(mock_otto, get_request).csrf_token
+
+        expect(token).to be_a(String)
+        expect(token.split(':').length).to eq(2)
+        expect(get_session[config.csrf_session_key]).not_to be_nil
+        expect(config.verify_csrf_token(token, get_session[config.csrf_session_key])).to be(true)
+      end
+
       # A binding minted on an unsafe request never reaches the client:
       # CSRFMiddleware sets the binding cookie only on safe requests, and a
       # cross-site POST arrives without the session cookie, so a write would

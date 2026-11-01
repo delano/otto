@@ -68,13 +68,17 @@ Fixed
   specification says "middleware can only process the Body directly if it
   responds to +to_ary+", and that "If the Body responds to both +to_ary+ and
   +close+, its implementation of +to_ary+ must call +close+." Before, the
-  middleware injected the token only into a body that responds to ``join``: a
-  body wrapped by ``Rack::Lint`` got no token, and a ``Rack::BodyProxy`` was
-  replaced without being closed, so its close callback never ran. Other
-  bodies, such as files and streams, are still returned unread. (#309)
+  middleware read the body with ``join``, or with ``to_s`` when it lacked
+  ``join``: a body wrapped by ``Rack::Lint`` got no token, and a
+  ``Rack::BodyProxy`` was replaced without being closed, so its close callback
+  never ran. A String body, or one that responds to ``join`` but not
+  ``to_ary``, now gets no token. Otto's route handlers wrap a String body in
+  an Array, so a String page they return still gets one. Other bodies, such as
+  files and streams, are still returned unread. (#309)
 
 - An HTML page with an invalid byte for its encoding, such as a Latin-1 file
   read as UTF-8, or with body parts in incompatible encodings, no longer gets
   ``500`` when CSRF protection is enabled. ``CSRFMiddleware`` now searches the
   body for ``<head>`` as bytes, injects the token, and leaves the other bytes
-  unchanged; parts that share an encoding keep it. (#309)
+  unchanged. The page keeps the encoding its parts have when joined as text,
+  and stays binary only when their encodings are incompatible. (#309)

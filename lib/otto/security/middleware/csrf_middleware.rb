@@ -105,16 +105,23 @@ class Otto
 
           # The parts are searched as bytes. The <head> pattern and the meta
           # tag are ASCII, so a part with invalid bytes, or parts in
-          # incompatible encodings, can neither raise here nor change.
+          # incompatible encodings, can neither raise here nor change. The
+          # page then gets the encoding its parts have when joined as text,
+          # and stays binary only when they cannot be joined.
           parts        = body.to_ary
-          body_content = parts.map { |part| part.to_s.b }.join
+          strings      = parts.map(&:to_s)
+          body_content = strings.map(&:b).join
 
           head_open_tag = /<head(?:\s[^>]*)?>/i
           if body_content.match?(head_open_tag)
-            meta_tag     = %(<meta name="csrf-token" content="#{csrf_token}">)
-            body_content = body_content.sub(head_open_tag) { |tag| "#{tag}\n#{meta_tag}" }
-            encodings    = parts.map { |part| part.to_s.encoding }.uniq
-            body_content.force_encoding(encodings.first) if encodings.size == 1
+            meta_tag      = %(<meta name="csrf-token" content="#{csrf_token}">)
+            body_content  = body_content.sub(head_open_tag) { |tag| "#{tag}\n#{meta_tag}" }
+            text_encoding = begin
+              strings.join.encoding
+            rescue Encoding::CompatibilityError
+              nil
+            end
+            body_content.force_encoding(text_encoding) if text_encoding
 
             # Update content length if present
             content_length_key          = headers.keys.find { |k| k.downcase == 'content-length' }

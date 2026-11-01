@@ -157,6 +157,21 @@ RSpec.describe 'CSRFMiddleware and the Rack specification' do
         expect(body.first.encoding).to eq(Encoding::ISO_8859_1)
         expect(meta_line(body.first)).not_to be_nil
       end
+
+      # Integer#to_s is US-ASCII. Joined as text these parts are UTF-8, and a
+      # page left binary would raise Encoding::CompatibilityError in an outer
+      # middleware that appends non-ASCII UTF-8 text to it.
+      it 'keeps the encoding of parts in compatible encodings' do
+        parts = ['<html><head></head><body>é', 1.to_s, '</body></html>']
+        app   = ->(_env) { [200, { 'content-type' => 'text/html' }, parts.dup] }
+        stack = Otto::Security::Middleware::CSRFMiddleware.new(app, config)
+
+        _, _, body = stack.call(env_for('https://example.org/'))
+
+        expect(body.first.encoding).to eq(Encoding::UTF_8)
+        expect(meta_line(body.first)).not_to be_nil
+        expect { "#{body.first}é" }.not_to raise_error
+      end
     end
 
     # Middleware may not read a body that lacks #to_ary, so such a body gets

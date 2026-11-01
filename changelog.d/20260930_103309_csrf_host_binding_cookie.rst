@@ -56,8 +56,7 @@ Changed
   (``session.id``, or ``session['session_id']``), which the store's cookie
   carries when the store sets one, and a binding read from a cookie, which the
   client sends again, are not copied into the binding cookie on these
-  responses. HTML responses still set the binding cookie from any binding, as
-  before. (#302)
+  responses. (#302)
 
 Fixed
 -----

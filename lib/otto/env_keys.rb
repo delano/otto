@@ -68,12 +68,14 @@ class Otto
     # does not already send it: a binding minted by, or read from
     # csrf_session_key in, Otto::Security::Config#get_or_create_session_id.
     # The session store's own id and a binding read from a cookie are not
-    # written. A later call that records a binding replaces an earlier one; a
-    # call that records none leaves it.
+    # written, except the id a store that runs inside CSRFMiddleware creates
+    # when CSRFMiddleware mints a binding: that store has already committed
+    # and does not send it. A later call that records a binding replaces an
+    # earlier one; a call that records none leaves it.
     # Type: String
-    # Set by: Otto::Security::Config#get_or_create_session_id
-    # Used by: CSRFMiddleware (sets the binding cookie on non-HTML responses
-    # to safe requests)
+    # Set by: Otto::Security::Config#get_or_create_session_id, CSRFMiddleware
+    # Used by: CSRFMiddleware (sets the binding cookie from it on responses,
+    # HTML or not, to safe requests; it is the only source of that cookie)
     CSRF_BINDING = 'otto.csrf_binding'
 
     # Per-request CSP nonce, minted lazily on first access and memoized here.

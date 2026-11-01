@@ -1405,10 +1405,27 @@ class Otto
           session_id = minted_id if minted_id
         end
 
-        # CSRFMiddleware sets the binding cookie from this on responses that
-        # are not HTML (see EnvKeys::CSRF_BINDING).
+        # CSRFMiddleware sets the binding cookie from this on responses to
+        # safe requests (see EnvKeys::CSRF_BINDING).
         request.env['otto.csrf_binding'] = session_id.to_s if record_binding?(request, session_id)
         session_id
+      end
+
+      # Returns the CSRF binding the request already has, from the same
+      # sources and in the same order as #get_or_create_session_id, or nil.
+      # Unlike #get_or_create_session_id it never mints a binding, writes to
+      # the session or sets otto.csrf_binding.
+      #
+      # Use it where a new binding could not reach the client: a token can
+      # verify only against a binding that exists, and CSRFMiddleware sets the
+      # binding cookie only on safe requests. CSRF validation and token
+      # injection on unsafe requests read the binding this way.
+      #
+      # @param request [Rack::Request]
+      # @return [String, nil] the binding, or nil when there is none
+      def existing_session_id(request)
+        session_id = extract_existing_session_id(request)
+        session_id.nil? || session_id.empty? ? nil : session_id
       end
 
       private

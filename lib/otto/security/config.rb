@@ -1276,11 +1276,11 @@ class Otto
       def generate_nonce_csp(nonce, development_mode: false, extra_directives: nil, &extras_outcome)
         Otto::Security::CSP::Policy.nonce_policy(
           nonce,
-          development_mode:    development_mode,
-                report_uri:    @csp_report_uri,
-             report_to_url:    @csp_report_to_url,
-       directive_overrides:    @csp_directive_overrides,
-          extra_directives:    extra_directives,
+          development_mode: development_mode,
+                report_uri: @csp_report_uri,
+             report_to_url: @csp_report_to_url,
+       directive_overrides: @csp_directive_overrides,
+          extra_directives: extra_directives,
           &extras_outcome
         )
       end

@@ -61,18 +61,18 @@ class Otto
         # that may hold its value across both wire formats. Legacy kebab-case
         # keys are listed alongside their Reporting API camelCase equivalents.
         FIELD_ALIASES = {
-                 document_uri:        %w[document-uri documentURL],
-                     referrer:        %w[referrer referer],
-                  blocked_uri:        %w[blocked-uri blockedURL],
-           violated_directive:        %w[violated-directive violatedDirective],
-          effective_directive:        %w[effective-directive effectiveDirective],
-              original_policy:        %w[original-policy originalPolicy],
-                  disposition:        %w[disposition],
-                  source_file:        %w[source-file sourceFile],
-                  status_code:        %w[status-code statusCode],
-                script_sample:        %w[script-sample sample],
-                  line_number:        %w[line-number lineNumber],
-                column_number:        %w[column-number columnNumber],
+                 document_uri: %w[document-uri documentURL],
+                     referrer: %w[referrer referer],
+                  blocked_uri: %w[blocked-uri blockedURL],
+           violated_directive: %w[violated-directive violatedDirective],
+          effective_directive: %w[effective-directive effectiveDirective],
+              original_policy: %w[original-policy originalPolicy],
+                  disposition: %w[disposition],
+                  source_file: %w[source-file sourceFile],
+                  status_code: %w[status-code statusCode],
+                script_sample: %w[script-sample sample],
+                  line_number: %w[line-number lineNumber],
+                column_number: %w[column-number columnNumber],
         }.freeze
 
         # Fields coerced to an Integer (or nil) rather than kept as whatever

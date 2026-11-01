@@ -36,12 +36,19 @@ class Otto
           # replaces rack.session there (see #record_store_minted_binding).
           outer_session = env['rack.session']
           response      = @app.call(env)
-          response      = inject_csrf_token(request, response, outer_session) if html_response?(response)
+          response      = inject_csrf_token(request, with_copied_headers(response), outer_session) if html_response?(response)
 
           apply_binding_cookie(request, response)
         end
 
         private
+
+        # +response+ with a copy of its headers, so #inject_csrf_token can add
+        # Cache-Control and Content-Length without changing the app's
+        # headers, which the app may freeze or share between responses.
+        def with_copied_headers(response)
+          response.dup.tap { |copy| copy[1] = response[1].dup }
+        end
 
         # Sets the binding cookie on any response, HTML or not, to a safe
         # request that resolved a binding the client does not already send:
@@ -74,7 +81,7 @@ class Otto
           return response unless new_cookie
 
           headers = response[1].dup
-          append_set_cookie(headers, new_cookie)
+          append_binding_cookie(headers, new_cookie)
           response.dup.tap { |copy| copy[1] = headers }
         end
 
@@ -90,21 +97,40 @@ class Otto
           # Generate new CSRF token
           csrf_token = @config.generate_csrf_token(session_id)
 
-          # Inject meta tag into HTML head
-          body_content = body.respond_to?(:join) ? body.join : body.to_s
+          # Inject meta tag into HTML head. Rack lets middleware read a body
+          # itself only through #to_ary, which also closes it, so the parts
+          # it returns replace the body. Any other body, such as a file or a
+          # stream, is returned unread.
+          return response unless body.respond_to?(:to_ary)
+
+          # The parts are searched as bytes. The <head> pattern and the meta
+          # tag are ASCII, so a part with invalid bytes, or parts in
+          # incompatible encodings, can neither raise here nor change. The
+          # page then gets the encoding its parts have when joined as text,
+          # and stays binary only when they cannot be joined.
+          parts        = body.to_ary
+          strings      = parts.map(&:to_s)
+          body_content = strings.map(&:b).join
 
           head_open_tag = /<head(?:\s[^>]*)?>/i
           if body_content.match?(head_open_tag)
-            meta_tag     = %(<meta name="csrf-token" content="#{csrf_token}">)
-            body_content = body_content.sub(head_open_tag) { |tag| "#{tag}\n#{meta_tag}" }
+            meta_tag      = %(<meta name="csrf-token" content="#{csrf_token}">)
+            body_content  = body_content.sub(head_open_tag) { |tag| "#{tag}\n#{meta_tag}" }
+            text_encoding = begin
+              strings.join.encoding
+            rescue Encoding::CompatibilityError
+              nil
+            end
+            body_content.force_encoding(text_encoding) if text_encoding
 
             # Update content length if present
             content_length_key          = headers.keys.find { |k| k.downcase == 'content-length' }
             headers[content_length_key] = body_content.bytesize.to_s if content_length_key
+            keep_out_of_shared_caches(headers)
 
             [status, headers, [body_content]]
           else
-            response
+            [status, headers, parts]
           end
         end
 
@@ -173,6 +199,59 @@ class Otto
           key          = !headers.key?('set-cookie') && headers.key?('Set-Cookie') ? 'Set-Cookie' : 'set-cookie'
           existing     = headers[key]
           headers[key] = existing ? [*existing, cookie] : cookie
+        end
+
+        # Adds the binding cookie to +headers+ and keeps the response out of
+        # shared caches (#keep_out_of_shared_caches), unless the response
+        # already sets a cookie of that name (#sets_cookie?).
+        def append_binding_cookie(headers, cookie)
+          return if sets_cookie?(headers, cookie[/\A[^=]+/])
+
+          append_set_cookie(headers, cookie)
+          keep_out_of_shared_caches(headers)
+        end
+
+        # Whether +headers+ already set a cookie named +name+, as they do when
+        # this middleware runs more than once for a request: added again by
+        # the app, or in nested CSRF-enabled Ottos. RFC 6265, section 4.1.1:
+        # "Servers SHOULD NOT include more than one Set-Cookie header field in
+        # the same response with the same cookie-name."
+        #
+        # The first, innermost, middleware's cookie is kept. When the configs
+        # differ (csrf_session_key without session middleware), so do the
+        # bindings, and a browser keeps the last cookie of a name. Keeping
+        # the outer one would make the inner Otto, which checks the requests
+        # its routes receive, reject the tokens it issued.
+        def sets_cookie?(headers, name)
+          pattern = /\A\s*#{Regexp.escape(name)}\s*=/
+          headers.any? do |key, value|
+            key.casecmp?('set-cookie') && Array(value).any? { |lines| lines.to_s.split("\n").any?(pattern) }
+          end
+        end
+
+        # Marks a response that carries the binding cookie or an injected
+        # token, both meant for one client, with Cache-Control: private.
+        # RFC 9111, section 7.3: "the Set-Cookie response header field
+        # [COOKIE] does not inhibit caching". Section 5.2.2.7: "The
+        # unqualified private response directive indicates that a shared
+        # cache MUST NOT store the response (i.e., the response is intended
+        # for a single user)." The browser's own cache may still store it.
+        #
+        # stale-if-error=0 (RFC 5861) is for a cache that stores the
+        # response anyway. CloudFront does when the cache policy's minimum
+        # TTL is above 0, and its documentation says: "If the origin is
+        # unreachable and the minimum or maximum TTL value is greater than
+        # 0, CloudFront will serve the object that it got from the origin
+        # previously. To avoid this behavior, include the Cache-Control:
+        # stale-if-error=0 directive with the object returned from the
+        # origin."
+        #
+        # A response on which the app set Cache-Control or Expires keeps the
+        # app's choice, and gets nothing added.
+        def keep_out_of_shared_caches(headers)
+          return if headers.each_key.any? { |key| key.casecmp?('cache-control') || key.casecmp?('expires') }
+
+          headers['cache-control'] = 'private, stale-if-error=0'
         end
 
         def html_response?(response)

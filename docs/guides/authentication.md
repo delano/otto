@@ -626,6 +626,77 @@ Without `secrets:` the cookie is decoded with the `coder` instead
 "Use the coder option, which has the potential to be very unsafe."), and a
 planted cookie can carry any `session_id`.
 
+## Keep CSRF responses out of shared caches
+
+A response on which `CSRFMiddleware` sets the binding cookie or injects a token
+is meant for one client. RFC 9111, section 7.3: "Note that the Set-Cookie
+response header field [COOKIE] does not inhibit caching; a cacheable response
+with a Set-Cookie header field can be (and often is) used to satisfy subsequent
+requests to caches." A shared cache that stored such a response would hand one
+client's binding cookie, or a token bound to one client's session, to other
+clients. The middleware therefore adds
+`Cache-Control: private, stale-if-error=0` to these responses. RFC 9111,
+section 5.2.2.7: "The unqualified private response directive indicates that a
+shared cache MUST NOT store the response (i.e., the response is intended for a
+single user)." The browser's own cache may still store it.
+
+`stale-if-error=0` (RFC 5861) is for a cache that stores the response despite
+`private`. CloudFront does when the cache policy's minimum TTL is above 0, as
+in the managed CachingOptimized policy (1 second). The CloudFront developer
+guide: "If your minimum TTL is greater than 0, CloudFront uses the cache
+policy’s minimum TTL, even if the Cache-Control: no-cache, no-store, and/or
+private directives are present in the origin headers. If the origin is
+reachable, CloudFront gets the object from the origin and returns it to the
+viewer. If the origin is unreachable and the minimum or maximum TTL value is
+greater than 0, CloudFront will serve the object that it got from the origin
+previously. To avoid this behavior, include the Cache-Control:
+stale-if-error=0 directive with the object returned from the origin."
+
+When the application sets `Cache-Control` or `Expires` on the response, Otto
+adds nothing, even when the application's value lets shared caches store the
+response (for example `public, max-age=60`); a page that carries a token then
+needs `private` or `no-store` from the application, and `stale-if-error=0` for
+the CloudFront case above. Otto also adds nothing to a response it did not
+change: a token the application writes itself, for example from a JSON token
+endpoint behind a session middleware, needs its own header, such as
+`res['cache-control'] = 'private, stale-if-error=0'`.
+
+Otto reads only `Cache-Control` and `Expires`. Some caches give their own
+fields precedence, and Otto does not inspect those: a cache that implements
+`CDN-Cache-Control` (RFC 9213, section 2.2) "MUST ignore the Cache-Control and
+Expires header fields in that response" when one of its targeted fields has a
+valid, non-empty value; the
+[nginx proxy module documentation](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_cache_valid)
+says "If the header does not include the “X-Accel-Expires” field, parameters
+of caching may be set in the header fields “Expires” or “Cache-Control”"; and
+Varnish's built-in VCL checks `Cache-Control` for `private` only when the
+response has no `Surrogate-Control`
+([bin/varnishd/builtin.vcl in Varnish 7.6](https://github.com/varnishcache/varnish-cache/blob/7.6/bin/varnishd/builtin.vcl#L235-L241)):
+
+```vcl
+sub vcl_beresp_control {
+	if (beresp.http.Surrogate-control ~ "(?i)no-store" ||
+	    (!beresp.http.Surrogate-Control &&
+	      beresp.http.Cache-Control ~ "(?i:no-cache|no-store|private)")) {
+		call vcl_beresp_hitmiss;
+	}
+}
+```
+
+Both keep a response that carries `Set-Cookie` out of the cache on their own
+by default: the same nginx page says "If the header includes the “Set-Cookie”
+field, such a response will not be cached", and the built-in VCL's
+`vcl_beresp_cookie` calls `vcl_beresp_hitmiss` when `beresp.http.Set-Cookie`
+is set. nginx's `proxy_ignore_headers` turns this off when it lists
+`Set-Cookie`; that page says the directive "Disables processing of certain
+response header fields from the proxied server". A response
+that carries only an injected token has no such cookie and depends on
+`Cache-Control`. An application that sends one of these fields on a page that
+carries a token needs to keep shared caches out in that field as well. A cache
+that is configured to ignore `Cache-Control`, such as a Cloudflare rule that
+sets an edge TTL and ignores cache headers, stores these responses anyway, so
+keep pages that carry tokens out of such rules.
+
 ## Related contracts
 
 - [Route syntax](../reference/route-syntax.md) — `auth=`, `role=`, and route

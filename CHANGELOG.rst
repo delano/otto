@@ -7,6 +7,698 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
    <!--scriv-insert-here-->
 
+.. _changelog-2.13.0:
+
+2.13.0 — 2026-11-01
+===================
+
+Added
+-----
+
+- A resource handler declared on an ``MCP`` line can take one argument, the
+  Rack env of the MCP request, so it can check permissions per request the
+  way a tool handler can. A zero-argument handler is still called with no
+  arguments. ``Otto::MCP::Registry#read_resource`` takes the env as an
+  optional second argument and passes it to a registered handler that takes
+  one argument. A handler that requires more than one argument, or a keyword
+  argument, raises ``ArgumentError`` on read, which the endpoint reports as a
+  JSON-RPC internal error. Before this, any handler that took an argument
+  failed that way. (#296)
+
+- ``Otto::Security::Config#existing_session_id(request)`` returns the CSRF
+  binding the request already has, from the same sources as
+  ``get_or_create_session_id``, or ``nil``. It never mints a binding, writes
+  to the session or sets ``env['otto.csrf_binding']``. (#308)
+
+Changed
+-------
+
+- The generated-secret warning and ``CSRF_SECRET_REQUIRED_MESSAGE`` no longer
+  say that a generated secret is not valid across workers in general. Workers
+  forked after the secret was generated, as in a preloaded app, share it.
+  Workers that load the app themselves (cluster mode without preload),
+  processes started separately, other hosts and restarts each generate their
+  own secret and reject each other's tokens, and the messages now say so. The
+  warning text is in
+  ``Otto::Security::Config::CSRF_GENERATED_SECRET_WARNING``. (#297)
+
+- Behind a session middleware, a strategy's ``result.session`` no longer
+  replaces ``env['rack.session']``. The same holds without one when a plain
+  Hash is already there, for example because upstream Rack middleware or an
+  Otto handler wrapper called ``Rack::Request#session`` before the route auth
+  wrapper ran. A custom strategy that returned its own session, or wrote into
+  the default one, is then visible only as
+  ``env['otto.strategy_result'].session``. Migration: write to
+  ``env['rack.session']``, pass ``session: env['rack.session']`` to
+  ``success``, or read the session through ``Otto::Request`` (whose stand-in
+  the wrapper replaces) instead of ``Rack::Request`` before authentication.
+  (#298)
+
+- ``Otto::Request#session`` installs an ``Otto::Request::DefaultSession`` (an
+  empty ``Hash`` subclass) instead of a plain ``{}`` when env has no session,
+  and app code can see it: ``instance_of?(Hash)`` is false,
+  ``YAML.safe_load`` of its YAML dump raises ``Psych::DisallowedClass``, and
+  ``Marshal.dump`` records the class name, so loading the dump needs Otto.
+  ``to_h`` returns a plain ``Hash``. (#298)
+
+- Any other ``key=value`` option on an ``MCP`` or ``TOOL`` line, such as
+  ``response=json``, now logs a ``MCP/tool route option not applied`` warning
+  when the routes file loads with MCP enabled. The option still loads, but the
+  MCP server reads only the resource URI or tool name and the handler, so it
+  has no effect. (#296)
+
+- On HTTPS requests Otto no longer reads the ``_otto_session``, ``session_id``
+  or ``_session_id`` cookies as a CSRF binding. Accepting them as a fallback
+  would keep the planting vector, so there is no transition period. After the
+  upgrade, a token bound to one of those cookies is rejected once over HTTPS;
+  the next token the client fetches is bound to ``__Host-otto_session``. Plain
+  HTTP requests keep using ``_otto_session`` as before. The name follows Rack's
+  ``request.scheme``: behind a TLS-terminating proxy, Otto must see the request
+  as HTTPS (for example ``HTTPS=on``, ``rack.url_scheme``, or a forwarded
+  header Rack honors, such as ``X-Forwarded-Proto``) for the hardening to
+  apply; once proxy trust is configured, ``IPPrivacyMiddleware`` drops a
+  forwarded scheme sent by a peer that fails it. If Otto sees HTTPS while the
+  browser uses HTTP, the browser rejects the cookie and CSRF-protected requests
+  get ``403``. (#302)
+
+- A form rendered over HTTP that posts to HTTPS now gets ``403`` on every
+  attempt when its binding lives in the cookie: the HTTP page sets
+  ``_otto_session``, which the HTTPS request does not read. Migration: serve
+  pages with forms over HTTPS, for example by redirecting HTTP to HTTPS and
+  enabling HSTS (``Otto::Security::Config#enable_hsts!``). (#302)
+
+- ``CSRFMiddleware`` now also sets the binding cookie on responses that are
+  not HTML, when the request used a safe method (``GET``, ``HEAD``,
+  ``OPTIONS``, ``TRACE``) and resolved a binding the client does not already
+  send. A JSON client that fetches a token from an endpoint calling
+  ``Config#get_or_create_session_id`` receives the cookie with the token and
+  passes on its next POST. Two such fetches made in parallel before the client
+  holds the cookie get different bindings, and only the token whose cookie the
+  client kept is accepted. An unsafe request never sets the cookie this way,
+  so a cross-site POST, which arrives without the ``SameSite=Lax`` cookie,
+  cannot replace the victim's binding with one minted for its ``403``. The
+  binding is recorded in ``env['otto.csrf_binding']`` only when it was minted
+  or read from ``csrf_session_key``. The session store's own id
+  (``session.id``, or ``session['session_id']``), which the store's cookie
+  carries when the store sets one, and a binding read from a cookie, which the
+  client sends again, are not copied into the binding cookie on these
+  responses. (#302)
+
+- An HTML response to an unsafe request that has no binding, such as a
+  ``csrf=exempt`` callback that another site posts to, now carries no CSRF
+  token, and ``CSRFHelpers#csrf_token`` returns ``nil`` there instead of
+  minting a binding; ``csrf_meta_tag`` and ``csrf_form_tag`` then render an
+  empty ``content`` or ``value``, which the next request's CSRF check rejects
+  with ``403``. Behind a session middleware, a handler that writes to the
+  session first still gets a token bound to the new session, and the store
+  sets its session cookie on that response. Migration: answer the POST with a
+  redirect and render the form on the page it redirects to. (#308)
+
+- HTML responses no longer set ``_otto_session`` or ``__Host-otto_session``
+  to the session's id, ``session['session_id']``, or a binding read from the
+  app's ``session_id`` or ``_session_id`` cookie. Behind a session middleware
+  the store's cookie carries the binding. A store whose cookie does not come
+  back, such as rack-session with ``secure: true`` while Rack sees the request
+  as HTTP, kept no session between requests, but the copy kept CSRF tokens
+  valid; CSRF-protected requests now get ``403`` too. Fix the store's
+  configuration so its cookie is set: make Rack see the forwarded scheme, or
+  pass rack-session's ``assume_ssl: true`` (see the authentication guide).
+  (#308)
+
+- Without a session middleware, a token bound to an auth strategy's session
+  that responds to ``id`` or holds a ``'session_id'`` key is now rejected with
+  ``403`` on the next request, unless that request also sends the same value
+  in a cookie the CSRF check reads (on plain HTTP, the app's ``session_id``
+  or ``_session_id`` cookie). The check runs before authentication, so it
+  read the copy of that id in the binding cookie, which HTML responses no
+  longer set. Migration: run a session middleware, or return a strategy
+  session without an id, in which Otto stores its own binding under
+  ``csrf_session_key``. (#308)
+
+- With CSRF protection enabled, responses on which ``CSRFMiddleware`` sets the
+  binding cookie, HTML or not, and HTML pages into which it injects a token
+  now carry ``Cache-Control: private, stale-if-error=0`` when the application
+  sets neither ``Cache-Control`` nor ``Expires``. An HTML file served from
+  ``public:`` or ``mount_static`` gets no token, so it carries the header only
+  on a response that sets the binding cookie. A shared cache that honors
+  ``private`` no longer stores these responses, including one that stored
+  them before under a default TTL. ``Rack::ETag`` mounted outside Otto adds
+  its default ``Cache-Control``, ``max-age=0, private, must-revalidate``,
+  only when the response has none, so these responses no longer get it. (#309)
+
+Fixed
+-----
+
+- An MCP endpoint with ``auth_tokens`` (``mcp_auth_tokens``), or with MCP rate
+  limiting, raised ``FrozenError`` on every request outside RSpec. The first
+  request runs the lazy configuration freeze in ``Otto#call``. Freezing the
+  middleware stack reached the already frozen security config a second time,
+  through the arguments of ``Otto::MCP::Auth::TokenMiddleware`` and
+  ``Otto::MCP::RateLimitMiddleware``, and
+  ``Otto::Security::Config#deep_freeze!`` then reran its freeze-time
+  validators and raised ``FrozenError: Cannot modify frozen configuration``.
+  Because the freeze never completed, every later request retried it and
+  raised again; an explicit ``freeze_configuration!`` at boot raised the same
+  error. ``Config#deep_freeze!`` now returns ``self`` when ``deep_freeze!``
+  already froze the config. On a config frozen with ``Object#freeze``, whose
+  nested settings are still mutable, it raises ``FrozenError`` with
+  ``Otto::Security::Config::SHALLOW_FREEZE_MESSAGE``, as main raised a
+  ``FrozenError`` there too. The test suite did not catch this because
+  ``Otto#call`` skips the lazy freeze when RSpec is loaded. (#293)
+
+- HEAD requests no longer return 500 once the configuration is frozen. When
+  any ``HEAD`` route was declared, the router merged the GET tables into the
+  registered HEAD tables (``routes_literal[:HEAD]`` and ``routes[:HEAD]``) on
+  every HEAD request. After the first request outside the test suite those
+  tables are frozen, so every HEAD request raised ``FrozenError``. The router
+  now looks up the HEAD route first and falls back to the GET route without
+  changing either table. (#294)
+
+- A declared ``HEAD`` literal route now handles HEAD requests for its path.
+  The merge let the ``GET`` route for the same path replace it, and it grew
+  ``routes[:HEAD]`` on every HEAD request while the configuration was not yet
+  frozen. Dynamic HEAD routes are still tried before dynamic GET routes. A
+  declared ``HEAD`` route uses its own options and does not inherit ``auth=``
+  or ``role=`` from the ``GET`` route for the same path. A HEAD request for a
+  path with only a ``GET`` route falls back to that route, including its
+  ``auth=``. (#294)
+
+- Responses to HEAD requests now have an empty body. A HEAD request that fell
+  back to a ``GET`` route returned the GET body, which ``Rack::Lint`` rejects
+  with "Response body was given for HEAD request, but should be empty".
+  ``Otto#call`` now replaces the body after dispatch and error handling and
+  keeps the status and headers, including a ``content-length`` the handler
+  set. When the handler's body is a plain Array and the response has no
+  ``content-length``, no ``transfer-encoding`` and a status that allows
+  content, ``Otto#call`` sets ``content-length`` from that Array, so the HEAD
+  response advertises the length a GET would send; Puma and
+  ``Rack::ContentLength`` would otherwise compute 0 from the empty body. The
+  replacement body has no ``#to_ary`` and closes the original when the server
+  closes it, as it would for GET, so an error raised by that close surfaces
+  there, not from ``Otto#call`` or from middleware such as ``Rack::ETag``.
+  This covers handler, ``/404``, not-found and error responses. Request
+  completion hooks receive a plain empty Array as the body. The Caddy TLS
+  permission endpoint now writes its body for HEAD as well, so its HEAD
+  responses advertise the GET length instead of 0. (#294)
+
+- Static mounts and the public directory now answer HEAD requests. They
+  answered only GET, so a HEAD request for an asset fell through to the
+  dynamic routes and, when none matched, to not found. A HEAD response
+  carries the headers a GET would get, including ``content-length``, and an
+  empty body. Requests with other methods still skip the static stages.
+  (#294)
+
+- Apps that enable CSRF protection without ``OTTO_CSRF_SECRET`` or
+  ``csrf_secret=`` no longer return 500 for every HTML response outside
+  production. ``Otto#call`` freezes the configuration on the first request,
+  and the first CSRF token generation then recorded on the frozen
+  ``Otto::Security::Config`` that the generated-secret warning had been
+  logged, which raised ``FrozenError``. The once-only state now lives in an
+  object that stays writable after the freeze. With CSRF enabled, the warning
+  is logged when the configuration is frozen. A frozen config with CSRF
+  protection disabled logs it the first time ``CSRFHelpers#csrf_token`` or
+  ``generate_csrf_token`` signs a token (it raised ``FrozenError`` before).
+  The warning is logged once per config, also when several threads generate
+  the first tokens at the same time. Specs under RSpec did not hit the error
+  because Otto skips the lazy freeze when RSpec is loaded. (#297)
+
+- ``RouteAuthWrapper`` no longer replaces an existing ``env['rack.session']``
+  with the strategy result's session. ``NoAuthStrategy``, ``RoleStrategy``,
+  ``PermissionStrategy``, and ``APIKeyStrategy`` return the empty Hash that
+  ``StrategyResult.anonymous`` and ``AuthStrategy#success`` use as a default,
+  and that Hash used to overwrite the session installed by the session
+  middleware. On ``auth=noauth`` routes, an ``auth=session,noauth``
+  fall-through, and role, permission, and API key routes the handler received
+  a bare Hash. rack-session then raised ``NoMethodError`` (undefined method
+  ``options`` for Hash) while committing the session, and the handler's
+  session writes were lost. The handler now receives the session object the
+  middleware installed. (#298)
+
+- When env has no session, or holds only the stand-in Hash that
+  ``Otto::Request#session`` installs when no session middleware ran, the
+  wrapper sets ``env['rack.session']`` to the strategy's session (anything
+  but ``nil`` or ``false``), as before. Otto's CSRF check reads the session
+  that way before authentication, so strategy-owned sessions keep their
+  writes on CSRF-checked requests. (#298)
+
+- A new visitor's first form POST no longer fails CSRF validation with 403
+  when the session store loads lazily, as rack-session does. On the page that
+  issued the token the session id was still nil, so Otto bound the token to a
+  random value it stored under ``csrf_session_key``. That write made the store
+  mint a session id, and on the POST Otto read that id first, so the token was
+  checked against a different value.
+  ``Otto::Security::Config#get_or_create_session_id`` now reads back the id
+  the store minted during the write and binds the token to it. Pages that
+  wrote to the session before the token was issued were not affected. (#295)
+
+- Session ids are converted with ``to_s`` before they are used as the CSRF
+  binding, and ``get_or_create_session_id`` always returns a String.
+  rack-session returns a ``Rack::Session::SessionId`` object, which never
+  compared equal to the ``_otto_session`` cookie, so ``CSRFMiddleware`` set
+  that cookie again on every HTML response it added a token to. (#295)
+
+- The binding still follows the session id. A store that renews the id, for
+  example rack-session's ``renew`` option at login, invalidates the tokens
+  issued before the renewal. (#295)
+
+- ``CSRFMiddleware`` now URL-encodes the value of the CSRF binding cookie,
+  because Rack URL-decodes cookie values when it reads them. Before, a binding
+  that was not a hex token was written as is, and the browser could store a
+  different value: an app-set ``session_id`` cookie sent as ``a%3Bb`` (the
+  binding ``a;b``) on plain HTTP came back as ``_otto_session=a``, and the
+  next CSRF-protected request got ``403``. Hex bindings, including the ones
+  Otto generates, are written unchanged. (#302)
+
+- A CSRF-protected request now gets ``403`` instead of ``500`` when its token
+  is a parameter that Rack parses into an Array or a Hash (``_csrf_token[]=``
+  or ``_csrf_token[k]=``), a token with invalid UTF-8 bytes, a signature with
+  as many characters as a valid one but more bytes (such as 64 ``é``), or an
+  ``ASCII-8BIT`` header token with non-ASCII bytes when the binding has
+  non-ASCII characters. The CSRF check raised for each of these, and Otto
+  logged an unhandled error. The request was refused either way; only the
+  status was wrong. A body that Rack cannot parse, such as
+  ``_csrf_token=%ZZ``, still gets ``500``, with or without CSRF
+  protection. (#307)
+
+- ``Otto::Security::Config#verify_csrf_token`` now returns ``false`` for a
+  token that is not a ``String`` or that holds non-ASCII bytes, since a valid
+  token is hex. Signatures are compared with ``Rack::Utils.secure_compare``,
+  which compares lengths in bytes, in place of a loop that compared lengths in
+  characters. ``CSRFEnforcementWrapper`` rejects such a token before it
+  resolves the CSRF binding, as it already did for a blank one, so the check
+  does not create a session or a binding for it. (#307)
+
+- A request that fails the CSRF check no longer creates a binding. Validation
+  called ``get_or_create_session_id``, so a request without one had a binding
+  minted and written to the session, though no token can verify against a new
+  binding. Behind rack-session the rejected POST then committed a new session
+  and set its cookie on the ``403``. Validation now reads the binding with
+  ``existing_session_id``. (#308)
+
+- ``CSRFMiddleware`` no longer changes the application's headers on HTML
+  responses; it works on a copy, as it already did on other responses. Before,
+  frozen headers raised ``FrozenError``, and an application that returned the
+  same headers object for every response had the injected page's
+  ``Content-Length`` and each client's binding cookie carried into the
+  responses for later clients. (#309)
+
+- ``CSRFMiddleware`` no longer adds the binding cookie to a response that
+  already sets a cookie of that name, as one does when the middleware runs
+  more than once for a request: added again around an Otto with CSRF
+  protection, or in nested CSRF-enabled Ottos (for example an Otto whose
+  ``not_found=`` is another Otto). The first, innermost, middleware's cookie
+  is kept. A shared ``csrf_session_key`` gave identical cookies. Without
+  session middleware, Ottos with different ``csrf_session_key`` values mint
+  different bindings; the browser kept the outer Otto's, and the inner Otto,
+  which checks the requests its routes receive, rejected the tokens it issued
+  on that page with ``403``. Those tokens now pass. The outer Otto still
+  injects its own ``csrf-token`` meta tag, ahead of the inner Otto's, and its
+  token now fails on the page that set the cookie in that case; it passes
+  only when the two Ottos share ``csrf_secret`` and resolve the same binding,
+  as they do once the client sends the cookie back. (#309)
+
+- ``CSRFMiddleware`` now reads an HTML body through ``#to_ary``. The Rack
+  specification says "middleware can only process the Body directly if it
+  responds to +to_ary+", and that "If the Body responds to both +to_ary+ and
+  +close+, its implementation of +to_ary+ must call +close+." Before, the
+  middleware read the body with ``join``, or with ``to_s`` when it lacked
+  ``join``: a body wrapped by ``Rack::Lint`` got no token, and a
+  ``Rack::BodyProxy`` was replaced without being closed, so its close callback
+  never ran. A String body, or one that responds to ``join`` but not
+  ``to_ary``, now gets no token. Otto's route handlers wrap a String body in
+  an Array, so a String page they return still gets one. Other bodies, such as
+  files and streams, are still returned unread. (#309)
+
+- An HTML page with an invalid byte for its encoding, such as a Latin-1 file
+  read as UTF-8, or with body parts in incompatible encodings, no longer gets
+  ``500`` when CSRF protection is enabled. ``CSRFMiddleware`` now searches the
+  body for ``<head>`` as bytes, injects the token, and leaves the other bytes
+  unchanged. The page keeps the encoding its parts have when joined as text,
+  and stays binary only when their encodings are incompatible. (#309)
+
+Security
+--------
+
+- With ``trusted_proxies`` configured, client IP resolution now reads
+  ``X-Forwarded-For`` from the right: it skips entries that match a trusted
+  proxy and uses the first entry that does not. It previously used the
+  leftmost such entry, which the client controls when the proxy appends to
+  the header, so a client could choose ``env['otto.client_ip']``, the address
+  ``env['otto.ip_match']`` checks, and the ``Otto::Request#client_ipaddress``
+  fallback. ``X-Real-IP`` and ``X-Client-IP`` are read only when
+  ``X-Forwarded-For`` is absent or blank and are no longer added to its
+  chain. ``trusted_proxy_depth`` already counted from the right.
+  **Behavior change**: every proxy between the client and the application
+  must now be in ``trusted_proxies``, together with any address a proxy
+  appends about itself. Google Cloud's external Application Load Balancer,
+  for example, appends the client's address and then its forwarding rule's
+  address. If one is missing, the unlisted address nearest the application
+  becomes the client IP for every request through it: rate-limit keys and
+  ``otto.privacy.hashed_ip`` collapse onto it, ``ip_match`` tests it, and a
+  private or loopback one exempts the request from masking. 2.12.0 took the
+  leftmost untrusted entry, so a missing inner hop went unnoticed. A request
+  whose ``X-Forwarded-For`` holds only trusted proxies now resolves to
+  ``REMOTE_ADDR`` even when ``X-Real-IP`` names the client.
+  **Migration:** list every proxy address, CDN edge ranges and load balancer
+  addresses included, in ``trusted_proxies``, and configure each proxy to
+  append the address it received the request from to ``X-Forwarded-For``
+  (nginx: ``proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;``)
+  or to replace a client-supplied value. A proxy that sets only ``X-Real-IP``
+  must also append to or replace ``X-Forwarded-For``. See `How enumerated
+  proxy trust resolves the client IP
+  <docs/guides/forwarded-authority.md#how-enumerated-proxy-trust-resolves-the-client-ip>`__. (#292)
+
+- A forwarded entry that is not a valid IP address (such as ``unknown``, or
+  an empty entry, including the one a trailing comma leaves) no longer falls
+  back to ``REMOTE_ADDR``. In ``trusted_proxies`` mode the walk ends there;
+  in ``trusted_proxy_depth`` mode it applies when that entry is the selected
+  hop. The request then has no client IP: ``env['otto.ip_match']`` denies
+  every range, ``env['otto.client_ip']`` and
+  ``Otto::Request#client_ipaddress`` are nil, and with IP privacy enabled
+  ``X-Forwarded-For``, ``X-Real-IP`` and ``X-Client-IP`` are deleted and
+  ``Forwarded`` loses its ``for=`` pairs but keeps ``proto=``, ``host=`` and
+  ``by=`` (it is deleted only if nothing else is left). A request with no
+  ``REMOTE_ADDR`` takes the same path; its ``Forwarded`` header used to be
+  deleted outright. ``Otto::Request#ip`` and a plain ``Rack::Request#ip``
+  still return ``REMOTE_ADDR``, the proxy, on purpose: rate limiters key on
+  the request IP, and rack-attack skips a throttle whose discriminator is
+  nil. Use ``ip_match``,
+  not ``req.ip``, for access decisions. Falling back to the proxy's own
+  address made a private or loopback peer the client, which skipped masking,
+  left the client's address in ``X-Forwarded-For``, and let ``ip_match``
+  test the proxy. **Behavior change** for ``trusted_proxy_depth``, whose
+  invalid-target fallback to ``REMOTE_ADDR`` was documented. Depth mode's
+  short-chain fallback to ``REMOTE_ADDR`` is unchanged. **Migration:** a
+  trusted proxy that writes ``unknown`` where the client address belongs
+  now leaves every request through it without a client IP; configure it to
+  append the address it received the request from. (#292)
+
+- With IP privacy enabled, a request exempt from masking because its resolved
+  client IP is private or loopback now has its ``X-Forwarded-For``,
+  ``X-Real-IP`` and ``X-Client-IP`` headers and the ``for=`` values in
+  ``Forwarded`` rewritten to that client IP. They were left as received, so
+  a public address in them stayed in the Rack env: an entry left of an
+  unlisted private proxy hop, or a header sent by an untrusted private peer
+  or by any client behind a loopback peer with no proxy trust configured.
+  ``Rack::Request#ip``, whose default filter trusts private and loopback
+  addresses, returned that public address. **Behavior change**: code behind
+  a private or loopback peer that read these headers, or called a plain
+  ``Rack::Request#ip``, now sees the resolved client IP. Behind a local
+  reverse proxy with no trusted proxy configured, that is ``127.0.0.1`` for
+  every client, so a rate limiter keyed on ``Rack::Request#ip`` after
+  ``IPPrivacyMiddleware`` (rack-attack's request is a ``Rack::Request``) puts
+  every client in the loopback bucket. It used to read each client's own,
+  unverified ``X-Forwarded-For`` value. **Migration:** to get the client's
+  address from a local reverse proxy, list that proxy in ``trusted_proxies``
+  so Otto resolves the client (and masks a public one). (#292)
+
+- The ``Forwarded`` ``for=`` rewrite (masking, the exemption above, and the
+  no-client-IP removal) now finds ``for=`` after every separator Rack 3.2.7
+  accepts: whitespace, including a leading tab, and a closing quote, as in
+  ``by="x" for=198.51.100.7``. It used to find it only at the start or after
+  a comma or semicolon, so a client-chosen ``for=`` could survive and be
+  returned by ``Rack::Request#ip``. The result is re-read with
+  ``Rack::Utils.forwarded_values``; if another ``for=`` value survives, or
+  Rack cannot parse the header (Rack rejects parameters other than ``by``,
+  ``for``, ``host`` and ``proto``, so an RFC 7239 extension parameter is
+  enough), the header is deleted. The first deletion in a process is logged
+  at warn and later ones at debug, since a header like that arrives on every
+  request and any client can send one. (#292)
+
+- ``Otto::Utils.normalize_ip`` returns nil for a value written as a range,
+  such as ``203.0.113.9/0`` or ``10.0.0.0/8``, so a forwarded entry written
+  that way is now invalid and the request has no client IP. 2.12.0 took it
+  for an address. With ``trusted_proxies: ['10.0.0.0/8']``: a public range
+  was returned as the client IP and masked to its network address
+  (``203.0.113.9/0`` became ``0.0.0.0``, ``203.0.113.9/32`` became
+  ``203.0.113.0``); a loopback or private range outside the trusted list was
+  exempted from masking and written to ``REMOTE_ADDR`` and
+  ``otto.client_ip`` as the literal string (``127.0.0.1/8``, which
+  ``ip_match(['127.0.0.0/8'])`` accepted); and a range inside the trusted
+  list (``10.0.0.0/8``) was skipped as a trusted hop.
+  ``Otto::Utils.ip_in_cidrs?`` returns false when the client address it is
+  given is a range, as a string or as an ``IPAddr`` whose prefix is shorter
+  than a host address (``IPAddr.new('203.0.113.0/24')`` used to match
+  ``203.0.0.0/16``). (#292)
+
+- With IP privacy enabled, vendor headers that carry the client address are
+  now masked along with ``REMOTE_ADDR``: ``CF-Connecting-IP``,
+  ``CF-Connecting-IPv6``,
+  ``True-Client-IP``, ``Fastly-Client-IP``, ``Fly-Client-IP``,
+  ``X-Azure-ClientIP``, ``X-Azure-SocketIP``, ``CloudFront-Viewer-Address``,
+  ``X-Vercel-Forwarded-For``, ``X-Original-Forwarded-For``,
+  ``X-Cluster-Client-IP`` and ``X-AppEngine-User-IP``
+  (``Otto::Utils::VENDOR_CLIENT_ADDRESS_HEADERS``). They were left raw while
+  ``REMOTE_ADDR`` was masked, so the public client address stayed in the Rack
+  env. They are rewritten to the resolved client IP on the private/loopback
+  exemption, deleted when no client IP resolves, and masked in the env a
+  custom geo resolver sees. Otto still never reads the client IP from them.
+  **Behavior change**: code that read one of these headers to get the
+  client address now sees the masked (or exempt) address. **Migration:**
+  configure ``trusted_proxies`` for the CDN so Otto resolves the client from
+  ``X-Forwarded-For``, and read ``req.ip`` or ``env['otto.ip_match']``; use
+  the ``:audit`` profile if the raw address is required. (#292)
+
+- ``Otto::Security::Config#csrf_secret=`` no longer uses ``nil`` or a blank
+  string as the CSRF signing key. Previously ``config.csrf_secret = ''`` (for
+  example from ``ENV.fetch('OTTO_CSRF_SECRET', '')``) stored the empty string
+  as the HMAC key and marked the secret as configured, so the production guard
+  did not fire and a token signed with an empty key verified. ``nil`` was
+  stored as well, and every token signing then raised ``TypeError``. For
+  ``nil`` and blank strings the setter now uses ``OTTO_CSRF_SECRET`` when that
+  is set and not blank, so an assignment from an unset setting no longer
+  replaces a secret from the environment. Otherwise it generates a fresh
+  random per-process secret marked as generated, the same fallback as an unset
+  ``OTTO_CSRF_SECRET``. With CSRF protection enabled and
+  ``RACK_ENV=production``, generating a token then raises ``ArgumentError``
+  asking for a configured secret, as it does when ``OTTO_CSRF_SECRET`` is
+  unset. (#299)
+
+- A secret is blank when it holds only Unicode whitespace (``[[:space:]]``),
+  characters with the Unicode ``Default_Ignorable_Code_Point`` property (such
+  as zero-width spaces and joiners, the soft hyphen U+00AD, the word joiner
+  U+2060, the byte order mark U+FEFF, bidirectional marks and the Hangul
+  filler U+3164) and NUL. The pattern is
+  ``Otto::Security::Config::BLANK_CSRF_SECRET``, matched in UTF-8: the
+  string converted from its own encoding, or else its bytes read as UTF-8,
+  which is how a non-ASCII ``OTTO_CSRF_SECRET`` arrives under ``LANG=C``
+  (tagged ``ASCII-8BIT``). A string that fits neither is blank only if it
+  holds nothing but ASCII whitespace and NUL. (#299)
+
+- A blank ``OTTO_CSRF_SECRET`` is now treated as unset, like an empty one.
+  (#299)
+
+- ``csrf_secret=`` raises ``ArgumentError`` for a value that is neither a
+  ``String`` nor ``nil``. (#299)
+
+- ``csrf_secret=`` logs a warning when the configured secret, from the setter
+  or from ``OTTO_CSRF_SECRET``, is shorter than 32 bytes
+  (``Otto::Security::Config::CSRF_SECRET_MIN_BYTES``). The warning gives the
+  length, not the secret. The secret is still used, and nothing raises, so an
+  app that already runs with a short secret keeps booting. (#299)
+
+- When ``csrf_secret=`` generates a new secret, the generated-secret warning
+  (``Otto::Security::Config::CSRF_GENERATED_SECRET_WARNING``) is logged for
+  that secret too, even if it was already logged for an earlier generated
+  secret, for example by ``generate_csrf_token`` on a config that was not yet
+  frozen. (#299)
+
+- ``auth=``, ``role=``, and ``csrf=`` on an ``MCP`` or ``TOOL`` line are now
+  rejected. Otto parsed these options but never applied them: the MCP server
+  registered the resource or tool without an authentication, role, or CSRF
+  check, so any request the MCP endpoint accepted could read the resource or
+  call the tool. **Behavior change**: when MCP is enabled as the routes file
+  loads (``Otto.new(path, mcp_enabled: true)``, or ``enable_mcp!`` before
+  ``load``), a routes file that sets any of these options on an ``MCP`` or
+  ``TOOL`` line raises ``Otto::RouteDefinitionError`` and the application
+  fails to boot. Remove the options and require a token for the endpoint with
+  ``mcp_auth_tokens``. When MCP is not enabled as the file loads, Otto logs
+  and skips every ``MCP`` and ``TOOL`` line, as before, without checking its
+  options. See the `MCP guide <docs/guides/mcp.md>`__. (#296)
+
+- ``#inspect`` no longer prints secrets held by Otto objects. Ruby's
+  ``FrozenError`` message embeds the receiver's ``#inspect``, and Otto's error
+  handler logs ``error.message``, so a write to a frozen
+  ``Otto::Security::Config`` (for example ``config.max_request_size = 1``
+  after the configuration froze) logged the CSRF signing key. These values
+  now print as ``[REDACTED]``, or ``[REDACTED] (N)`` for a collection of N,
+  in ``#inspect`` and in ``pp``:
+
+  - ``@csrf_secret`` in ``Otto::Security::Config``
+  - ``@correlation_secret`` in ``Otto::Privacy::Config`` (``nil`` stays
+    ``nil``)
+  - ``@tokens`` in ``Otto::MCP::Auth::TokenAuth``
+  - ``@auth_tokens`` in ``Otto::MCP::Server``
+  - the ``auth_tokens`` and ``mcp_auth_tokens`` entries of ``Otto#option``
+
+  The output otherwise keeps the ``Object#inspect`` shape. The shared
+  implementation is ``Otto::Core::RedactedInspect``. (#300)
+
+- ``Otto#option`` is now an ``Otto::Core::OptionHash``, a ``Hash`` subclass.
+  It stores MCP bearer tokens as ``Otto::Core::RedactedInspect::SecretList``
+  (an ``Array`` subclass) or ``SecretSet`` (a ``Set`` subclass) of frozen
+  ``SecretString`` copies (a ``String`` subclass), or as one frozen
+  ``SecretString`` for a single token, including tokens stored after
+  construction with ``[]=``, ``store``, ``merge!``, ``update``, ``replace``,
+  ``transform_values!`` or ``transform_keys!``. The MCP server builds its own
+  ``SecretList``, and ``TokenAuth`` a frozen ``SecretSet`` holding the same
+  frozen ``SecretString`` objects as the server; ``Otto#option`` holds
+  separate copies. Writing to the frozen option Hash, to its token list or
+  Set, or to one token (``otto.option[:x] = 1``,
+  ``otto.option[:mcp_auth_tokens] << 'y'``) raises a ``FrozenError`` whose
+  message shows ``[REDACTED]`` instead of the tokens. The values are still a
+  ``Hash``, an ``Array`` or ``Set``, and ``String``\ s: ``==``, ``include?``
+  and iteration behave as before. ``to_s`` of the option Hash, of a token
+  list and of a token Set now returns the redacted text, for example
+  ``[REDACTED] (1)``; ``to_s`` of one token still returns the token.
+  ``otto.option[:mcp_auth_tokens]`` is a copy, so the Array or Set passed to
+  ``Otto.new`` is no longer frozen with the configuration. (#300)
+
+- With ``Otto.debug`` on, ``Otto.new`` logged its raw options, including
+  ``mcp_auth_tokens``. It now logs the redacted ``Otto#option``. (#300)
+
+- ``Otto::Privacy::Config#correlation_secret`` returns a frozen
+  ``SecretString`` copy of the configured value, and
+  ``Otto::Security::Config#deep_freeze!`` replaces the CSRF signing key with
+  a frozen ``SecretString`` copy before it freezes the config. Neither freezes
+  the String the application passed in, so a later write to that String no
+  longer raises a ``FrozenError`` that prints it, and a write through
+  ``correlation_secret`` raises one that shows ``[REDACTED]``. (#300)
+
+- On HTTPS requests, Otto's own CSRF binding cookie is now
+  ``__Host-otto_session``, set with ``Secure``, ``Path=/`` and no ``Domain``.
+  Browsers that enforce cookie name prefixes accept such a cookie only from a
+  secure origin with those attributes, so in those browsers a sibling subdomain
+  or a network attacker can no longer plant it. Before, when the session
+  provided no binding, a planted ``_otto_session`` (or ``session_id`` or
+  ``_session_id``) cookie became the binding, and an attacker holding a token
+  for it could forge a login. This covers only Otto's fallback cookie. Behind a
+  session middleware the binding is the session's id, so the session cookie can
+  still be planted unless it is protected the same way: over HTTPS, configure
+  rack-session with a ``__Host-`` key and ``secure: true`` (for example ``use
+  Rack::Session::Cookie, key: '__Host-rack.session', secure: true, secrets:
+  [...]``). Renewing the session id at login
+  (``env['rack.session.options'][:renew] = true``) also keeps a session that
+  existed before login from carrying over, though it does not stop a forged
+  login. See ``docs/guides/authentication.md``. (#302)
+
+- A cross-site POST to a ``csrf=exempt`` route that returns HTML no longer
+  replaces the victim's CSRF binding. Such a POST arrives without the
+  ``SameSite=Lax`` binding cookie, but the browser keeps a cookie set on the
+  response to it. ``CSRFMiddleware`` minted a binding for it, set it as the
+  binding cookie and injected a token, so the forms the victim had open got
+  ``403``. Behind rack-session, when the browser did not send the session
+  cookie either, a new session was committed over the victim's. On an unsafe
+  request ``CSRFMiddleware`` now neither creates a binding nor sets the
+  binding cookie, and injects a token only when the request already has a
+  binding. (#308)
+
+- ``CSRFMiddleware`` no longer copies the session's id into the binding
+  cookie on HTML responses. It copied ``session.id``,
+  ``session['session_id']`` or a binding read from a cookie into the binding
+  cookie. A victim whose browser held a planted copy of the attacker's
+  session cookie then kept the attacker's session id in the binding cookie,
+  which Otto sets without ``Expires``. Once the session cookie was gone, for
+  example at the end of its ``expire_after`` lifetime, that id was the
+  binding again and a token the attacker held for it was accepted. HTML and
+  other responses now share one rule and one code path: the binding cookie is
+  set only on responses to safe requests, and only to a binding Otto minted
+  or read from ``csrf_session_key``. When
+  ``CSRFMiddleware`` mints a binding behind a session store added with
+  ``otto.use`` before CSRF protection is enabled, the id that store creates
+  is the binding: the store runs inside the middleware, has already
+  committed, and never sends that id, so the binding cookie carries it.
+  (#308)
+
+- ``CSRFMiddleware`` now adds ``Cache-Control: private, stale-if-error=0`` to
+  a response on which it sets the CSRF binding cookie or injects a token,
+  unless the application set ``Cache-Control`` or ``Expires`` on it. Both are
+  meant for one client, and RFC 9111, section 7.3, notes that "the Set-Cookie
+  response header field [COOKIE] does not inhibit caching". A shared cache
+  that stored such a response could hand one client's binding cookie, with the
+  token bound to it, to other clients, or serve a page with a token bound to
+  one user's session to everyone. Section 5.2.2.7 says of ``private`` that "a
+  shared cache MUST NOT store the response". The browser's own cache may still
+  store it. ``stale-if-error=0`` (RFC 5861) is for CloudFront, which stores
+  such a response when the cache policy's minimum TTL is above 0, as in the
+  managed CachingOptimized policy. For that case the CloudFront developer
+  guide says: "If the origin is unreachable and the minimum or maximum TTL
+  value is greater than 0, CloudFront will serve the object that it got from
+  the origin previously. To avoid this behavior, include the Cache-Control:
+  stale-if-error=0 directive with the object returned from the origin." An
+  application value, including one that lets shared caches store the response
+  such as ``public, max-age=60``, is kept as is. A token the application
+  writes into a response itself, which Otto does not change, needs its own
+  ``Cache-Control``. Otto does not read fields that some caches give
+  precedence over ``Cache-Control``, such as ``CDN-Cache-Control``,
+  ``Surrogate-Control`` or ``X-Accel-Expires``. See
+  ``docs/guides/authentication.md``. (#309)
+
+Documentation
+-------------
+
+- The authentication guide and reference describe when the route auth wrapper
+  sets ``env['rack.session']`` from ``result.session``. The guide adds that
+  Logic classes get no env, so behind a session middleware on ``auth=noauth``,
+  role, permission, and API key routes, and on any route without ``auth=``,
+  ``@context.session`` is a separate Hash whose writes are not persisted, and
+  says what to use instead. (#298)
+
+- The authentication reference no longer says the route auth wrapper sets
+  ``env['otto.user']`` (nothing sets it; the user is
+  ``env['otto.strategy_result'].user``), that ``enable_authentication!`` is a
+  no-op (it was removed and raises ``NoMethodError``), or that the
+  ``auth=role:admin`` syntax was removed (it resolves to the ``role`` strategy,
+  and ``RoleStrategy`` checks the session's roles). A ``LoggingHelpers``
+  example comment that read ``env['otto.user']`` now reads the strategy
+  result. (#298)
+
+- The authentication guide has a section on renewing the session id at login
+  with rack-session's ``:renew`` option, as protection against session
+  fixation. Otto never changes the session id itself. With CSRF protection
+  enabled, tokens issued before the renewal stop validating. (#298)
+
+- The authentication reference's multi-strategy flow no longer says the first
+  success wins and that 401 is returned only when every strategy fails. It now
+  describes the held anonymous fallback, terminal failures, and the 403, 401
+  and 302 outcomes. Its role extraction order now includes object-backed users
+  (``#roles``, then ``#role``). (#298)
+
+- The session-renewal section of the authentication guide says fixation lets
+  the attacker in with a server-side store such as ``Rack::Session::Pool``
+  but not with ``Rack::Session::Cookie``, recommends redirecting after login
+  because a form rendered in the login response carries a token bound to the
+  old id, and notes that its CSRF text assumes #295. The reference's
+  ``auth=noauth,apikey`` example gives the 302 for non-JSON requests, and the
+  multi-strategy notes in ``AGENTS.md`` match the code. (#298)
+
+- The MCP guide's multi-step example now calls ``enable_mcp!`` before it
+  loads the routes file. It called ``Otto.new('routes')`` first, so Otto
+  logged and skipped every ``MCP`` and ``TOOL`` line and the endpoint served
+  no resources or tools. (#296)
+
+- ``examples/mcp_demo`` now registers its resource and tool. Its routes file
+  put ``MCP`` and ``TOOL`` in the verb position, so the route loader
+  registered them as ordinary routes for HTTP methods named ``MCP`` and
+  ``TOOL`` instead of as a resource and a tool. The lines now use the
+  ``VERB /path MCP uri Handler`` and ``VERB /path TOOL name Handler`` forms.
+  Its ``config.ru`` also sets a ``Rack::Attack`` cache store, without which
+  every request raised ``Rack::Attack::MissingStoreError``. (#296)
+
+- The authentication guide now describes a limitation: behind
+  ``Rack::Session::Pool``, Otto reads ``session.id`` without loading the
+  session, so the CSRF binding is the id the session cookie names even when
+  the store holds no session for it, and a planted session cookie does not
+  have to name a real session. Otto does not load the session to
+  check, since rack-session commits a session that was loaded. The guide
+  recommends protecting the session cookie itself (a ``__Host-`` key with
+  ``secure: true``), as it already did, and quotes the rack-session 2.1.2
+  code it relies on. (#308)
+
+- The lambda handlers example no longer says ``csrf=exempt`` is recorded but
+  not enforced. It has been enforced at the handler layer since 2.6.0 (#186).
+  (#308)
+
 .. _changelog-2.12.0:
 
 2.12.0 — 2026-09-26

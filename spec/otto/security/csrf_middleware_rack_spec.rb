@@ -105,6 +105,60 @@ RSpec.describe 'CSRFMiddleware and the Rack specification' do
       expect(binding_cookies(headers).size).to eq(1)
     end
 
+    # Ruby raises ArgumentError when a regexp meets a string with invalid
+    # bytes, or Encoding::CompatibilityError when parts in incompatible
+    # encodings are joined. The middleware searches the bytes instead.
+    describe 'a body Ruby cannot search as text' do
+      def meta_line(content) = content.b[/\n<meta name="csrf-token" content="[^"]+">/]
+
+      it 'injects the token into a UTF-8 page with an invalid byte' do
+        page = (+"<html><head></head><body>\xE9</body></html>").force_encoding(Encoding::UTF_8)
+        app  = Rack::Lint.new(->(_env) { [200, { 'content-type' => 'text/html', 'content-length' => page.bytesize.to_s }, [page]] })
+
+        status, headers, content = lint_call(app)
+
+        expect(status).to eq(200)
+        expect(meta_line(content)).not_to be_nil
+        expect(content.b.sub(meta_line(content), '')).to eq(page.b)
+        expect(headers['content-length']).to eq(content.bytesize.to_s)
+        expect(binding_cookies(headers).size).to eq(1)
+      end
+
+      it 'injects the token into parts of incompatible encodings' do
+        parts = ["<html><head></head><body>\u00e9", "\xFF".b, '</body></html>']
+        app   = Rack::Lint.new(->(_env) { [200, { 'content-type' => 'text/html' }, parts.dup] })
+
+        status, headers, content = lint_call(app)
+
+        expect(status).to eq(200)
+        expect(meta_line(content)).not_to be_nil
+        expect(content.b.sub(meta_line(content), '')).to eq(parts.map(&:b).join)
+        expect(binding_cookies(headers).size).to eq(1)
+      end
+
+      it 'passes a page with an invalid byte and no <head> through unchanged' do
+        page = (+"<p>\xE9</p>").force_encoding(Encoding::UTF_8)
+        app  = Rack::Lint.new(->(_env) { [200, { 'content-type' => 'text/html' }, [page]] })
+
+        status, headers, content = lint_call(app)
+
+        expect(status).to eq(200)
+        expect(content.b).to eq(page.b)
+        expect(binding_cookies(headers).size).to eq(1)
+      end
+
+      it 'keeps the encoding the parts share' do
+        page  = "<html><head></head><body>\xE9</body></html>".b.force_encoding(Encoding::ISO_8859_1)
+        app   = ->(_env) { [200, { 'content-type' => 'text/html; charset=ISO-8859-1' }, [page]] }
+        stack = Otto::Security::Middleware::CSRFMiddleware.new(app, config)
+
+        _, _, body = stack.call(env_for('https://example.org/'))
+
+        expect(body.first.encoding).to eq(Encoding::ISO_8859_1)
+        expect(meta_line(body.first)).not_to be_nil
+      end
+    end
+
     # Middleware may not read a body that lacks #to_ary, so such a body gets
     # no token and is passed on unread. It still gets the binding cookie.
     it 'passes on a body without #to_ary unread' do

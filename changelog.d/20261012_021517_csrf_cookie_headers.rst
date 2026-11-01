@@ -54,7 +54,7 @@ Fixed
   more than once for a request: added again around an Otto with CSRF
   protection, or in nested CSRF-enabled Ottos (for example an Otto whose
   ``not_found=`` is another Otto). The first, innermost, middleware's cookie
-  is kept. With one configuration the two cookies were identical. Without
+  is kept. A shared ``csrf_session_key`` gave identical cookies. Without
   session middleware, Ottos with different ``csrf_session_key`` values mint
   different bindings; the browser kept the outer Otto's, and the inner Otto,
   which checks the requests its routes receive, rejected the tokens it issued
@@ -72,3 +72,9 @@ Fixed
   body wrapped by ``Rack::Lint`` got no token, and a ``Rack::BodyProxy`` was
   replaced without being closed, so its close callback never ran. Other
   bodies, such as files and streams, are still returned unread. (#309)
+
+- An HTML page with an invalid byte for its encoding, such as a Latin-1 file
+  read as UTF-8, or with body parts in incompatible encodings, no longer gets
+  ``500`` when CSRF protection is enabled. ``CSRFMiddleware`` now searches the
+  body for ``<head>`` as bytes, injects the token, and leaves the other bytes
+  unchanged; parts that share an encoding keep it. (#309)

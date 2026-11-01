@@ -103,13 +103,18 @@ class Otto
           # stream, is returned unread.
           return response unless body.respond_to?(:to_ary)
 
+          # The parts are searched as bytes. The <head> pattern and the meta
+          # tag are ASCII, so a part with invalid bytes, or parts in
+          # incompatible encodings, can neither raise here nor change.
           parts        = body.to_ary
-          body_content = parts.join
+          body_content = parts.map { |part| part.to_s.b }.join
 
           head_open_tag = /<head(?:\s[^>]*)?>/i
           if body_content.match?(head_open_tag)
             meta_tag     = %(<meta name="csrf-token" content="#{csrf_token}">)
             body_content = body_content.sub(head_open_tag) { |tag| "#{tag}\n#{meta_tag}" }
+            encodings    = parts.map { |part| part.to_s.encoding }.uniq
+            body_content.force_encoding(encodings.first) if encodings.size == 1
 
             # Update content length if present
             content_length_key          = headers.keys.find { |k| k.downcase == 'content-length' }

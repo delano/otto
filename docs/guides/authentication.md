@@ -683,10 +683,13 @@ sub vcl_beresp_control {
 }
 ```
 
-Both keep a response that carries `Set-Cookie` out of the cache on their own:
-the same nginx page says "If the header includes the “Set-Cookie” field, such
-a response will not be cached", and the built-in VCL's `vcl_beresp_cookie`
-calls `vcl_beresp_hitmiss` when `beresp.http.Set-Cookie` is set. A response
+Both keep a response that carries `Set-Cookie` out of the cache on their own
+by default: the same nginx page says "If the header includes the “Set-Cookie”
+field, such a response will not be cached", and the built-in VCL's
+`vcl_beresp_cookie` calls `vcl_beresp_hitmiss` when `beresp.http.Set-Cookie`
+is set. nginx's `proxy_ignore_headers` turns this off when it lists
+`Set-Cookie`; that page says the directive "Disables processing of certain
+response header fields from the proxied server". A response
 that carries only an injected token has no such cookie and depends on
 `Cache-Control`. An application that sends one of these fields on a page that
 carries a token needs to keep shared caches out in that field as well. A cache

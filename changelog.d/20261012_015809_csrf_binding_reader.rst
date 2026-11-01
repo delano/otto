@@ -8,8 +8,9 @@ Security
   binding cookie and injected a token, so the forms the victim had open got
   ``403``. Behind rack-session, when the browser did not send the session
   cookie either, a new session was committed over the victim's. On an unsafe
-  request Otto now neither creates a binding nor sets the binding cookie, and
-  injects a token only when the request already has a binding. (#308)
+  request ``CSRFMiddleware`` now neither creates a binding nor sets the
+  binding cookie, and injects a token only when the request already has a
+  binding. (#308)
 
 - ``CSRFMiddleware`` no longer copies the session's id into the binding
   cookie on HTML responses. #302 stopped the copy on other responses; HTML

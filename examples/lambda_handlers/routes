@@ -23,6 +23,6 @@ GET   /status         &status    response=json
 # Reads a path param, returned as JSON.
 GET   /greet/:name    &greet     response=json
 
-# Webhook receiver: marked csrf=exempt (option is parsed/exposed but not yet
-# enforced by CSRFMiddleware -- see issue #186).
+# Webhook receiver: csrf=exempt skips the CSRF check for this route (enforced
+# since 2.6.0, #186), so authenticate it another way, such as a signature header.
 POST  /webhook        &webhook   csrf=exempt response=json

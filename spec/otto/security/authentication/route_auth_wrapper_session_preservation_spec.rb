@@ -11,9 +11,10 @@ require 'spec_helper'
 # replace the middleware's session: rack-session commits by calling #options
 # on the object it installed, and a plain Hash has no #options.
 RSpec.describe Otto::Security::Authentication::RouteAuthWrapper do
-  # Stands in for Rack::Session::Abstract::SessionHash (rack-session is not a
-  # dependency): a session object that is not a Hash, exposes #id and
-  # #options, and supports the read/write calls the strategies make.
+  # Stands in for Rack::Session::Abstract::SessionHash (rack-session is only a
+  # test dependency; csrf_rack_session_spec.rb runs the real stores): a
+  # session object that is not a Hash, exposes #id and #options, and supports
+  # the read/write calls the strategies make.
   let(:session_hash_class) do
     Class.new do
       attr_reader :id, :options

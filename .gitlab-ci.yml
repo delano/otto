@@ -1,0 +1,339 @@
+# GitLab CI/CD for otto, converted from .github/workflows/{ci,code-smells,ruby-lint,yardoc,release-gem}.yml
+# claude.yml and claude-code-review.yml are not translated (issue/PR-event automation). See REPORT.md.
+
+workflow:
+  name: "otto: $CI_PIPELINE_SOURCE $CI_COMMIT_REF_NAME"
+  rules:
+    # pull_request (ci, code-smells, ruby-lint)
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    # release (release-gem): semver tags only
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+/
+    # workflow_dispatch -> "Run pipeline" button
+    - if: $CI_PIPELINE_SOURCE == "web"
+    # Avoid duplicate branch + MR pipelines
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    # push: main (ci, code-smells, yardoc), fix/* and rel/* (ruby-lint)
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_BRANCH =~ /^(fix|rel)\/[^\/]+$/
+
+stages:
+  - build
+  - test
+  - deploy
+
+variables:
+  RUBY: "3.4"
+  BUNDLE_PATH: vendor/bundle
+  BUNDLE_JOBS: "4"
+  BUNDLE_RETRY: "3"
+
+default:
+  image: ruby:$RUBY
+  interruptible: true
+
+# ---------------------------------------------------------------------------
+# Hidden templates
+# ---------------------------------------------------------------------------
+
+.bundle:
+  before_script:
+    - ruby -v && bundle -v
+    - |
+      if [ "$LOCKFILE" = "unlocked" ]; then
+        # Drop the committed lockfile so Bundler resolves fresh inside the
+        # gemspec's pessimistic constraints.
+        rm -f Gemfile.lock
+      fi
+    - bundle install
+
+.bundle-cache:
+  cache:
+    key:
+      files:
+        - Gemfile.lock
+      prefix: ruby-$RUBY
+    paths:
+      - vendor/bundle
+
+# ci.yml triggers: push to main, every MR, manual
+.rules-ci:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "web"
+
+# code-smells.yml triggers: MR into main, push to main, manual
+.rules-code-smells:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "web"
+
+# ruby-lint.yml triggers: MR into main/develop/feature/*, push to fix/* or rel/*, manual
+.rules-lint:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(main|develop|feature\/[^\/]+)$/
+    # fix/* and rel/* branches with an open MR run here instead of as branch pipelines
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^(fix|rel)\/[^\/]+$/
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^(fix|rel)\/[^\/]+$/
+    - if: $CI_PIPELINE_SOURCE == "web"
+
+# release-gem.yml trigger: GitHub release published -> semver tag push
+.rules-release:
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+/
+
+# ---------------------------------------------------------------------------
+# ci.yml: RSpec matrix
+# ---------------------------------------------------------------------------
+
+.rspec:
+  stage: test
+  extends:
+    - .bundle
+    - .rules-ci
+  needs: []
+  timeout: 10m
+  variables:
+    # Optional :development, :test groups (json_schemer, rack-attack) are needed by specs.
+    BUNDLE_WITH: "development:test"
+    REDIS_URL: "redis://127.0.0.1:2121/0"
+  script:
+    - bundle exec which rspec || echo "rspec not found"
+    - bundle list | grep -E "(rspec|rake|test)"
+    - ls -la bin/ || echo "No bin directory"
+    - mkdir -p tmp
+    - bundle exec rspec --format progress --format json --out tmp/rspec_results.json
+
+# Committed Gemfile.lock (reproducible maintainer snapshot). Blocking.
+rspec:locked:
+  extends:
+    - .rspec
+    - .bundle-cache
+  variables:
+    LOCKFILE: locked
+  parallel:
+    matrix:
+      - RUBY: ["3.2", "3.3", "3.4"]
+
+# Lockfile removed: fresh resolve inside gemspec constraints. Blocking, no cache.
+rspec:unlocked:
+  extends: .rspec
+  variables:
+    LOCKFILE: unlocked
+  parallel:
+    matrix:
+      - RUBY: ["3.2", "3.3", "3.4"]
+
+# Provisional Rubies. Non-blocking, no cache, force_ruby_platform.
+# Docker Hub has no ruby:3.5 tag; 3.5-rc is 3.5.0-preview1 (Ruby 3.5 became 4.0).
+rspec:experimental:
+  extends: .rspec
+  allow_failure: true
+  variables:
+    BUNDLE_FORCE_RUBY_PLATFORM: "true"
+  parallel:
+    matrix:
+      - RUBY: ["3.5-rc", "4.0"]
+        LOCKFILE: ["locked", "unlocked"]
+
+# ---------------------------------------------------------------------------
+# ruby-lint.yml: RuboCop
+# ---------------------------------------------------------------------------
+
+rubocop:
+  stage: test
+  extends:
+    - .bundle
+    - .bundle-cache
+    - .rules-lint
+  needs: []
+  timeout: 10m
+  variables:
+    BUNDLE_WITH: "development"
+  parallel:
+    matrix:
+      - RUBY: ["3.2", "3.3", "3.4"]
+  script:
+    - bundle exec rubocop --config .rubocop.yml --format json --fail-level warning
+
+# ---------------------------------------------------------------------------
+# code-smells.yml: Reek and additional checks (informational)
+# ---------------------------------------------------------------------------
+
+reek:
+  stage: test
+  extends:
+    - .bundle
+    - .bundle-cache
+    - .rules-code-smells
+  needs: []
+  timeout: 5m
+  allow_failure: true
+  variables:
+    BUNDLE_WITH: "development:test"
+  script:
+    - command -v jq >/dev/null || { apt-get update -qq && apt-get install -y -qq jq >/dev/null; } || true
+    - echo "=== Running Reek code analysis (informational, does not fail the build) ==="
+    - bundle exec reek --format=text --success-exit-code 0 --failure-exit-code 0 || true
+    - echo "=== Generating detailed Reek report ==="
+    - bundle exec reek --format=json --success-exit-code 0 --failure-exit-code 0 > reek-report.json || true
+    - |
+      if [ ! -s reek-report.json ]; then
+        echo "[]" > reek-report.json
+        echo "No code smells detected - created empty report"
+      else
+        echo "Reek JSON report generated: $(wc -l < reek-report.json) lines"
+        echo "Top code smell types found:"
+        jq -r '.[].smells[].smell_type' reek-report.json 2>/dev/null | sort | uniq -c | sort -rn | head -10 || echo "Unable to parse JSON report"
+      fi
+    - bundle exec reek --format=html --success-exit-code 0 --failure-exit-code 0 > reek-report.html || echo "<!-- No code smells detected -->" > reek-report.html
+  artifacts:
+    name: reek-report
+    when: always
+    expire_in: 30 days
+    paths:
+      - reek-report.json
+      - reek-report.html
+
+additional-checks:
+  stage: test
+  extends:
+    - .bundle
+    - .bundle-cache
+    - .rules-code-smells
+  needs: []
+  timeout: 5m
+  cache:
+    policy: pull   # installs default groups only; do not overwrite the fuller shared cache
+  script:
+    - echo "=== Scanning for TODO/FIXME comments ==="
+    - |
+      find . -name "*.rb" -not -path "./vendor/*" -not -path "./tmp/*" | \
+        xargs grep -Hn -i -E "(TODO|FIXME|HACK|XXX|NOTE):" 2>/dev/null | \
+        head -20 || echo "No TODO/FIXME comments found"
+    - echo "=== Checking Ruby syntax ==="
+    - |
+      find . -name "*.rb" -not -path "./vendor/*" -not -path "./tmp/*" | \
+        while read -r file; do
+          if ! ruby -c "$file" > /dev/null 2>&1; then
+            echo "Syntax error in: $file"
+            ruby -c "$file" || true
+          fi
+        done
+    - echo "=== Checking for long lines (>120 characters) ==="
+    - |
+      find . -name "*.rb" -not -path "./vendor/*" -not -path "./tmp/*" | \
+        xargs grep -Hn "^.\{121,\}$" | \
+        head -10 || echo "No overly long lines found"
+
+# ---------------------------------------------------------------------------
+# yardoc.yml: YARD docs -> GitLab Pages
+# ---------------------------------------------------------------------------
+
+pages:
+  stage: deploy
+  extends:
+    - .bundle
+    - .bundle-cache
+  needs: []
+  timeout: 10m
+  interruptible: false
+  resource_group: pages
+  variables:
+    BUNDLE_WITH: "development:test"
+    GIT_DEPTH: "0"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - lib/**/*
+        - docs/**/*
+        - README.md
+        - CHANGELOG.md
+        - CHANGELOG.rst
+        - LICENSE.txt
+        - .yardopts
+        - .gitlab-ci.yml
+    - if: $CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  environment:
+    name: pages
+    url: $CI_PAGES_URL
+  script:
+    - bundle exec yard stats --list-undoc || true
+    # .yardopts sets --output-dir doc
+    - bundle exec yard doc
+    - |
+      if [ ! -d "doc" ]; then
+        echo "Error: documentation directory 'doc' was not generated." >&2
+        echo "Ensure .yardopts sets '--output-dir doc'." >&2
+        exit 1
+      fi
+      if [ ! -f "doc/index.html" ]; then
+        echo "Warning: doc/index.html not found"
+      fi
+      echo "Generated HTML files: $(find doc -name '*.html' | wc -l)"
+      echo "Total documentation size: $(du -sh doc/ | cut -f1)"
+    # The repo has a tracked public/ (favicon, images); Pages publishes only the YARD output.
+    - rm -rf public && mv doc public
+  artifacts:
+    paths:
+      - public
+
+# ---------------------------------------------------------------------------
+# release-gem.yml: build and push gem on semver tag
+# ---------------------------------------------------------------------------
+
+gem:build:
+  stage: build
+  extends: .rules-release
+  needs: []
+  timeout: 10m
+  variables:
+    # Oldest non-experimental Ruby in the matrix (see release-gem.yml)
+    RUBY: "3.3"
+  script:
+    - |
+      set -euo pipefail
+      case "${CI_COMMIT_TAG}" in
+        v[0-9]*.[0-9]*.[0-9]*) ;;
+        *)
+          echo "Release tag '${CI_COMMIT_TAG}' is not a vMAJOR.MINOR.PATCH semver tag." >&2
+          exit 1
+          ;;
+      esac
+      tag_version="${CI_COMMIT_TAG#v}"
+      gem_version="$(ruby -r ./lib/otto/version.rb -e 'print Otto::VERSION')"
+      if [ "${tag_version}" != "${gem_version}" ]; then
+        echo "Release tag ${CI_COMMIT_TAG} (${tag_version}) != Otto::VERSION (${gem_version})." >&2
+        exit 1
+      fi
+      echo "Releasing otto ${gem_version} from tag ${CI_COMMIT_TAG}"
+    - gem build otto.gemspec
+  artifacts:
+    paths:
+      - otto-*.gem
+    expire_in: 1 week
+
+gem:publish:
+  stage: deploy
+  extends: .rules-release
+  needs:
+    - gem:build
+  timeout: 10m
+  interruptible: false
+  resource_group: release-gem-$CI_COMMIT_TAG
+  variables:
+    RUBY: "3.3"
+  environment:
+    name: rubygems.org
+    url: https://rubygems.org/gems/otto
+  script:
+    # GEM_HOST_API_KEY: masked + protected CI/CD variable (push scope, otto only).
+    # Needs review: otto sets rubygems_mfa_required; an API-key push may need GEM_HOST_OTP_CODE.
+    - test -n "${GEM_HOST_API_KEY:-}" || { echo "GEM_HOST_API_KEY is not set" >&2; exit 1; }
+    - gem push otto-*.gem
+
+# Optional opt-in: GitLab SAST (no GitHub source workflow; offered as an improvement)
+# include:
+#   - component: gitlab.com/components/sast/sast@<version>   # Needs review: pin current version

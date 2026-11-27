@@ -55,7 +55,9 @@ class Otto
       # @param description [String]
       # @param name [String, nil] the last segment of the URI when nil
       # @param mime_type [String]
-      # @param scopes [Array<String>, nil] required on a hosted endpoint
+      # @param definition [Hash] +scopes:+ and nothing else
+      # @option definition [Array<String>] :scopes scopes a caller must have;
+      #   must be stated on a hosted endpoint
       # @return [void]
       # @raise [ArgumentError] as for {#define_tool}
       def define_resource(uri, handler = nil, description:, name: nil, mime_type: 'text/plain', **definition, &block)

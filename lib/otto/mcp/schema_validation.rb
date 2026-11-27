@@ -98,7 +98,9 @@ class Otto
           rescue JSON::ParserError => e
             return validation_error_response(nil, "Invalid JSON: #{e.message}")
           rescue ValidationError => e
-            return validation_error_response(data&.dig('id'), e.message)
+            # A body that is valid JSON but not an object (a batch, a string)
+            # has no id to echo.
+            return validation_error_response((data['id'] if data.is_a?(Hash)), e.message)
           end
         end
 

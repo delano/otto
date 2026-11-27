@@ -72,6 +72,18 @@ RSpec.describe Otto::MCP::Protocol, 'JSON-RPC request handling' do
       end
     end
 
+    # A body that parses but is not an object used to raise while the error
+    # response looked for its id, and the endpoint answered 500.
+    ['[{"jsonrpc":"2.0","id":1,"method":"initialize"}]', '7', '"initialize"', 'null'].each do |payload|
+      it "rejects the non-object body #{payload[0, 12]} with -32600/400" do
+        status, _headers, body = call(payload)
+
+        expect(status).to eq(400)
+        expect(body['error']).to include('code' => -32_600)
+        expect(body['id']).to be_nil
+      end
+    end
+
     it 'accepts an explicit null id and echoes it back' do
       _status, _headers, body = call(rpc('initialize', id: nil))
 

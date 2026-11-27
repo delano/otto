@@ -30,6 +30,17 @@ RSpec.describe Otto::MCP::SchemaValidationMiddleware do
     expect(JSON.parse(body.join).dig('error', 'message')).to eq('Invalid Request')
   end
 
+  # A batch or a bare value is valid JSON with no id to echo. Looking for one
+  # used to raise, and the endpoint answered 500.
+  ['[{"jsonrpc":"2.0","id":1,"method":"tools/list"}]', '7', '"tools/list"', 'null'].each do |payload|
+    it "rejects the non-object body #{payload[0, 12]} with 400" do
+      status, _headers, body = post('/a', endpoint: '/a', body: payload)
+
+      expect(status).to eq(400)
+      expect(JSON.parse(body.join)).to include('id' => nil, 'error' => include('code' => -32_600))
+    end
+  end
+
   # The router dispatches the endpoint by exact literal match; a prefix match
   # here parsed and rejected bodies posted to /admin beside an endpoint at /a.
   it 'leaves a sibling path that shares the endpoint prefix alone' do

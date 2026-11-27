@@ -67,7 +67,8 @@ class Otto
         end
 
         unless valid_jsonrpc_request?(data)
-          return error_response(data['id'], -32_600, 'Invalid Request', 'Missing jsonrpc, method, or id fields')
+          id = data['id'] if data.is_a?(Hash)
+          return error_response(id, -32_600, 'Invalid Request', 'Missing jsonrpc, method, or id fields')
         end
 
         case data['method']

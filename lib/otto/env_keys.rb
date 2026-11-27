@@ -339,5 +339,24 @@ class Otto
     # Set by: Otto::MCP::Server#enable!
     # Used by: MCP middleware, SchemaValidationMiddleware
     MCP_HTTP_ENDPOINT = 'otto.mcp_http_endpoint'
+
+    # Verified caller of an MCP request
+    # Type: Otto::MCP::Auth::Context (subject, client_id, tenant, scopes,
+    #   audience, claims)
+    # Set by: Otto::MCP::Auth::TokenMiddleware, from the endpoint's
+    #   authenticator. The middleware removes any earlier value first, and an
+    #   endpoint with no authenticator discards the key.
+    # Used by: Otto::MCP::Registry (scope checks), tool and resource handlers
+    # Absent: on an endpoint with static tokens or no authentication
+    MCP_AUTH = 'otto.mcp.auth'
+
+    # What Otto knows about the tools/call or resources/read being handled
+    # Type: Otto::MCP::Call (auth, state, protocol_version,
+    #   client_capabilities, client_info, input_responses)
+    # Set by: Otto::MCP::Protocol, before the handler runs
+    # Used by: tool and resource handlers
+    # NOTE: auth and state are verified by Otto. The other members are what
+    #   the client sent.
+    MCP_CALL = 'otto.mcp.call'
   end
 end

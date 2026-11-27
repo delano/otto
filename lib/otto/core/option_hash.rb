@@ -23,9 +23,10 @@ class Otto
       # Option keys whose values are MCP bearer tokens, in both spellings a
       # caller may use (see Otto::MCP::Options::OPTION_ALIASES).
       def self.secret_keys
-        @secret_keys ||= Otto::MCP::Options::OPTION_ALIASES.fetch(:auth_tokens).flat_map do |key|
-          [key, key.to_s]
-        end.freeze
+        @secret_keys ||= (
+          Otto::MCP::Options::OPTION_ALIASES.fetch(:auth_tokens) +
+          Otto::MCP::Options::EXTENDED_ALIASES.fetch(:request_state_secret)
+        ).flat_map { |key| [key, key.to_s] }.freeze
       end
 
       # @param hash [Hash] assembled options

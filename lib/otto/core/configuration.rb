@@ -314,6 +314,10 @@ class Otto
         # array here records that fact and makes any in-place mutation raise.
         deep_freeze_value(@static_mounts) if @static_mounts
 
+        # MCP tools and resources carry the schemas and scopes that guard
+        # them, so they stop changing with the rest of the configuration.
+        @mcp_server&.freeze_registry!
+
         @configuration_frozen = true
 
         duration = Otto::Utils.now_in_μs - start_time

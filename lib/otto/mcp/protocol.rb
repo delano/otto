@@ -3,8 +3,13 @@
 # frozen_string_literal: true
 
 require 'json'
-require_relative 'registry'
+require 'securerandom'
+
+require_relative 'auth/bearer'
+require_relative 'call'
 require_relative 'errors'
+require_relative 'registry'
+require_relative 'settings'
 
 class Otto
   module MCP
@@ -29,6 +34,16 @@ class Otto
     # naming an entity that is not registered, and 500 for handler execution
     # faults. Handler exception messages are logged, never returned: -32603
     # responses carry a fixed message.
+    #
+    # == Revisions
+    #
+    # The table above is the 2024-11-05 behavior, which this class implements
+    # and which is all an endpoint serves unless it is enabled with other
+    # +protocol_versions+. Requests under 2026-07-28 are handled by
+    # {Otto::MCP::Protocol::Modern}. An endpoint that serves both picks per
+    # request: a request that declares a 2026-07-28 or unknown version, in the
+    # MCP-Protocol-Version header or in its +_meta+, goes to Modern, and a
+    # request that declares nothing is served as 2024-11-05.
     class Protocol
       # @see Protocol for the rationale behind this mapping.
       ERROR_STATUS_MAP = {
@@ -45,14 +60,30 @@ class Otto
       # is an execution fault.
       SERVER_ERROR_RANGE = (-32_099..-32_000)
 
-      attr_reader :registry
+      VERSION_HEADER = 'HTTP_MCP_PROTOCOL_VERSION'
+      META_VERSION   = 'io.modelcontextprotocol/protocolVersion'
+      AUTH_ENV_KEY   = 'otto.mcp.auth'
+      CALL_ENV_KEY   = 'otto.mcp.call'
 
-      def initialize(otto_instance)
+      attr_reader :registry, :settings
+
+      def initialize(otto_instance, settings = Settings.legacy)
         @otto     = otto_instance
         @registry = Registry.new
+        @settings = settings
+      end
+
+      # @param settings [Otto::MCP::Settings]
+      # @api private
+      def configure(settings)
+        @settings = settings
       end
 
       def handle_request(env)
+        # Only this endpoint's own authenticator names the caller. Without
+        # one, a value left in env by an outer application is discarded.
+        env.delete(AUTH_ENV_KEY) unless @settings.auth
+
         request = @otto.request_class.new(env)
 
         unless request.post? && request.content_type&.include?('application/json')
@@ -66,6 +97,82 @@ class Otto
           return error_response(nil, -32_700, 'Parse error', 'Invalid JSON')
         end
 
+        return Modern.new(self).call(data, env) if modern_request?(data, env)
+
+        handle_legacy_request(data, env)
+      end
+
+      # The verified caller of this request, if the endpoint has an
+      # authenticator and it accepted the request.
+      #
+      # @param env [Hash] Rack env
+      # @return [Otto::MCP::Auth::Context, nil]
+      # @api private
+      def caller_in(env)
+        auth = env[AUTH_ENV_KEY]
+        auth if auth.is_a?(Otto::MCP::Auth::Context)
+      end
+
+      # HTTP 403 with an insufficient_scope challenge naming every scope the
+      # tool or resource requires, so a client can ask for them in one step.
+      #
+      # @param id [String, Integer, nil] JSON-RPC id of the request
+      # @param error [Otto::MCP::InsufficientScopeError]
+      # @param env [Hash] Rack env
+      # @param target [Hash] the tool or resource that was refused
+      # @return [Array] Rack response
+      # @api private
+      def insufficient_scope_response(id, error, env, target)
+        Otto.structured_log(:warn, 'MCP call refused: insufficient scope',
+          Otto::LoggingHelpers.request_context(env).merge(target).merge(client_id: caller_in(env)&.client_id))
+
+        scopes    = error.required_scopes
+        challenge = if @settings.auth
+                      @settings.auth.challenge(error: 'insufficient_scope', scopes: scopes)
+                    else
+                      Auth::Challenge.bearer(error: 'insufficient_scope', scopes: scopes)
+                    end
+        body      = { jsonrpc: '2.0', id: id, error: { code: FORBIDDEN, message: 'Forbidden', data: { requiredScopes: scopes } } }
+
+        [403, { 'content-type' => 'application/json', 'www-authenticate' => challenge }, [JSON.generate(body.compact)]]
+      end
+
+      # Log a handler failure without the exception's message, which can contain
+      # anything the handler touched. The log entry and the backtrace share an
+      # error_id, and the caller can be given the same id.
+      #
+      # @param event [String] log message
+      # @param env [Hash] Rack env
+      # @param error [StandardError]
+      # @param details [Hash] code and the tool or resource involved
+      # @return [String] the error_id
+      # @api private
+      def log_failure(event, env, error, details)
+        error_id = SecureRandom.hex(8)
+        details  = details.merge(violations: error.violations) if error.is_a?(OutputValidationError)
+        context  = Otto::LoggingHelpers.request_context(env).merge(details)
+                                       .merge(error_class: error.class.name, error_id: error_id)
+
+        Otto.structured_log(:error, event, context)
+        Otto::LoggingHelpers.log_backtrace(error, context)
+        error_id
+      end
+
+      private
+
+      # An endpoint that serves one era sends everything to it. One that
+      # serves both goes by what the request declares.
+      def modern_request?(data, env)
+        return false unless @settings.modern?
+        return true unless @settings.legacy?
+
+        declared   = env[VERSION_HEADER]
+        declared ||= data.dig('params', '_meta', META_VERSION) if data.is_a?(Hash) && data['params'].is_a?(Hash) &&
+                                                                  data['params']['_meta'].is_a?(Hash)
+        !declared.nil? && !@settings.legacy_versions.include?(declared)
+      end
+
+      def handle_legacy_request(data, env)
         unless valid_jsonrpc_request?(data)
           id = data['id'] if data.is_a?(Hash)
           return error_response(id, -32_600, 'Invalid Request', 'Missing jsonrpc, method, or id fields')
@@ -75,19 +182,17 @@ class Otto
         when 'initialize'
           handle_initialize(data)
         when 'resources/list'
-          handle_resources_list(data)
+          handle_resources_list(data, env)
         when 'resources/read'
           handle_resources_read(data, env)
         when 'tools/list'
-          handle_tools_list(data)
+          handle_tools_list(data, env)
         when 'tools/call'
           handle_tools_call(data, env)
         else
           error_response(data['id'], -32_601, 'Method not found', "Unknown method: #{data['method']}")
         end
       end
-
-      private
 
       def valid_jsonrpc_request?(data)
         data.is_a?(Hash) &&
@@ -109,14 +214,14 @@ class Otto
                            protocolVersion: '2024-11-05',
           capabilities: capabilities,
           serverInfo: {
-            name: 'Otto MCP Server',
-            version: Otto::VERSION,
+            name: @settings.server_info['name'],
+            version: @settings.server_info['version'],
           },
                          })
       end
 
-      def handle_resources_list(data)
-        resources = @registry.list_resources
+      def handle_resources_list(data, env)
+        resources = @registry.list_resources(caller_in(env))
         success_response(data['id'], { resources: resources })
       end
 
@@ -127,11 +232,12 @@ class Otto
         return error_response(data['id'], -32_602, 'Invalid params', 'Missing uri parameter') unless uri
 
         begin
-          resource = @registry.read_resource(uri, env)
+          env[CALL_ENV_KEY] = Call.new(auth: caller_in(env), protocol_version: '2024-11-05')
+          resource          = @registry.read_resource(uri, env)
+        rescue InsufficientScopeError => e
+          return insufficient_scope_response(data['id'], e, env, resource: uri)
         rescue StandardError => e
-          # Detail stays in the log: handler exceptions (Errno::*, constant
-          # resolution) can carry absolute paths and internals.
-          Otto.logger.error "[MCP] Resource read error for #{uri}: #{e.class}: #{e.message}"
+          log_failure('MCP resource read failed', env, e, code: 'resource_failed', resource: uri)
           return error_response(data['id'], -32_603, 'Internal error', 'Resource read failed')
         end
 
@@ -142,8 +248,8 @@ class Otto
         end
       end
 
-      def handle_tools_list(data)
-        tools = @registry.list_tools
+      def handle_tools_list(data, env)
+        tools = @registry.list_tools(caller_in(env))
         success_response(data['id'], { tools: tools })
       end
 
@@ -155,15 +261,28 @@ class Otto
         return error_response(data['id'], -32_602, 'Invalid params', 'Missing name parameter') unless name
 
         begin
-          result = @registry.call_tool(name, arguments, env)
+          env[CALL_ENV_KEY] = Call.new(auth: caller_in(env), protocol_version: '2024-11-05')
+          result            = @registry.call_tool(name, arguments, env)
+          result            = INPUT_REQUEST_UNSUPPORTED if result.is_a?(InputRequired)
           success_response(data['id'], result)
         rescue Otto::MCP::ToolNotFoundError => e
           error_response(data['id'], -32_002, 'Tool not found', e.message)
+        rescue InsufficientScopeError => e
+          insufficient_scope_response(data['id'], e, env, tool: name)
         rescue StandardError => e
-          Otto.logger.error "[MCP] Tool call error for #{name}: #{e.class}: #{e.message}"
+          code = e.is_a?(OutputValidationError) ? 'tool_output_invalid' : 'tool_failed'
+          log_failure('MCP tool call failed', env, e, code: code, tool: name)
           error_response(data['id'], -32_603, 'Internal error', 'Tool execution failed')
         end
       end
+
+      # 2024-11-05 has no way to ask the client for input in the middle of a
+      # call, so a tool that needs it reports that it cannot run here.
+      INPUT_REQUEST_UNSUPPORTED = {
+        content: [{ type: 'text', text: 'This tool needs a client that supports MCP 2026-07-28.' }],
+        isError: true,
+      }.freeze
+      private_constant :INPUT_REQUEST_UNSUPPORTED
 
       def success_response(id, result)
         body = JSON.generate({
@@ -193,3 +312,5 @@ class Otto
     end
   end
 end
+
+require_relative 'protocol/modern'

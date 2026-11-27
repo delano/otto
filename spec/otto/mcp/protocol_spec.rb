@@ -185,9 +185,12 @@ RSpec.describe Otto::MCP::Protocol, 'JSON-RPC request handling' do
       expect(body.dig('error', 'code')).to eq(-32_603)
       expect(body.dig('error', 'data')).to eq('Resource read failed')
       expect(raw.first).not_to include('resource exploded')
-      # Logged exactly once, at the protocol boundary, with URI and class.
-      expect(logged.grep(/resource exploded/).size).to eq(1)
-      expect(logged.first).to include('docs/boom', 'RuntimeError')
+      # Logged at the protocol boundary with the URI, the class, a code and
+      # an error_id shared with the backtrace entry. The exception's message
+      # can contain anything the handler touched, so it is never logged.
+      expect(logged.join).not_to include('resource exploded')
+      expect(logged.first).to include('MCP resource read failed', 'docs/boom', 'RuntimeError', 'resource_failed')
+      expect(logged.map { |line| line[/error_id\W+(\h{16})/, 1] }.uniq.compact.size).to eq(1)
     end
   end
 
@@ -238,7 +241,9 @@ RSpec.describe Otto::MCP::Protocol, 'JSON-RPC request handling' do
       expect(body.dig('error', 'code')).to eq(-32_603)
       expect(body.dig('error', 'data')).to eq('Tool execution failed')
       expect(raw.first).not_to include('tool exploded')
-      expect(logged.join).to include('tool exploded')
+      expect(logged.join).not_to include('tool exploded')
+      expect(logged.first).to include('MCP tool call failed', 'boom', 'RuntimeError', 'tool_failed')
+      expect(logged.map { |line| line[/error_id\W+(\h{16})/, 1] }.uniq.compact.size).to eq(1)
     end
 
     it 'returns -32603/500 for a forbidden constant handler without naming the class' do

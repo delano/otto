@@ -44,7 +44,8 @@ the smallest complete configuration that uses it safely.
   handling of `X-Forwarded-Host` and `Forwarded`, and the process-global Rack
   forwarding family.
 - [MCP guide](guides/mcp.md) — enable the JSON-RPC endpoint, require bearer
-  tokens, and tune rate limits.
+  tokens or an authenticator, declare tools with schemas and scopes, serve
+  MCP `2026-07-28`, and tune rate limits.
 - [Caddy TLS integration](guides/caddy-tls.md) — deploy the loopback-only
   permission endpoint.
 - [Migration guides](migrating/) — version-specific behavior changes.

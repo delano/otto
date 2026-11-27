@@ -2,6 +2,8 @@
 #
 # frozen_string_literal: true
 
+require_relative 'option_rules'
+
 class Otto
   module MCP
     # Normalization of MCP configuration options.
@@ -49,6 +51,12 @@ class Otto
     #
     # Both scopes accept the canonical output of {.normalize}, so normalization
     # is idempotent under either.
+    #
+    # The options in {EXTENDED_ALIASES} select the protocol revisions, the
+    # authenticator and the hosted profile. {.normalize} emits one of them
+    # only when it was supplied, so the canonical hash for options that
+    # predate them is unchanged. {Otto::MCP::OptionRules} validates their
+    # values and the combinations they allow.
     module Options
       # Canonical MCP option keys and every accepted alias.
       # @api private
@@ -61,6 +69,27 @@ class Otto
              tools_per_minute: %i[tools_per_minute tool_calls_per_minute mcp_tool_calls_per_minute],
         allow_unauthenticated: %i[allow_unauthenticated mcp_allow_unauthenticated],
       }.freeze
+
+      # Options that have no entry in {OPTION_DEFAULTS}: absent from the
+      # canonical hash unless supplied. Same alias rule as {OPTION_ALIASES}.
+      # @api private
+      EXTENDED_ALIASES = {
+            protocol_versions: %i[protocol_versions mcp_protocol_versions],
+                       hosted: %i[hosted mcp_hosted],
+                authenticator: %i[authenticator mcp_authenticator],
+                 resource_uri: %i[resource_uri mcp_resource_uri],
+        authorization_servers: %i[authorization_servers mcp_authorization_servers],
+             scopes_supported: %i[scopes_supported mcp_scopes_supported],
+              allowed_origins: %i[allowed_origins mcp_allowed_origins],
+         request_state_secret: %i[request_state_secret mcp_request_state_secret],
+                  server_info: %i[server_info mcp_server_info],
+                 instructions: %i[instructions mcp_instructions],
+                 cache_ttl_ms: %i[cache_ttl_ms mcp_cache_ttl_ms],
+      }.freeze
+
+      # Every canonical key and its aliases.
+      # @api private
+      ALL_ALIASES = OPTION_ALIASES.merge(EXTENDED_ALIASES).freeze
 
       # @api private
       SCOPES = %i[constructor explicit].freeze
@@ -87,8 +116,8 @@ class Otto
       # Every key {.normalize} recognizes, per scope.
       # @api private
       RECOGNIZED_KEYS = {
-        constructor: (OPTION_ALIASES.values.flatten + GATING_KEYS).freeze,
-           explicit: OPTION_ALIASES.values.flatten.freeze,
+        constructor: (ALL_ALIASES.values.flatten + GATING_KEYS).freeze,
+           explicit: ALL_ALIASES.values.flatten.freeze,
       }.freeze
 
       # Normalize a constructor- or #enable_mcp!-style option hash into the
@@ -102,10 +131,12 @@ class Otto
       #   (permissive about non-MCP keys)
       # @return [Hash] canonical hash with keys :http_endpoint, :auth_tokens,
       #   :enable_validation, :enable_rate_limiting, :requests_per_minute,
-      #   :tools_per_minute, :allow_unauthenticated
+      #   :tools_per_minute, :allow_unauthenticated, and each key of
+      #   {EXTENDED_ALIASES} that was supplied
       # @raise [ArgumentError] on an unrecognized key, conflicting aliases or
-      #   String/Symbol spellings, values of the wrong type, or auth tokens
-      #   supplied but empty/blank
+      #   String/Symbol spellings, values of the wrong type, auth tokens
+      #   supplied but empty/blank, or a combination
+      #   {Otto::MCP::OptionRules.check!} refuses
       def self.normalize(opts = {}, scope = :explicit)
         raise ArgumentError, "Unknown MCP option scope #{scope.inspect}; expected one of #{SCOPES.inspect}" unless SCOPES.include?(scope)
 
@@ -113,7 +144,7 @@ class Otto
         reject_unrecognized_keys!(opts, scope)
 
         canonical = OPTION_DEFAULTS.dup
-        OPTION_ALIASES.each do |key, key_aliases|
+        ALL_ALIASES.each do |key, key_aliases|
           supplied = key_aliases.select { |a| opts.key?(a) }
           next if supplied.empty?
 
@@ -123,6 +154,7 @@ class Otto
           canonical[key] = coerce_option(key, values.first)
         end
 
+        OptionRules.check!(canonical)
         canonical
       end
 
@@ -178,9 +210,12 @@ class Otto
 
       # @api private
       def self.raise_conflict!(key, spellings)
-        raise ArgumentError,
-              "Conflicting MCP options for #{key}: " \
-              "#{spellings.map { |spelling, value| "#{spelling.inspect}=#{value.inspect}" }.join(', ')}"
+        # The two values of request_state_secret are key material and are
+        # not printed.
+        secret = EXTENDED_ALIASES.fetch(:request_state_secret).include?(key)
+        shown  = spellings.map { |spelling, value| "#{spelling.inspect}=#{secret ? '[REDACTED]' : value.inspect}" }
+
+        raise ArgumentError, "Conflicting MCP options for #{key}: #{shown.join(', ')}"
       end
       private_class_method :raise_conflict!
 
@@ -232,7 +267,7 @@ class Otto
 
           value
         else
-          value
+          OptionRules.coerce(key, value)
         end
       end
       private_class_method :coerce_option

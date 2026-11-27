@@ -36,34 +36,74 @@ class Otto
       end
 
       def initialize
-        @resources = {}
-        @tools     = {}
+        @resources         = {}
+        @tools             = {}
+        @declarations_only = false
       end
 
-      # @param scopes [Array<String>] scopes a caller must have to list and
-      #   read this resource
-      def register_resource(uri, name, description, mime_type, handler, scopes: [])
+      # From here on the registry takes only what states how it is guarded: a
+      # declared tool with an output schema, and a resource with +scopes:+
+      # given. A hosted endpoint calls this as it is enabled.
+      #
+      # @raise [ArgumentError] if anything is already registered, since it
+      #   was registered without those statements
+      # @return [void]
+      def require_declarations!
+        registered = @tools.keys + @resources.keys
+        unless registered.empty?
+          raise ArgumentError,
+                'MCP hosted: true must be enabled before any tool or resource is registered. ' \
+                "Already registered: #{registered.join(', ')}"
+        end
+
+        @declarations_only = true
+      end
+
+      # @param uri [String]
+      # @return [Boolean] true when a resource is registered under that URI
+      def resource?(uri)
+        @resources.key?(uri)
+      end
+
+      # @param scopes [Array<String>, nil] scopes a caller must have to list
+      #   and read this resource; must be given on a hosted endpoint
+      # @raise [ArgumentError] if the URI is registered with scopes, which a
+      #   later registration must not be able to drop, or if a hosted
+      #   endpoint is given no +scopes:+
+      def register_resource(uri, name, description, mime_type, handler, scopes: nil)
+        raise ArgumentError, "MCP resource #{uri} on a hosted endpoint must state scopes:" if @declarations_only && scopes.nil?
+        raise ArgumentError, "MCP resource #{uri} requires scopes and cannot be replaced" if scoped_resource?(uri)
+
         @resources[uri] = {
           uri: uri,
           name: name,
           description: description,
           mimeType: mime_type,
           handler: handler,
-          scopes: Tool.normalize_scopes(scopes, "MCP resource #{uri}"),
+          scopes: Tool.normalize_scopes(scopes || [], "MCP resource #{uri}"),
         }
       end
 
       # Register an undeclared tool: Otto advertises +input_schema+ but does
       # not check arguments against it, and returns the handler's value as
       # text. Use {#add_tool} for a tool whose schemas and scopes Otto enforces.
+      #
+      # @raise [ArgumentError] on a hosted endpoint, or if the name belongs
+      #   to a declared tool, whose schemas and scopes it would drop
       def register_tool(name, description, input_schema, handler)
+        raise ArgumentError, "MCP tool #{name} on a hosted endpoint must be declared with register_mcp_tool" if @declarations_only
+        raise ArgumentError, "MCP tool #{name} is declared and cannot be replaced" if @tools[name]&.declared?
+
         @tools[name] = Tool.undeclared(name, description, input_schema, handler)
       end
 
       # @param tool [Otto::MCP::Tool] a declared tool
-      # @raise [ArgumentError] if a tool with that name is already registered
+      # @raise [ArgumentError] if a tool with that name is already
+      #   registered, or if a hosted endpoint is given a tool with no output
+      #   schema
       def add_tool(tool)
         raise ArgumentError, "MCP tool #{tool.name} is already registered" if @tools.key?(tool.name)
+        raise ArgumentError, "MCP tool #{tool.name} on a hosted endpoint must state output_schema:" if @declarations_only && tool.output_schema.nil?
 
         @tools[tool.name] = tool
       end
@@ -124,6 +164,10 @@ class Otto
         # which owns the logging (Protocol#handle_resources_read).
         handler = resource[:handler]
         content = handler.call(*self.class.resource_handler_args(handler, env, "Resource handler for #{uri}"))
+        # Only a tool can ask for input. Sending this as text would print the
+        # state the handler meant to be sealed.
+        raise InputRequestError, 'A resource handler cannot request input' if content.is_a?(InputRequired)
+
         {
           contents: [{
             uri: uri,
@@ -173,6 +217,11 @@ class Otto
 
       def permitted?(scopes, auth)
         scopes.empty? || (!auth.nil? && auth.grants?(scopes))
+      end
+
+      def scoped_resource?(uri)
+        existing = @resources[uri]
+        !existing.nil? && !existing[:scopes].empty?
       end
 
       def text_result(value)

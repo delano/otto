@@ -32,16 +32,45 @@ RSpec.describe Otto::MCP::OptionRules do
     expect(norm(mcp_cache_ttl_ms: 5)[:cache_ttl_ms]).to eq(5)
   end
 
+  # The hash given to Otto.new also configures the rest of Otto and may hold
+  # an application's own options. A bare name there is not read as MCP's.
+  describe 'the bare spelling in the hash given to Otto.new' do
+    Otto::MCP::Options::EXTENDED_ALIASES.each_key do |option|
+      it "is not read for #{option}, whatever its value" do
+        expect(norm({ option => Object.new }, :constructor)).to eq(norm({}))
+      end
+    end
+
+    it 'leaves an application free to keep such options of its own' do
+      otto = Otto.new(nil, mcp_enabled: true, mcp_allow_unauthenticated: true, mcp_rate_limiting: false,
+        instructions: 123, hosted: 'eu-west', allowed_origins: :any)
+
+      expect(otto.mcp_server).not_to be_hosted
+      expect(otto.mcp_server.protocol.settings.instructions).to be_nil
+      expect(otto.option).to include(instructions: 123, hosted: 'eu-west')
+    end
+
+    it 'still refuses an unknown mcp_ spelling' do
+      expect { norm({ mcp_hostd: true }, :constructor) }.to raise_error(ArgumentError, /Unknown MCP option\(s\): :mcp_hostd/)
+    end
+  end
+
   it 'refuses two spellings of one option that disagree' do
     expect { norm(cache_ttl_ms: 1, mcp_cache_ttl_ms: 2) }.to raise_error(ArgumentError, /Conflicting MCP options for cache_ttl_ms/)
   end
 
-  it 'is idempotent for a full hosted configuration' do
+  it 'is idempotent under the scope enable! applies, for a full hosted configuration' do
     once = norm(hosted.merge(scopes_supported: %w[a], allowed_origins: ['https://App.example.com'],
                              request_state_secret: 's' * 32, server_info: { name: 'N', version: '1' },
                              instructions: 'Use it well.', cache_ttl_ms: 1000))
 
-    %i[explicit constructor].each { |scope| expect(norm(once, scope)).to eq(once) }
+    expect(norm(once, :explicit)).to eq(once)
+  end
+
+  it 'reaches enable! intact from the mcp_ spellings given to Otto.new' do
+    prefixed = hosted.merge(cache_ttl_ms: 1000).transform_keys { |key| :"mcp_#{key}" }
+
+    expect(norm(norm(prefixed, :constructor), :explicit)).to eq(norm(hosted.merge(cache_ttl_ms: 1000)))
   end
 
   describe 'http_endpoint' do

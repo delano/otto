@@ -97,10 +97,32 @@ RSpec.describe Otto::MCP::Auth::BearerAuth do
       end
     end
 
-    it 'lets a verifier failure propagate' do
-      auth = described_class.new(->(_token, _env) { raise IOError, 'token store down' }, resource_uri: resource_uri)
+    # An authenticator works with the token, and its exceptions can quote it.
+    it 'raises in place of a verifier failure, with its class and backtrace and without its message' do
+      verifier = ->(token, _env) { raise IOError, "token store down while checking #{token}" }
+      auth     = described_class.new(verifier, resource_uri: resource_uri)
 
-      expect { auth.authenticate(env_with('Bearer good-token')) }.to raise_error(IOError)
+      expect { auth.authenticate(env_with('Bearer good-token')) }.to raise_error(Otto::MCP::AuthenticatorError) { |error|
+        expect(error.message).to eq('MCP authenticator raised IOError')
+        expect(error.full_message(highlight: false, order: :top).lines.first).not_to include('good-token')
+        expect(error.cause).to be_a(IOError)
+        expect(error.backtrace.first).to include('bearer_auth_spec.rb')
+      }
+    end
+
+    it 'treats a header with bytes that are invalid in its encoding as malformed' do
+      header = (+"Bearer good\xFFtoken").force_encoding(Encoding::UTF_8)
+
+      expect(auth.authenticate(env_with(header))).to be_nil
+      expect(auth.challenge(env_with(header))).to include('error="invalid_token"')
+      expect(seen).to be_empty
+    end
+
+    it 'hands the verifier a UTF-8 token whatever encoding the server tagged the header with' do
+      auth.authenticate(env_with('Bearer good-token'.b))
+
+      expect(seen.first.first).to eq('good-token')
+      expect(seen.first.first.encoding).to eq(Encoding::UTF_8)
     end
   end
 

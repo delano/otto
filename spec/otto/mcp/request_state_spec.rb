@@ -49,18 +49,25 @@ RSpec.describe Otto::MCP::RequestState do
     expect { codec.open(other, binding: binding, now: now) }.to raise_error(Otto::MCP::InvalidRequestStateError)
   end
 
-  it 'refuses a state with any byte changed' do
-    decode  = ->(text) { text.tr('-_', '+/').unpack1('m') }
+  # This includes the last character, whose spare bits decode to the same
+  # bytes: one state has one spelling.
+  it 'refuses a state with any character changed' do
     encoded = sealed.delete_prefix('v1.')
 
     encoded.length.times do |index|
       tampered        = encoded.dup
       tampered[index] = encoded[index] == 'A' ? 'B' : 'A'
-      # The last character can carry bits that are not part of any byte.
-      next if decode.call(tampered) == decode.call(encoded)
 
       expect { codec.open("v1.#{tampered}", binding: binding, now: now) }
         .to raise_error(Otto::MCP::InvalidRequestStateError), "character #{index} was accepted"
+    end
+  end
+
+  it 'refuses a state with padding or standard Base64 characters added' do
+    encoded = sealed.delete_prefix('v1.')
+
+    ["#{encoded}=", "#{encoded}==", encoded.tr('-_', '+/')].reject { |variant| variant == encoded }.each do |variant|
+      expect { codec.open("v1.#{variant}", binding: binding, now: now) }.to raise_error(Otto::MCP::InvalidRequestStateError)
     end
   end
 

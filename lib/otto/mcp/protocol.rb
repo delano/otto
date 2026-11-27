@@ -8,6 +8,7 @@ require 'securerandom'
 require_relative 'auth/bearer'
 require_relative 'call'
 require_relative 'errors'
+require_relative 'json_body'
 require_relative 'registry'
 require_relative 'settings'
 
@@ -62,8 +63,9 @@ class Otto
 
       VERSION_HEADER = 'HTTP_MCP_PROTOCOL_VERSION'
       META_VERSION   = 'io.modelcontextprotocol/protocolVersion'
-      AUTH_ENV_KEY   = 'otto.mcp.auth'
-      CALL_ENV_KEY   = 'otto.mcp.call'
+      AUTH_ENV_KEY    = 'otto.mcp.auth'
+      VOUCHER_ENV_KEY = 'otto.mcp.auth.voucher'
+      CALL_ENV_KEY    = 'otto.mcp.call'
 
       attr_reader :registry, :settings
 
@@ -80,9 +82,11 @@ class Otto
       end
 
       def handle_request(env)
-        # Only this endpoint's own authenticator names the caller. Without
-        # one, a value left in env by an outer application is discarded.
-        env.delete(AUTH_ENV_KEY) unless @settings.auth
+        # Only this endpoint's own authenticator names the caller. A context
+        # that it did not vouch for on this request is discarded, whether an
+        # outer application left it in env or the request reached this
+        # handler without passing the authentication middleware.
+        env.delete(AUTH_ENV_KEY) unless @settings.auth && env[VOUCHER_ENV_KEY].equal?(@settings.auth)
 
         request = @otto.request_class.new(env)
 
@@ -91,8 +95,7 @@ class Otto
         end
 
         begin
-          body = request.body.read
-          data = JSON.parse(body)
+          data = JSONBody.parse(request.body.read)
         rescue JSON::ParserError
           return error_response(nil, -32_700, 'Parse error', 'Invalid JSON')
         end
@@ -161,21 +164,30 @@ class Otto
       private
 
       # An endpoint that serves one era sends everything to it. One that
-      # serves both goes by what the request declares.
+      # serves both goes by what the request declares. A version in _meta is
+      # something only a 2026-07-28 request has, so it decides, and that
+      # handler then holds the header to it. Without one, the header decides.
       def modern_request?(data, env)
         return false unless @settings.modern?
         return true unless @settings.legacy?
 
-        declared   = env[VERSION_HEADER]
-        declared ||= data.dig('params', '_meta', META_VERSION) if data.is_a?(Hash) && data['params'].is_a?(Hash) &&
-                                                                  data['params']['_meta'].is_a?(Hash)
-        !declared.nil? && !@settings.legacy_versions.include?(declared)
+        params = data['params'] if data.is_a?(Hash)
+        meta   = params['_meta'] if params.is_a?(Hash)
+        return true if meta.is_a?(Hash) && meta.key?(META_VERSION)
+
+        header = env[VERSION_HEADER]
+        !header.nil? && !@settings.legacy_versions.include?(header)
       end
 
       def handle_legacy_request(data, env)
         unless valid_jsonrpc_request?(data)
           id = data['id'] if data.is_a?(Hash)
           return error_response(id, -32_600, 'Invalid Request', 'Missing jsonrpc, method, or id fields')
+        end
+
+        # The method handlers read params as an object.
+        unless data['params'].nil? || data['params'].is_a?(Hash)
+          return error_response(data['id'], -32_602, 'Invalid params', 'params must be an object')
         end
 
         case data['method']
@@ -298,16 +310,15 @@ class Otto
         error        = { code: code, message: message }
         error[:data] = data if data
 
-        body = JSON.generate({
-                               jsonrpc: '2.0',
-          id: id,
-          error: error,
-                             })
+        response = { jsonrpc: '2.0', id: id, error: error }
+        # 2026-07-28 has no null id. An endpoint that serves only that
+        # revision leaves the member out when the id could not be read.
+        response.delete(:id) if id.nil? && !@settings.legacy?
 
         # Map JSON-RPC error codes to HTTP status codes (see ERROR_STATUS_MAP).
         http_status = ERROR_STATUS_MAP[code] || (SERVER_ERROR_RANGE.cover?(code) ? 500 : 400)
 
-        [http_status, { 'content-type' => 'application/json' }, [body]]
+        [http_status, { 'content-type' => 'application/json' }, [JSON.generate(response)]]
       end
     end
   end

@@ -4,6 +4,7 @@
 
 require 'uri'
 
+require_relative '../errors'
 require_relative 'context'
 
 class Otto
@@ -57,8 +58,11 @@ class Otto
       # not name that URI is rejected, so a token issued for another service
       # cannot be used here even if the verifier accepts it.
       #
-      # A verifier that raises is not rescued: an outage in the token store
-      # is a server error, never a 401 and never a success.
+      # A verifier that raises is a server error, never a 401 and never a
+      # success: an outage in the token store must not look like either. The
+      # exception that reaches Otto's error handling is an
+      # {Otto::MCP::AuthenticatorError} with the original's class and
+      # backtrace and without its message, which could quote the token.
       class BearerAuth
         # A token longer than this is rejected before the verifier sees it.
         MAX_TOKEN_BYTES = 4096
@@ -87,11 +91,12 @@ class Otto
         # @return [Otto::MCP::Auth::Context, nil]
         # @raise [TypeError] if the verifier returns anything but a Context,
         #   nil or false
+        # @raise [Otto::MCP::AuthenticatorError] if the verifier raises
         def authenticate(env)
           token = self.class.token(env)
           return nil unless token
 
-          context = @verifier.call(token, env)
+          context = verify(token, env)
           return nil unless context
 
           unless context.is_a?(Context)
@@ -127,15 +132,25 @@ class Otto
           header = env['HTTP_AUTHORIZATION']
           return nil unless header.is_a?(String) && header.bytesize <= MAX_TOKEN_BYTES + 16
 
-          token = header[CREDENTIALS, 1]
-          token if token && token.bytesize <= MAX_TOKEN_BYTES
+          # Matched as bytes: a header with bytes that are not valid in its
+          # tagged encoding is malformed, not an error.
+          token = header.b[CREDENTIALS, 1]
+          token.force_encoding(Encoding::UTF_8) if token && token.bytesize <= MAX_TOKEN_BYTES
         end
 
         # @param env [Hash] Rack env
         # @return [Boolean] true when the request sent a Bearer credential,
         #   valid or not
         def self.presented?(env)
-          env['HTTP_AUTHORIZATION'].to_s.match?(/\ABearer(\s|\z)/i)
+          env['HTTP_AUTHORIZATION'].to_s.b.match?(/\ABearer(\s|\z)/i)
+        end
+
+        private
+
+        def verify(token, env)
+          @verifier.call(token, env)
+        rescue StandardError => e
+          raise AuthenticatorError, e
         end
       end
     end

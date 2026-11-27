@@ -6,6 +6,7 @@ require 'json'
 
 require_relative '../optional_dependency'
 require_relative 'endpoint'
+require_relative 'json_body'
 
 class Otto
   module MCP
@@ -90,17 +91,17 @@ class Otto
         if request.post? && request.content_type&.include?('application/json')
           begin
             body = request.body.read
-            data = JSON.parse(body)
+            data = JSONBody.parse(body)
             @validator.validate_request(data)
 
             # Reset body for downstream middleware
             request.body.rewind if request.body.respond_to?(:rewind)
           rescue JSON::ParserError => e
-            return validation_error_response(nil, "Invalid JSON: #{e.message}")
+            return validation_error_response(env, nil, "Invalid JSON: #{e.message}")
           rescue ValidationError => e
             # A body that is valid JSON but not an object (a batch, a string)
             # has no id to echo.
-            return validation_error_response((data['id'] if data.is_a?(Hash)), e.message)
+            return validation_error_response(env, (data['id'] if data.is_a?(Hash)), e.message)
           end
         end
 
@@ -116,18 +117,14 @@ class Otto
         Otto::MCP.endpoint_path?(env['PATH_INFO'], endpoint)
       end
 
-      def validation_error_response(id, message)
-        body = JSON.generate({
-                               jsonrpc: '2.0',
-          id: id,
-          error: {
-            code: -32_600,
-            message: 'Invalid Request',
-            data: message,
-          },
-                             })
+      # An endpoint that serves only revisions in which an id is never null
+      # says so in env, and an error for a request whose id could not be read
+      # then has no id member.
+      def validation_error_response(env, id, message)
+        response = { jsonrpc: '2.0', id: id, error: { code: -32_600, message: 'Invalid Request', data: message } }
+        response.delete(:id) if id.nil? && env['otto.mcp.omit_null_id']
 
-        [400, { 'content-type' => 'application/json' }, [body]]
+        [400, { 'content-type' => 'application/json' }, [JSON.generate(response)]]
       end
     end
   end

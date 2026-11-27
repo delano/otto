@@ -57,6 +57,13 @@ class Otto
     # only when it was supplied, so the canonical hash for options that
     # predate them is unchanged. {Otto::MCP::OptionRules} validates their
     # values and the combinations they allow.
+    #
+    # The +:constructor+ scope reads those options from their +mcp_+
+    # spellings only. An application may keep options of its own in the hash
+    # it gives Otto.new, and a bare +instructions:+ or +hosted:+ there is not
+    # necessarily meant for MCP. So normalization of a hash that has them is
+    # idempotent under +:explicit+, which is the scope
+    # {Otto::MCP::Server#enable!} applies to the canonical hash.
     module Options
       # Canonical MCP option keys and every accepted alias.
       # @api private
@@ -91,6 +98,13 @@ class Otto
       # @api private
       ALL_ALIASES = OPTION_ALIASES.merge(EXTENDED_ALIASES).freeze
 
+      # The spellings read from the hash given to Otto.new: every spelling of
+      # the options in {OPTION_ALIASES}, and the +mcp_+ spelling of the rest.
+      # @api private
+      CONSTRUCTOR_ALIASES = OPTION_ALIASES.merge(
+        EXTENDED_ALIASES.transform_values { |names| names.select { |name| name.start_with?('mcp_') }.freeze }
+      ).freeze
+
       # Characters that make Otto route a path as a pattern: a +:name+
       # segment and the +*+ splat.
       # @api private
@@ -121,7 +135,7 @@ class Otto
       # Every key {.normalize} recognizes, per scope.
       # @api private
       RECOGNIZED_KEYS = {
-        constructor: (ALL_ALIASES.values.flatten + GATING_KEYS).freeze,
+        constructor: (CONSTRUCTOR_ALIASES.values.flatten + GATING_KEYS).freeze,
            explicit: ALL_ALIASES.values.flatten.freeze,
       }.freeze
 
@@ -149,7 +163,7 @@ class Otto
         reject_unrecognized_keys!(opts, scope)
 
         canonical = OPTION_DEFAULTS.dup
-        ALL_ALIASES.each do |key, key_aliases|
+        (scope == :constructor ? CONSTRUCTOR_ALIASES : ALL_ALIASES).each do |key, key_aliases|
           supplied = key_aliases.select { |a| opts.key?(a) }
           next if supplied.empty?
 

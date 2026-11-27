@@ -6,6 +6,7 @@ require 'json'
 
 require_relative '../security/rate_limiting'
 require_relative 'endpoint'
+require_relative 'json_body'
 
 class Otto
   module MCP
@@ -153,8 +154,10 @@ class Otto
           if Otto::MCP.endpoint_path?(request.path_info, endpoint) && request.post?
             begin
               body = request.body.read
-              data = JSON.parse(body)
-              request.ip if data['method'] == 'tools/call'
+              data = JSONBody.parse(body)
+              # A batch or a bare value has no method. It is refused further
+              # in, so it is not counted as a tool call here.
+              request.ip if data.is_a?(Hash) && data['method'] == 'tools/call'
             rescue JSON::ParserError
               nil
             ensure

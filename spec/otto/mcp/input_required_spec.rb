@@ -19,6 +19,22 @@ RSpec.describe Otto::MCP::InputRequired do
     expect(required.required_capabilities).to eq('elicitation' => { 'url' => {} })
   end
 
+  it 'accepts a state up to MAX_STATE_BYTES of JSON, which still fits when sealed' do
+    largest = { 'k' => 'a' * (described_class::MAX_STATE_BYTES - 8) }
+    codec   = Otto::MCP::RequestState.new('s' * 32)
+
+    required = described_class.url('handoff', **arguments, state: largest)
+    sealed   = codec.seal(required.state, binding: 'b', ttl: 60)
+
+    expect(JSON.generate(largest).bytesize).to eq(described_class::MAX_STATE_BYTES)
+    expect(codec.open(sealed, binding: 'b')).to eq(largest)
+  end
+
+  it 'refuses a larger state when the request is built, not when the client retries' do
+    expect { described_class.url('handoff', **arguments, state: { 'k' => 'a' * described_class::MAX_STATE_BYTES }) }
+      .to raise_error(ArgumentError, /state must be at most 8192 bytes of JSON/)
+  end
+
   it 'has an empty state when none is given' do
     expect(described_class.url('handoff', **arguments).state).to eq({})
   end

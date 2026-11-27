@@ -56,7 +56,7 @@ class Otto
         cipher.auth_data = binding
         ciphertext       = cipher.update(JSON.generate({ 'e' => now.to_i + ttl, 'd' => data })) + cipher.final
 
-        PREFIX + [iv + cipher.auth_tag + ciphertext].pack('m0').tr('+/', '-_').delete('=')
+        PREFIX + encode(iv + cipher.auth_tag + ciphertext)
       end
 
       # @param sealed [String] the +requestState+ a client sent back
@@ -73,6 +73,9 @@ class Otto
 
         raw = encoded.tr('-_', '+/').unpack1('m')
         raise InvalidRequestStateError, 'malformed' if raw.bytesize <= IV_BYTES + TAG_BYTES
+        # One state has one spelling: stray bits in the last character are
+        # refused even though they decode to the same bytes.
+        raise InvalidRequestStateError, 'malformed' unless encode(raw) == encoded
 
         payload = JSON.parse(decrypt(raw, binding))
         raise InvalidRequestStateError, 'expired' unless payload['e'].is_a?(Integer) && payload['e'] > now.to_i
@@ -90,6 +93,10 @@ class Otto
         hook           = @on_first_seal
         @on_first_seal = nil
         hook&.call
+      end
+
+      def encode(bytes)
+        [bytes].pack('m0').tr('+/', '-_').delete('=')
       end
 
       def well_formed?(sealed)

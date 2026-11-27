@@ -54,6 +54,11 @@ RSpec.describe Otto::MCP::OriginGuard do
     expect(request(origin: 'https://rebound.example', host: 'rebound.example').first).to eq(403)
   end
 
+  it 'answers 403 to an origin with bytes that are invalid in its encoding' do
+    expect(request(origin: (+"https://app.example.com\xFF").force_encoding(Encoding::UTF_8)).first).to eq(403)
+    expect(request(origin: "https://app.example.com\xFF".b).first).to eq(403)
+  end
+
   it 'does not echo the origin it refuses' do
     expect(request(origin: 'https://evil.example')[2].first).not_to include('evil.example')
   end

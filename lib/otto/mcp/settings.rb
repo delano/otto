@@ -7,7 +7,7 @@ class Otto
     # What the protocol handler needs to know about how its endpoint was
     # enabled. Built once by {Otto::MCP::Server#enable!} and never changed.
     Settings = Data.define(:protocol_versions, :hosted, :auth, :server_info, :instructions, :cache_ttl_ms,
-      :request_state) do
+      :request_state, :http_endpoint) do
       # @return [Otto::MCP::Settings] an endpoint that speaks 2024-11-05 only
       #   and has no authenticator: what Otto served before these settings
       #   existed
@@ -19,7 +19,8 @@ class Otto
           server_info: { 'name' => 'Otto MCP Server', 'version' => Otto::VERSION }.freeze,
           instructions: nil,
           cache_ttl_ms: 0,
-          request_state: nil
+          request_state: nil,
+          http_endpoint: '/_mcp'
         )
       end
 

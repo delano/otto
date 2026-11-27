@@ -127,6 +127,39 @@ RSpec.describe 'a hosted MCP endpoint' do # rubocop:disable RSpec/DescribeClass 
         .to raise_error(ArgumentError, /must state scopes:/)
     end
 
+    it 'treats a nil output schema or nil scopes as not stated' do
+      expect { otto.register_mcp_tool('t', ->(_a, _e) {}, **definition, output_schema: nil) }
+        .to raise_error(ArgumentError, /must state output_schema:/)
+      expect { otto.register_mcp_tool('t', ->(_a, _e) {}, **definition, scopes: nil) }
+        .to raise_error(ArgumentError, /must state scopes:/)
+      expect { otto.register_mcp_resource('docs/a', -> { 'a' }, description: 'A', scopes: nil) }
+        .to raise_error(ArgumentError, /must state scopes:/)
+    end
+
+    it 'refuses a tool or resource handed straight to the registry without those statements' do
+      registry = otto.mcp_server.protocol.registry
+
+      expect { registry.register_tool('legacy', 'Legacy', {}, 'TestMCPTool.echo') }
+        .to raise_error(ArgumentError, /must be declared with register_mcp_tool/)
+      expect { registry.register_resource('docs/a', 'a', 'A', 'text/plain', -> { 'a' }) }
+        .to raise_error(ArgumentError, /must state scopes:/)
+    end
+
+    # Route lines load into a server that exists but is not enabled yet, for
+    # example with mcp_http: false. Enabling it as hosted afterwards must not
+    # adopt them.
+    it 'refuses to be enabled over tools or resources that were registered first' do
+      routes = create_test_routes_file('early_mcp_routes.txt', [
+                                         'POST /mcp/echo TOOL echo TestMCPTool.echo',
+                                         'GET /mcp/users MCP users TestMCPTool.echo',
+                                       ])
+      app = Otto.new(routes, mcp_enabled: true, mcp_http: false)
+
+      expect { app.enable_mcp!(**hosted_options) }
+        .to raise_error(ArgumentError, /hosted: true must be enabled before any tool or resource is registered\. Already registered: echo, users/)
+      expect(app.mcp_server).not_to be_enabled
+    end
+
     it 'accepts scopes: [] as an explicit statement that any authenticated caller may use the tool' do
       otto.register_mcp_tool('whoami', ->(_a, env) { { subject: env['otto.mcp.auth'].subject } }, **definition)
 
@@ -159,7 +192,8 @@ RSpec.describe 'a hosted MCP endpoint' do # rubocop:disable RSpec/DescribeClass 
 
       expect { app.register_mcp_tool('late', ->(_a, _e) {}, **definition) }.to raise_error(FrozenError)
       expect { app.mcp_server.define_tool('late', ->(_a, _e) {}, **definition) }.to raise_error(FrozenError)
-      expect { app.mcp_server.protocol.registry.register_tool('late', 'Late', {}, ->(_a, _e) {}) }.to raise_error(FrozenError)
+      expect { app.mcp_server.protocol.registry.add_tool(Otto::MCP::Tool.new(name: 'late', handler: ->(_a, _e) {}, **definition)) }
+        .to raise_error(FrozenError)
       expect(modern_call(app, 'tools/list', {}, token: 'token-reader')[0]).to eq(200)
     end
   end
@@ -230,6 +264,21 @@ RSpec.describe 'a hosted MCP endpoint' do # rubocop:disable RSpec/DescribeClass 
       expect(body.to_a.join).not_to include('token store unreachable')
     end
 
+    it 'does not log what a failing authenticator said, which can quote the token' do
+      app = build_hosted(authenticator: ->(token, _env) { raise ArgumentError, "invalid segment in token #{token}" })
+
+      app.call(modern_env('tools/list', {}, token: 'eyJhbGciOi.payload.signature'))
+
+      expect(log.string).to include('MCP authenticator raised ArgumentError')
+      expect(log.string).not_to include('eyJhbGciOi', 'invalid segment')
+    end
+
+    it 'answers 401 to an Authorization header with bytes that are invalid in its encoding' do
+      header = (+"Bearer token-\xFFrequester").force_encoding(Encoding::UTF_8)
+
+      expect(otto.call(modern_env('tools/list', {}, headers: { 'HTTP_AUTHORIZATION' => header })).first).to eq(401)
+    end
+
     it 'refuses to serve a request the authentication middleware did not vouch for' do
       env = modern_env('tools/list', {}, token: 'token-requester')
       env['otto.mcp.auth'] = nil
@@ -237,6 +286,25 @@ RSpec.describe 'a hosted MCP endpoint' do # rubocop:disable RSpec/DescribeClass 
 
       expect(status).to eq(401)
       expect(headers['www-authenticate']).to include('resource_metadata=')
+    end
+
+    # The handler takes the caller only from its own authenticator. A context
+    # that reaches it another way is not one: put in env by an outer layer,
+    # or vouched for by the authenticator of another endpoint.
+    it 'does not accept a context that its own authenticator did not produce on this request' do
+      forged   = Otto::MCP::Auth::Context.new(subject: 'cust_forged', scopes: 'handoff:write handoff:read', audience: resource_uri)
+      protocol = otto.mcp_server.protocol
+
+      unvouched = modern_env('tools/call', arrange_params, capabilities: url_capable)
+      unvouched['otto.mcp.auth'] = forged
+      expect(protocol.handle_request(unvouched).first).to eq(401)
+
+      other_endpoint = modern_env('tools/call', arrange_params, capabilities: url_capable)
+      other_endpoint['otto.mcp.auth']         = forged
+      other_endpoint['otto.mcp.auth.voucher'] = build_hosted.mcp_server.protocol.settings.auth
+      expect(protocol.handle_request(other_endpoint).first).to eq(401)
+
+      expect(handler_calls).to be_empty
     end
   end
 
@@ -423,6 +491,22 @@ RSpec.describe 'a hosted MCP endpoint' do # rubocop:disable RSpec/DescribeClass 
       status, = modern_call(other, 'tools/call', retry_params(state), token: 'token-requester', id: 2)
 
       expect(status).to eq(200)
+    end
+
+    # Two endpoints can share a secret, a caller, a tool name and arguments.
+    it 'refuses the state at another endpoint that has the same secret' do
+      state = first_call[2].dig('result', 'requestState')
+
+      elsewhere = build_hosted(http_endpoint: '/other')
+      status, = modern_call(elsewhere, 'tools/call', retry_params(state), token: 'token-requester', id: 2, path: '/other')
+      expect(status).to eq(400)
+
+      other_resource = 'https://mcp.example.com/second'
+      known          = tokens
+      second         = build_hosted(resource_uri: other_resource,
+        authenticator: ->(token, _env) { (found = known[token]) && Otto::MCP::Auth::Context.new(audience: other_resource, **found) })
+      status, = modern_call(second, 'tools/call', retry_params(state), token: 'token-requester', id: 2)
+      expect(status).to eq(400)
     end
 
     # "Servers MUST NOT send an inputRequests that the client has not

@@ -64,6 +64,18 @@ class Otto
       end
     end
 
+    # Raised in place of whatever an authenticator raised. An authenticator
+    # works with the token, and its exceptions can quote it, so Otto's error
+    # handling is given this instead: the class of the original, its
+    # backtrace, and no message of its. The original is the +cause+.
+    class AuthenticatorError < StandardError
+      # @param original [StandardError]
+      def initialize(original)
+        super("MCP authenticator raised #{original.class}")
+        set_backtrace(original.backtrace)
+      end
+    end
+
     # Raised when a tool answers with an input request the endpoint cannot
     # deliver safely, such as a URL elicitation with no verified caller to
     # bind it to.

@@ -106,5 +106,41 @@ RSpec.describe Otto::MCP::Registration do
 
       expect(registry.list_tools.map { |tool| tool[:name] }).to eq(%w[declared echo])
     end
+
+    # The router logs and drops most errors from an MCP or TOOL line. A line
+    # that would replace a declared tool, and so drop its schemas and scopes,
+    # stops the boot instead.
+    it 'stop the boot when a TOOL line names a declared tool' do
+      routes = create_test_routes_file('clashing_mcp_tool_routes.txt', ['POST /mcp/echo TOOL declared TestMCPTool.echo'])
+      otto.register_mcp_tool('declared', ->(_a, _e) { 'd' }, **definition)
+
+      expect { otto.load(routes) }.to raise_error(Otto::RouteDefinitionError, 'MCP tool declared is declared and cannot be replaced')
+      expect(registry.call_tool('declared', {}, {})).to eq(content: [{ type: 'text', text: 'd' }])
+    end
+  end
+
+  describe 'replacing a resource' do
+    let(:otto) do
+      create_minimal_otto.tap do |app|
+        app.enable_mcp!(enable_rate_limiting: false, authenticator: ->(_token, _env) {})
+      end
+    end
+
+    before { otto.register_mcp_resource('docs/private', -> { 'closed' }, description: 'Private', scopes: %w[read]) }
+
+    it 'is refused by register_mcp_resource, with or without scopes' do
+      expect { otto.register_mcp_resource('docs/private', -> { 'open' }, description: 'Private') }
+        .to raise_error(ArgumentError, 'MCP resource docs/private is already registered')
+      expect { otto.register_mcp_resource('docs/private', -> { 'open' }, description: 'Private', scopes: %w[read]) }
+        .to raise_error(ArgumentError, 'MCP resource docs/private is already registered')
+    end
+
+    it 'stops the boot when an MCP line names a resource that requires scopes' do
+      routes = create_test_routes_file('clashing_mcp_resource_routes.txt', ['GET /mcp/x MCP docs/private TestMCPTool.echo'])
+
+      expect { otto.load(routes) }
+        .to raise_error(Otto::RouteDefinitionError, 'MCP resource docs/private requires scopes and cannot be replaced')
+      expect { registry.read_resource('docs/private') }.to raise_error(Otto::MCP::InsufficientScopeError)
+    end
   end
 end

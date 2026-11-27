@@ -258,6 +258,19 @@ RSpec.describe Otto::MCP, 'rate limiting features' do
         expect(throttle.block.call(tools_call_request('/admin'))).to be_nil
       end
 
+      # Rack::Attack runs this block outside Otto. A body that is JSON but
+      # not an object used to raise out of it, past every error handler.
+      it 'does not raise for a body that is valid JSON but not an object' do
+        Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/a')
+        throttle = Rack::Attack.throttles['mcp_tool_calls:/a']
+
+        ['[{"method":"tools/call"}]', '7', '"tools/call"', 'null', "{\"id\":\"\xFF\"}", '{"x":1e400}'].each do |payload|
+          env = Rack::MockRequest.env_for('/a', method: 'POST', input: payload, 'CONTENT_TYPE' => 'application/json')
+
+          expect(throttle.block.call(Rack::Attack::Request.new(env))).to be_nil
+        end
+      end
+
       it 'does not claim every route when the endpoint is the root' do
         Otto::MCP::RateLimiter.configure_rack_attack!(mcp_http_endpoint: '/')
         throttle = Rack::Attack.throttles['mcp_requests:/']

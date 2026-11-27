@@ -38,6 +38,7 @@ class Otto
         UNSUPPORTED_VERSION   = -32_022
         NAMED_METHODS         = { 'tools/call' => 'name', 'resources/read' => 'uri' }.freeze
         ENCODED_HEADER        = %r{\A=\?base64\?([A-Za-z0-9+/]*={0,2})\?=\z}
+        PRINTABLE             = /\A[\x20-\x7E]{1,32}\z/
         HTTP_STATUS           = { -32_601 => 404, -32_603 => 500 }.freeze
         MAX_ECHOED_NAME_CHARS = 128
 
@@ -62,10 +63,11 @@ class Otto
         # @param env [Hash] Rack env
         # @return [Array] Rack response
         def call(data, env)
-          @id = nil
+          # An id that can be read is returned even when the rest of the
+          # request is refused.
+          @id = data['id'] if data.is_a?(Hash) && (data['id'].is_a?(String) || data['id'].is_a?(Integer))
           halt!(-32_600, 'Invalid Request', 'A request is a JSON object with jsonrpc, method and id') unless request?(data)
 
-          @id    = data['id']
           params = data.fetch('params', {})
           halt!(-32_602, 'Invalid params', 'params must be an object') unless params.is_a?(Hash)
 
@@ -85,19 +87,24 @@ class Otto
         end
 
         # Checks the version and method the request declares, in its headers
-        # and in its body, and returns the request's _meta.
+        # and in its body, and returns the request's _meta. The version the
+        # header names is settled first: a client that asks for a revision
+        # this endpoint does not serve is told which ones it does, whatever
+        # else its request lacks.
         def check_metadata!(method, params, env)
           meta    = params['_meta'].is_a?(Hash) ? params['_meta'] : {}
           version = env[Protocol::VERSION_HEADER]
           mismatch!("MCP-Protocol-Version header is required. Supported versions: #{supported.join(', ')}") if version.nil?
+          unsupported!(version) unless supported.include?(version)
           mismatch!('Mcp-Method header does not match the request method') unless env['HTTP_MCP_METHOD'] == method
 
           declared = meta[Protocol::META_VERSION]
           halt!(-32_602, 'Invalid params', "Missing _meta #{Protocol::META_VERSION}") unless declared.is_a?(String)
           mismatch!('MCP-Protocol-Version header does not match the version in _meta') unless declared == version
 
-          served = @settings.modern_versions.include?(version)
-          halt!(UNSUPPORTED_VERSION, 'Unsupported protocol version', { supported: supported, requested: version[0, 32] }) unless served
+          # Header and _meta agree on a revision this endpoint serves, but
+          # one that has no such metadata: only 2024-11-05 can get here.
+          unsupported!(version) unless @settings.modern_versions.include?(version)
 
           halt!(-32_602, 'Invalid params', "Missing _meta #{META_CAPABILITIES}") unless meta[META_CAPABILITIES].is_a?(Hash)
 
@@ -105,18 +112,32 @@ class Otto
           meta
         end
 
+        # The version is the client's own header. It is repeated back only
+        # when it is short printable ASCII, which every real version is.
+        def unsupported!(version)
+          requested = version.b.match?(PRINTABLE) ? version.b.force_encoding(Encoding::UTF_8) : 'unrecognized'
+          halt!(UNSUPPORTED_VERSION, 'Unsupported protocol version', { supported: supported, requested: requested })
+        end
+
         # The Mcp-Name header repeats the tool name or resource URI. A value
         # that is not plain ASCII arrives Base64-encoded between =?base64?
         # and ?=. A missing body value is left for the method to report.
+        # Header bytes are compared as bytes, whatever encoding the server
+        # tagged them with.
         def check_name_header!(expected, env)
           return unless expected.is_a?(String)
 
           header = env['HTTP_MCP_NAME']
           mismatch!('Mcp-Name header is required for this method') if header.nil?
+          mismatch!('Mcp-Name header does not match the request body') unless decoded_header(header.b) == expected.b
+        end
 
-          encoded = header[ENCODED_HEADER, 1]
-          actual  = encoded ? encoded.unpack1('m') : header
-          mismatch!('Mcp-Name header does not match the request body') unless actual.b == expected.b
+        # Base64 is decoded strictly, so one name has one encoding.
+        def decoded_header(value)
+          encoded = value[ENCODED_HEADER, 1]
+          encoded ? encoded.unpack1('m0') : value
+        rescue ArgumentError
+          nil
         end
 
         def dispatch(method, params, meta, env)
@@ -219,13 +240,15 @@ class Otto
           halt!(-32_602, 'Invalid params', 'requestState was not issued for this request')
         end
 
-        # Ties a requestState to who is calling and what they are calling.
-        # Without a verified caller there is nothing to tie it to.
+        # Ties a requestState to who is calling, which endpoint they are
+        # calling, and what they are calling there. Without a verified caller
+        # there is nothing to tie it to.
         def binding_for(env, method, name, arguments)
           auth = @protocol.caller_in(env)
           return nil unless auth
 
-          JSON.generate([auth.principal_key, method, name, Digest::SHA256.hexdigest(JSON.generate(canonical(arguments)))])
+          digest = Digest::SHA256.hexdigest(JSON.generate(canonical(arguments)))
+          JSON.generate([auth.principal_key, @settings.auth&.resource_uri, @settings.http_endpoint, method, name, digest])
         end
 
         def canonical(value)

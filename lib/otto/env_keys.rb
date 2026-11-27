@@ -358,5 +358,20 @@ class Otto
     # NOTE: auth and state are verified by Otto. The other members are what
     #   the client sent.
     MCP_CALL = 'otto.mcp.call'
+
+    # The authenticator object that produced MCP_AUTH on this request
+    # Type: Otto::MCP::Auth::BearerAuth
+    # Set by: Otto::MCP::Auth::TokenMiddleware, with MCP_AUTH
+    # Used by: Otto::MCP::Protocol, which discards an MCP_AUTH that its own
+    #   authenticator did not produce
+    MCP_AUTH_VOUCHER = 'otto.mcp.auth.voucher'
+
+    # Set to true on a request to an endpoint that serves no MCP revision
+    # with a null id
+    # Type: true (absent otherwise)
+    # Set by: Otto::MCP::Server#enable!
+    # Used by: SchemaValidationMiddleware, to leave id out of an error for a
+    #   request whose id it could not read
+    MCP_OMIT_NULL_ID = 'otto.mcp.omit_null_id'
   end
 end

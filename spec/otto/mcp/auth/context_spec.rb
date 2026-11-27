@@ -89,6 +89,20 @@ RSpec.describe Otto::MCP::Auth::Context do
     end
   end
 
+  describe 'issuer' do
+    it 'is absent unless the authenticator gives one' do
+      expect(context.issuer).to be_nil
+      expect(context.with(issuer: 'https://auth.example.com').issuer).to eq('https://auth.example.com')
+    end
+
+    it 'tells apart the same subject at two authorization servers' do
+      first  = context.with(issuer: 'https://auth-one.example.com')
+      second = context.with(issuer: 'https://auth-two.example.com')
+
+      expect([context, first, second].map(&:principal_key).uniq.size).to eq(3)
+    end
+  end
+
   describe '#inspect' do
     it 'leaves the claims out' do
       expect(context.inspect).to include('cust_1', 'client_a', 'org_9', 'handoff:read')

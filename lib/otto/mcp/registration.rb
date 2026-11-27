@@ -68,6 +68,7 @@ class Otto
 
         handler ||= block
         raise ArgumentError, "MCP resource #{uri} handler must respond to #call" unless handler.respond_to?(:call)
+        raise ArgumentError, "MCP resource #{uri} is already registered" if @protocol.registry.resource?(uri)
 
         scopes = Tool.normalize_scopes(definition[:scopes] || [], "MCP resource #{uri}")
         require_authenticator_for!("resource #{uri}", scopes)
@@ -94,8 +95,9 @@ class Otto
         raise ArgumentError, "MCP #{label} cannot be registered before the endpoint is enabled. Call enable_mcp! first."
       end
 
+      # A keyword given as nil states nothing, so it counts as missing.
       def require_hosted_keywords!(label, definition, keywords)
-        missing = keywords.reject { |keyword| definition.key?(keyword) }
+        missing = keywords.select { |keyword| definition[keyword].nil? }
         return if !hosted? || missing.empty?
 
         raise ArgumentError,
@@ -147,13 +149,15 @@ class Otto
         end
 
         # Register with protocol registry
-        @protocol.registry.register_resource(
-          uri,
-          extract_name_from_uri(uri),
-          "Resource: #{uri}",
-          'text/plain',
-          handler
-        )
+        registering_route_line do
+          @protocol.registry.register_resource(
+            uri,
+            extract_name_from_uri(uri),
+            "Resource: #{uri}",
+            'text/plain',
+            handler
+          )
+        end
 
         Otto.logger.debug "[MCP] Registered resource: #{uri} -> #{handler_def}" if Otto.debug
       end
@@ -176,14 +180,25 @@ class Otto
         }
 
         # Register with protocol registry
-        @protocol.registry.register_tool(
-          name,
-          "Tool: #{name}",
-          input_schema,
-          "#{klass_name}.#{method_name}"
-        )
+        registering_route_line do
+          @protocol.registry.register_tool(
+            name,
+            "Tool: #{name}",
+            input_schema,
+            "#{klass_name}.#{method_name}"
+          )
+        end
 
         Otto.logger.debug "[MCP] Registered tool: #{name} -> #{handler_def}" if Otto.debug
+      end
+
+      # The registry refuses a route line that would replace a declared tool
+      # or a resource with scopes. That has to stop the boot: the router logs
+      # and drops any error from an MCP or TOOL line except this one.
+      def registering_route_line
+        yield
+      rescue ArgumentError => e
+        raise Otto::RouteDefinitionError, e.message
       end
 
       def extract_name_from_uri(uri)

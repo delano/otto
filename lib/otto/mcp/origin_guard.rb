@@ -27,7 +27,7 @@ class Otto
       # @param origin [String]
       # @return [String] the origin in the form it is compared in
       def self.normalize(origin)
-        origin.to_s.strip.downcase
+        origin.to_s.scrub.strip.downcase
       end
 
       # @param app [#call]

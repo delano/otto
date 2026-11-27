@@ -2,6 +2,7 @@
 #
 # frozen_string_literal: true
 
+require 'json'
 require 'uri'
 
 class Otto
@@ -78,7 +79,8 @@ class Otto
       # @param message [String] tells the person why the page is needed
       # @param state [Hash, nil] JSON values returned to the handler as
       #   {Call#state} on the retry. Otto encrypts it and binds it to the
-      #   caller and the call.
+      #   caller and the call. At most MAX_STATE_BYTES of JSON: keep the
+      #   record in your own store and put its identifier here.
       # @param ttl [Integer] seconds the state stays valid
       # @return [Otto::MCP::InputRequired]
       # @raise [ArgumentError] for an invalid key, URL, message, state or ttl
@@ -87,6 +89,9 @@ class Otto
         raise ArgumentError, 'MCP input request message must be a non-blank String' unless text?(message)
         raise ArgumentError, 'MCP input request url must be an absolute http or https URL' unless http_url?(url)
         raise ArgumentError, 'MCP input request state must be a Hash or nil' unless state.nil? || state.is_a?(Hash)
+
+        fits = state.nil? || JSON.generate(state).bytesize <= self::MAX_STATE_BYTES
+        raise ArgumentError, "MCP input request state must be at most #{self::MAX_STATE_BYTES} bytes of JSON" unless fits
 
         in_range = ttl.is_a?(Integer) && ttl.between?(1, self::MAX_TTL)
         raise ArgumentError, "MCP input request ttl must be 1 to #{self::MAX_TTL} seconds" unless in_range
@@ -123,5 +128,9 @@ class Otto
 
     # Longest +ttl:+ accepted.
     InputRequired::MAX_TTL = 86_400
+
+    # Largest +state:+ accepted, as JSON. A sealed state of this size is
+    # within what {Otto::MCP::RequestState} accepts back.
+    InputRequired::MAX_STATE_BYTES = 8192
   end
 end

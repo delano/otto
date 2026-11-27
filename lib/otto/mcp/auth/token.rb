@@ -70,6 +70,12 @@ class Otto
       class TokenMiddleware
         AUTH_ENV_KEY = 'otto.mcp.auth'
 
+        # The authenticator object that produced the context. The protocol
+        # handler uses a context only when this is its own authenticator, so
+        # a context cannot arrive from another application or from a request
+        # that did not pass through this middleware.
+        VOUCHER_ENV_KEY = 'otto.mcp.auth.voucher'
+
         def initialize(app, security_config = nil)
           @app             = app
           @security_config = security_config
@@ -80,6 +86,7 @@ class Otto
           return @app.call(env) unless mcp_endpoint?(env)
 
           env.delete(AUTH_ENV_KEY)
+          env.delete(VOUCHER_ENV_KEY)
 
           # Fail closed: this middleware is only mounted when MCP auth was
           # requested, so a missing authenticator is a misconfiguration, not a
@@ -88,7 +95,10 @@ class Otto
           outcome = auth&.authenticate(env)
           return unauthorized_response(env, auth) unless outcome
 
-          env[AUTH_ENV_KEY] = outcome if outcome.is_a?(Otto::MCP::Auth::Context)
+          if outcome.is_a?(Otto::MCP::Auth::Context)
+            env[AUTH_ENV_KEY]    = outcome
+            env[VOUCHER_ENV_KEY] = auth
+          end
 
           @app.call(env)
         end

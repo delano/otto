@@ -79,8 +79,10 @@ run otto
 ```
 
 The endpoint is `POST /_mcp` unless `mcp_endpoint:` (or `http_endpoint:`) sets
-another slash-prefixed path. `mcp_enabled?` returns `true` after MCP has been
-enabled.
+another slash-prefixed path. The path must be literal. A `:name` segment or a
+`*`, which Otto would route as a pattern, raises `ArgumentError`: the MCP
+guards compare the path exactly, so they would not apply to the requests such
+a pattern matched. `mcp_enabled?` returns `true` after MCP has been enabled.
 
 For multi-step boot configuration, construct Otto without a routes file, call
 `enable_mcp!`, then load the routes file:
@@ -215,9 +217,15 @@ String that names a class method, such as `'AppMCP.create_user'`. It receives
 
 A tool name is 1 to 128 letters, digits, underscores, hyphens and dots, and a
 name can be registered once. A definition that Otto cannot enforce raises
-`ArgumentError` at registration: an invalid JSON Schema, a `$ref` to a network
-address, or an `x-mcp-header` annotation. Otto does not fetch remote schemas
-and does not implement the `Mcp-Param-*` request headers.
+`ArgumentError` at registration: an invalid JSON Schema, a `$ref` that does
+not resolve inside the schema, a `$ref` to a network address, or an
+`x-mcp-header` annotation. Otto does not fetch remote schemas and does not
+implement the `Mcp-Param-*` request headers.
+
+A declared tool cannot be replaced, and neither can a resource that requires
+scopes. A `TOOL` or `MCP` route line that names one raises
+`Otto::RouteDefinitionError` and stops the boot, so a later registration
+cannot drop the schemas or scopes of an earlier one.
 
 On every call to a declared tool:
 
@@ -266,7 +274,7 @@ end
 
 It accepts `name:` (default: the last segment of the URI), `mime_type:`
 (default: `text/plain`) and `scopes:`. The handler takes no argument or the
-Rack `env`.
+Rack `env`. A URI can be registered this way once.
 
 ## Call the endpoint
 
@@ -275,7 +283,9 @@ This section shows requests under `2024-11-05`. For `2026-07-28`, see
 
 Every request must be a JSON-RPC 2.0 `POST` with
 `Content-Type: application/json`. A request needs `jsonrpc`, `id`, and
-`method`; `params`, when present, must be an object.
+`method`; `params`, when present, must be an object. The body must be UTF-8,
+and a number in it must be finite: `1e400`, which Ruby's JSON parser reads as
+`Infinity`, is refused as invalid JSON.
 
 Pass a configured token in either header. `Authorization` is checked first.
 
@@ -378,6 +388,7 @@ verifier = lambda do |token, _env|
     tenant: verified['org'],
     scopes: verified['scope'],       # 'a b', or an Array
     audience: verified['aud'],       # every resource the token was issued for
+    issuer: verified['iss'],         # needed when more than one server issues tokens
   )
 end
 
@@ -392,12 +403,23 @@ How Otto treats the request and the authenticator's answer:
   scheme, is malformed, or has a token longer than 4096 bytes is refused
   without calling the authenticator.
 - A returned `Context` is stored in `env['otto.mcp.auth']`. Any value already
-  under that key is removed first, so nothing outside the authenticator can
-  supply the caller. An endpoint with no authenticator discards the key.
+  under that key is removed first. The protocol handler uses a context only
+  when its own authenticator produced it on this request, so a context cannot
+  arrive from an outer application, from another endpoint, or on a request
+  that did not pass the authentication middleware. An endpoint with no
+  authenticator discards the key.
 - A return value other than a `Context`, `nil` or `false` raises `TypeError`.
-  An exception from the authenticator is not rescued. Both are answered with
-  `500`: an outage in the token store is never reported as a refusal or as a
-  success.
+  When the authenticator raises, Otto raises `Otto::MCP::AuthenticatorError`
+  in its place. Both are answered with `500`: an outage in the token store is
+  never reported as a refusal or as a success.
+- `Otto::MCP::AuthenticatorError` has the class and backtrace of the original
+  exception and not its message. An authenticator works with the token, and
+  its exceptions can quote it, so the message is kept out of the log. The
+  original is the error's `cause`. Register an error handler for
+  `Otto::MCP::AuthenticatorError` to map such failures to another status.
+- `issuer:` is optional. Give it when the endpoint accepts tokens from more
+  than one authorization server: two servers can issue the same `subject`,
+  and the issuer is part of what Otto binds a `requestState` to.
 - A refused request gets `401` and a `WWW-Authenticate: Bearer` challenge. The
   challenge has `error="invalid_token"` when the request sent a Bearer
   credential, names `scopes_supported` when that option is set, and names the
@@ -475,13 +497,18 @@ What Otto does for a request under this revision:
 - **Methods.** `server/discover`, `tools/list`, `tools/call`, `resources/list`
   and `resources/read`. Any other method, including `initialize`, gets `404`
   and `-32601`.
-- **Metadata.** A request without the `MCP-Protocol-Version` header, with an
+- **Metadata.** A request without the `MCP-Protocol-Version` header gets
+  `400` and `-32020`. A header that names a version the endpoint does not
+  serve gets `400` and `-32022`, with the versions it does serve in
+  `data.supported`, whatever else the request lacks. After that, an
   `Mcp-Method` or `Mcp-Name` header that is missing or differs from the body,
-  or whose header version differs from the version in `_meta`, gets `400` and
-  `-32020`. A request whose `_meta` lacks the version or the client
-  capabilities gets `400` and `-32602`. A version the endpoint does not serve
-  gets `400` and `-32022`, with the versions it does serve in
-  `data.supported`.
+  or a header version that differs from the version in `_meta`, gets `400`
+  and `-32020`, and a `_meta` that lacks the version or the client
+  capabilities gets `400` and `-32602`. `Mcp-Name` is compared as bytes, and
+  its Base64 form must be the canonical encoding.
+- **Ids.** An error for a request whose `id` could be read returns it. An
+  endpoint that serves only `2026-07-28` leaves `id` out of an error for a
+  request whose `id` could not be read, since that revision has no null id.
 - **Results.** Every result has `resultType` and names the server in
   `_meta`. Set the name and version with `server_info:`. `server/discover`
   also returns `instructions:` when that option is set.
@@ -497,10 +524,12 @@ What Otto does for a request under this revision:
 - **Origin.** A request with an `Origin` header gets `403` unless the origin
   is listed in `allowed_origins:`. See below.
 
-On an endpoint that serves both revisions, a request that declares a version
-other than `2024-11-05`, in the `MCP-Protocol-Version` header or in `_meta`,
-is served under `2026-07-28`. A request that declares nothing, which is how a
-`2024-11-05` client sends every request, is served under `2024-11-05`.
+On an endpoint that serves both revisions, a request whose `_meta` states a
+protocol version is served under `2026-07-28`, and its headers must agree
+with it. Without that, the `MCP-Protocol-Version` header decides: any version
+other than `2024-11-05` selects `2026-07-28`. A request that declares
+nothing, which is how a `2024-11-05` client sends every request, is served
+under `2024-11-05`.
 
 ### Origin validation
 
@@ -523,6 +552,11 @@ The check runs on every request to an endpoint that serves `2026-07-28`,
 whichever revision the request uses. An endpoint that serves only `2024-11-05`
 runs it when `allowed_origins:` is set and otherwise checks no origin, as
 before.
+
+`allowed_origins:` decides which origins are refused. It does not make the
+endpoint usable from a browser page by itself: Otto's MCP endpoint sends no
+CORS response headers and does not answer preflight `OPTIONS` requests. Add
+those in the application if a browser client needs them.
 
 ### Not implemented
 
@@ -561,6 +595,10 @@ otto.enable_mcp!(
 | Every tool states `output_schema:` and `scopes:` | Nothing a tool returns is unchecked, and no tool is open to every caller by omission. `scopes: []` states that any authenticated caller may use the tool. |
 | Every resource states `scopes:` | As for tools. |
 | No `MCP` or `TOOL` route lines | A route line has no place for schemas or scopes. Loading one raises `Otto::RouteDefinitionError`. Use `register_mcp_tool` and `register_mcp_resource`. |
+| Enabled before anything is registered | `enable_mcp!(hosted: true)` raises if a tool or resource is already registered, for example from a routes file loaded with `mcp_http: false`. |
+
+`output_schema: nil` and `scopes: nil` count as not stated. The registry of a
+hosted endpoint applies the same rules to anything handed to it directly.
 
 ### Tokens issued for this endpoint
 
@@ -685,10 +723,12 @@ What Otto does with an input request:
   example does.
 - **It seals the state.** Otto encrypts `state:` with AES-256-GCM and sends it
   as `requestState`. The client returns it unchanged on the retry. Otto opens
-  it only for the same subject, client ID and tenant, calling the same tool
-  with the same arguments, within `ttl:` seconds (default 900, at most
-  86400). Otherwise the retry gets `400` and `-32602`, and the handler does
-  not run.
+  it only for the same issuer, subject, client ID and tenant, calling the
+  same tool with the same arguments at the same endpoint path and resource
+  URI, within `ttl:` seconds (default 900, at most 86400). Otherwise the
+  retry gets `400` and `-32602`, and the handler does not run.
+- **It limits the state's size.** `state:` is at most 8192 bytes of JSON.
+  Keep the record in your own store and put its identifier in the state.
 - **It does not make the state single-use.** A state can be presented again
   until it expires. The specification says: "Servers for which a given
   `requestState` must be consumed at most once (e.g., one-time redemptions)
@@ -698,7 +738,12 @@ What Otto does with an input request:
 Set `request_state_secret:` to a stable value of at least 32 bytes when the
 application runs as more than one process. Without it, each process generates
 its own key and refuses states the others issued. Otto logs a warning the
-first time a process issues a state under a generated key.
+first time a process issues a state under a generated key. Give each endpoint
+its own secret: two endpoints with the same secret, endpoint path and
+resource URI are one endpoint as far as a state is concerned.
+
+Only a tool can ask for input. A resource handler that returns an input
+request fails the read with a JSON-RPC internal error.
 
 `call.retry?` is the way to tell a retry from a first call. `inputResponses`
 alone proves nothing, because any client can send it. And the specification
@@ -731,13 +776,18 @@ A tool that returns an input request there produces a result with
 
 ## Configuration reference
 
-Both enablement forms accept the canonical option names below and the listed
-`mcp_` aliases. Keys may be Symbols or Strings. Providing two spellings of one
-option with different values raises `ArgumentError`.
+`enable_mcp!` accepts the canonical option names below and the listed `mcp_`
+aliases. `Otto.new` accepts both for the options down to
+`allow_unauthenticated`, and only the `mcp_` spelling for the options from
+`protocol_versions` down: the hash given to `Otto.new` also configures the
+rest of Otto and may contain an application's own options, so a bare
+`hosted:` or `instructions:` there is not read as MCP's. Keys may be Symbols
+or Strings. Providing two spellings of one option with different values
+raises `ArgumentError`.
 
 | Option | Alias | Default | Effect |
 | --- | --- | --- | --- |
-| `http_endpoint` | `mcp_endpoint` | `'/_mcp'` | Slash-prefixed endpoint path. |
+| `http_endpoint` | `mcp_endpoint` | `'/_mcp'` | Slash-prefixed literal endpoint path, without `:name` segments or `*`. |
 | `auth_tokens` | `mcp_auth_tokens` | `[]` | String or array of bearer tokens. |
 | `enable_validation` | `mcp_validation` | `true` | Validates the JSON-RPC request envelope. |
 | `enable_rate_limiting` | `mcp_rate_limiting` | `true` | Enables MCP rate-limit configuration. |
@@ -825,8 +875,10 @@ Responses that are the same under both revisions:
 | Missing or invalid token, with an authenticator | `401`, `401` (`Unauthorized`), and a `WWW-Authenticate` challenge |
 | Caller lacks a scope the tool or resource requires | `403`, `403` (`Forbidden`), and an `insufficient_scope` challenge |
 | `Origin` not allowed | `403`, `403` (`Forbidden`) |
-| Invalid JSON, request envelope, HTTP method, or content type | `400`, `-32700` or `-32600` |
+| Invalid JSON, a body that is not UTF-8 or has a number that is not finite, an invalid request envelope, HTTP method, or content type | `400`, `-32700` or `-32600` |
 | Invalid method parameters | `400`, `-32602` |
+| `params` that is not an object | `400`, `-32600` with `enable_validation`, otherwise `-32602` |
+| The authenticator raises | `500`, from Otto's error handling, as `Otto::MCP::AuthenticatorError` |
 | Invalid arguments for a declared tool, or `Otto::MCP::ToolError` | `200`, a tool result with `isError: true` |
 | Resource or tool handler raises, or a result fails its output schema | `500`, `-32603`; details are logged, not returned to the client |
 | MCP rate limit exceeded | `429`, `-32000` unless general Otto rate limiting overrides the response body |

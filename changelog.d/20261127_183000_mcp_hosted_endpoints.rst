@@ -19,10 +19,13 @@ Added
   takes an object that responds to ``call(token, env)``. Otto reads the token
   from ``Authorization: Bearer`` and from no other header or query parameter,
   and the authenticator returns an ``Otto::MCP::Auth::Context`` (subject,
-  client ID, tenant, scopes, audience) for a token it accepts. The context is
-  stored in ``env['otto.mcp.auth']``. A refused request gets ``401`` with a
-  ``WWW-Authenticate: Bearer`` challenge. ``authenticator:`` and
-  ``auth_tokens:`` cannot be combined.
+  client ID, tenant, scopes, audience and optionally issuer) for a token it
+  accepts. The context is stored in ``env['otto.mcp.auth']``. A refused
+  request gets ``401`` with a ``WWW-Authenticate: Bearer`` challenge.
+  ``authenticator:`` and ``auth_tokens:`` cannot be combined. When the
+  authenticator raises, Otto raises ``Otto::MCP::AuthenticatorError`` in its
+  place, with the original's class and backtrace and without its message,
+  which could quote the token.
 
 - ``scopes:`` on a declared tool or resource lists the OAuth scopes a caller
   needs. ``tools/list`` and ``resources/list`` return only what the caller's
@@ -30,7 +33,9 @@ Added
   again whatever the lists returned. A caller who lacks a scope gets ``403``
   with an ``insufficient_scope`` challenge that names the scopes. Registering
   a tool or resource with scopes on an endpoint that has no authenticator
-  raises ``ArgumentError``.
+  raises ``ArgumentError``. A declared tool, and a resource that requires
+  scopes, cannot be replaced: a ``TOOL`` or ``MCP`` route line that names one
+  raises ``Otto::RouteDefinitionError``.
 
 - The ``protocol_versions:`` MCP option selects the revisions an endpoint
   serves: ``2024-11-05`` (the default, and the only one before this release),
@@ -49,8 +54,9 @@ Added
   person at the MCP client to a page, for input that must not pass through
   the client or the model. Under ``2026-07-28`` Otto answers the call with a
   URL elicitation request and an encrypted ``requestState`` that opens only
-  for the same subject, client and tenant repeating the same call with the
-  same arguments before it expires. The handler reads the verified state, the
+  for the same issuer, subject, client and tenant repeating the same call
+  with the same arguments at the same endpoint before it expires. The
+  handler reads the verified state, the
   caller and the client's declared capabilities from
   ``env['otto.mcp.call']``. Otto sends the request only to a verified caller
   whose client declared URL elicitation. ``request_state_secret:`` sets the
@@ -62,7 +68,14 @@ Added
   and resource from ``register_mcp_tool`` and ``register_mcp_resource`` with
   ``scopes:`` stated and, for tools, ``output_schema:`` stated. ``MCP`` and
   ``TOOL`` route lines raise ``Otto::RouteDefinitionError`` on such an
-  endpoint.
+  endpoint, and enabling it raises if a tool or resource was registered
+  first.
+
+- ``Otto.new`` reads the options added in this release only under their
+  ``mcp_`` spelling (``mcp_hosted:``, ``mcp_authenticator:`` and so on).
+  ``enable_mcp!`` accepts both spellings. A bare ``hosted:`` or
+  ``instructions:`` in the hash given to ``Otto.new`` stays the
+  application's own.
 
 - With ``resource_uri:`` set, Otto refuses a token whose context does not
   list that URI in its audience, and serves the OAuth protected resource
@@ -101,9 +114,11 @@ Security
 --------
 
 - A value under ``env['otto.mcp.auth']`` that the endpoint's own
-  authenticator did not put there is never used. The authentication
-  middleware removes the key before it authenticates, and an endpoint with
-  no authenticator discards it.
+  authenticator did not put there on this request is never used. The
+  authentication middleware removes the key before it authenticates and
+  records which authenticator produced the context, the protocol handler
+  discards a context its own authenticator did not produce, and an endpoint
+  with no authenticator discards the key.
 
 - ``request_state_secret`` (in either spelling) is redacted in
   ``Otto#option`` and in the error raised for two conflicting spellings.

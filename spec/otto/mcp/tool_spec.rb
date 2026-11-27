@@ -161,6 +161,19 @@ RSpec.describe Otto::MCP::Tool do
       end
     end
 
+    {
+      'a $ref to a definition that does not exist' => { '$ref' => '#/$defs/missing' },
+      'a $ref to a relative document' => { '$ref' => 'other.json' },
+      'a $ref to an anchor that does not exist' => { '$ref' => '#nowhere' },
+    }.each do |label, reference|
+      it "refuses #{label}, though no call has reached it yet" do
+        schema = { type: 'object', properties: { deep: { type: 'object', properties: { id: reference } } } }
+
+        expect { tool(input_schema: schema) }.to raise_error(ArgumentError, /input_schema cannot be used/)
+        expect { tool(output_schema: schema) }.to raise_error(ArgumentError, /output_schema cannot be used/)
+      end
+    end
+
     it 'accepts a local $ref' do
       schema = { type: 'object', properties: { id: { '$ref' => '#/$defs/id' } }, '$defs' => { id: { type: 'string' } } }
 

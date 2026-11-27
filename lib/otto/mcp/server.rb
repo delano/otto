@@ -99,6 +99,10 @@ class Otto
         Validator.ensure_available! if options[:enable_validation]
         Otto::Security::RateLimiting.ensure_available! if options[:enable_rate_limiting]
 
+        # Before anything else changes: a hosted endpoint must not inherit a
+        # tool or resource that was registered while nothing was checked.
+        @protocol.registry.require_declarations! if options.fetch(:hosted, false)
+
         @enabled               = true
         @http_endpoint         = options[:http_endpoint]
         @auth_tokens           = Otto::Core::RedactedInspect.secret(options[:auth_tokens])
@@ -249,10 +253,14 @@ class Otto
         # Ensure env carries endpoint for middlewares. Close over a local copy:
         # the proc must keep announcing the endpoint it was registered for even
         # if the ivar is ever reassigned.
-        endpoint = @http_endpoint
+        # An endpoint that serves no revision with a nullable id also tells
+        # the validation middleware, which answers before the protocol does.
+        endpoint     = @http_endpoint
+        omit_null_id = !@protocol.settings.legacy?
         @otto_instance.use proc { |app|
           lambda { |env|
             env['otto.mcp_http_endpoint'] = endpoint
+            env['otto.mcp.omit_null_id']  = true if omit_null_id
             app.call(env)
           }
         }
@@ -314,7 +322,8 @@ class Otto
           server_info: options.fetch(:server_info, defaults.server_info),
           instructions: options[:instructions],
           cache_ttl_ms: options.fetch(:cache_ttl_ms, defaults.cache_ttl_ms),
-          request_state: (build_request_state(options[:request_state_secret]) if versions.intersect?(MODERN_PROTOCOL_VERSIONS))
+          request_state: (build_request_state(options[:request_state_secret]) if versions.intersect?(MODERN_PROTOCOL_VERSIONS)),
+          http_endpoint: @http_endpoint
         )
       end
 

@@ -149,6 +149,14 @@ RSpec.describe Otto::MCP::Protocol::Modern do
     context 'with an unsupported version' do
       let(:mcp_version) { '2027-01-01' }
 
+      # The version is settled before anything else the request lacks.
+      it 'answers with UnsupportedProtocolVersion even when other headers or _meta are missing' do
+        missing = call('tools/list', {}, headers: { 'HTTP_MCP_METHOD' => nil },
+          meta: { 'io.modelcontextprotocol/protocolVersion' => nil, 'io.modelcontextprotocol/clientCapabilities' => nil })
+
+        expect(error_of(missing)).to eq([400, -32_022])
+      end
+
       # "it MUST respond with 400 Bad Request and an
       # UnsupportedProtocolVersionError listing its supported versions."
       it 'answers 400 with the versions it supports and the one requested' do
@@ -160,6 +168,15 @@ RSpec.describe Otto::MCP::Protocol::Modern do
           'message' => 'Unsupported protocol version',
           'data' => { 'supported' => ['2026-07-28'], 'requested' => '2027-01-01' }
         )
+      end
+    end
+
+    it 'does not repeat back a version header that is not short printable ASCII' do
+      [(+"2027\xFF").force_encoding(Encoding::UTF_8), "2027\xFF".b, 'v' * 200, "2027\n01"].each do |odd|
+        status, _headers, body = call('tools/list', {}, headers: { 'HTTP_MCP_PROTOCOL_VERSION' => odd })
+
+        expect(status).to eq(400)
+        expect(body.dig('error', 'data', 'requested')).to eq('unrecognized')
       end
     end
 
@@ -212,6 +229,71 @@ RSpec.describe Otto::MCP::Protocol::Modern do
 
     it 'accepts a String id and returns it' do
       expect(call('tools/list', {}, id: 'req-7')[2]['id']).to eq('req-7')
+    end
+
+    # "Error responses MUST include the same ID as the request they
+    # correspond to (except in error cases where the ID could not be read
+    # due to a malformed request)."
+    context 'with enable_validation: false' do
+      let(:options) { { enable_validation: false } }
+
+      it 'returns an id it could read, though the request is refused for something else' do
+        expect(raw({ jsonrpc: '2.0', id: 'req-9' })).to match([400, include('id' => 'req-9')])
+        expect(raw({ jsonrpc: '1.0', id: 12, method: 'tools/list' })).to match([400, include('id' => 12)])
+      end
+    end
+
+    # 2026-07-28 has no null id, so an id that could not be read is left out.
+    unreadable = ['{not json', '[1]', '7', '{"jsonrpc":"2.0","method":"tools/list"}',
+                  '{"jsonrpc":"2.0","id":null,"method":"tools/list"}']
+
+    [true, false].each do |validation|
+      context "with enable_validation: #{validation}, when the id could not be read" do
+        let(:options) { { enable_validation: validation } }
+
+        unreadable.each do |payload|
+          it "has no id member in the error for #{payload[0, 16]}" do
+            status, body = raw(payload)
+
+            expect(status).to eq(400)
+            expect(body).not_to have_key('id')
+          end
+        end
+      end
+    end
+
+    # Ruby's JSON parser accepts both of these, and each one used to raise
+    # later: when the id was echoed, the arguments digested, or validated.
+    describe 'a body the parser accepts but a response cannot be built from' do
+      before do
+        otto.register_mcp_tool('typed', ->(_a, _e) { 'ok' }, description: 'Typed.',
+          input_schema: { type: 'object', properties: { n: { type: 'integer' } } })
+      end
+
+      validations = [true, false]
+
+      {
+        'a number that overflows to Infinity' => '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"typed","arguments":{"n":1e400}}}',
+        'bytes that are not UTF-8 in the id' => "{\"jsonrpc\":\"2.0\",\"id\":\"a\xFF\",\"method\":\"tools/list\"}",
+        'bytes that are not UTF-8 in a tool name' => "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"a\xFF\"}}",
+      }.each do |label, payload|
+        validations.each do |validation|
+          context "with enable_validation: #{validation}" do
+            let(:options) { { enable_validation: validation } }
+
+            it "answers 400 to #{label}" do
+              env = modern_env('tools/call', { 'name' => 'typed' })
+              env['rack.input'] = StringIO.new(payload.b)
+
+              status, _headers, body = otto.call(env)
+
+              expect(status).to eq(400)
+              expect(JSON.parse(body.to_a.join).dig('error', 'code')).to eq(validation ? -32_600 : -32_700)
+              expect(log.string).not_to include('ERROR')
+            end
+          end
+        end
+      end
     end
   end
 
@@ -376,6 +458,30 @@ RSpec.describe Otto::MCP::Protocol::Modern do
         response = call('tools/call', { 'name' => 'add', 'arguments' => { 'a' => 1, 'b' => 2 } }, headers: { 'HTTP_MCP_NAME' => encoded })
 
         expect(response[0]).to eq(200)
+      end
+
+      it 'is refused in a Base64 spelling other than the canonical one' do
+        # 'add' is YWRk. Unpadded 'ad' (YWQ) plus stray bits is not canonical.
+        ['=?base64?YWRk=?=', '=?base64?YWR?=', '=?base64?YWRl?='].each do |encoded|
+          response = call('tools/call', { 'name' => 'add', 'arguments' => { 'a' => 1, 'b' => 2 } }, headers: { 'HTTP_MCP_NAME' => encoded })
+
+          expect(error_of(response)).to eq([400, -32_020])
+        end
+      end
+
+      it 'is refused, not an error, when it has bytes that are invalid in its encoding' do
+        [(+"add\xFF").force_encoding(Encoding::UTF_8), "add\xFF".b].each do |odd|
+          response = call('tools/call', { 'name' => 'add', 'arguments' => { 'a' => 1, 'b' => 2 } }, headers: { 'HTTP_MCP_NAME' => odd })
+
+          expect(error_of(response)).to eq([400, -32_020])
+        end
+      end
+
+      it 'matches a name that is not ASCII when it arrives encoded' do
+        otto.mcp_server.protocol.registry.register_tool("caf\u00E9", 'Cafe', { type: 'object' }, ->(_a, _e) { 'ok' })
+        encoded = "=?base64?#{["caf\u00E9"].pack('m0')}?="
+
+        expect(call('tools/call', { 'name' => "caf\u00E9" }, headers: { 'HTTP_MCP_NAME' => encoded })[0]).to eq(200)
       end
 
       it 'is refused when its Base64 form decodes to another name' do

@@ -210,6 +210,74 @@ RSpec.describe Otto::MCP::Registry do
     end
   end
 
+  # A later registration under the same name must not be able to drop the
+  # scopes or schemas of an earlier one.
+  describe 'replacing a guarded entry' do
+    it 'refuses to replace a declared tool with an undeclared one' do
+      declare('wipe', scopes: %w[handoff:write])
+
+      expect { registry.register_tool('wipe', 'Wipe', {}, 'TestMCPTool.echo') }
+        .to raise_error(ArgumentError, 'MCP tool wipe is declared and cannot be replaced')
+      expect { registry.call_tool('wipe', {}, env_for(reader)) }.to raise_error(Otto::MCP::InsufficientScopeError)
+    end
+
+    it 'refuses to replace a resource that requires scopes' do
+      registry.register_resource('docs/private', 'private', 'Private', 'text/plain', -> { 'closed' }, scopes: %w[handoff:read])
+
+      expect { registry.register_resource('docs/private', 'private', 'Private', 'text/plain', -> { 'open' }) }
+        .to raise_error(ArgumentError, 'MCP resource docs/private requires scopes and cannot be replaced')
+      expect { registry.read_resource('docs/private', env_for) }.to raise_error(Otto::MCP::InsufficientScopeError)
+    end
+
+    it 'still lets an undeclared tool or an unscoped resource be registered again, as before' do
+      2.times { registry.register_tool('legacy', 'Legacy', {}, 'TestMCPTool.echo') }
+      2.times { |n| registry.register_resource('docs/a', 'a', 'A', 'text/plain', -> { n.to_s }) }
+
+      expect(registry.read_resource('docs/a').dig(:contents, 0, :text)).to eq('1')
+    end
+  end
+
+  describe '#require_declarations!' do
+    it 'refuses to take effect when something is already registered' do
+      registry.register_tool('legacy', 'Legacy', {}, 'TestMCPTool.echo')
+      registry.register_resource('docs/a', 'a', 'A', 'text/plain', -> { 'a' })
+
+      expect { registry.require_declarations! }
+        .to raise_error(ArgumentError, %r{must be enabled before any tool or resource is registered\. Already registered: legacy, docs/a})
+    end
+
+    context 'when in effect' do
+      before { registry.require_declarations! }
+
+      it 'refuses an undeclared tool' do
+        expect { registry.register_tool('legacy', 'Legacy', {}, 'TestMCPTool.echo') }
+          .to raise_error(ArgumentError, /must be declared with register_mcp_tool/)
+      end
+
+      it 'refuses a declared tool with no output schema' do
+        expect { declare('status') }.to raise_error(ArgumentError, /must state output_schema:/)
+        expect { declare('status', output_schema: { type: 'object' }) }.not_to raise_error
+      end
+
+      it 'refuses a resource with no scopes stated' do
+        expect { registry.register_resource('docs/a', 'a', 'A', 'text/plain', -> { 'a' }) }
+          .to raise_error(ArgumentError, /must state scopes:/)
+        expect { registry.register_resource('docs/a', 'a', 'A', 'text/plain', -> { 'a' }, scopes: []) }.not_to raise_error
+      end
+    end
+  end
+
+  describe 'a resource handler that returns an input request' do
+    it 'fails the read without printing the state it was given' do
+      request = Otto::MCP::InputRequired.url('k', url: 'https://example.com/h', message: 'Enter it.', state: { 'internal' => 'value' })
+      registry.register_resource('docs/asks', 'asks', 'Asks', 'text/plain', -> { request })
+
+      expect { registry.read_resource('docs/asks') }.to raise_error(Otto::MCP::InputRequestError) { |error|
+        expect(error.message).not_to include('internal')
+      }
+    end
+  end
+
   describe '#scoped?' do
     it 'is false until a tool or a resource requires a scope' do
       declare('open')
@@ -235,7 +303,7 @@ RSpec.describe Otto::MCP::Registry do
 
     it 'refuses a new or replacement tool or resource' do
       expect { declare('another') }.to raise_error(FrozenError)
-      expect { registry.register_tool('status', 'Replaced', {}, ->(_a, _e) { 'x' }) }.to raise_error(FrozenError)
+      expect { registry.register_tool('another', 'Another', {}, ->(_a, _e) { 'x' }) }.to raise_error(FrozenError)
       expect { registry.register_resource('docs/b', 'b', 'B', 'text/plain', -> { 'b' }) }.to raise_error(FrozenError)
     end
 

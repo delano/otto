@@ -74,6 +74,35 @@ RSpec.describe Otto::MCP::Protocol do
       end
     end
 
+    # The method handlers read params as an object. An array used to raise.
+    [true, false].each do |validation|
+      context "with enable_validation: #{validation}" do
+        let(:options) { { enable_validation: validation } }
+
+        it 'answers 400 to params that are not an object' do
+          methods = %w[tools/call resources/read tools/list]
+          methods.each do |method_name|
+            env = Rack::MockRequest.env_for('/mcp', method: 'POST', 'CONTENT_TYPE' => 'application/json',
+              input: JSON.generate({ jsonrpc: '2.0', id: 1, method: method_name, params: ['echo'] }))
+            status, _headers, body = otto.call(env)
+
+            expect(status).to eq(400)
+            expect(JSON.parse(body.to_a.join).dig('error', 'code')).to eq(validation ? -32_600 : -32_602)
+          end
+        end
+
+        it 'answers 400 to a number that overflows and to bytes that are not UTF-8' do
+          payloads = ['{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo","arguments":{"n":1e400}}}',
+                      "{\"jsonrpc\":\"2.0\",\"id\":\"a\xFF\",\"method\":\"tools/list\"}"]
+          payloads.each do |payload|
+            env = Rack::MockRequest.env_for('/mcp', method: 'POST', input: payload.b, 'CONTENT_TYPE' => 'application/json')
+
+            expect(otto.call(env).first).to eq(400)
+          end
+        end
+      end
+    end
+
     context 'with server_info' do
       let(:options) { { server_info: { name: 'Onetime Secret', version: '0.24.0' } } }
 
@@ -110,6 +139,36 @@ RSpec.describe Otto::MCP::Protocol do
 
       expect(status).to eq(400)
       expect(body.dig('error', 'code')).to eq(-32_020)
+    end
+
+    # "The header value MUST match the io.modelcontextprotocol/protocolVersion
+    # field carried in the request body's _meta." A header that names
+    # 2024-11-05 must not take a request with 2026-07-28 metadata past that
+    # check and the other header checks.
+    it 'holds a request with 2026-07-28 metadata to its headers, whatever version the header names' do
+      ran = false
+      otto.mcp_server.protocol.registry.register_tool('probe', 'Probe', { type: 'object' }, ->(_a, _e) { ran = true })
+
+      status, _headers, body = modern_call(otto, 'tools/call', { 'name' => 'probe' },
+        headers: { 'HTTP_MCP_PROTOCOL_VERSION' => '2024-11-05', 'HTTP_MCP_METHOD' => 'tools/list', 'HTTP_MCP_NAME' => 'other' })
+
+      expect(status).to eq(400)
+      expect(body.dig('error', 'code')).to eq(-32_020)
+      expect(ran).to be(false)
+    end
+
+    it 'refuses 2024-11-05 named in both the header and _meta, which that revision does not have' do
+      status, _headers, body = modern_call(otto, 'tools/list', {}, headers: { 'HTTP_MCP_PROTOCOL_VERSION' => '2024-11-05' },
+        meta: { 'io.modelcontextprotocol/protocolVersion' => '2024-11-05' })
+
+      expect(status).to eq(400)
+      expect(body.dig('error', 'code')).to eq(-32_022)
+    end
+
+    it 'keeps the null id of 2024-11-05 in an error for a request it could not read' do
+      env = Rack::MockRequest.env_for('/mcp', method: 'POST', input: '{not json', 'CONTENT_TYPE' => 'application/json')
+
+      expect(JSON.parse(otto.call(env)[2].to_a.join)).to include('id' => nil)
     end
 
     context 'with a version it does not serve' do

@@ -27,7 +27,7 @@ class Otto
       #     scopes: claims['scope'],
       #     audience: claims['aud'],
       #   )
-      Context = Data.define(:subject, :client_id, :tenant, :scopes, :audience, :claims) do
+      Context = Data.define(:subject, :client_id, :tenant, :scopes, :audience, :claims, :issuer) do
         # @param subject [String] stable identifier of the person or workload
         #   the token was issued for
         # @param client_id [String, nil] the OAuth client the token was issued to
@@ -38,8 +38,11 @@ class Otto
         #   issued for, exactly as the authenticator verified it
         # @param claims [Hash] other verified values for handlers; Otto does
         #   not read them
+        # @param issuer [String, nil] the authorization server that issued
+        #   the token. Give it when the endpoint accepts tokens from more
+        #   than one, since two issuers can use the same subject.
         # @raise [ArgumentError] if subject is not a non-blank String
-        def initialize(subject:, client_id: nil, tenant: nil, scopes: [], audience: [], claims: {})
+        def initialize(subject:, client_id: nil, tenant: nil, scopes: [], audience: [], claims: {}, issuer: nil)
           named = subject.is_a?(String) && !subject.strip.empty?
           raise ArgumentError, "MCP auth context subject must be a non-blank String, got #{subject.class}" unless named
 
@@ -49,7 +52,8 @@ class Otto
             tenant: tenant&.to_s&.freeze,
             scopes: (scopes.is_a?(String) ? scopes.split : scopes.to_a).map { |scope| scope.to_s.freeze }.uniq.freeze,
             audience: Array(audience).map { |entry| entry.to_s.freeze }.freeze,
-            claims: claims.to_h.freeze
+            claims: claims.to_h.freeze,
+            issuer: issuer&.to_s&.freeze
           )
         end
 
@@ -66,18 +70,18 @@ class Otto
         end
 
         # Identifies the caller when Otto binds a +requestState+ to it. JSON
-        # keeps the three members apart whatever characters they contain.
+        # keeps the members apart whatever characters they contain.
         #
         # @return [String]
         def principal_key
-          JSON.generate([subject, client_id, tenant])
+          JSON.generate([issuer, subject, client_id, tenant])
         end
 
         # Leaves out +claims+, which can contain personal data.
         #
         # @return [String]
         def inspect
-          "#<#{self.class.name} subject=#{subject.inspect} client_id=#{client_id.inspect} " \
+          "#<#{self.class.name} issuer=#{issuer.inspect} subject=#{subject.inspect} client_id=#{client_id.inspect} " \
             "tenant=#{tenant.inspect} scopes=#{scopes.inspect} audience=#{audience.inspect}>"
         end
         alias_method :to_s, :inspect

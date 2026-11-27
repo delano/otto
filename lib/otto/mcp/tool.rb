@@ -192,10 +192,26 @@ class Otto
           JSON.parse(JSON.generate(copy), freeze: true)
         end
 
-        # @return [JSONSchemer::Schema] compiled once, at registration
+        # @return [JSONSchemer::Schema] compiled once, at registration, with
+        #   every +$ref+ in it resolved, so a reference to nothing fails the
+        #   registration and not the first call that reaches it
         def self.compile(schema, label)
-          usable(label) { JSONSchemer.schema(schema).tap { |compiled| compiled.validate({}).first } }
+          usable(label) do
+            JSONSchemer.schema(schema).tap do |compiled|
+              references(schema).each { |reference| compiled.ref(reference) }
+              compiled.validate({}).first
+            end
+          end
         end
+
+        def self.references(node)
+          case node
+          when Hash then node.flat_map { |key, value| key == '$ref' && value.is_a?(String) ? [value] : references(value) }
+          when Array then node.flat_map { |value| references(value) }
+          else []
+          end
+        end
+        private_class_method :references
 
         # json_schemer raises its own StandardError subclasses for a dialect
         # or reference it cannot resolve. They become a registration failure.

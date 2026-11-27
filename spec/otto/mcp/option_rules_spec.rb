@@ -44,6 +44,25 @@ RSpec.describe Otto::MCP::OptionRules do
     %i[explicit constructor].each { |scope| expect(norm(once, scope)).to eq(once) }
   end
 
+  describe 'http_endpoint' do
+    # Otto routes ':name' and '*' as patterns, and the MCP guards compare the
+    # path exactly, so a request for /acme/mcp reached an endpoint at
+    # /:tenant/mcp without a token.
+    ['/:tenant/mcp', '/mcp/*', '/*', '/mcp/:id', '/a:b'].each do |pattern|
+      it "refuses #{pattern}, which the router would match as a pattern" do
+        expect { norm(http_endpoint: pattern) }
+          .to raise_error(ArgumentError, /http_endpoint must be a literal path without ':name' segments or '\*'/)
+        expect { norm({ mcp_endpoint: pattern }, :constructor) }.to raise_error(ArgumentError, /literal path/)
+      end
+    end
+
+    ['/_mcp', '/api/v2/mcp', '/mcp.json', '/a-b_c/mcp', '/', '/mcp/'].each do |literal|
+      it "accepts #{literal}" do
+        expect(norm(http_endpoint: literal)[:http_endpoint]).to eq(literal)
+      end
+    end
+  end
+
   describe 'protocol_versions' do
     it 'accepts a String or an Array and orders newest first' do
       expect(norm(protocol_versions: '2026-07-28')[:protocol_versions]).to eq(%w[2026-07-28])

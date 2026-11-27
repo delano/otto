@@ -91,6 +91,11 @@ class Otto
       # @api private
       ALL_ALIASES = OPTION_ALIASES.merge(EXTENDED_ALIASES).freeze
 
+      # Characters that make Otto route a path as a pattern: a +:name+
+      # segment and the +*+ splat.
+      # @api private
+      ROUTE_PATTERN = /\*|:\w/
+
       # @api private
       SCOPES = %i[constructor explicit].freeze
 
@@ -263,6 +268,15 @@ class Otto
           unless value.is_a?(String) && value.start_with?('/')
             raise ArgumentError,
                   "MCP http_endpoint must be a String path starting with '/', got #{value.inspect}"
+          end
+
+          # The router would match such a path as a pattern, while the MCP
+          # authentication, Origin and validation guards compare the path
+          # exactly. A request for /acme/mcp would reach an endpoint at
+          # /:tenant/mcp without passing any of them.
+          if value.match?(ROUTE_PATTERN)
+            raise ArgumentError,
+                  "MCP http_endpoint must be a literal path without ':name' segments or '*', got #{value.inspect}"
           end
 
           value

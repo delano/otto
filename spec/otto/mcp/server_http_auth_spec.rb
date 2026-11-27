@@ -17,8 +17,8 @@ RSpec.describe Otto::MCP::Server do
   # HTTP endpoint authentication, end to end.
   let(:token) { 'super-secret-token' }
 
-  def mcp_request(otto, endpoint: '/_mcp', method_name: 'tools/list', headers: {}, id: 1)
-    body = JSON.generate({ jsonrpc: '2.0', id: id, method: method_name, params: {} })
+  def mcp_request(otto, endpoint: '/_mcp', method_name: 'tools/list', params: {}, headers: {}, id: 1)
+    body = JSON.generate({ jsonrpc: '2.0', id: id, method: method_name, params: params })
     env  = Rack::MockRequest.env_for(
       endpoint,
       method: 'POST',
@@ -239,6 +239,22 @@ RSpec.describe Otto::MCP::Server do
 
       expect(mcp_request(otto, endpoint: '/a').first).to eq(401)
       expect(mcp_request(otto, endpoint: '/a/', headers: { 'HTTP_AUTHORIZATION' => "Bearer #{token}" }).first).to eq(200)
+    end
+  end
+
+  it 'dispatches each mounted endpoint to its own tool registry' do
+    english = constructor_otto(auth_tokens: ['english-token'])
+    french  = explicit_otto(auth_tokens: ['french-token'])
+    schema  = { type: 'object' }
+    english.mcp_server.protocol.registry.register_tool('greet', 'Greeting', schema, ->(_args, _env) { 'Hello' })
+    french.mcp_server.protocol.registry.register_tool('greet', 'Greeting', schema, ->(_args, _env) { 'Bonjour' })
+    app = Rack::URLMap.new('/en' => english, '/fr' => french)
+
+    [['/en', 'english-token', 'Hello'], ['/fr', 'french-token', 'Bonjour']].each do |mount, credential, greeting|
+      status, body = mcp_request(app, endpoint: "#{mount}/_mcp", method_name: 'tools/call',
+                                 params: { name: 'greet' }, headers: { 'HTTP_AUTHORIZATION' => "Bearer #{credential}" })
+      expect(status).to eq(200)
+      expect(body.dig('result', 'content')).to eq([{ 'type' => 'text', 'text' => greeting }])
     end
   end
 

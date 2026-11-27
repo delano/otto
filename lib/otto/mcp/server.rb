@@ -194,8 +194,6 @@ class Otto
       end
 
       def add_mcp_endpoint_route
-        InternalHandler.otto_instance = @otto_instance
-
         mcp_route      = Otto::Route.new('POST', @http_endpoint, 'Otto::MCP::InternalHandler.handle_request')
         mcp_route.otto = @otto_instance
 
@@ -290,18 +288,9 @@ class Otto
 
     # Internal handler class for MCP protocol endpoints
     class InternalHandler
-      @otto_instance = nil
-
-      class << self
-        attr_writer :otto_instance
-      end
-
-      class << self
-        attr_reader :otto_instance
-      end
-
       def self.handle_request(req, res)
-        otto_instance = @otto_instance
+        # The route dispatcher binds its owning Otto to this request's fiber.
+        otto_instance = otto if respond_to?(:otto)
 
         if otto_instance.nil?
           return [500, { 'content-type' => 'application/json' },
